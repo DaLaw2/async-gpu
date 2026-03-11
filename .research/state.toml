@@ -9,17 +9,17 @@ completed_tasks = 15
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
-current_mode = "do"        # think | do | check
-current_step = "do.route"  # Batch complete, decide next
-current_task_id = ""
-last_summary = "Batch of 4 done: hostcall.4 (GPU println works!), toolchain.2 (rust-cuda investigated), async-runtime.1.1 (Embassy compiles for nvptx64!), atomics.2 (stress tests pass, ~5.4us round-trip). gpu-std.1 and async-runtime.2 now unblocked."
+current_mode = "check"     # think | do | check
+current_step = "check.triage" # hostcall.4 needs full review (new protocol/crate)
+current_task_id = "hostcall.4"
+last_summary = "bs4 quick: toolchain + atomics themes COMPLETED. New tasks: async-runtime.1.2 (LTO test), async-runtime.1.3 (critical-section). Next: review hostcall.4 (full — new protocol), then batch gpu-std.1 + async-runtime.1.2 + async-runtime.2."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 3
+brainstorm_seq = 4
 review_seq = 1
 
 # Brainstorm trigger control
-last_brainstorm_at_completed = 10
+last_brainstorm_at_completed = 15
 brainstorm_interval = 3
 
 # ============================================================
@@ -37,7 +37,7 @@ brainstorm_interval = 3
 [[themes]]
 id = "toolchain"
 title = "GPU compilation toolchain selection and validation"
-status = "active"      # active | parked | completed
+status = "completed"   # active | parked | completed
 spawned_by = "initial" # initial | bs{seq}
 goal = "Determine the best Rust-to-GPU compilation path and validate it works"
 success_criteria = [
@@ -96,7 +96,7 @@ success_criteria = [
 [[themes]]
 id = "atomics"
 title = "GPU-CPU memory model and atomics verification"
-status = "active"
+status = "completed"
 spawned_by = "bs1"
 goal = "Verify that Rust atomic operations emit correct PTX scope qualifiers for GPU-CPU communication"
 success_criteria = [
@@ -448,6 +448,43 @@ research_questions = [
     "Feature comparison with VectorWare demo",
 ]
 
+# --- New tasks from bs4 ---
+
+[[tasks]]
+id = "async-runtime.1.2"
+theme = "async-runtime"
+title = "Test LTO cross-crate resolution for Embassy on nvptx64"
+kind = "experiment"
+status = "pending"
+depends_on = ["async-runtime.1.1"]
+spawned_by = "bs4"
+research_questions = [
+    "Does -C lto=fat resolve Executor::spawn and Executor::poll extern calls?",
+    "If not, does vendoring Embassy source into gpu-kernel work?",
+    "What is the minimal fork needed (which functions need #[inline(always)])?",
+]
+
+[[tasks]]
+id = "async-runtime.1.3"
+theme = "async-runtime"
+title = "Implement GPU critical-section provider for Embassy"
+kind = "experiment"
+status = "pending"
+depends_on = ["async-runtime.1.2"]
+spawned_by = "bs4"
+research_questions = [
+    "Can a no-op critical-section work for single-warp executor?",
+    "Does a spin-lock critical-section work for multi-warp?",
+    "What is the register pressure impact?",
+]
+spawned_by = "initial"
+research_questions = [
+    "Does using std APIs inside async fn work correctly?",
+    "Correctness of multiple async tasks issuing hostcalls in parallel?",
+    "End-to-end performance benchmarks",
+    "Feature comparison with VectorWare demo",
+]
+
 # ============================================================
 # Brainstorm Records
 # ============================================================
@@ -482,6 +519,17 @@ new_tasks_spawned = ["atomics.4", "async-runtime.1.1"]
 new_themes_spawned = []
 themes_parked = []
 key_insight = "All confirmed successes are single-thread u32 non-async. Transition to multi-warp u64 async is where real risks lie. u64 atomics + spin-load fix are critical prerequisites. Embassy compilation must be attempted early."
+
+[[brainstorms]]
+seq = 4
+at_cycle = 15
+trigger = "interval"
+level = "quick"
+new_tasks_spawned = ["async-runtime.1.2", "async-runtime.1.3"]
+new_themes_spawned = []
+themes_parked = []
+themes_completed = ["toolchain", "atomics"]
+key_insight = "All 4 batch tasks passed. toolchain + atomics themes COMPLETED (all success criteria met). Embassy compiles for GPU out-of-box. hostcall protocol works first try. Critical path is now async-runtime (LTO/critical-section) and gpu-std (libc shim). Next batch: gpu-std.1 + async-runtime.1.2 + async-runtime.2."
 
 [[reviews]]
 seq = 1

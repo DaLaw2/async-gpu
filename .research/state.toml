@@ -4,22 +4,23 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 21      # Monotonic counter, incremented after each completed phase
-completed_tasks = 21
+total_cycles = 23      # Monotonic counter, incremented after each completed phase
+completed_tasks = 23
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"        # think | do | check
 current_step = "do.route"
 current_task_id = ""
+last_summary = "MILESTONE: async-runtime.3 PASSED — Embassy async/await runs on GPU (ImmediateFuture, CountdownFuture, 2-task concurrent, 56 regs). gpu-std.3 PASSED — File I/O from GPU works (open/write/close/read/verify, 1.33ms round-trip). integration.1 now UNBLOCKED — all prerequisites met."
 last_summary = "Batch done: async-runtime.2.1 (reworked design, Embassy-first, ADR-4 updated), gpu-std.2 (gpu-libc crate created, core+alloc works, -Zbuild-std=std blocked by 5 missing cfg), async-runtime.1.3 (no-op CS works, zero overhead, 31 regs). hostcall theme COMPLETED. 3 themes active: gpu-std, async-runtime, integration."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 5
+brainstorm_seq = 6
 review_seq = 3
 
 # Brainstorm trigger control
-last_brainstorm_at_completed = 18
+last_brainstorm_at_completed = 21
 brainstorm_interval = 3
 
 # ============================================================
@@ -357,7 +358,7 @@ id = "gpu-std.3"
 theme = "gpu-std"
 title = "Experiment: run std::fs::File::create on GPU"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["gpu-std.2"]
 spawned_by = "initial"
 research_questions = [
@@ -422,7 +423,7 @@ id = "async-runtime.3"
 theme = "async-runtime"
 title = "Experiment: minimal async/await execution on GPU"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["async-runtime.2"]
 spawned_by = "initial"
 research_questions = [
@@ -551,6 +552,17 @@ new_themes_spawned = []
 themes_parked = []
 themes_completed = ["hostcall"]
 key_insight = "Fat LTO is the universal cross-crate solution for nvptx64. hostcall theme COMPLETED. async-runtime.2.1 rework is top priority (Embassy-first path). gpu-std.2 (libc shim) is now unblocked. Next batch: async-runtime.2.1 + gpu-std.2 + async-runtime.1.3."
+
+[[brainstorms]]
+seq = 6
+at_cycle = 21
+trigger = "interval"
+level = "quick"
+new_tasks_spawned = []
+new_themes_spawned = []
+themes_parked = []
+themes_completed = []
+key_insight = "All prerequisites met. async-runtime.3 (Embassy on GPU) and gpu-std.3 (File I/O) are the final experiment tasks before integration. Both ready to execute in parallel."
 
 [[reviews]]
 seq = 2

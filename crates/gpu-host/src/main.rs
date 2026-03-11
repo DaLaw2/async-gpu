@@ -14,6 +14,9 @@ use std::sync::atomic::{AtomicU32, Ordering};
 // and then copied to crates/gpu-host/kernel.ptx
 const KERNEL_PTX: &str = include_str!("../kernel.ptx");
 
+// Embassy test PTX — compiled from crates/embassy-test with fat LTO
+const EMBASSY_PTX: &str = include_str!("../embassy_test.ptx");
+
 fn run_write_thread_idx(dev: Arc<CudaDevice>) -> Result<()> {
     const N: usize = 64;
 
@@ -681,6 +684,261 @@ fn run_hostcall_print_multi(dev: Arc<CudaDevice>, num_blocks: u32) -> Result<()>
     Ok(())
 }
 
+// ============================================================
+// Embassy async/await tests (async-runtime.3)
+// ============================================================
+
+/// Test: ImmediateFuture — single spawn + poll, writes 1 on success.
+fn run_embassy_immediate(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Embassy Test 1: ImmediateFuture (spawn + single poll) ---");
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(EMBASSY_PTX);
+    dev.load_ptx(ptx, "embassy", &["embassy_test_kernel"])?;
+
+    let f = dev
+        .get_func("embassy", "embassy_test_kernel")
+        .ok_or(GpuHostError::KernelNotFound("embassy_test_kernel"))?;
+
+    let mut result: CudaSlice<u32> = dev.alloc_zeros::<u32>(1)?;
+    let cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (1, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    unsafe {
+        f.launch(cfg, (&mut result,))?;
+    }
+
+    let host_result = dev.dtoh_sync_copy(&result)?;
+    if host_result[0] != 1 {
+        return Err(GpuHostError::Verification {
+            test: "embassy_test_kernel",
+            detail: format!("expected result=1, got {}", host_result[0]),
+        });
+    }
+
+    println!("  embassy_test_kernel: PASSED (ImmediateFuture polled to Ready, result=1)");
+    Ok(())
+}
+
+/// Test: CountdownFuture — multi-poll async task.
+fn run_embassy_countdown(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Embassy Test 2: CountdownFuture (multi-poll) ---");
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(EMBASSY_PTX);
+    let _ = dev.load_ptx(ptx, "embassy", &["embassy_countdown_kernel"]);
+
+    let f = dev
+        .get_func("embassy", "embassy_countdown_kernel")
+        .ok_or(GpuHostError::KernelNotFound("embassy_countdown_kernel"))?;
+
+    let mut result: CudaSlice<u32> = dev.alloc_zeros::<u32>(2)?;
+    let cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (1, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    unsafe {
+        f.launch(cfg, (&mut result,))?;
+    }
+
+    let host_result = dev.dtoh_sync_copy(&result)?;
+    let poll_rounds = host_result[0];
+    let success = host_result[1];
+
+    println!("  Poll rounds executed: {}", poll_rounds);
+
+    if success != 1 {
+        return Err(GpuHostError::Verification {
+            test: "embassy_countdown_kernel",
+            detail: format!("success marker not set (got {})", success),
+        });
+    }
+
+    println!("  embassy_countdown_kernel: PASSED (CountdownFuture completed after {} poll rounds)", poll_rounds);
+    Ok(())
+}
+
+/// Test: Two concurrent tasks on the same executor.
+fn run_embassy_two_task(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Embassy Test 3: Two concurrent tasks ---");
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(EMBASSY_PTX);
+    let _ = dev.load_ptx(ptx, "embassy", &["embassy_two_task_kernel"]);
+
+    let f = dev
+        .get_func("embassy", "embassy_two_task_kernel")
+        .ok_or(GpuHostError::KernelNotFound("embassy_two_task_kernel"))?;
+
+    let mut result: CudaSlice<u32> = dev.alloc_zeros::<u32>(2)?;
+    let cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (1, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    unsafe {
+        f.launch(cfg, (&mut result,))?;
+    }
+
+    let host_result = dev.dtoh_sync_copy(&result)?;
+    let poll_rounds = host_result[0];
+    let success = host_result[1];
+
+    println!("  Poll rounds executed: {}", poll_rounds);
+
+    if success != 1 {
+        return Err(GpuHostError::Verification {
+            test: "embassy_two_task_kernel",
+            detail: format!("success marker not set (got {})", success),
+        });
+    }
+
+    println!("  embassy_two_task_kernel: PASSED (2 concurrent tasks completed after {} poll rounds)", poll_rounds);
+    Ok(())
+}
+
+/// Test: Synchronous countdown baseline for register pressure comparison.
+fn run_sync_countdown(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Embassy Test 4: Sync countdown baseline ---");
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(EMBASSY_PTX);
+    let _ = dev.load_ptx(ptx, "embassy", &["sync_countdown_kernel"]);
+
+    let f = dev
+        .get_func("embassy", "sync_countdown_kernel")
+        .ok_or(GpuHostError::KernelNotFound("sync_countdown_kernel"))?;
+
+    let mut result: CudaSlice<u32> = dev.alloc_zeros::<u32>(2)?;
+    let cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (1, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    unsafe {
+        f.launch(cfg, (&mut result,))?;
+    }
+
+    let host_result = dev.dtoh_sync_copy(&result)?;
+    let value = host_result[0];
+    let success = host_result[1];
+
+    if value != 42 || success != 1 {
+        return Err(GpuHostError::Verification {
+            test: "sync_countdown_kernel",
+            detail: format!("expected (42, 1), got ({}, {})", value, success),
+        });
+    }
+
+    println!("  sync_countdown_kernel: PASSED (result=42, sync loop completed)");
+    Ok(())
+}
+
+// ============================================================
+// File I/O test (gpu-std.3)
+// ============================================================
+
+/// Allocates an array of u32 values in pinned, device-mapped host memory.
+unsafe fn alloc_mapped_result_array(
+    _dev: &Arc<CudaDevice>,
+    count: usize,
+) -> Result<(*mut u32, sys::CUdeviceptr)> {
+    let cu = cuda_lib();
+    let size = count * std::mem::size_of::<u32>();
+
+    let mut host_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
+    let flags = sys::CU_MEMHOSTALLOC_DEVICEMAP | sys::CU_MEMHOSTALLOC_PORTABLE;
+    let result = cu.cuMemHostAlloc(&mut host_ptr, size, flags);
+    if result != sys::CUresult::CUDA_SUCCESS {
+        return Err(GpuHostError::CudaAlloc(result));
+    }
+
+    let mut dev_ptr: sys::CUdeviceptr = 0;
+    let result = cu.cuMemHostGetDevicePointer_v2(&mut dev_ptr, host_ptr, 0);
+    if result != sys::CUresult::CUDA_SUCCESS {
+        cu.cuMemFreeHost(host_ptr);
+        return Err(GpuHostError::CudaGetDevPtr(result));
+    }
+
+    std::ptr::write_bytes(host_ptr as *mut u8, 0, size);
+    Ok((host_ptr as *mut u32, dev_ptr))
+}
+
+/// File I/O round-trip test: open → write → close → open → read → close → verify.
+fn run_hostcall_file_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Hostcall file I/O test (gpu-std.3) ---");
+
+    use std::sync::Arc as StdArc;
+
+    let hc_buf = hostcall::HostcallBuffer::new(4)?;
+    let dev_ptr = hc_buf.dev_ptr;
+
+    println!("  Hostcall buffer allocated: {} bytes, {} packets",
+             hc_buf.size, hc_buf.num_packets);
+
+    let (result_host_ptr, result_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 4)? };
+
+    let hc_buf_ref = StdArc::new(hc_buf);
+    let hc_buf_listener = StdArc::clone(&hc_buf_ref);
+    let listener_handle = std::thread::spawn(move || {
+        hc_buf_listener.listen(|msg| {
+            let s = String::from_utf8_lossy(msg).to_string();
+            println!("  [HOST] Print from GPU: \"{}\"", s);
+        });
+    });
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "kernel", &["hostcall_file_test"]);
+    let f = dev.get_func("kernel", "hostcall_file_test")
+        .ok_or(GpuHostError::KernelNotFound("hostcall_file_test"))?;
+
+    let cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (32, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    let start = std::time::Instant::now();
+
+    println!("  Launching hostcall_file_test kernel...");
+    unsafe {
+        f.launch(cfg, (dev_ptr as u64, result_dev_ptr as u64))?;
+    }
+
+    dev.synchronize()?;
+    let elapsed = start.elapsed();
+    println!("  Kernel completed in {:?}.", elapsed);
+
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    hc_buf_ref.signal_shutdown();
+    listener_handle.join().unwrap();
+
+    let overall = unsafe { std::ptr::read_volatile(result_host_ptr.add(0)) };
+    let bytes_written = unsafe { std::ptr::read_volatile(result_host_ptr.add(2)) };
+    let bytes_read = unsafe { std::ptr::read_volatile(result_host_ptr.add(3)) };
+
+    unsafe { free_mapped_mem(result_host_ptr)? };
+
+    let file_content = std::fs::read_to_string("gpu_test_output.txt");
+    if let Ok(content) = &file_content {
+        println!("  File on disk: \"{}\"", content.trim_end());
+    }
+    let _ = std::fs::remove_file("gpu_test_output.txt");
+
+    if overall != 1 {
+        return Err(GpuHostError::Verification {
+            test: "hostcall_file_test",
+            detail: format!("overall={}, written={}, read={}", overall, bytes_written, bytes_read),
+        });
+    }
+
+    println!("  hostcall_file_test: PASSED! (wrote {} bytes, read {} bytes, {:?})", bytes_written, bytes_read, elapsed);
+    Ok(())
+}
+
 fn main() -> Result<()> {
     println!("=== GPU Kernel Execution Test ===\n");
 
@@ -697,6 +955,15 @@ fn main() -> Result<()> {
     // Hostcall tests (hostcall.4)
     run_hostcall_print_hello(Arc::clone(&dev))?;
     run_hostcall_print_multi(Arc::clone(&dev), 4)?;
+
+    // Embassy async/await tests (async-runtime.3)
+    run_embassy_immediate(Arc::clone(&dev))?;
+    run_embassy_countdown(Arc::clone(&dev))?;
+    run_embassy_two_task(Arc::clone(&dev))?;
+    run_sync_countdown(Arc::clone(&dev))?;
+
+    // File I/O test (gpu-std.3)
+    run_hostcall_file_test(Arc::clone(&dev))?;
 
     println!("\nAll tests PASSED.");
     Ok(())

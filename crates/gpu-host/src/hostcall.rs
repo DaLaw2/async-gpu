@@ -5,7 +5,10 @@
 
 use cudarc::driver::sys::{self, lib as cuda_lib};
 use gpu_protocol::*;
+use std::collections::HashMap;
 use std::fmt;
+use std::fs::{File, OpenOptions};
+use std::io::{Read, Write};
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
 #[derive(Debug)]
@@ -158,6 +161,10 @@ impl HostcallBuffer {
         let mut idle_spins: u32 = 0;
         const MAX_IDLE_SPINS: u32 = 1_000_000;
 
+        // File descriptor table for FILE I/O services
+        let mut fd_table: HashMap<u64, File> = HashMap::new();
+        let mut next_fd: u64 = 1; // fd 0 is reserved
+
         loop {
             // Check shutdown
             if self.shutdown().load(Ordering::Acquire) != 0 {
@@ -199,30 +206,41 @@ impl HostcallBuffer {
                     let service =
                         std::ptr::read_volatile(pkt.add(PKT_OFF_SERVICE) as *const u32);
 
-                    match service {
+                    let has_error = match service {
                         SERVICE_PRINT => {
                             self.handle_print(pkt, &mut on_print);
+                            false
                         }
                         SERVICE_NOP => {
-                            // No-op, just acknowledge
+                            false
+                        }
+                        SERVICE_OPEN => {
+                            self.handle_open(pkt, &mut fd_table, &mut next_fd)
+                        }
+                        SERVICE_WRITE => {
+                            self.handle_write(pkt, &mut fd_table)
+                        }
+                        SERVICE_READ => {
+                            self.handle_read(pkt, &mut fd_table)
+                        }
+                        SERVICE_CLOSE => {
+                            self.handle_close(pkt, &mut fd_table)
                         }
                         _ => {
                             // Unknown service — set error bit
-                            let control =
-                                &*(pkt.add(PKT_OFF_CONTROL) as *const AtomicU32);
-                            control.store(
-                                CONTROL_READY | CONTROL_ERROR,
-                                Ordering::Release,
-                            );
-                            current = next;
-                            continue;
+                            true
                         }
-                    }
+                    };
 
                     // Signal GPU: response is ready
                     let control =
                         &*(pkt.add(PKT_OFF_CONTROL) as *const AtomicU32);
-                    control.store(CONTROL_READY, Ordering::Release);
+                    let flags = if has_error {
+                        CONTROL_READY | CONTROL_ERROR
+                    } else {
+                        CONTROL_READY
+                    };
+                    control.store(flags, Ordering::Release);
 
                     current = next;
                 }
@@ -251,6 +269,205 @@ impl HostcallBuffer {
         }
 
         on_print(&msg_buf[..msg_len]);
+    }
+
+    // ================================================================
+    // FILE I/O handlers (gpu-std.3)
+    // ================================================================
+
+    /// Handle SERVICE_OPEN: open or create a file.
+    ///
+    /// Request payload (lane 0):
+    ///   Slot 0: low 32 bits = path length, high 32 bits = flags
+    ///   Slots 1-7: path bytes (up to 56 bytes)
+    /// Response payload (lane 0):
+    ///   Slot 0: fd on success, FILE_ERROR_SENTINEL on error
+    ///
+    /// Returns true if the service itself encountered an error (not a file error).
+    unsafe fn handle_open(
+        &self,
+        pkt: *mut u8,
+        fd_table: &mut HashMap<u64, File>,
+        next_fd: &mut u64,
+    ) -> bool {
+        let payload = pkt.add(PKT_OFF_PAYLOAD);
+
+        // Read slot 0: path_len (low 32) + flags (high 32)
+        let slot0 = std::ptr::read_volatile(payload as *const u64);
+        let path_len = (slot0 & 0xFFFF_FFFF) as usize;
+        let flags = (slot0 >> 32) as u32;
+        let path_len = path_len.min(FILE_MAX_PATH_LEN);
+
+        // Read path bytes from slots 1-7
+        let path_ptr = payload.add(8);
+        let mut path_buf = [0u8; FILE_MAX_PATH_LEN];
+        for i in 0..path_len {
+            path_buf[i] = std::ptr::read_volatile(path_ptr.add(i));
+        }
+
+        let path_str = match std::str::from_utf8(&path_buf[..path_len]) {
+            Ok(s) => s,
+            Err(_) => {
+                std::ptr::write_volatile(payload as *mut u64, FILE_ERROR_SENTINEL);
+                return false; // Not a protocol error, just file error
+            }
+        };
+
+        let file_result = match flags {
+            FILE_OPEN_READ => File::open(path_str),
+            FILE_OPEN_WRITE_CREATE => File::create(path_str),
+            FILE_OPEN_APPEND => OpenOptions::new().append(true).create(true).open(path_str),
+            _ => {
+                std::ptr::write_volatile(payload as *mut u64, FILE_ERROR_SENTINEL);
+                return false;
+            }
+        };
+
+        match file_result {
+            Ok(file) => {
+                let fd = *next_fd;
+                *next_fd += 1;
+                fd_table.insert(fd, file);
+                std::ptr::write_volatile(payload as *mut u64, fd);
+                println!("  [HOST] FILE OPEN: \"{}\" flags={} -> fd={}", path_str, flags, fd);
+                false
+            }
+            Err(e) => {
+                eprintln!("  [HOST] FILE OPEN ERROR: \"{}\": {}", path_str, e);
+                std::ptr::write_volatile(payload as *mut u64, FILE_ERROR_SENTINEL);
+                false
+            }
+        }
+    }
+
+    /// Handle SERVICE_WRITE: write data to an open file.
+    ///
+    /// Request payload (lane 0):
+    ///   Slot 0: fd (u64)
+    ///   Slot 1: data length (u64)
+    ///   Slots 2-7: data bytes (up to 48 bytes)
+    /// Response payload (lane 0):
+    ///   Slot 0: bytes written on success, FILE_ERROR_SENTINEL on error
+    unsafe fn handle_write(
+        &self,
+        pkt: *mut u8,
+        fd_table: &mut HashMap<u64, File>,
+    ) -> bool {
+        let payload = pkt.add(PKT_OFF_PAYLOAD);
+
+        let fd = std::ptr::read_volatile(payload as *const u64);
+        let data_len = std::ptr::read_volatile(payload.add(8) as *const u64) as usize;
+        let data_len = data_len.min(FILE_MAX_WRITE_LEN);
+
+        // Read data bytes from slots 2-7
+        let data_ptr = payload.add(16);
+        let mut data_buf = [0u8; FILE_MAX_WRITE_LEN];
+        for i in 0..data_len {
+            data_buf[i] = std::ptr::read_volatile(data_ptr.add(i));
+        }
+
+        let file = match fd_table.get_mut(&fd) {
+            Some(f) => f,
+            None => {
+                eprintln!("  [HOST] FILE WRITE ERROR: invalid fd={}", fd);
+                std::ptr::write_volatile(payload as *mut u64, FILE_ERROR_SENTINEL);
+                return false;
+            }
+        };
+
+        match file.write(&data_buf[..data_len]) {
+            Ok(n) => {
+                // Flush to ensure data is persisted
+                let _ = file.flush();
+                println!("  [HOST] FILE WRITE: fd={} {} bytes written", fd, n);
+                std::ptr::write_volatile(payload as *mut u64, n as u64);
+                false
+            }
+            Err(e) => {
+                eprintln!("  [HOST] FILE WRITE ERROR: fd={}: {}", fd, e);
+                std::ptr::write_volatile(payload as *mut u64, FILE_ERROR_SENTINEL);
+                false
+            }
+        }
+    }
+
+    /// Handle SERVICE_READ: read data from an open file.
+    ///
+    /// Request payload (lane 0):
+    ///   Slot 0: fd (u64)
+    ///   Slot 1: max bytes to read (u64)
+    /// Response payload (lane 0):
+    ///   Slot 0: bytes read on success, FILE_ERROR_SENTINEL on error
+    ///   Slots 1-7: data bytes (up to 56 bytes)
+    unsafe fn handle_read(
+        &self,
+        pkt: *mut u8,
+        fd_table: &mut HashMap<u64, File>,
+    ) -> bool {
+        let payload = pkt.add(PKT_OFF_PAYLOAD);
+
+        let fd = std::ptr::read_volatile(payload as *const u64);
+        let max_len = std::ptr::read_volatile(payload.add(8) as *const u64) as usize;
+        let max_len = max_len.min(FILE_MAX_READ_LEN);
+
+        let file = match fd_table.get_mut(&fd) {
+            Some(f) => f,
+            None => {
+                eprintln!("  [HOST] FILE READ ERROR: invalid fd={}", fd);
+                std::ptr::write_volatile(payload as *mut u64, FILE_ERROR_SENTINEL);
+                return false;
+            }
+        };
+
+        let mut read_buf = [0u8; FILE_MAX_READ_LEN];
+        match file.read(&mut read_buf[..max_len]) {
+            Ok(n) => {
+                println!("  [HOST] FILE READ: fd={} {} bytes read", fd, n);
+                // Write response: slot 0 = bytes read
+                std::ptr::write_volatile(payload as *mut u64, n as u64);
+                // Slots 1-7 = data bytes
+                let dst = payload.add(8);
+                for i in 0..n {
+                    std::ptr::write_volatile(dst.add(i), read_buf[i]);
+                }
+                false
+            }
+            Err(e) => {
+                eprintln!("  [HOST] FILE READ ERROR: fd={}: {}", fd, e);
+                std::ptr::write_volatile(payload as *mut u64, FILE_ERROR_SENTINEL);
+                false
+            }
+        }
+    }
+
+    /// Handle SERVICE_CLOSE: close an open file.
+    ///
+    /// Request payload (lane 0):
+    ///   Slot 0: fd (u64)
+    /// Response payload (lane 0):
+    ///   Slot 0: 0 on success, FILE_ERROR_SENTINEL on error
+    unsafe fn handle_close(
+        &self,
+        pkt: *mut u8,
+        fd_table: &mut HashMap<u64, File>,
+    ) -> bool {
+        let payload = pkt.add(PKT_OFF_PAYLOAD);
+
+        let fd = std::ptr::read_volatile(payload as *const u64);
+
+        match fd_table.remove(&fd) {
+            Some(_file) => {
+                // File is dropped here, which closes it
+                println!("  [HOST] FILE CLOSE: fd={} closed", fd);
+                std::ptr::write_volatile(payload as *mut u64, 0);
+                false
+            }
+            None => {
+                eprintln!("  [HOST] FILE CLOSE ERROR: invalid fd={}", fd);
+                std::ptr::write_volatile(payload as *mut u64, FILE_ERROR_SENTINEL);
+                false
+            }
+        }
     }
 }
 

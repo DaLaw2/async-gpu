@@ -426,3 +426,306 @@ pub unsafe extern "ptx-kernel" fn hostcall_print_multi(
         gpu_atomics::sys_fetch_add_u32(success_count, 1);
     }
 }
+
+// ============================================================
+// File I/O hostcall helpers (gpu-std.3)
+// ============================================================
+
+/// Generic hostcall: allocate packet, set service, fill payload via callback,
+/// push to ready stack, ring doorbell, spin-wait for response.
+/// Returns true on success. On success, the payload contains the host's response.
+#[inline(always)]
+unsafe fn gpu_hostcall_request(
+    buf: *mut u8,
+    service: u32,
+    fill_payload: impl FnOnce(*mut u8),
+) -> (*mut u8, bool) {
+    // Step 1: Pop free packet
+    let pkt_idx = hc_pop_free(buf);
+    if pkt_idx == NULL_INDEX {
+        return (core::ptr::null_mut(), false);
+    }
+
+    let pkt = buf.add(packet_offset(pkt_idx));
+
+    // Step 2: Fill packet header
+    let mask = activemask();
+    core::ptr::write_volatile(pkt.add(PKT_OFF_ACTIVE_MASK) as *mut u32, mask);
+    core::ptr::write_volatile(pkt.add(PKT_OFF_SERVICE) as *mut u32, service);
+    sys_store_release_u32(pkt.add(PKT_OFF_CONTROL) as *mut u32, 0);
+
+    // Step 3: Fill payload
+    fill_payload(pkt.add(PKT_OFF_PAYLOAD));
+
+    // Step 4: membar.sys
+    membar_sys();
+
+    // Step 5: Push to ready stack
+    let ready_ptr = buf.add(BUF_OFF_READY_STACK) as *mut u64;
+    hc_push(ready_ptr, buf, pkt_idx);
+
+    // Step 6: Ring doorbell
+    sys_fetch_add_u64(buf.add(BUF_OFF_DOORBELL) as *mut u64, 1);
+
+    // Step 7: Spin-wait for host response
+    let control_ptr = pkt.add(PKT_OFF_CONTROL) as *const u32;
+    let mut spins: u32 = 0;
+    let success;
+    loop {
+        let ctrl = sys_spin_load_acquire_u32(control_ptr);
+        if ctrl & CONTROL_READY != 0 {
+            success = (ctrl & CONTROL_ERROR) == 0;
+            break;
+        }
+        spins += 1;
+        if spins >= GPU_MAX_SPIN {
+            // Timeout — return packet to free stack
+            let free_ptr = buf.add(BUF_OFF_FREE_STACK) as *mut u64;
+            hc_push(free_ptr, buf, pkt_idx);
+            return (core::ptr::null_mut(), false);
+        }
+    }
+
+    // Do NOT return packet yet — caller needs to read response payload
+    (pkt, success)
+}
+
+/// Return a packet to the free stack after reading response.
+#[inline(always)]
+unsafe fn gpu_hostcall_release(buf: *mut u8, pkt: *mut u8) {
+    // Calculate packet index from pointer offset
+    let offset = (pkt as usize) - (buf as usize) - BUFFER_HEADER_SIZE;
+    let pkt_idx = (offset / PACKET_SIZE) as u16;
+    let free_ptr = buf.add(BUF_OFF_FREE_STACK) as *mut u64;
+    hc_push(free_ptr, buf, pkt_idx);
+}
+
+/// GPU-side hostcall: open a file.
+/// Returns file descriptor on success, FILE_ERROR_SENTINEL on failure.
+#[inline(always)]
+unsafe fn gpu_hostcall_open(buf: *mut u8, path: *const u8, path_len: u32, flags: u32) -> u64 {
+    let (pkt, success) = gpu_hostcall_request(buf, SERVICE_OPEN, |payload| {
+        // Slot 0: low 32 bits = path_len, high 32 bits = flags
+        let slot0_val = (path_len as u64) | ((flags as u64) << 32);
+        core::ptr::write_volatile(payload as *mut u64, slot0_val);
+
+        // Slots 1-7: path bytes
+        let copy_len = if path_len > FILE_MAX_PATH_LEN as u32 {
+            FILE_MAX_PATH_LEN as u32
+        } else {
+            path_len
+        };
+        let dst = payload.add(8);
+        let mut i: u32 = 0;
+        while i < copy_len {
+            core::ptr::write_volatile(dst.add(i as usize), *path.add(i as usize));
+            i += 1;
+        }
+    });
+
+    if pkt.is_null() || !success {
+        if !pkt.is_null() {
+            gpu_hostcall_release(buf, pkt);
+        }
+        return FILE_ERROR_SENTINEL;
+    }
+
+    // Read response: slot 0 = fd
+    let fd = core::ptr::read_volatile(pkt.add(PKT_OFF_PAYLOAD) as *const u64);
+    gpu_hostcall_release(buf, pkt);
+    fd
+}
+
+/// GPU-side hostcall: write data to a file.
+/// Returns bytes written on success, FILE_ERROR_SENTINEL on failure.
+#[inline(always)]
+unsafe fn gpu_hostcall_write(buf: *mut u8, fd: u64, data: *const u8, data_len: u32) -> u64 {
+    let (pkt, success) = gpu_hostcall_request(buf, SERVICE_WRITE, |payload| {
+        // Slot 0: fd
+        core::ptr::write_volatile(payload as *mut u64, fd);
+        // Slot 1: data length
+        core::ptr::write_volatile(payload.add(8) as *mut u64, data_len as u64);
+        // Slots 2-7: data bytes (up to 48 bytes)
+        let copy_len = if data_len > FILE_MAX_WRITE_LEN as u32 {
+            FILE_MAX_WRITE_LEN as u32
+        } else {
+            data_len
+        };
+        let dst = payload.add(16); // skip slots 0 and 1
+        let mut i: u32 = 0;
+        while i < copy_len {
+            core::ptr::write_volatile(dst.add(i as usize), *data.add(i as usize));
+            i += 1;
+        }
+    });
+
+    if pkt.is_null() || !success {
+        if !pkt.is_null() {
+            gpu_hostcall_release(buf, pkt);
+        }
+        return FILE_ERROR_SENTINEL;
+    }
+
+    // Read response: slot 0 = bytes written
+    let written = core::ptr::read_volatile(pkt.add(PKT_OFF_PAYLOAD) as *const u64);
+    gpu_hostcall_release(buf, pkt);
+    written
+}
+
+/// GPU-side hostcall: close a file.
+/// Returns 0 on success, FILE_ERROR_SENTINEL on failure.
+#[inline(always)]
+unsafe fn gpu_hostcall_close(buf: *mut u8, fd: u64) -> u64 {
+    let (pkt, success) = gpu_hostcall_request(buf, SERVICE_CLOSE, |payload| {
+        // Slot 0: fd
+        core::ptr::write_volatile(payload as *mut u64, fd);
+    });
+
+    if pkt.is_null() || !success {
+        if !pkt.is_null() {
+            gpu_hostcall_release(buf, pkt);
+        }
+        return FILE_ERROR_SENTINEL;
+    }
+
+    let result = core::ptr::read_volatile(pkt.add(PKT_OFF_PAYLOAD) as *const u64);
+    gpu_hostcall_release(buf, pkt);
+    result
+}
+
+/// GPU-side hostcall: read data from a file.
+/// Returns bytes read on success (data copied to out_buf), FILE_ERROR_SENTINEL on failure.
+#[inline(always)]
+unsafe fn gpu_hostcall_read(buf: *mut u8, fd: u64, out_buf: *mut u8, max_len: u32) -> u64 {
+    let (pkt, success) = gpu_hostcall_request(buf, SERVICE_READ, |payload| {
+        // Slot 0: fd
+        core::ptr::write_volatile(payload as *mut u64, fd);
+        // Slot 1: max bytes to read
+        core::ptr::write_volatile(payload.add(8) as *mut u64, max_len as u64);
+    });
+
+    if pkt.is_null() || !success {
+        if !pkt.is_null() {
+            gpu_hostcall_release(buf, pkt);
+        }
+        return FILE_ERROR_SENTINEL;
+    }
+
+    // Read response: slot 0 = bytes read, slots 1-7 = data
+    let bytes_read = core::ptr::read_volatile(pkt.add(PKT_OFF_PAYLOAD) as *const u64);
+    if bytes_read != FILE_ERROR_SENTINEL {
+        let src = pkt.add(PKT_OFF_PAYLOAD).add(8); // slots 1-7
+        let copy_len = if bytes_read > max_len as u64 {
+            max_len
+        } else {
+            bytes_read as u32
+        };
+        let mut i: u32 = 0;
+        while i < copy_len {
+            *out_buf.add(i as usize) = core::ptr::read_volatile(src.add(i as usize));
+            i += 1;
+        }
+    }
+    gpu_hostcall_release(buf, pkt);
+    bytes_read
+}
+
+// ============================================================
+// File I/O test kernel (gpu-std.3)
+// ============================================================
+
+/// Hostcall kernel: create a file, write content, close, reopen, read back, verify.
+///
+/// Thread 0 of block 0 performs a full file I/O round-trip:
+/// 1. Open "gpu_test_output.txt" for writing
+/// 2. Write "Hello from GPU file I/O!\n"
+/// 3. Close the file
+/// 4. Open "gpu_test_output.txt" for reading
+/// 5. Read back the content
+/// 6. Close the file
+/// 7. Write result codes to output
+///
+/// `buf` = hostcall buffer, `result` = output array of u32[4]:
+///   [0] = overall success (1) or failure (0)
+///   [1] = open-write fd (or 0xFFFFFFFF on error)
+///   [2] = bytes written (or 0xFFFFFFFF on error)
+///   [3] = bytes read back (or 0xFFFFFFFF on error)
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn hostcall_file_test(buf: *mut u8, result: *mut u32) {
+    let thread_x = nvptx::_thread_idx_x() as u32;
+    let block_x = nvptx::_block_idx_x() as u32;
+    let block_dim_x = nvptx::_block_dim_x() as u32;
+    let global_idx = block_x * block_dim_x + thread_x;
+    if global_idx != 0 {
+        return;
+    }
+
+    // Initialize result to all-fail
+    *result.add(0) = 0;
+    *result.add(1) = 0xFFFF_FFFF;
+    *result.add(2) = 0xFFFF_FFFF;
+    *result.add(3) = 0xFFFF_FFFF;
+
+    // File path
+    let path: &[u8; 20] = b"gpu_test_output.txt\0";
+    let path_len: u32 = 19; // excluding null terminator
+
+    // Message to write
+    let msg: &[u8; 25] = b"Hello from GPU file I/O!\n";
+    let msg_len: u32 = 25;
+
+    // Step 1: Open file for writing (create)
+    let fd = gpu_hostcall_open(buf, path.as_ptr(), path_len, FILE_OPEN_WRITE_CREATE);
+    if fd == FILE_ERROR_SENTINEL {
+        return;
+    }
+    *result.add(1) = fd as u32;
+
+    // Step 2: Write message
+    let written = gpu_hostcall_write(buf, fd, msg.as_ptr(), msg_len);
+    if written == FILE_ERROR_SENTINEL {
+        // Still try to close
+        gpu_hostcall_close(buf, fd);
+        return;
+    }
+    *result.add(2) = written as u32;
+
+    // Step 3: Close file
+    let close_result = gpu_hostcall_close(buf, fd);
+    if close_result == FILE_ERROR_SENTINEL {
+        return;
+    }
+
+    // Step 4: Reopen for reading
+    let fd2 = gpu_hostcall_open(buf, path.as_ptr(), path_len, FILE_OPEN_READ);
+    if fd2 == FILE_ERROR_SENTINEL {
+        return;
+    }
+
+    // Step 5: Read back content
+    let mut read_buf: [u8; 48] = [0u8; 48];
+    let bytes_read = gpu_hostcall_read(buf, fd2, read_buf.as_mut_ptr(), 48);
+    if bytes_read == FILE_ERROR_SENTINEL {
+        gpu_hostcall_close(buf, fd2);
+        return;
+    }
+    *result.add(3) = bytes_read as u32;
+
+    // Step 6: Close read file
+    gpu_hostcall_close(buf, fd2);
+
+    // Step 7: Verify content matches
+    if bytes_read == msg_len as u64 {
+        let mut match_ok: bool = true;
+        let mut i: u32 = 0;
+        while i < msg_len {
+            if read_buf[i as usize] != *msg.as_ptr().add(i as usize) {
+                match_ok = false;
+            }
+            i += 1;
+        }
+        if match_ok {
+            *result.add(0) = 1; // Overall success
+        }
+    }
+}

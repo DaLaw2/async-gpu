@@ -128,6 +128,46 @@ pub const fn buffer_size(num_packets: u16) -> usize {
 pub const PRINT_MAX_MSG_LEN: usize = 56; // 7 slots × 8 bytes
 
 // ============================================================
+// FILE I/O service payload layouts (lane 0)
+// ============================================================
+//
+// SERVICE_OPEN payload (request):
+//   Slot 0: path length (u64)
+//   Slots 1-7: path bytes (up to 56 bytes, packed)
+//   Slot 0 high bits encode flags: 0 = read, 1 = write/create, 2 = append
+// SERVICE_OPEN response (in payload):
+//   Slot 0: file descriptor (u64), or u64::MAX on error
+//
+// SERVICE_WRITE payload (request):
+//   Slot 0: fd (u64)
+//   Slot 1: data length (u64)
+//   Slots 2-7: data bytes (up to 48 bytes, packed)
+// SERVICE_WRITE response:
+//   Slot 0: bytes written (u64), or u64::MAX on error
+//
+// SERVICE_READ payload (request):
+//   Slot 0: fd (u64)
+//   Slot 1: max bytes to read (u64)
+// SERVICE_READ response:
+//   Slot 0: bytes read (u64), or u64::MAX on error
+//   Slots 1-7: data bytes (up to 56 bytes)
+//
+// SERVICE_CLOSE payload (request):
+//   Slot 0: fd (u64)
+// SERVICE_CLOSE response:
+//   Slot 0: 0 on success, u64::MAX on error
+
+pub const FILE_MAX_PATH_LEN: usize = 56;  // 7 slots × 8 bytes (same as PRINT)
+pub const FILE_MAX_WRITE_LEN: usize = 48; // 6 slots × 8 bytes (slots 2-7)
+pub const FILE_MAX_READ_LEN: usize = 56;  // 7 slots × 8 bytes (slots 1-7)
+pub const FILE_ERROR_SENTINEL: u64 = u64::MAX;
+
+// Open flags (stored in high 32 bits of slot 0)
+pub const FILE_OPEN_READ: u32 = 0;
+pub const FILE_OPEN_WRITE_CREATE: u32 = 1;
+pub const FILE_OPEN_APPEND: u32 = 2;
+
+// ============================================================
 // GPU-side spin limit
 // ============================================================
 

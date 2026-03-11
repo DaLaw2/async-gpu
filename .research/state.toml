@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 13      # Monotonic counter, incremented after each completed phase
-completed_tasks = 13
+total_cycles = 15      # Monotonic counter, incremented after each completed phase
+completed_tasks = 15
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"        # think | do | check
-current_step = "do.execute" # Batch: toolchain.2, async-runtime.1.1, hostcall.4, atomics.2
-current_task_id = "hostcall.4"
-last_summary = "Batch started: toolchain.2 (investigation), async-runtime.1.1 (Embassy nvptx64), hostcall.4 (GPU println), atomics.2 (stress test). NVVM intrinsics removed (Cannot select on current LLVM). Inline PTX asm confirmed sole path."
+current_step = "do.route"  # Batch complete, decide next
+current_task_id = ""
+last_summary = "Batch of 4 done: hostcall.4 (GPU println works!), toolchain.2 (rust-cuda investigated), async-runtime.1.1 (Embassy compiles for nvptx64!), atomics.2 (stress tests pass, ~5.4us round-trip). gpu-std.1 and async-runtime.2 now unblocked."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 3
@@ -131,7 +131,7 @@ id = "atomics.2"
 theme = "atomics"
 title = "Stress-test GPU-CPU atomic communication correctness"
 kind = "experiment"
-status = "active"
+status = "done"
 depends_on = ["atomics.3.1"]
 spawned_by = "bs1"
 research_questions = [
@@ -392,7 +392,7 @@ id = "async-runtime.1.1"
 theme = "async-runtime"
 title = "Experiment: attempt Embassy executor compilation for nvptx64"
 kind = "experiment"
-status = "active"
+status = "done"
 depends_on = ["toolchain.4"]
 spawned_by = "bs3"
 research_questions = [

@@ -18,6 +18,8 @@ pub const SERVICE_CLOSE: u32 = 5;
 pub const SERVICE_MALLOC: u32 = 6;
 pub const SERVICE_FREE: u32 = 7;
 pub const SERVICE_ABORT: u32 = 0xFF;
+pub const SERVICE_STDIN: u32 = 8;
+pub const SERVICE_TIME: u32 = 9;
 
 // ============================================================
 // Control bits (PacketHeader.control)
@@ -172,3 +174,22 @@ pub const FILE_OPEN_APPEND: u32 = 2;
 // ============================================================
 
 pub const GPU_MAX_SPIN: u32 = 10_000_000;
+
+// ============================================================
+// STDIN service payload layout (lane 0)
+// ============================================================
+// Request:
+//   Slot 0: max bytes to read (u64)
+// Response:
+//   Slot 0: bytes read (u64), or u64::MAX on error/EOF
+//   Slots 1-7: data bytes (up to 56 bytes)
+pub const STDIN_MAX_READ_LEN: usize = 56; // 7 slots × 8 bytes
+
+// ============================================================
+// TIME service payload layout (lane 0)
+// ============================================================
+// Request:
+//   (no payload needed)
+// Response:
+//   Slot 0: seconds since Unix epoch (u64)
+//   Slot 1: nanoseconds within second (u64)

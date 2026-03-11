@@ -226,6 +226,12 @@ impl HostcallBuffer {
                         SERVICE_CLOSE => {
                             self.handle_close(pkt, &mut fd_table)
                         }
+                        SERVICE_STDIN => {
+                            self.handle_stdin(pkt)
+                        }
+                        SERVICE_TIME => {
+                            self.handle_time(pkt)
+                        }
                         _ => {
                             // Unknown service — set error bit
                             true
@@ -438,6 +444,68 @@ impl HostcallBuffer {
                 false
             }
         }
+    }
+
+    /// Handle SERVICE_STDIN: read a line from host stdin.
+    ///
+    /// Request payload (lane 0):
+    ///   Slot 0: max bytes to read (u64)
+    /// Response payload (lane 0):
+    ///   Slot 0: bytes read (u64), or FILE_ERROR_SENTINEL on error/EOF
+    ///   Slots 1-7: data bytes (up to 56 bytes)
+    unsafe fn handle_stdin(&self, pkt: *mut u8) -> bool {
+        let payload = pkt.add(PKT_OFF_PAYLOAD);
+
+        let max_len = std::ptr::read_volatile(payload as *const u64) as usize;
+        let max_len = max_len.min(STDIN_MAX_READ_LEN);
+
+        let mut line = String::new();
+        match std::io::stdin().read_line(&mut line) {
+            Ok(0) => {
+                // EOF
+                println!("  [HOST] STDIN: EOF");
+                std::ptr::write_volatile(payload as *mut u64, FILE_ERROR_SENTINEL);
+            }
+            Ok(n) => {
+                let bytes = line.as_bytes();
+                let copy_len = n.min(max_len);
+                println!("  [HOST] STDIN: read {} bytes: {:?}", copy_len, &line[..copy_len]);
+                std::ptr::write_volatile(payload as *mut u64, copy_len as u64);
+                let dst = payload.add(8);
+                for i in 0..copy_len {
+                    std::ptr::write_volatile(dst.add(i), bytes[i]);
+                }
+            }
+            Err(e) => {
+                eprintln!("  [HOST] STDIN ERROR: {}", e);
+                std::ptr::write_volatile(payload as *mut u64, FILE_ERROR_SENTINEL);
+            }
+        }
+        false
+    }
+
+    /// Handle SERVICE_TIME: return wall-clock time.
+    ///
+    /// Response payload (lane 0):
+    ///   Slot 0: seconds since Unix epoch (u64)
+    ///   Slot 1: nanoseconds within second (u64)
+    unsafe fn handle_time(&self, pkt: *mut u8) -> bool {
+        let payload = pkt.add(PKT_OFF_PAYLOAD);
+
+        match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+            Ok(duration) => {
+                let secs = duration.as_secs();
+                let nanos = duration.subsec_nanos() as u64;
+                std::ptr::write_volatile(payload as *mut u64, secs);
+                std::ptr::write_volatile(payload.add(8) as *mut u64, nanos);
+                println!("  [HOST] TIME: epoch_secs={} nanos={}", secs, nanos);
+            }
+            Err(_) => {
+                std::ptr::write_volatile(payload as *mut u64, FILE_ERROR_SENTINEL);
+                std::ptr::write_volatile(payload.add(8) as *mut u64, 0);
+            }
+        }
+        false
     }
 
     /// Handle SERVICE_CLOSE: close an open file.

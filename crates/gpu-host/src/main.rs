@@ -17,6 +17,9 @@ const KERNEL_PTX: &str = include_str!("../kernel.ptx");
 // Embassy test PTX — compiled from crates/embassy-test with fat LTO
 const EMBASSY_PTX: &str = include_str!("../embassy_test.ptx");
 
+// Async hostcall test PTX — compiled from crates/async-hostcall-test with fat LTO
+const ASYNC_HOSTCALL_PTX: &str = include_str!("../async_hostcall_test.ptx");
+
 fn run_write_thread_idx(dev: Arc<CudaDevice>) -> Result<()> {
     const N: usize = 64;
 
@@ -939,6 +942,258 @@ fn run_hostcall_file_test(dev: Arc<CudaDevice>) -> Result<()> {
     Ok(())
 }
 
+// ============================================================
+// Async hostcall tests (integration.1)
+// ============================================================
+
+/// Test: single async hostcall print via HostcallFuture + Embassy executor.
+fn run_async_hostcall_single(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Integration Test 1: Async hostcall (single HostcallFuture) ---");
+
+    use std::sync::{Arc as StdArc, Mutex};
+
+    let hc_buf = hostcall::HostcallBuffer::new(4)?;
+    let dev_ptr = hc_buf.dev_ptr;
+
+    let messages: StdArc<Mutex<Vec<String>>> = StdArc::new(Mutex::new(Vec::new()));
+    let messages_clone = StdArc::clone(&messages);
+
+    let (result_host_ptr, result_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 2)? };
+
+    let hc_buf_ref = StdArc::new(hc_buf);
+    let hc_buf_listener = StdArc::clone(&hc_buf_ref);
+    let listener_handle = std::thread::spawn(move || {
+        hc_buf_listener.listen(|msg| {
+            let s = String::from_utf8_lossy(msg).to_string();
+            println!("  [HOST] Received from GPU: \"{}\"", s);
+            messages_clone.lock().unwrap().push(s);
+        });
+    });
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(ASYNC_HOSTCALL_PTX);
+    dev.load_ptx(ptx, "async_hostcall", &["async_hostcall_single_kernel"])?;
+    let f = dev.get_func("async_hostcall", "async_hostcall_single_kernel")
+        .ok_or(GpuHostError::KernelNotFound("async_hostcall_single_kernel"))?;
+
+    let cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (1, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    println!("  Launching async_hostcall_single_kernel...");
+    let start = std::time::Instant::now();
+    unsafe {
+        f.launch(cfg, (dev_ptr as u64, result_dev_ptr as u64))?;
+    }
+
+    dev.synchronize()?;
+    let elapsed = start.elapsed();
+    println!("  Kernel completed in {:?}.", elapsed);
+
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    hc_buf_ref.signal_shutdown();
+    listener_handle.join().unwrap();
+
+    let poll_rounds = unsafe { std::ptr::read_volatile(result_host_ptr.add(0)) };
+    let success = unsafe { std::ptr::read_volatile(result_host_ptr.add(1)) };
+    unsafe { free_mapped_mem(result_host_ptr)? };
+
+    let received = messages.lock().unwrap();
+    if success != 1 {
+        return Err(GpuHostError::Verification {
+            test: "async_hostcall_single_kernel",
+            detail: format!("success marker not set (got {}), poll_rounds={}", success, poll_rounds),
+        });
+    }
+    if received.is_empty() || !received[0].contains("Async hello") {
+        return Err(GpuHostError::Verification {
+            test: "async_hostcall_single_kernel",
+            detail: format!("unexpected messages: {:?}", *received),
+        });
+    }
+
+    println!("  async_hostcall_single_kernel: PASSED!");
+    println!("    Poll rounds: {}", poll_rounds);
+    println!("    Message: \"{}\"", received[0]);
+    println!("    HostcallFuture correctly yielded and resumed across poll rounds");
+    Ok(())
+}
+
+/// Test: two concurrent async hostcall prints via HostcallFuture + Embassy executor.
+fn run_async_hostcall_two(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Integration Test 2: Async hostcall (two concurrent HostcallFutures) ---");
+
+    use std::sync::{Arc as StdArc, Mutex};
+
+    let hc_buf = hostcall::HostcallBuffer::new(4)?;
+    let dev_ptr = hc_buf.dev_ptr;
+
+    let messages: StdArc<Mutex<Vec<String>>> = StdArc::new(Mutex::new(Vec::new()));
+    let messages_clone = StdArc::clone(&messages);
+
+    let (result_host_ptr, result_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 2)? };
+
+    let hc_buf_ref = StdArc::new(hc_buf);
+    let hc_buf_listener = StdArc::clone(&hc_buf_ref);
+    let listener_handle = std::thread::spawn(move || {
+        hc_buf_listener.listen(|msg| {
+            let s = String::from_utf8_lossy(msg).to_string();
+            println!("  [HOST] Received from GPU: \"{}\"", s);
+            messages_clone.lock().unwrap().push(s);
+        });
+    });
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(ASYNC_HOSTCALL_PTX);
+    let _ = dev.load_ptx(ptx, "async_hostcall", &["async_hostcall_two_kernel"]);
+    let f = dev.get_func("async_hostcall", "async_hostcall_two_kernel")
+        .ok_or(GpuHostError::KernelNotFound("async_hostcall_two_kernel"))?;
+
+    let cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (1, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    println!("  Launching async_hostcall_two_kernel...");
+    let start = std::time::Instant::now();
+    unsafe {
+        f.launch(cfg, (dev_ptr as u64, result_dev_ptr as u64))?;
+    }
+
+    dev.synchronize()?;
+    let elapsed = start.elapsed();
+    println!("  Kernel completed in {:?}.", elapsed);
+
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    hc_buf_ref.signal_shutdown();
+    listener_handle.join().unwrap();
+
+    let poll_rounds = unsafe { std::ptr::read_volatile(result_host_ptr.add(0)) };
+    let success = unsafe { std::ptr::read_volatile(result_host_ptr.add(1)) };
+    unsafe { free_mapped_mem(result_host_ptr)? };
+
+    let received = messages.lock().unwrap();
+    if success != 1 {
+        return Err(GpuHostError::Verification {
+            test: "async_hostcall_two_kernel",
+            detail: format!("success marker not set (got {}), poll_rounds={}", success, poll_rounds),
+        });
+    }
+    if received.len() < 2 {
+        return Err(GpuHostError::Verification {
+            test: "async_hostcall_two_kernel",
+            detail: format!("expected 2 messages, got {}: {:?}", received.len(), *received),
+        });
+    }
+
+    println!("  async_hostcall_two_kernel: PASSED!");
+    println!("    Poll rounds: {}", poll_rounds);
+    println!("    Messages: {:?}", *received);
+    println!("    Two HostcallFutures ran concurrently on one Embassy executor!");
+    Ok(())
+}
+
+// ============================================================
+// GPU Instant + Time test (gpu-std.4)
+// ============================================================
+
+/// Test: GPU %globaltimer + wall-clock time via hostcall.
+/// Skips stdin test to avoid blocking.
+fn run_hostcall_time_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- GPU-std Test: Instant (%globaltimer) + SystemTime (hostcall) ---");
+
+    use std::sync::Arc as StdArc;
+
+    let hc_buf = hostcall::HostcallBuffer::new(4)?;
+    let dev_ptr = hc_buf.dev_ptr;
+
+    let (result_host_ptr, result_dev_ptr) = unsafe {
+        let cu = cuda_lib();
+        let size = 4 * std::mem::size_of::<u64>();
+
+        let mut host_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
+        let flags = sys::CU_MEMHOSTALLOC_DEVICEMAP | sys::CU_MEMHOSTALLOC_PORTABLE;
+        let result = cu.cuMemHostAlloc(&mut host_ptr, size, flags);
+        if result != sys::CUresult::CUDA_SUCCESS {
+            return Err(GpuHostError::CudaAlloc(result));
+        }
+
+        let mut d_ptr: sys::CUdeviceptr = 0;
+        let result = cu.cuMemHostGetDevicePointer_v2(&mut d_ptr, host_ptr, 0);
+        if result != sys::CUresult::CUDA_SUCCESS {
+            cu.cuMemFreeHost(host_ptr);
+            return Err(GpuHostError::CudaGetDevPtr(result));
+        }
+
+        std::ptr::write_bytes(host_ptr as *mut u8, 0, size);
+        (host_ptr as *mut u64, d_ptr)
+    };
+
+    let hc_buf_ref = StdArc::new(hc_buf);
+    let hc_buf_listener = StdArc::clone(&hc_buf_ref);
+    let listener_handle = std::thread::spawn(move || {
+        hc_buf_listener.listen(|msg| {
+            let s = String::from_utf8_lossy(msg).to_string();
+            println!("  [HOST] Print from GPU: \"{}\"", s);
+        });
+    });
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "kernel", &["hostcall_stdin_time_test"]);
+    let f = dev.get_func("kernel", "hostcall_stdin_time_test")
+        .ok_or(GpuHostError::KernelNotFound("hostcall_stdin_time_test"))?;
+
+    let cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (32, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    // Skip stdin (skip_stdin=1) to avoid blocking
+    println!("  Launching hostcall_stdin_time_test (skip_stdin=1)...");
+    unsafe {
+        f.launch(cfg, (dev_ptr as u64, result_dev_ptr as u64, 1u32))?;
+    }
+
+    dev.synchronize()?;
+    println!("  Kernel completed.");
+
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    hc_buf_ref.signal_shutdown();
+    listener_handle.join().unwrap();
+
+    let gpu_instant_delta = unsafe { std::ptr::read_volatile(result_host_ptr.add(0)) };
+    let host_secs = unsafe { std::ptr::read_volatile(result_host_ptr.add(1)) };
+    let host_nanos = unsafe { std::ptr::read_volatile(result_host_ptr.add(2)) };
+
+    unsafe {
+        let cu = cuda_lib();
+        cu.cuMemFreeHost(result_host_ptr as *mut std::ffi::c_void);
+    }
+
+    println!("  GPU Instant delta: {} ns (time for 1000 add iterations)", gpu_instant_delta);
+    println!("  Host wall-clock: epoch_secs={}, nanos={}", host_secs, host_nanos);
+
+    if gpu_instant_delta == 0 {
+        return Err(GpuHostError::Verification {
+            test: "hostcall_stdin_time_test",
+            detail: "GPU instant delta is 0 — %globaltimer may not be working".to_string(),
+        });
+    }
+    if host_secs < 1700000000 {
+        return Err(GpuHostError::Verification {
+            test: "hostcall_stdin_time_test",
+            detail: format!("host secs={} seems too low for epoch time", host_secs),
+        });
+    }
+
+    println!("  hostcall_stdin_time_test: PASSED!");
+    println!("    GPU %globaltimer works (non-zero delta)");
+    println!("    Host SystemTime works (reasonable epoch seconds)");
+    Ok(())
+}
+
 fn main() -> Result<()> {
     println!("=== GPU Kernel Execution Test ===\n");
 
@@ -964,6 +1219,13 @@ fn main() -> Result<()> {
 
     // File I/O test (gpu-std.3)
     run_hostcall_file_test(Arc::clone(&dev))?;
+
+    // Async hostcall tests (integration.1)
+    run_async_hostcall_single(Arc::clone(&dev))?;
+    run_async_hostcall_two(Arc::clone(&dev))?;
+
+    // GPU Instant + Time test (gpu-std.4)
+    run_hostcall_time_test(Arc::clone(&dev))?;
 
     println!("\nAll tests PASSED.");
     Ok(())

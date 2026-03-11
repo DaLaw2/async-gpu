@@ -19,6 +19,1829 @@ $L__BB0_1:
 	bra.uni 	$L__BB0_1;
 
 }
+	// .globl	hostcall_file_test
+.visible .entry hostcall_file_test(
+	.param .u64 .ptr .align 1 hostcall_file_test_param_0,
+	.param .u64 .ptr .align 1 hostcall_file_test_param_1
+)
+{
+	.local .align 1 .b8 	__local_depot1[48];
+	.reg .b64 	%SP;
+	.reg .b64 	%SPL;
+	.reg .pred 	%p<258>;
+	.reg .b16 	%rs<35>;
+	.reg .b32 	%r<328>;
+	.reg .b64 	%rd<640>;
+
+	mov.b64 	%SPL, __local_depot1;
+	ld.param.b64 	%rd137, [hostcall_file_test_param_0];
+	ld.param.b64 	%rd138, [hostcall_file_test_param_1];
+	cvta.to.global.u64 	%rd1, %rd138;
+	cvta.to.global.u64 	%rd2, %rd137;
+	add.u64 	%rd3, %SPL, 0;
+	mov.u32 	%r111, %tid.x;
+	mov.u32 	%r112, %ctaid.x;
+	mov.u32 	%r113, %ntid.x;
+	mul.lo.s32 	%r114, %r112, %r113;
+	neg.s32 	%r115, %r111;
+	setp.ne.b32 	%p17, %r114, %r115;
+	@%p17 bra 	$L__BB1_206;
+	st.global.b32 	[%rd1], 0;
+	st.global.b32 	[%rd1+4], -1;
+	st.global.b32 	[%rd1+8], -1;
+	st.global.b32 	[%rd1+12], -1;
+$L__BB1_2:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd145, [%rd137];
+	// end inline asm
+	and.b64 	%rd5, %rd145, 65535;
+	setp.eq.b64 	%p19, %rd5, 65535;
+	mov.b64 	%rd625, 0;
+	mov.pred 	%p250, 0;
+	@%p19 bra 	$L__BB1_19;
+	mad.lo.s64 	%rd6, %rd5, 2112, %rd2;
+	cvta.global.u64 	%rd7, %rd6;
+	ld.volatile.global.b64 	%rd146, [%rd6+64];
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd143, [%rd137], %rd145, %rd146;
+	// end inline asm
+	setp.ne.b64 	%p20, %rd143, %rd145;
+	@%p20 bra 	$L__BB1_2;
+	add.s64 	%rd8, %rd6, 64;
+	cvta.global.u64 	%rd9, %rd8;
+	// begin inline asm
+	activemask.b32 %r116;
+	// end inline asm
+	st.volatile.global.b32 	[%rd6+72], %r116;
+	st.volatile.global.b32 	[%rd6+76], 4;
+	add.s64 	%rd158, %rd7, 80;
+	mov.b32 	%r117, 0;
+	// begin inline asm
+	st.release.sys.global.u32 [%rd158], %r117;
+	// end inline asm
+	st.volatile.global.b64 	[%rd6+96], 4294967315;
+	st.volatile.global.b8 	[%rd6+104], 103;
+	st.volatile.global.b8 	[%rd6+105], 112;
+	st.volatile.global.b8 	[%rd6+106], 117;
+	st.volatile.global.b8 	[%rd6+107], 95;
+	st.volatile.global.b8 	[%rd6+108], 116;
+	st.volatile.global.b8 	[%rd6+109], 101;
+	st.volatile.global.b8 	[%rd6+110], 115;
+	st.volatile.global.b8 	[%rd6+111], 116;
+	st.volatile.global.b8 	[%rd6+112], 95;
+	st.volatile.global.b8 	[%rd6+113], 111;
+	st.volatile.global.b8 	[%rd6+114], 117;
+	st.volatile.global.b8 	[%rd6+115], 116;
+	st.volatile.global.b8 	[%rd6+116], 112;
+	st.volatile.global.b8 	[%rd6+117], 117;
+	st.volatile.global.b8 	[%rd6+118], 116;
+	st.volatile.global.b8 	[%rd6+119], 46;
+	st.volatile.global.b8 	[%rd6+120], 116;
+	st.volatile.global.b8 	[%rd6+121], 120;
+	st.volatile.global.b8 	[%rd6+122], 116;
+	// begin inline asm
+	membar.sys;
+	// end inline asm
+	add.s64 	%rd149, %rd137, 8;
+	or.b64 	%rd12, %rd5, 4294967296;
+$L__BB1_5:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd152, [%rd149];
+	// end inline asm
+	st.volatile.global.b64 	[%rd8], %rd152;
+	and.b64 	%rd154, %rd152, -4294967296;
+	add.s64 	%rd153, %rd154, %rd12;
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd150, [%rd149], %rd152, %rd153;
+	// end inline asm
+	setp.ne.b64 	%p21, %rd150, %rd152;
+	@%p21 bra 	$L__BB1_5;
+	add.s64 	%rd156, %rd137, 16;
+	mov.b64 	%rd157, 1;
+	// begin inline asm
+	atom.add.sys.global.u64 %rd155, [%rd156], %rd157;
+	// end inline asm
+	mov.b32 	%r310, 10000000;
+$L__BB1_7:
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r311, [%rd158];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r120, %r311, 1;
+	setp.ne.b32 	%p22, %r120, 0;
+	@%p22 bra 	$L__BB1_207;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r311, [%rd158];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r122, %r311, 1;
+	setp.ne.b32 	%p23, %r122, 0;
+	@%p23 bra 	$L__BB1_207;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r311, [%rd158];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r124, %r311, 1;
+	setp.ne.b32 	%p24, %r124, 0;
+	@%p24 bra 	$L__BB1_207;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r311, [%rd158];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r126, %r311, 1;
+	setp.ne.b32 	%p25, %r126, 0;
+	@%p25 bra 	$L__BB1_207;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r311, [%rd158];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r128, %r311, 1;
+	setp.ne.b32 	%p26, %r128, 0;
+	@%p26 bra 	$L__BB1_207;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r311, [%rd158];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r130, %r311, 1;
+	setp.ne.b32 	%p27, %r130, 0;
+	@%p27 bra 	$L__BB1_207;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r311, [%rd158];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r132, %r311, 1;
+	setp.ne.b32 	%p28, %r132, 0;
+	@%p28 bra 	$L__BB1_207;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r311, [%rd158];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r134, %r311, 1;
+	setp.ne.b32 	%p29, %r134, 0;
+	@%p29 bra 	$L__BB1_207;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r311, [%rd158];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r136, %r311, 1;
+	setp.ne.b32 	%p30, %r136, 0;
+	@%p30 bra 	$L__BB1_207;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r311, [%rd158];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r138, %r311, 1;
+	setp.ne.b32 	%p31, %r138, 0;
+	@%p31 bra 	$L__BB1_207;
+	add.s32 	%r310, %r310, -10;
+	setp.ne.b32 	%p32, %r310, 0;
+	@%p32 bra 	$L__BB1_7;
+$L__BB1_18:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd172, [%rd137];
+	// end inline asm
+	st.volatile.global.b64 	[%rd8], %rd172;
+	and.b64 	%rd175, %rd172, -4294967296;
+	add.s64 	%rd173, %rd175, %rd12;
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd170, [%rd137], %rd172, %rd173;
+	// end inline asm
+	setp.ne.b64 	%p34, %rd170, %rd172;
+	@%p34 bra 	$L__BB1_18;
+	bra.uni 	$L__BB1_19;
+$L__BB1_207:
+	and.b32 	%r139, %r311, 2;
+	setp.eq.b32 	%p250, %r139, 0;
+	mov.b64 	%rd625, %rd9;
+$L__BB1_19:
+	setp.eq.b64 	%p35, %rd625, 0;
+	mov.b64 	%rd626, -1;
+	@%p35 bra 	$L__BB1_25;
+	not.pred 	%p36, %p250;
+	sub.s64 	%rd620, %rd625, %rd137;
+	@%p36 bra 	$L__BB1_23;
+	ld.volatile.b64 	%rd626, [%rd625+32];
+	add.s64 	%rd190, %rd620, -64;
+	mul.hi.u64 	%rd191, %rd190, 1117984489315730401;
+	bfe.u64 	%rd192, %rd191, 7, 16;
+	mad.lo.s64 	%rd15, %rd192, 2112, %rd2;
+	or.b64 	%rd16, %rd192, 4294967296;
+$L__BB1_22:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd197, [%rd137];
+	// end inline asm
+	st.volatile.global.b64 	[%rd15+64], %rd197;
+	and.b64 	%rd199, %rd197, -4294967296;
+	add.s64 	%rd198, %rd199, %rd16;
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd195, [%rd137], %rd197, %rd198;
+	// end inline asm
+	setp.eq.b64 	%p38, %rd195, %rd197;
+	@%p38 bra 	$L__BB1_25;
+	bra.uni 	$L__BB1_22;
+$L__BB1_23:
+	add.s64 	%rd178, %rd620, -64;
+	mul.hi.u64 	%rd179, %rd178, 1117984489315730401;
+	bfe.u64 	%rd180, %rd179, 7, 16;
+	mad.lo.s64 	%rd17, %rd180, 2112, %rd2;
+	or.b64 	%rd18, %rd180, 4294967296;
+$L__BB1_24:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd185, [%rd137];
+	// end inline asm
+	st.volatile.global.b64 	[%rd17+64], %rd185;
+	and.b64 	%rd188, %rd185, -4294967296;
+	add.s64 	%rd186, %rd188, %rd18;
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd183, [%rd137], %rd185, %rd186;
+	// end inline asm
+	setp.ne.b64 	%p37, %rd183, %rd185;
+	@%p37 bra 	$L__BB1_24;
+$L__BB1_25:
+	setp.eq.b64 	%p39, %rd626, -1;
+	@%p39 bra 	$L__BB1_206;
+	st.global.b32 	[%rd1+4], %rd626;
+$L__BB1_27:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd205, [%rd137];
+	// end inline asm
+	and.b64 	%rd21, %rd205, 65535;
+	setp.eq.b64 	%p41, %rd21, 65535;
+	mov.b64 	%rd627, 0;
+	mov.pred 	%p251, 0;
+	@%p41 bra 	$L__BB1_44;
+	mad.lo.s64 	%rd22, %rd21, 2112, %rd2;
+	cvta.global.u64 	%rd23, %rd22;
+	ld.volatile.global.b64 	%rd206, [%rd22+64];
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd203, [%rd137], %rd205, %rd206;
+	// end inline asm
+	setp.ne.b64 	%p42, %rd203, %rd205;
+	@%p42 bra 	$L__BB1_27;
+	add.s64 	%rd24, %rd22, 64;
+	cvta.global.u64 	%rd25, %rd24;
+	// begin inline asm
+	activemask.b32 %r140;
+	// end inline asm
+	st.volatile.global.b32 	[%rd22+72], %r140;
+	st.volatile.global.b32 	[%rd22+76], 2;
+	add.s64 	%rd218, %rd23, 80;
+	mov.b32 	%r141, 0;
+	// begin inline asm
+	st.release.sys.global.u32 [%rd218], %r141;
+	// end inline asm
+	st.volatile.global.b64 	[%rd22+96], %rd626;
+	st.volatile.global.b64 	[%rd22+104], 25;
+	st.volatile.global.b8 	[%rd22+112], 72;
+	st.volatile.global.b8 	[%rd22+113], 101;
+	st.volatile.global.b8 	[%rd22+114], 108;
+	st.volatile.global.b8 	[%rd22+115], 108;
+	st.volatile.global.b8 	[%rd22+116], 111;
+	st.volatile.global.b8 	[%rd22+117], 32;
+	st.volatile.global.b8 	[%rd22+118], 102;
+	st.volatile.global.b8 	[%rd22+119], 114;
+	st.volatile.global.b8 	[%rd22+120], 111;
+	st.volatile.global.b8 	[%rd22+121], 109;
+	st.volatile.global.b8 	[%rd22+122], 32;
+	st.volatile.global.b8 	[%rd22+123], 71;
+	st.volatile.global.b8 	[%rd22+124], 80;
+	st.volatile.global.b8 	[%rd22+125], 85;
+	st.volatile.global.b8 	[%rd22+126], 32;
+	st.volatile.global.b8 	[%rd22+127], 102;
+	st.volatile.global.b8 	[%rd22+128], 105;
+	st.volatile.global.b8 	[%rd22+129], 108;
+	st.volatile.global.b8 	[%rd22+130], 101;
+	st.volatile.global.b8 	[%rd22+131], 32;
+	st.volatile.global.b8 	[%rd22+132], 73;
+	st.volatile.global.b8 	[%rd22+133], 47;
+	st.volatile.global.b8 	[%rd22+134], 79;
+	st.volatile.global.b8 	[%rd22+135], 33;
+	st.volatile.global.b8 	[%rd22+136], 10;
+	// begin inline asm
+	membar.sys;
+	// end inline asm
+	add.s64 	%rd209, %rd137, 8;
+	or.b64 	%rd28, %rd21, 4294967296;
+$L__BB1_30:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd212, [%rd209];
+	// end inline asm
+	st.volatile.global.b64 	[%rd24], %rd212;
+	and.b64 	%rd214, %rd212, -4294967296;
+	add.s64 	%rd213, %rd214, %rd28;
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd210, [%rd209], %rd212, %rd213;
+	// end inline asm
+	setp.ne.b64 	%p43, %rd210, %rd212;
+	@%p43 bra 	$L__BB1_30;
+	add.s64 	%rd216, %rd137, 16;
+	mov.b64 	%rd217, 1;
+	// begin inline asm
+	atom.add.sys.global.u64 %rd215, [%rd216], %rd217;
+	// end inline asm
+	mov.b32 	%r312, 10000000;
+$L__BB1_32:
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r313, [%rd218];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r144, %r313, 1;
+	setp.ne.b32 	%p44, %r144, 0;
+	@%p44 bra 	$L__BB1_208;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r313, [%rd218];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r146, %r313, 1;
+	setp.ne.b32 	%p45, %r146, 0;
+	@%p45 bra 	$L__BB1_208;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r313, [%rd218];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r148, %r313, 1;
+	setp.ne.b32 	%p46, %r148, 0;
+	@%p46 bra 	$L__BB1_208;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r313, [%rd218];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r150, %r313, 1;
+	setp.ne.b32 	%p47, %r150, 0;
+	@%p47 bra 	$L__BB1_208;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r313, [%rd218];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r152, %r313, 1;
+	setp.ne.b32 	%p48, %r152, 0;
+	@%p48 bra 	$L__BB1_208;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r313, [%rd218];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r154, %r313, 1;
+	setp.ne.b32 	%p49, %r154, 0;
+	@%p49 bra 	$L__BB1_208;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r313, [%rd218];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r156, %r313, 1;
+	setp.ne.b32 	%p50, %r156, 0;
+	@%p50 bra 	$L__BB1_208;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r313, [%rd218];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r158, %r313, 1;
+	setp.ne.b32 	%p51, %r158, 0;
+	@%p51 bra 	$L__BB1_208;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r313, [%rd218];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r160, %r313, 1;
+	setp.ne.b32 	%p52, %r160, 0;
+	@%p52 bra 	$L__BB1_208;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r313, [%rd218];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r162, %r313, 1;
+	setp.ne.b32 	%p53, %r162, 0;
+	@%p53 bra 	$L__BB1_208;
+	add.s32 	%r312, %r312, -10;
+	setp.ne.b32 	%p54, %r312, 0;
+	@%p54 bra 	$L__BB1_32;
+$L__BB1_43:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd232, [%rd137];
+	// end inline asm
+	st.volatile.global.b64 	[%rd24], %rd232;
+	and.b64 	%rd235, %rd232, -4294967296;
+	add.s64 	%rd233, %rd235, %rd28;
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd230, [%rd137], %rd232, %rd233;
+	// end inline asm
+	setp.ne.b64 	%p56, %rd230, %rd232;
+	@%p56 bra 	$L__BB1_43;
+	bra.uni 	$L__BB1_44;
+$L__BB1_208:
+	and.b32 	%r163, %r313, 2;
+	setp.eq.b32 	%p251, %r163, 0;
+	mov.b64 	%rd627, %rd25;
+$L__BB1_44:
+	setp.eq.b64 	%p57, %rd627, 0;
+	mov.b64 	%rd628, -1;
+	@%p57 bra 	$L__BB1_50;
+	not.pred 	%p58, %p251;
+	sub.s64 	%rd621, %rd627, %rd137;
+	@%p58 bra 	$L__BB1_48;
+	ld.volatile.b64 	%rd628, [%rd627+32];
+	add.s64 	%rd250, %rd621, -64;
+	mul.hi.u64 	%rd251, %rd250, 1117984489315730401;
+	bfe.u64 	%rd252, %rd251, 7, 16;
+	mad.lo.s64 	%rd31, %rd252, 2112, %rd2;
+	or.b64 	%rd32, %rd252, 4294967296;
+$L__BB1_47:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd257, [%rd137];
+	// end inline asm
+	st.volatile.global.b64 	[%rd31+64], %rd257;
+	and.b64 	%rd259, %rd257, -4294967296;
+	add.s64 	%rd258, %rd259, %rd32;
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd255, [%rd137], %rd257, %rd258;
+	// end inline asm
+	setp.eq.b64 	%p60, %rd255, %rd257;
+	@%p60 bra 	$L__BB1_50;
+	bra.uni 	$L__BB1_47;
+$L__BB1_48:
+	add.s64 	%rd238, %rd621, -64;
+	mul.hi.u64 	%rd239, %rd238, 1117984489315730401;
+	bfe.u64 	%rd240, %rd239, 7, 16;
+	mad.lo.s64 	%rd33, %rd240, 2112, %rd2;
+	or.b64 	%rd34, %rd240, 4294967296;
+$L__BB1_49:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd245, [%rd137];
+	// end inline asm
+	st.volatile.global.b64 	[%rd33+64], %rd245;
+	and.b64 	%rd248, %rd245, -4294967296;
+	add.s64 	%rd246, %rd248, %rd34;
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd243, [%rd137], %rd245, %rd246;
+	// end inline asm
+	setp.ne.b64 	%p59, %rd243, %rd245;
+	@%p59 bra 	$L__BB1_49;
+$L__BB1_50:
+	setp.ne.b64 	%p61, %rd628, -1;
+	@%p61 bra 	$L__BB1_51;
+	bra.uni 	$L__BB1_97;
+$L__BB1_51:
+	st.global.b32 	[%rd1+8], %rd628;
+$L__BB1_52:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd265, [%rd137];
+	// end inline asm
+	and.b64 	%rd37, %rd265, 65535;
+	setp.eq.b64 	%p63, %rd37, 65535;
+	mov.b64 	%rd629, 0;
+	mov.pred 	%p252, 0;
+	@%p63 bra 	$L__BB1_69;
+	mad.lo.s64 	%rd38, %rd37, 2112, %rd2;
+	cvta.global.u64 	%rd39, %rd38;
+	ld.volatile.global.b64 	%rd266, [%rd38+64];
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd263, [%rd137], %rd265, %rd266;
+	// end inline asm
+	setp.ne.b64 	%p64, %rd263, %rd265;
+	@%p64 bra 	$L__BB1_52;
+	add.s64 	%rd40, %rd38, 64;
+	cvta.global.u64 	%rd41, %rd40;
+	// begin inline asm
+	activemask.b32 %r164;
+	// end inline asm
+	st.volatile.global.b32 	[%rd38+72], %r164;
+	st.volatile.global.b32 	[%rd38+76], 5;
+	add.s64 	%rd278, %rd39, 80;
+	mov.b32 	%r165, 0;
+	// begin inline asm
+	st.release.sys.global.u32 [%rd278], %r165;
+	// end inline asm
+	st.volatile.global.b64 	[%rd38+96], %rd626;
+	// begin inline asm
+	membar.sys;
+	// end inline asm
+	add.s64 	%rd269, %rd137, 8;
+	or.b64 	%rd44, %rd37, 4294967296;
+$L__BB1_55:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd272, [%rd269];
+	// end inline asm
+	st.volatile.global.b64 	[%rd40], %rd272;
+	and.b64 	%rd274, %rd272, -4294967296;
+	add.s64 	%rd273, %rd274, %rd44;
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd270, [%rd269], %rd272, %rd273;
+	// end inline asm
+	setp.ne.b64 	%p65, %rd270, %rd272;
+	@%p65 bra 	$L__BB1_55;
+	add.s64 	%rd276, %rd137, 16;
+	mov.b64 	%rd277, 1;
+	// begin inline asm
+	atom.add.sys.global.u64 %rd275, [%rd276], %rd277;
+	// end inline asm
+	mov.b32 	%r314, 10000000;
+$L__BB1_57:
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r315, [%rd278];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r168, %r315, 1;
+	setp.ne.b32 	%p66, %r168, 0;
+	@%p66 bra 	$L__BB1_209;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r315, [%rd278];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r170, %r315, 1;
+	setp.ne.b32 	%p67, %r170, 0;
+	@%p67 bra 	$L__BB1_209;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r315, [%rd278];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r172, %r315, 1;
+	setp.ne.b32 	%p68, %r172, 0;
+	@%p68 bra 	$L__BB1_209;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r315, [%rd278];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r174, %r315, 1;
+	setp.ne.b32 	%p69, %r174, 0;
+	@%p69 bra 	$L__BB1_209;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r315, [%rd278];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r176, %r315, 1;
+	setp.ne.b32 	%p70, %r176, 0;
+	@%p70 bra 	$L__BB1_209;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r315, [%rd278];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r178, %r315, 1;
+	setp.ne.b32 	%p71, %r178, 0;
+	@%p71 bra 	$L__BB1_209;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r315, [%rd278];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r180, %r315, 1;
+	setp.ne.b32 	%p72, %r180, 0;
+	@%p72 bra 	$L__BB1_209;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r315, [%rd278];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r182, %r315, 1;
+	setp.ne.b32 	%p73, %r182, 0;
+	@%p73 bra 	$L__BB1_209;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r315, [%rd278];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r184, %r315, 1;
+	setp.ne.b32 	%p74, %r184, 0;
+	@%p74 bra 	$L__BB1_209;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r315, [%rd278];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r186, %r315, 1;
+	setp.ne.b32 	%p75, %r186, 0;
+	@%p75 bra 	$L__BB1_209;
+	add.s32 	%r314, %r314, -10;
+	setp.ne.b32 	%p76, %r314, 0;
+	@%p76 bra 	$L__BB1_57;
+$L__BB1_68:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd292, [%rd137];
+	// end inline asm
+	st.volatile.global.b64 	[%rd40], %rd292;
+	and.b64 	%rd295, %rd292, -4294967296;
+	add.s64 	%rd293, %rd295, %rd44;
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd290, [%rd137], %rd292, %rd293;
+	// end inline asm
+	setp.ne.b64 	%p78, %rd290, %rd292;
+	@%p78 bra 	$L__BB1_68;
+	bra.uni 	$L__BB1_69;
+$L__BB1_98:
+	mad.lo.s64 	%rd53, %rd52, 2112, %rd2;
+	cvta.global.u64 	%rd54, %rd53;
+	ld.volatile.global.b64 	%rd567, [%rd53+64];
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd564, [%rd137], %rd566, %rd567;
+	// end inline asm
+	setp.ne.b64 	%p231, %rd564, %rd566;
+	@%p231 bra 	$L__BB1_97;
+	bra.uni 	$L__BB1_99;
+$L__BB1_97:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd566, [%rd137];
+	// end inline asm
+	and.b64 	%rd52, %rd566, 65535;
+	setp.eq.b64 	%p230, %rd52, 65535;
+	mov.b64 	%rd630, 0;
+	mov.pred 	%p253, 0;
+	@%p230 bra 	$L__BB1_114;
+	bra.uni 	$L__BB1_98;
+$L__BB1_209:
+	and.b32 	%r187, %r315, 2;
+	setp.eq.b32 	%p252, %r187, 0;
+	mov.b64 	%rd629, %rd41;
+$L__BB1_69:
+	setp.eq.b64 	%p79, %rd629, 0;
+	@%p79 bra 	$L__BB1_206;
+	not.pred 	%p80, %p252;
+	sub.s64 	%rd622, %rd629, %rd137;
+	@%p80 bra 	$L__BB1_95;
+	ld.volatile.b64 	%rd46, [%rd629+32];
+	add.s64 	%rd308, %rd622, -64;
+	mul.hi.u64 	%rd309, %rd308, 1117984489315730401;
+	bfe.u64 	%rd310, %rd309, 7, 16;
+	mad.lo.s64 	%rd47, %rd310, 2112, %rd2;
+	or.b64 	%rd48, %rd310, 4294967296;
+$L__BB1_72:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd315, [%rd137];
+	// end inline asm
+	st.volatile.global.b64 	[%rd47+64], %rd315;
+	and.b64 	%rd317, %rd315, -4294967296;
+	add.s64 	%rd316, %rd317, %rd48;
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd313, [%rd137], %rd315, %rd316;
+	// end inline asm
+	setp.eq.b64 	%p82, %rd313, %rd315;
+	@%p82 bra 	$L__BB1_73;
+	bra.uni 	$L__BB1_72;
+$L__BB1_73:
+	setp.eq.b64 	%p83, %rd46, -1;
+	@%p83 bra 	$L__BB1_206;
+$L__BB1_74:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd323, [%rd137];
+	// end inline asm
+	and.b64 	%rd66, %rd323, 65535;
+	setp.eq.b64 	%p85, %rd66, 65535;
+	mov.b64 	%rd631, 0;
+	mov.pred 	%p254, 0;
+	@%p85 bra 	$L__BB1_91;
+	mad.lo.s64 	%rd67, %rd66, 2112, %rd2;
+	cvta.global.u64 	%rd68, %rd67;
+	ld.volatile.global.b64 	%rd324, [%rd67+64];
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd321, [%rd137], %rd323, %rd324;
+	// end inline asm
+	setp.ne.b64 	%p86, %rd321, %rd323;
+	@%p86 bra 	$L__BB1_74;
+	add.s64 	%rd69, %rd67, 64;
+	cvta.global.u64 	%rd70, %rd69;
+	// begin inline asm
+	activemask.b32 %r188;
+	// end inline asm
+	st.volatile.global.b32 	[%rd67+72], %r188;
+	st.volatile.global.b32 	[%rd67+76], 4;
+	add.s64 	%rd336, %rd68, 80;
+	mov.b32 	%r189, 0;
+	// begin inline asm
+	st.release.sys.global.u32 [%rd336], %r189;
+	// end inline asm
+	st.volatile.global.b64 	[%rd67+96], 19;
+	st.volatile.global.b8 	[%rd67+104], 103;
+	st.volatile.global.b8 	[%rd67+105], 112;
+	st.volatile.global.b8 	[%rd67+106], 117;
+	st.volatile.global.b8 	[%rd67+107], 95;
+	st.volatile.global.b8 	[%rd67+108], 116;
+	st.volatile.global.b8 	[%rd67+109], 101;
+	st.volatile.global.b8 	[%rd67+110], 115;
+	st.volatile.global.b8 	[%rd67+111], 116;
+	st.volatile.global.b8 	[%rd67+112], 95;
+	st.volatile.global.b8 	[%rd67+113], 111;
+	st.volatile.global.b8 	[%rd67+114], 117;
+	st.volatile.global.b8 	[%rd67+115], 116;
+	st.volatile.global.b8 	[%rd67+116], 112;
+	st.volatile.global.b8 	[%rd67+117], 117;
+	st.volatile.global.b8 	[%rd67+118], 116;
+	st.volatile.global.b8 	[%rd67+119], 46;
+	st.volatile.global.b8 	[%rd67+120], 116;
+	st.volatile.global.b8 	[%rd67+121], 120;
+	st.volatile.global.b8 	[%rd67+122], 116;
+	// begin inline asm
+	membar.sys;
+	// end inline asm
+	add.s64 	%rd327, %rd137, 8;
+	or.b64 	%rd73, %rd66, 4294967296;
+$L__BB1_77:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd330, [%rd327];
+	// end inline asm
+	st.volatile.global.b64 	[%rd69], %rd330;
+	and.b64 	%rd332, %rd330, -4294967296;
+	add.s64 	%rd331, %rd332, %rd73;
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd328, [%rd327], %rd330, %rd331;
+	// end inline asm
+	setp.ne.b64 	%p87, %rd328, %rd330;
+	@%p87 bra 	$L__BB1_77;
+	add.s64 	%rd334, %rd137, 16;
+	mov.b64 	%rd335, 1;
+	// begin inline asm
+	atom.add.sys.global.u64 %rd333, [%rd334], %rd335;
+	// end inline asm
+	mov.b32 	%r318, 10000000;
+$L__BB1_79:
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r319, [%rd336];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r192, %r319, 1;
+	setp.ne.b32 	%p88, %r192, 0;
+	@%p88 bra 	$L__BB1_211;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r319, [%rd336];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r194, %r319, 1;
+	setp.ne.b32 	%p89, %r194, 0;
+	@%p89 bra 	$L__BB1_211;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r319, [%rd336];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r196, %r319, 1;
+	setp.ne.b32 	%p90, %r196, 0;
+	@%p90 bra 	$L__BB1_211;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r319, [%rd336];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r198, %r319, 1;
+	setp.ne.b32 	%p91, %r198, 0;
+	@%p91 bra 	$L__BB1_211;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r319, [%rd336];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r200, %r319, 1;
+	setp.ne.b32 	%p92, %r200, 0;
+	@%p92 bra 	$L__BB1_211;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r319, [%rd336];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r202, %r319, 1;
+	setp.ne.b32 	%p93, %r202, 0;
+	@%p93 bra 	$L__BB1_211;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r319, [%rd336];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r204, %r319, 1;
+	setp.ne.b32 	%p94, %r204, 0;
+	@%p94 bra 	$L__BB1_211;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r319, [%rd336];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r206, %r319, 1;
+	setp.ne.b32 	%p95, %r206, 0;
+	@%p95 bra 	$L__BB1_211;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r319, [%rd336];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r208, %r319, 1;
+	setp.ne.b32 	%p96, %r208, 0;
+	@%p96 bra 	$L__BB1_211;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r319, [%rd336];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r210, %r319, 1;
+	setp.ne.b32 	%p97, %r210, 0;
+	@%p97 bra 	$L__BB1_211;
+	add.s32 	%r318, %r318, -10;
+	setp.ne.b32 	%p98, %r318, 0;
+	@%p98 bra 	$L__BB1_79;
+$L__BB1_90:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd350, [%rd137];
+	// end inline asm
+	st.volatile.global.b64 	[%rd69], %rd350;
+	and.b64 	%rd353, %rd350, -4294967296;
+	add.s64 	%rd351, %rd353, %rd73;
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd348, [%rd137], %rd350, %rd351;
+	// end inline asm
+	setp.ne.b64 	%p100, %rd348, %rd350;
+	@%p100 bra 	$L__BB1_90;
+	bra.uni 	$L__BB1_91;
+$L__BB1_95:
+	add.s64 	%rd297, %rd622, -64;
+	mul.hi.u64 	%rd298, %rd297, 1117984489315730401;
+	bfe.u64 	%rd299, %rd298, 7, 16;
+	mad.lo.s64 	%rd49, %rd299, 2112, %rd2;
+	or.b64 	%rd50, %rd299, 4294967296;
+$L__BB1_96:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd304, [%rd137];
+	// end inline asm
+	st.volatile.global.b64 	[%rd49+64], %rd304;
+	and.b64 	%rd306, %rd304, -4294967296;
+	add.s64 	%rd305, %rd306, %rd50;
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd302, [%rd137], %rd304, %rd305;
+	// end inline asm
+	setp.eq.b64 	%p81, %rd302, %rd304;
+	@%p81 bra 	$L__BB1_206;
+	bra.uni 	$L__BB1_96;
+$L__BB1_99:
+	add.s64 	%rd55, %rd53, 64;
+	cvta.global.u64 	%rd56, %rd55;
+	// begin inline asm
+	activemask.b32 %r286;
+	// end inline asm
+	st.volatile.global.b32 	[%rd53+72], %r286;
+	st.volatile.global.b32 	[%rd53+76], 5;
+	add.s64 	%rd579, %rd54, 80;
+	mov.b32 	%r287, 0;
+	// begin inline asm
+	st.release.sys.global.u32 [%rd579], %r287;
+	// end inline asm
+	st.volatile.global.b64 	[%rd53+96], %rd626;
+	// begin inline asm
+	membar.sys;
+	// end inline asm
+	add.s64 	%rd570, %rd137, 8;
+	or.b64 	%rd59, %rd52, 4294967296;
+$L__BB1_100:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd573, [%rd570];
+	// end inline asm
+	st.volatile.global.b64 	[%rd55], %rd573;
+	and.b64 	%rd575, %rd573, -4294967296;
+	add.s64 	%rd574, %rd575, %rd59;
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd571, [%rd570], %rd573, %rd574;
+	// end inline asm
+	setp.ne.b64 	%p232, %rd571, %rd573;
+	@%p232 bra 	$L__BB1_100;
+	add.s64 	%rd577, %rd137, 16;
+	mov.b64 	%rd578, 1;
+	// begin inline asm
+	atom.add.sys.global.u64 %rd576, [%rd577], %rd578;
+	// end inline asm
+	mov.b32 	%r316, 10000000;
+$L__BB1_102:
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r317, [%rd579];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r290, %r317, 1;
+	setp.ne.b32 	%p233, %r290, 0;
+	@%p233 bra 	$L__BB1_210;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r317, [%rd579];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r292, %r317, 1;
+	setp.ne.b32 	%p234, %r292, 0;
+	@%p234 bra 	$L__BB1_210;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r317, [%rd579];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r294, %r317, 1;
+	setp.ne.b32 	%p235, %r294, 0;
+	@%p235 bra 	$L__BB1_210;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r317, [%rd579];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r296, %r317, 1;
+	setp.ne.b32 	%p236, %r296, 0;
+	@%p236 bra 	$L__BB1_210;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r317, [%rd579];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r298, %r317, 1;
+	setp.ne.b32 	%p237, %r298, 0;
+	@%p237 bra 	$L__BB1_210;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r317, [%rd579];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r300, %r317, 1;
+	setp.ne.b32 	%p238, %r300, 0;
+	@%p238 bra 	$L__BB1_210;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r317, [%rd579];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r302, %r317, 1;
+	setp.ne.b32 	%p239, %r302, 0;
+	@%p239 bra 	$L__BB1_210;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r317, [%rd579];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r304, %r317, 1;
+	setp.ne.b32 	%p240, %r304, 0;
+	@%p240 bra 	$L__BB1_210;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r317, [%rd579];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r306, %r317, 1;
+	setp.ne.b32 	%p241, %r306, 0;
+	@%p241 bra 	$L__BB1_210;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r317, [%rd579];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r308, %r317, 1;
+	setp.ne.b32 	%p242, %r308, 0;
+	@%p242 bra 	$L__BB1_210;
+	add.s32 	%r316, %r316, -10;
+	setp.ne.b32 	%p243, %r316, 0;
+	@%p243 bra 	$L__BB1_102;
+$L__BB1_113:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd593, [%rd137];
+	// end inline asm
+	st.volatile.global.b64 	[%rd55], %rd593;
+	and.b64 	%rd596, %rd593, -4294967296;
+	add.s64 	%rd594, %rd596, %rd59;
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd591, [%rd137], %rd593, %rd594;
+	// end inline asm
+	setp.ne.b64 	%p245, %rd591, %rd593;
+	@%p245 bra 	$L__BB1_113;
+	bra.uni 	$L__BB1_114;
+$L__BB1_210:
+	and.b32 	%r309, %r317, 2;
+	setp.eq.b32 	%p253, %r309, 0;
+	mov.b64 	%rd630, %rd56;
+$L__BB1_114:
+	setp.eq.b64 	%p246, %rd630, 0;
+	@%p246 bra 	$L__BB1_206;
+	not.pred 	%p247, %p253;
+	@%p247 bra 	$L__BB1_118;
+	ld.volatile.b64 	%rd608, [%rd630+32];
+	sub.s64 	%rd609, %rd630, %rd137;
+	add.s64 	%rd610, %rd609, -64;
+	mul.hi.u64 	%rd611, %rd610, 1117984489315730401;
+	bfe.u64 	%rd612, %rd611, 7, 16;
+	mad.lo.s64 	%rd61, %rd612, 2112, %rd2;
+	or.b64 	%rd62, %rd612, 4294967296;
+$L__BB1_117:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd617, [%rd137];
+	// end inline asm
+	st.volatile.global.b64 	[%rd61+64], %rd617;
+	and.b64 	%rd619, %rd617, -4294967296;
+	add.s64 	%rd618, %rd619, %rd62;
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd615, [%rd137], %rd617, %rd618;
+	// end inline asm
+	setp.eq.b64 	%p249, %rd615, %rd617;
+	@%p249 bra 	$L__BB1_206;
+	bra.uni 	$L__BB1_117;
+$L__BB1_118:
+	sub.s64 	%rd597, %rd630, %rd137;
+	add.s64 	%rd598, %rd597, -64;
+	mul.hi.u64 	%rd599, %rd598, 1117984489315730401;
+	bfe.u64 	%rd600, %rd599, 7, 16;
+	mad.lo.s64 	%rd63, %rd600, 2112, %rd2;
+	or.b64 	%rd64, %rd600, 4294967296;
+$L__BB1_119:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd605, [%rd137];
+	// end inline asm
+	st.volatile.global.b64 	[%rd63+64], %rd605;
+	and.b64 	%rd607, %rd605, -4294967296;
+	add.s64 	%rd606, %rd607, %rd64;
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd603, [%rd137], %rd605, %rd606;
+	// end inline asm
+	setp.eq.b64 	%p248, %rd603, %rd605;
+	@%p248 bra 	$L__BB1_206;
+	bra.uni 	$L__BB1_119;
+$L__BB1_211:
+	and.b32 	%r211, %r319, 2;
+	setp.eq.b32 	%p254, %r211, 0;
+	mov.b64 	%rd631, %rd70;
+$L__BB1_91:
+	setp.eq.b64 	%p101, %rd631, 0;
+	mov.b64 	%rd632, -1;
+	@%p101 bra 	$L__BB1_122;
+	not.pred 	%p102, %p254;
+	sub.s64 	%rd623, %rd631, %rd137;
+	@%p102 bra 	$L__BB1_120;
+	ld.volatile.b64 	%rd632, [%rd631+32];
+	add.s64 	%rd368, %rd623, -64;
+	mul.hi.u64 	%rd369, %rd368, 1117984489315730401;
+	bfe.u64 	%rd370, %rd369, 7, 16;
+	mad.lo.s64 	%rd76, %rd370, 2112, %rd2;
+	or.b64 	%rd77, %rd370, 4294967296;
+$L__BB1_94:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd375, [%rd137];
+	// end inline asm
+	st.volatile.global.b64 	[%rd76+64], %rd375;
+	and.b64 	%rd377, %rd375, -4294967296;
+	add.s64 	%rd376, %rd377, %rd77;
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd373, [%rd137], %rd375, %rd376;
+	// end inline asm
+	setp.eq.b64 	%p104, %rd373, %rd375;
+	@%p104 bra 	$L__BB1_122;
+	bra.uni 	$L__BB1_94;
+$L__BB1_120:
+	add.s64 	%rd356, %rd623, -64;
+	mul.hi.u64 	%rd357, %rd356, 1117984489315730401;
+	bfe.u64 	%rd358, %rd357, 7, 16;
+	mad.lo.s64 	%rd78, %rd358, 2112, %rd2;
+	or.b64 	%rd79, %rd358, 4294967296;
+$L__BB1_121:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd363, [%rd137];
+	// end inline asm
+	st.volatile.global.b64 	[%rd78+64], %rd363;
+	and.b64 	%rd366, %rd363, -4294967296;
+	add.s64 	%rd364, %rd366, %rd79;
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd361, [%rd137], %rd363, %rd364;
+	// end inline asm
+	setp.ne.b64 	%p103, %rd361, %rd363;
+	@%p103 bra 	$L__BB1_121;
+$L__BB1_122:
+	setp.eq.b64 	%p105, %rd632, -1;
+	@%p105 bra 	$L__BB1_206;
+	st.local.b8 	[%rd3+47], 0;
+	st.local.b8 	[%rd3+46], 0;
+	st.local.b8 	[%rd3+45], 0;
+	st.local.b8 	[%rd3+44], 0;
+	st.local.b8 	[%rd3+43], 0;
+	st.local.b8 	[%rd3+42], 0;
+	st.local.b8 	[%rd3+41], 0;
+	st.local.b8 	[%rd3+40], 0;
+	st.local.b8 	[%rd3+39], 0;
+	st.local.b8 	[%rd3+38], 0;
+	st.local.b8 	[%rd3+37], 0;
+	st.local.b8 	[%rd3+36], 0;
+	st.local.b8 	[%rd3+35], 0;
+	st.local.b8 	[%rd3+34], 0;
+	st.local.b8 	[%rd3+33], 0;
+	st.local.b8 	[%rd3+32], 0;
+	st.local.b8 	[%rd3+31], 0;
+	st.local.b8 	[%rd3+30], 0;
+	st.local.b8 	[%rd3+29], 0;
+	st.local.b8 	[%rd3+28], 0;
+	st.local.b8 	[%rd3+27], 0;
+	st.local.b8 	[%rd3+26], 0;
+	st.local.b8 	[%rd3+25], 0;
+	st.local.b8 	[%rd3+24], 0;
+	st.local.b8 	[%rd3+23], 0;
+	st.local.b8 	[%rd3+22], 0;
+	st.local.b8 	[%rd3+21], 0;
+	st.local.b8 	[%rd3+20], 0;
+	st.local.b8 	[%rd3+19], 0;
+	st.local.b8 	[%rd3+18], 0;
+	st.local.b8 	[%rd3+17], 0;
+	st.local.b8 	[%rd3+16], 0;
+	st.local.b8 	[%rd3+15], 0;
+	st.local.b8 	[%rd3+14], 0;
+	st.local.b8 	[%rd3+13], 0;
+	st.local.b8 	[%rd3+12], 0;
+	st.local.b8 	[%rd3+11], 0;
+	st.local.b8 	[%rd3+10], 0;
+	st.local.b8 	[%rd3+9], 0;
+	st.local.b8 	[%rd3+8], 0;
+	st.local.b8 	[%rd3+7], 0;
+	st.local.b8 	[%rd3+6], 0;
+	st.local.b8 	[%rd3+5], 0;
+	st.local.b8 	[%rd3+4], 0;
+	st.local.b8 	[%rd3+3], 0;
+	st.local.b8 	[%rd3+2], 0;
+	st.local.b8 	[%rd3+1], 0;
+	st.local.b8 	[%rd3], 0;
+$L__BB1_124:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd383, [%rd137];
+	// end inline asm
+	and.b64 	%rd82, %rd383, 65535;
+	setp.eq.b64 	%p107, %rd82, 65535;
+	mov.b64 	%rd633, 0;
+	mov.pred 	%p255, 0;
+	@%p107 bra 	$L__BB1_141;
+	mad.lo.s64 	%rd83, %rd82, 2112, %rd2;
+	cvta.global.u64 	%rd84, %rd83;
+	ld.volatile.global.b64 	%rd384, [%rd83+64];
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd381, [%rd137], %rd383, %rd384;
+	// end inline asm
+	setp.ne.b64 	%p108, %rd381, %rd383;
+	@%p108 bra 	$L__BB1_124;
+	add.s64 	%rd85, %rd83, 64;
+	cvta.global.u64 	%rd86, %rd85;
+	// begin inline asm
+	activemask.b32 %r212;
+	// end inline asm
+	st.volatile.global.b32 	[%rd83+72], %r212;
+	st.volatile.global.b32 	[%rd83+76], 3;
+	add.s64 	%rd396, %rd84, 80;
+	mov.b32 	%r213, 0;
+	// begin inline asm
+	st.release.sys.global.u32 [%rd396], %r213;
+	// end inline asm
+	st.volatile.global.b64 	[%rd83+96], %rd632;
+	st.volatile.global.b64 	[%rd83+104], 48;
+	// begin inline asm
+	membar.sys;
+	// end inline asm
+	add.s64 	%rd387, %rd137, 8;
+	or.b64 	%rd89, %rd82, 4294967296;
+$L__BB1_127:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd390, [%rd387];
+	// end inline asm
+	st.volatile.global.b64 	[%rd85], %rd390;
+	and.b64 	%rd392, %rd390, -4294967296;
+	add.s64 	%rd391, %rd392, %rd89;
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd388, [%rd387], %rd390, %rd391;
+	// end inline asm
+	setp.ne.b64 	%p109, %rd388, %rd390;
+	@%p109 bra 	$L__BB1_127;
+	add.s64 	%rd394, %rd137, 16;
+	mov.b64 	%rd395, 1;
+	// begin inline asm
+	atom.add.sys.global.u64 %rd393, [%rd394], %rd395;
+	// end inline asm
+	mov.b32 	%r320, 10000000;
+$L__BB1_129:
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r321, [%rd396];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r216, %r321, 1;
+	setp.ne.b32 	%p110, %r216, 0;
+	@%p110 bra 	$L__BB1_212;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r321, [%rd396];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r218, %r321, 1;
+	setp.ne.b32 	%p111, %r218, 0;
+	@%p111 bra 	$L__BB1_212;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r321, [%rd396];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r220, %r321, 1;
+	setp.ne.b32 	%p112, %r220, 0;
+	@%p112 bra 	$L__BB1_212;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r321, [%rd396];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r222, %r321, 1;
+	setp.ne.b32 	%p113, %r222, 0;
+	@%p113 bra 	$L__BB1_212;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r321, [%rd396];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r224, %r321, 1;
+	setp.ne.b32 	%p114, %r224, 0;
+	@%p114 bra 	$L__BB1_212;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r321, [%rd396];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r226, %r321, 1;
+	setp.ne.b32 	%p115, %r226, 0;
+	@%p115 bra 	$L__BB1_212;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r321, [%rd396];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r228, %r321, 1;
+	setp.ne.b32 	%p116, %r228, 0;
+	@%p116 bra 	$L__BB1_212;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r321, [%rd396];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r230, %r321, 1;
+	setp.ne.b32 	%p117, %r230, 0;
+	@%p117 bra 	$L__BB1_212;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r321, [%rd396];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r232, %r321, 1;
+	setp.ne.b32 	%p118, %r232, 0;
+	@%p118 bra 	$L__BB1_212;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r321, [%rd396];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r234, %r321, 1;
+	setp.ne.b32 	%p119, %r234, 0;
+	@%p119 bra 	$L__BB1_212;
+	add.s32 	%r320, %r320, -10;
+	setp.ne.b32 	%p120, %r320, 0;
+	@%p120 bra 	$L__BB1_129;
+$L__BB1_140:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd410, [%rd137];
+	// end inline asm
+	st.volatile.global.b64 	[%rd85], %rd410;
+	and.b64 	%rd413, %rd410, -4294967296;
+	add.s64 	%rd411, %rd413, %rd89;
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd408, [%rd137], %rd410, %rd411;
+	// end inline asm
+	setp.ne.b64 	%p122, %rd408, %rd410;
+	@%p122 bra 	$L__BB1_140;
+	bra.uni 	$L__BB1_141;
+$L__BB1_212:
+	and.b32 	%r235, %r321, 2;
+	setp.eq.b32 	%p255, %r235, 0;
+	mov.b64 	%rd633, %rd86;
+$L__BB1_141:
+	setp.eq.b64 	%p123, %rd633, 0;
+	mov.b64 	%rd637, -1;
+	@%p123 bra 	$L__BB1_155;
+	not.pred 	%p124, %p255;
+	sub.s64 	%rd624, %rd633, %rd137;
+	@%p124 bra 	$L__BB1_152;
+	ld.volatile.b64 	%rd637, [%rd633+32];
+	setp.eq.b64 	%p126, %rd637, -1;
+	@%p126 bra 	$L__BB1_151;
+	setp.eq.b64 	%p127, %rd637, 0;
+	@%p127 bra 	$L__BB1_151;
+	min.u64 	%rd103, %rd637, 48;
+	cvt.u32.u64 	%r82, %rd103;
+	and.b32 	%r323, %r82, 7;
+	setp.lt.u64 	%p128, %rd637, 8;
+	mov.b32 	%r322, 0;
+	@%p128 bra 	$L__BB1_148;
+	add.s64 	%rd102, %rd633, 40;
+	and.b64 	%rd104, %rd103, 56;
+	add.s64 	%rd105, %rd3, 7;
+	mov.b64 	%rd636, 0;
+	cvt.u32.u64 	%r237, %rd104;
+$L__BB1_147:
+	add.s64 	%rd428, %rd102, %rd636;
+	ld.volatile.b8 	%rs1, [%rd428];
+	add.s64 	%rd429, %rd105, %rd636;
+	st.local.b8 	[%rd429+-7], %rs1;
+	ld.volatile.b8 	%rs2, [%rd428+1];
+	st.local.b8 	[%rd429+-6], %rs2;
+	ld.volatile.b8 	%rs3, [%rd428+2];
+	st.local.b8 	[%rd429+-5], %rs3;
+	ld.volatile.b8 	%rs4, [%rd428+3];
+	st.local.b8 	[%rd429+-4], %rs4;
+	ld.volatile.b8 	%rs5, [%rd428+4];
+	st.local.b8 	[%rd429+-3], %rs5;
+	ld.volatile.b8 	%rs6, [%rd428+5];
+	st.local.b8 	[%rd429+-2], %rs6;
+	ld.volatile.b8 	%rs7, [%rd428+6];
+	st.local.b8 	[%rd429+-1], %rs7;
+	ld.volatile.b8 	%rs8, [%rd428+7];
+	st.local.b8 	[%rd429], %rs8;
+	add.s64 	%rd636, %rd636, 8;
+	cvt.u32.u64 	%r322, %rd636;
+	setp.eq.b32 	%p129, %r237, %r322;
+	@%p129 bra 	$L__BB1_148;
+	bra.uni 	$L__BB1_147;
+$L__BB1_148:
+	setp.eq.b32 	%p130, %r323, 0;
+	@%p130 bra 	$L__BB1_151;
+	cvt.u64.u32 	%rd430, %r322;
+	add.s64 	%rd431, %rd430, %rd633;
+	add.s64 	%rd635, %rd431, 40;
+	add.s64 	%rd634, %rd3, %rd430;
+$L__BB1_150:
+	.pragma "nounroll";
+	ld.volatile.b8 	%rs9, [%rd635];
+	st.local.b8 	[%rd634], %rs9;
+	add.s64 	%rd635, %rd635, 1;
+	add.s64 	%rd634, %rd634, 1;
+	add.s32 	%r323, %r323, -1;
+	setp.ne.b32 	%p131, %r323, 0;
+	@%p131 bra 	$L__BB1_150;
+$L__BB1_151:
+	add.s64 	%rd433, %rd624, -64;
+	mul.hi.u64 	%rd434, %rd433, 1117984489315730401;
+	bfe.u64 	%rd435, %rd434, 7, 16;
+	mad.lo.s64 	%rd100, %rd435, 2112, %rd2;
+	or.b64 	%rd101, %rd435, 4294967296;
+$L__BB1_154:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd440, [%rd137];
+	// end inline asm
+	st.volatile.global.b64 	[%rd100+64], %rd440;
+	and.b64 	%rd442, %rd440, -4294967296;
+	add.s64 	%rd441, %rd442, %rd101;
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd438, [%rd137], %rd440, %rd441;
+	// end inline asm
+	setp.eq.b64 	%p132, %rd438, %rd440;
+	@%p132 bra 	$L__BB1_155;
+	bra.uni 	$L__BB1_154;
+$L__BB1_152:
+	add.s64 	%rd416, %rd624, -64;
+	mul.hi.u64 	%rd417, %rd416, 1117984489315730401;
+	bfe.u64 	%rd418, %rd417, 7, 16;
+	mad.lo.s64 	%rd92, %rd418, 2112, %rd2;
+	or.b64 	%rd93, %rd418, 4294967296;
+$L__BB1_153:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd423, [%rd137];
+	// end inline asm
+	st.volatile.global.b64 	[%rd92+64], %rd423;
+	and.b64 	%rd426, %rd423, -4294967296;
+	add.s64 	%rd424, %rd426, %rd93;
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd421, [%rd137], %rd423, %rd424;
+	// end inline asm
+	setp.eq.b64 	%p125, %rd421, %rd423;
+	@%p125 bra 	$L__BB1_155;
+	bra.uni 	$L__BB1_153;
+$L__BB1_155:
+	setp.ne.b64 	%p133, %rd637, -1;
+	@%p133 bra 	$L__BB1_156;
+	bra.uni 	$L__BB1_183;
+$L__BB1_156:
+	st.global.b32 	[%rd1+12], %rd637;
+$L__BB1_157:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd448, [%rd137];
+	// end inline asm
+	and.b64 	%rd110, %rd448, 65535;
+	setp.eq.b64 	%p135, %rd110, 65535;
+	mov.b64 	%rd638, 0;
+	mov.pred 	%p256, 0;
+	@%p135 bra 	$L__BB1_174;
+	mad.lo.s64 	%rd111, %rd110, 2112, %rd2;
+	cvta.global.u64 	%rd112, %rd111;
+	ld.volatile.global.b64 	%rd449, [%rd111+64];
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd446, [%rd137], %rd448, %rd449;
+	// end inline asm
+	setp.ne.b64 	%p136, %rd446, %rd448;
+	@%p136 bra 	$L__BB1_157;
+	add.s64 	%rd113, %rd111, 64;
+	cvta.global.u64 	%rd114, %rd113;
+	// begin inline asm
+	activemask.b32 %r238;
+	// end inline asm
+	st.volatile.global.b32 	[%rd111+72], %r238;
+	st.volatile.global.b32 	[%rd111+76], 5;
+	add.s64 	%rd461, %rd112, 80;
+	mov.b32 	%r239, 0;
+	// begin inline asm
+	st.release.sys.global.u32 [%rd461], %r239;
+	// end inline asm
+	st.volatile.global.b64 	[%rd111+96], %rd632;
+	// begin inline asm
+	membar.sys;
+	// end inline asm
+	add.s64 	%rd452, %rd137, 8;
+	or.b64 	%rd117, %rd110, 4294967296;
+$L__BB1_160:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd455, [%rd452];
+	// end inline asm
+	st.volatile.global.b64 	[%rd113], %rd455;
+	and.b64 	%rd457, %rd455, -4294967296;
+	add.s64 	%rd456, %rd457, %rd117;
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd453, [%rd452], %rd455, %rd456;
+	// end inline asm
+	setp.ne.b64 	%p137, %rd453, %rd455;
+	@%p137 bra 	$L__BB1_160;
+	add.s64 	%rd459, %rd137, 16;
+	mov.b64 	%rd460, 1;
+	// begin inline asm
+	atom.add.sys.global.u64 %rd458, [%rd459], %rd460;
+	// end inline asm
+	mov.b32 	%r324, 10000000;
+$L__BB1_162:
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r325, [%rd461];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r242, %r325, 1;
+	setp.ne.b32 	%p138, %r242, 0;
+	@%p138 bra 	$L__BB1_213;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r325, [%rd461];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r244, %r325, 1;
+	setp.ne.b32 	%p139, %r244, 0;
+	@%p139 bra 	$L__BB1_213;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r325, [%rd461];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r246, %r325, 1;
+	setp.ne.b32 	%p140, %r246, 0;
+	@%p140 bra 	$L__BB1_213;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r325, [%rd461];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r248, %r325, 1;
+	setp.ne.b32 	%p141, %r248, 0;
+	@%p141 bra 	$L__BB1_213;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r325, [%rd461];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r250, %r325, 1;
+	setp.ne.b32 	%p142, %r250, 0;
+	@%p142 bra 	$L__BB1_213;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r325, [%rd461];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r252, %r325, 1;
+	setp.ne.b32 	%p143, %r252, 0;
+	@%p143 bra 	$L__BB1_213;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r325, [%rd461];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r254, %r325, 1;
+	setp.ne.b32 	%p144, %r254, 0;
+	@%p144 bra 	$L__BB1_213;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r325, [%rd461];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r256, %r325, 1;
+	setp.ne.b32 	%p145, %r256, 0;
+	@%p145 bra 	$L__BB1_213;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r325, [%rd461];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r258, %r325, 1;
+	setp.ne.b32 	%p146, %r258, 0;
+	@%p146 bra 	$L__BB1_213;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r325, [%rd461];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r260, %r325, 1;
+	setp.ne.b32 	%p147, %r260, 0;
+	@%p147 bra 	$L__BB1_213;
+	add.s32 	%r324, %r324, -10;
+	setp.ne.b32 	%p148, %r324, 0;
+	@%p148 bra 	$L__BB1_162;
+$L__BB1_173:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd475, [%rd137];
+	// end inline asm
+	st.volatile.global.b64 	[%rd113], %rd475;
+	and.b64 	%rd478, %rd475, -4294967296;
+	add.s64 	%rd476, %rd478, %rd117;
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd473, [%rd137], %rd475, %rd476;
+	// end inline asm
+	setp.ne.b64 	%p150, %rd473, %rd475;
+	@%p150 bra 	$L__BB1_173;
+	bra.uni 	$L__BB1_174;
+$L__BB1_184:
+	mad.lo.s64 	%rd125, %rd124, 2112, %rd2;
+	cvta.global.u64 	%rd126, %rd125;
+	ld.volatile.global.b64 	%rd508, [%rd125+64];
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd505, [%rd137], %rd507, %rd508;
+	// end inline asm
+	setp.ne.b64 	%p210, %rd505, %rd507;
+	@%p210 bra 	$L__BB1_183;
+	bra.uni 	$L__BB1_185;
+$L__BB1_183:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd507, [%rd137];
+	// end inline asm
+	and.b64 	%rd124, %rd507, 65535;
+	setp.eq.b64 	%p209, %rd124, 65535;
+	mov.b64 	%rd639, 0;
+	mov.pred 	%p257, 0;
+	@%p209 bra 	$L__BB1_200;
+	bra.uni 	$L__BB1_184;
+$L__BB1_213:
+	and.b32 	%r261, %r325, 2;
+	setp.eq.b32 	%p256, %r261, 0;
+	mov.b64 	%rd638, %rd114;
+$L__BB1_174:
+	setp.eq.b64 	%p151, %rd638, 0;
+	@%p151 bra 	$L__BB1_180;
+	not.pred 	%p152, %p256;
+	@%p152 bra 	$L__BB1_178;
+	ld.volatile.b64 	%rd490, [%rd638+32];
+	sub.s64 	%rd491, %rd638, %rd137;
+	add.s64 	%rd492, %rd491, -64;
+	mul.hi.u64 	%rd493, %rd492, 1117984489315730401;
+	bfe.u64 	%rd494, %rd493, 7, 16;
+	mad.lo.s64 	%rd119, %rd494, 2112, %rd2;
+	or.b64 	%rd120, %rd494, 4294967296;
+$L__BB1_177:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd499, [%rd137];
+	// end inline asm
+	st.volatile.global.b64 	[%rd119+64], %rd499;
+	and.b64 	%rd501, %rd499, -4294967296;
+	add.s64 	%rd500, %rd501, %rd120;
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd497, [%rd137], %rd499, %rd500;
+	// end inline asm
+	setp.eq.b64 	%p154, %rd497, %rd499;
+	@%p154 bra 	$L__BB1_180;
+	bra.uni 	$L__BB1_177;
+$L__BB1_178:
+	sub.s64 	%rd479, %rd638, %rd137;
+	add.s64 	%rd480, %rd479, -64;
+	mul.hi.u64 	%rd481, %rd480, 1117984489315730401;
+	bfe.u64 	%rd482, %rd481, 7, 16;
+	mad.lo.s64 	%rd121, %rd482, 2112, %rd2;
+	or.b64 	%rd122, %rd482, 4294967296;
+$L__BB1_179:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd487, [%rd137];
+	// end inline asm
+	st.volatile.global.b64 	[%rd121+64], %rd487;
+	and.b64 	%rd489, %rd487, -4294967296;
+	add.s64 	%rd488, %rd489, %rd122;
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd485, [%rd137], %rd487, %rd488;
+	// end inline asm
+	setp.ne.b64 	%p153, %rd485, %rd487;
+	@%p153 bra 	$L__BB1_179;
+$L__BB1_180:
+	setp.ne.b64 	%p155, %rd637, 25;
+	@%p155 bra 	$L__BB1_206;
+	ld.local.b8 	%rs10, [%rd3];
+	setp.eq.b16 	%p156, %rs10, 72;
+	ld.local.b8 	%rs11, [%rd3+1];
+	setp.eq.b16 	%p157, %rs11, 101;
+	and.pred 	%p158, %p157, %p156;
+	ld.local.b8 	%rs12, [%rd3+2];
+	setp.eq.b16 	%p159, %rs12, 108;
+	and.pred 	%p160, %p159, %p158;
+	ld.local.b8 	%rs13, [%rd3+3];
+	setp.eq.b16 	%p161, %rs13, 108;
+	and.pred 	%p162, %p161, %p160;
+	ld.local.b8 	%rs14, [%rd3+4];
+	setp.eq.b16 	%p163, %rs14, 111;
+	and.pred 	%p164, %p163, %p162;
+	ld.local.b8 	%rs15, [%rd3+5];
+	setp.eq.b16 	%p165, %rs15, 32;
+	and.pred 	%p166, %p165, %p164;
+	ld.local.b8 	%rs16, [%rd3+6];
+	setp.eq.b16 	%p167, %rs16, 102;
+	and.pred 	%p168, %p167, %p166;
+	ld.local.b8 	%rs17, [%rd3+7];
+	setp.eq.b16 	%p169, %rs17, 114;
+	and.pred 	%p170, %p169, %p168;
+	ld.local.b8 	%rs18, [%rd3+8];
+	setp.eq.b16 	%p172, %rs18, 111;
+	ld.local.b8 	%rs19, [%rd3+9];
+	setp.eq.b16 	%p173, %rs19, 109;
+	and.pred 	%p174, %p173, %p172;
+	ld.local.b8 	%rs20, [%rd3+10];
+	setp.eq.b16 	%p175, %rs20, 32;
+	and.pred 	%p176, %p175, %p174;
+	ld.local.b8 	%rs21, [%rd3+11];
+	setp.eq.b16 	%p177, %rs21, 71;
+	and.pred 	%p178, %p177, %p176;
+	ld.local.b8 	%rs22, [%rd3+12];
+	setp.eq.b16 	%p179, %rs22, 80;
+	and.pred 	%p180, %p179, %p178;
+	ld.local.b8 	%rs23, [%rd3+13];
+	setp.eq.b16 	%p181, %rs23, 85;
+	and.pred 	%p182, %p181, %p180;
+	ld.local.b8 	%rs24, [%rd3+14];
+	setp.eq.b16 	%p183, %rs24, 32;
+	and.pred 	%p184, %p183, %p182;
+	ld.local.b8 	%rs25, [%rd3+15];
+	setp.eq.b16 	%p185, %rs25, 102;
+	and.pred 	%p186, %p185, %p184;
+	ld.local.b8 	%rs26, [%rd3+16];
+	setp.eq.b16 	%p188, %rs26, 105;
+	ld.local.b8 	%rs27, [%rd3+17];
+	setp.eq.b16 	%p189, %rs27, 108;
+	and.pred 	%p190, %p189, %p188;
+	ld.local.b8 	%rs28, [%rd3+18];
+	setp.eq.b16 	%p191, %rs28, 101;
+	and.pred 	%p192, %p191, %p190;
+	ld.local.b8 	%rs29, [%rd3+19];
+	setp.eq.b16 	%p193, %rs29, 32;
+	and.pred 	%p194, %p193, %p192;
+	ld.local.b8 	%rs30, [%rd3+20];
+	setp.eq.b16 	%p195, %rs30, 73;
+	and.pred 	%p196, %p195, %p194;
+	ld.local.b8 	%rs31, [%rd3+21];
+	setp.eq.b16 	%p197, %rs31, 47;
+	and.pred 	%p198, %p197, %p196;
+	ld.local.b8 	%rs32, [%rd3+22];
+	setp.eq.b16 	%p199, %rs32, 79;
+	and.pred 	%p200, %p199, %p198;
+	ld.local.b8 	%rs33, [%rd3+23];
+	setp.eq.b16 	%p201, %rs33, 33;
+	and.pred 	%p202, %p201, %p200;
+	ld.local.b8 	%rs34, [%rd3+24];
+	setp.eq.b16 	%p204, %rs34, 10;
+	and.pred 	%p205, %p204, %p202;
+	and.pred 	%p206, %p205, %p186;
+	and.pred 	%p207, %p206, %p170;
+	@%p207 bra 	$L__BB1_182;
+	bra.uni 	$L__BB1_206;
+$L__BB1_182:
+	st.global.b32 	[%rd1], 1;
+	bra.uni 	$L__BB1_206;
+$L__BB1_185:
+	add.s64 	%rd127, %rd125, 64;
+	cvta.global.u64 	%rd128, %rd127;
+	// begin inline asm
+	activemask.b32 %r262;
+	// end inline asm
+	st.volatile.global.b32 	[%rd125+72], %r262;
+	st.volatile.global.b32 	[%rd125+76], 5;
+	add.s64 	%rd520, %rd126, 80;
+	mov.b32 	%r263, 0;
+	// begin inline asm
+	st.release.sys.global.u32 [%rd520], %r263;
+	// end inline asm
+	st.volatile.global.b64 	[%rd125+96], %rd632;
+	// begin inline asm
+	membar.sys;
+	// end inline asm
+	add.s64 	%rd511, %rd137, 8;
+	or.b64 	%rd131, %rd124, 4294967296;
+$L__BB1_186:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd514, [%rd511];
+	// end inline asm
+	st.volatile.global.b64 	[%rd127], %rd514;
+	and.b64 	%rd516, %rd514, -4294967296;
+	add.s64 	%rd515, %rd516, %rd131;
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd512, [%rd511], %rd514, %rd515;
+	// end inline asm
+	setp.ne.b64 	%p211, %rd512, %rd514;
+	@%p211 bra 	$L__BB1_186;
+	add.s64 	%rd518, %rd137, 16;
+	mov.b64 	%rd519, 1;
+	// begin inline asm
+	atom.add.sys.global.u64 %rd517, [%rd518], %rd519;
+	// end inline asm
+	mov.b32 	%r326, 10000000;
+$L__BB1_188:
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r327, [%rd520];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r266, %r327, 1;
+	setp.ne.b32 	%p212, %r266, 0;
+	@%p212 bra 	$L__BB1_214;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r327, [%rd520];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r268, %r327, 1;
+	setp.ne.b32 	%p213, %r268, 0;
+	@%p213 bra 	$L__BB1_214;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r327, [%rd520];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r270, %r327, 1;
+	setp.ne.b32 	%p214, %r270, 0;
+	@%p214 bra 	$L__BB1_214;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r327, [%rd520];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r272, %r327, 1;
+	setp.ne.b32 	%p215, %r272, 0;
+	@%p215 bra 	$L__BB1_214;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r327, [%rd520];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r274, %r327, 1;
+	setp.ne.b32 	%p216, %r274, 0;
+	@%p216 bra 	$L__BB1_214;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r327, [%rd520];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r276, %r327, 1;
+	setp.ne.b32 	%p217, %r276, 0;
+	@%p217 bra 	$L__BB1_214;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r327, [%rd520];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r278, %r327, 1;
+	setp.ne.b32 	%p218, %r278, 0;
+	@%p218 bra 	$L__BB1_214;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r327, [%rd520];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r280, %r327, 1;
+	setp.ne.b32 	%p219, %r280, 0;
+	@%p219 bra 	$L__BB1_214;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r327, [%rd520];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r282, %r327, 1;
+	setp.ne.b32 	%p220, %r282, 0;
+	@%p220 bra 	$L__BB1_214;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r327, [%rd520];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r284, %r327, 1;
+	setp.ne.b32 	%p221, %r284, 0;
+	@%p221 bra 	$L__BB1_214;
+	add.s32 	%r326, %r326, -10;
+	setp.ne.b32 	%p222, %r326, 0;
+	@%p222 bra 	$L__BB1_188;
+$L__BB1_199:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd534, [%rd137];
+	// end inline asm
+	st.volatile.global.b64 	[%rd127], %rd534;
+	and.b64 	%rd537, %rd534, -4294967296;
+	add.s64 	%rd535, %rd537, %rd131;
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd532, [%rd137], %rd534, %rd535;
+	// end inline asm
+	setp.ne.b64 	%p224, %rd532, %rd534;
+	@%p224 bra 	$L__BB1_199;
+	bra.uni 	$L__BB1_200;
+$L__BB1_214:
+	and.b32 	%r285, %r327, 2;
+	setp.eq.b32 	%p257, %r285, 0;
+	mov.b64 	%rd639, %rd128;
+$L__BB1_200:
+	setp.eq.b64 	%p225, %rd639, 0;
+	@%p225 bra 	$L__BB1_206;
+	not.pred 	%p226, %p257;
+	@%p226 bra 	$L__BB1_204;
+	ld.volatile.b64 	%rd549, [%rd639+32];
+	sub.s64 	%rd550, %rd639, %rd137;
+	add.s64 	%rd551, %rd550, -64;
+	mul.hi.u64 	%rd552, %rd551, 1117984489315730401;
+	bfe.u64 	%rd553, %rd552, 7, 16;
+	mad.lo.s64 	%rd133, %rd553, 2112, %rd2;
+	or.b64 	%rd134, %rd553, 4294967296;
+$L__BB1_203:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd558, [%rd137];
+	// end inline asm
+	st.volatile.global.b64 	[%rd133+64], %rd558;
+	and.b64 	%rd560, %rd558, -4294967296;
+	add.s64 	%rd559, %rd560, %rd134;
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd556, [%rd137], %rd558, %rd559;
+	// end inline asm
+	setp.eq.b64 	%p228, %rd556, %rd558;
+	@%p228 bra 	$L__BB1_206;
+	bra.uni 	$L__BB1_203;
+$L__BB1_204:
+	sub.s64 	%rd538, %rd639, %rd137;
+	add.s64 	%rd539, %rd538, -64;
+	mul.hi.u64 	%rd540, %rd539, 1117984489315730401;
+	bfe.u64 	%rd541, %rd540, 7, 16;
+	mad.lo.s64 	%rd135, %rd541, 2112, %rd2;
+	or.b64 	%rd136, %rd541, 4294967296;
+$L__BB1_205:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd546, [%rd137];
+	// end inline asm
+	st.volatile.global.b64 	[%rd135+64], %rd546;
+	and.b64 	%rd548, %rd546, -4294967296;
+	add.s64 	%rd547, %rd548, %rd136;
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd544, [%rd137], %rd546, %rd547;
+	// end inline asm
+	setp.eq.b64 	%p227, %rd544, %rd546;
+	@%p227 bra 	$L__BB1_206;
+	bra.uni 	$L__BB1_205;
+$L__BB1_206:
+	ret;
+
+}
 	// .globl	hostcall_print_hello
 .visible .entry hostcall_print_hello(
 	.param .u64 .ptr .align 1 hostcall_print_hello_param_0,
@@ -37,16 +1860,16 @@ $L__BB0_1:
 	mul.lo.s32 	%r8, %r6, %r7;
 	neg.s32 	%r9, %r5;
 	setp.ne.b32 	%p1, %r8, %r9;
-	@%p1 bra 	$L__BB1_10;
+	@%p1 bra 	$L__BB2_10;
 	ld.param.b64 	%rd36, [hostcall_print_hello_param_1];
-$L__BB1_2:
+$L__BB2_2:
 	// begin inline asm
 	ld.acquire.sys.global.u64 %rd15, [%rd30];
 	// end inline asm
 	and.b64 	%rd3, %rd15, 65535;
 	setp.eq.b64 	%p2, %rd3, 65535;
 	mov.b32 	%r17, 0;
-	@%p2 bra 	$L__BB1_9;
+	@%p2 bra 	$L__BB2_9;
 	mad.lo.s64 	%rd4, %rd3, 2112, %rd1;
 	cvta.global.u64 	%rd5, %rd4;
 	ld.volatile.global.b64 	%rd16, [%rd4+64];
@@ -54,7 +1877,7 @@ $L__BB1_2:
 	atom.cas.sys.global.b64 %rd13, [%rd30], %rd15, %rd16;
 	// end inline asm
 	setp.ne.b64 	%p3, %rd13, %rd15;
-	@%p3 bra 	$L__BB1_2;
+	@%p3 bra 	$L__BB2_2;
 	// begin inline asm
 	activemask.b32 %r11;
 	// end inline asm
@@ -86,7 +1909,7 @@ $L__BB1_2:
 	// end inline asm
 	add.s64 	%rd19, %rd30, 8;
 	or.b64 	%rd8, %rd3, 4294967296;
-$L__BB1_5:
+$L__BB2_5:
 	// begin inline asm
 	ld.acquire.sys.global.u64 %rd22, [%rd19];
 	// end inline asm
@@ -97,14 +1920,14 @@ $L__BB1_5:
 	atom.cas.sys.global.b64 %rd20, [%rd19], %rd22, %rd23;
 	// end inline asm
 	setp.ne.b64 	%p4, %rd20, %rd22;
-	@%p4 bra 	$L__BB1_5;
+	@%p4 bra 	$L__BB2_5;
 	add.s64 	%rd26, %rd30, 16;
 	mov.b64 	%rd27, 1;
 	// begin inline asm
 	atom.add.sys.global.u64 %rd25, [%rd26], %rd27;
 	// end inline asm
 	mov.b32 	%r16, 0;
-$L__BB1_7:
+$L__BB2_7:
 	// begin inline asm
 	ld.acquire.sys.global.u32 %r14, [%rd28];
 nanosleep.u32 64;
@@ -116,8 +1939,8 @@ nanosleep.u32 64;
 	setp.lt.u32 	%p7, %r16, 9999999;
 	and.pred 	%p8, %p6, %p7;
 	mov.b32 	%r16, %r3;
-	@%p8 bra 	$L__BB1_7;
-$L__BB1_8:
+	@%p8 bra 	$L__BB2_7;
+$L__BB2_8:
 	// begin inline asm
 	ld.acquire.sys.global.u64 %rd33, [%rd30];
 	// end inline asm
@@ -128,12 +1951,12 @@ $L__BB1_8:
 	atom.cas.sys.global.b64 %rd31, [%rd30], %rd33, %rd34;
 	// end inline asm
 	setp.ne.b64 	%p9, %rd31, %rd33;
-	@%p9 bra 	$L__BB1_8;
-$L__BB1_9:
+	@%p9 bra 	$L__BB2_8;
+$L__BB2_9:
 	// begin inline asm
 	st.release.sys.global.u32 [%rd36], %r17;
 	// end inline asm
-$L__BB1_10:
+$L__BB2_10:
 	ret;
 
 }
@@ -143,7 +1966,7 @@ $L__BB1_10:
 	.param .u64 .ptr .align 1 hostcall_print_multi_param_1
 )
 {
-	.local .align 4 .b8 	__local_depot2[16];
+	.local .align 4 .b8 	__local_depot3[16];
 	.reg .b64 	%SP;
 	.reg .b64 	%SPL;
 	.reg .pred 	%p<17>;
@@ -151,17 +1974,17 @@ $L__BB1_10:
 	.reg .b32 	%r<36>;
 	.reg .b64 	%rd<72>;
 
-	mov.b64 	%SPL, __local_depot2;
+	mov.b64 	%SPL, __local_depot3;
 	ld.param.b64 	%rd59, [hostcall_print_multi_param_0];
 	cvta.to.global.u64 	%rd1, %rd59;
 	add.u64 	%rd2, %SPL, 0;
 	mov.u32 	%r15, %tid.x;
 	setp.ne.b32 	%p1, %r15, 0;
-	@%p1 bra 	$L__BB2_20;
-	bra.uni 	$L__BB2_1;
-$L__BB2_20:
+	@%p1 bra 	$L__BB3_20;
+	bra.uni 	$L__BB3_1;
+$L__BB3_20:
 	ret;
-$L__BB2_1:
+$L__BB3_1:
 	mov.u32 	%r1, %ctaid.x;
 	add.s64 	%rd3, %rd2, 7;
 	add.s64 	%rd66, %rd2, 6;
@@ -175,9 +1998,9 @@ $L__BB2_1:
 	setp.gt.u32 	%p2, %r1, 99;
 	mov.b64 	%rd67, 6;
 	mov.b32 	%r31, %r1;
-	@%p2 bra 	$L__BB2_21;
-	bra.uni 	$L__BB2_2;
-$L__BB2_21:
+	@%p2 bra 	$L__BB3_21;
+	bra.uni 	$L__BB3_2;
+$L__BB3_21:
 	mul.hi.u32 	%r16, %r1, 1374389535;
 	shr.u32 	%r17, %r16, 5;
 	cvt.u16.u32 	%rs1, %r17;
@@ -187,11 +2010,11 @@ $L__BB2_21:
 	sub.s32 	%r31, %r1, %r18;
 	mov.b64 	%rd67, 7;
 	mov.b64 	%rd66, %rd3;
-$L__BB2_2:
+$L__BB3_2:
 	setp.gt.u32 	%p3, %r1, 9;
-	@%p3 bra 	$L__BB2_3;
-	bra.uni 	$L__BB2_4;
-$L__BB2_3:
+	@%p3 bra 	$L__BB3_3;
+	bra.uni 	$L__BB3_4;
+$L__BB3_3:
 	cvt.u16.u32 	%rs3, %r31;
 	mul.lo.s16 	%rs4, %rs3, 205;
 	shr.u16 	%rs5, %rs4, 11;
@@ -202,7 +2025,7 @@ $L__BB2_3:
 	sub.s16 	%rs8, %rs3, %rs7;
 	cvt.u32.u16 	%r19, %rs8;
 	and.b32 	%r31, %r19, 255;
-$L__BB2_4:
+$L__BB3_4:
 	ld.param.b64 	%rd28, [hostcall_print_multi_param_1];
 	cvt.u16.u32 	%rs9, %r31;
 	add.s64 	%rd32, %rd2, %rd67;
@@ -210,13 +2033,13 @@ $L__BB2_4:
 	st.local.b8 	[%rd32], %rs10;
 	cvt.u32.u64 	%r6, %rd67;
 	add.s64 	%rd9, %rd67, 1;
-$L__BB2_5:
+$L__BB3_5:
 	// begin inline asm
 	ld.acquire.sys.global.u64 %rd33, [%rd59];
 	// end inline asm
 	and.b64 	%rd11, %rd33, 65535;
 	setp.eq.b64 	%p4, %rd11, 65535;
-	@%p4 bra 	$L__BB2_20;
+	@%p4 bra 	$L__BB3_20;
 	mad.lo.s64 	%rd12, %rd11, 2112, %rd1;
 	cvta.global.u64 	%rd13, %rd12;
 	ld.volatile.global.b64 	%rd38, [%rd12+64];
@@ -224,7 +2047,7 @@ $L__BB2_5:
 	atom.cas.sys.global.b64 %rd35, [%rd59], %rd33, %rd38;
 	// end inline asm
 	setp.ne.b64 	%p5, %rd35, %rd33;
-	@%p5 bra 	$L__BB2_5;
+	@%p5 bra 	$L__BB3_5;
 	// begin inline asm
 	activemask.b32 %r20;
 	// end inline asm
@@ -239,12 +2062,12 @@ $L__BB2_5:
 	add.s32 	%r23, %r6, 1;
 	and.b32 	%r34, %r23, 7;
 	setp.lt.u64 	%p6, %rd67, 7;
-	@%p6 bra 	$L__BB2_10;
+	@%p6 bra 	$L__BB3_10;
 	add.s64 	%rd15, %rd12, 104;
 	and.b64 	%rd16, %rd9, 24;
 	mov.b64 	%rd71, 0;
 	cvt.u32.u64 	%r24, %rd16;
-$L__BB2_9:
+$L__BB3_9:
 	add.s64 	%rd41, %rd15, %rd71;
 	add.s64 	%rd42, %rd3, %rd71;
 	ld.local.b8 	%rs11, [%rd42+-7];
@@ -266,11 +2089,11 @@ $L__BB2_9:
 	add.s64 	%rd71, %rd71, 8;
 	cvt.u32.u64 	%r33, %rd71;
 	setp.eq.b32 	%p7, %r24, %r33;
-	@%p7 bra 	$L__BB2_10;
-	bra.uni 	$L__BB2_9;
-$L__BB2_10:
+	@%p7 bra 	$L__BB3_10;
+	bra.uni 	$L__BB3_9;
+$L__BB3_10:
 	setp.eq.b32 	%p8, %r34, 0;
-	@%p8 bra 	$L__BB2_13;
+	@%p8 bra 	$L__BB3_13;
 	cvt.u64.u32 	%rd43, %r33;
 	add.s64 	%rd44, %rd43, %rd1;
 	cvt.u32.u64 	%r25, %rd33;
@@ -279,7 +2102,7 @@ $L__BB2_10:
 	add.s64 	%rd46, %rd44, %rd45;
 	add.s64 	%rd70, %rd46, 104;
 	add.s64 	%rd69, %rd2, %rd43;
-$L__BB2_12:
+$L__BB3_12:
 	.pragma "nounroll";
 	ld.local.b8 	%rs19, [%rd69];
 	st.volatile.global.b8 	[%rd70], %rs19;
@@ -287,14 +2110,14 @@ $L__BB2_12:
 	add.s64 	%rd69, %rd69, 1;
 	add.s32 	%r34, %r34, -1;
 	setp.ne.b32 	%p9, %r34, 0;
-	@%p9 bra 	$L__BB2_12;
-$L__BB2_13:
+	@%p9 bra 	$L__BB3_12;
+$L__BB3_13:
 	// begin inline asm
 	membar.sys;
 	// end inline asm
 	add.s64 	%rd48, %rd59, 8;
 	or.b64 	%rd24, %rd11, 4294967296;
-$L__BB2_14:
+$L__BB3_14:
 	// begin inline asm
 	ld.acquire.sys.global.u64 %rd51, [%rd48];
 	// end inline asm
@@ -305,14 +2128,14 @@ $L__BB2_14:
 	atom.cas.sys.global.b64 %rd49, [%rd48], %rd51, %rd52;
 	// end inline asm
 	setp.ne.b64 	%p10, %rd49, %rd51;
-	@%p10 bra 	$L__BB2_14;
+	@%p10 bra 	$L__BB3_14;
 	add.s64 	%rd55, %rd59, 16;
 	mov.b64 	%rd56, 1;
 	// begin inline asm
 	atom.add.sys.global.u64 %rd54, [%rd55], %rd56;
 	// end inline asm
 	mov.b32 	%r35, 0;
-$L__BB2_16:
+$L__BB3_16:
 	// begin inline asm
 	ld.acquire.sys.global.u32 %r28, [%rd57];
 nanosleep.u32 64;
@@ -324,8 +2147,8 @@ nanosleep.u32 64;
 	setp.lt.u32 	%p13, %r35, 9999999;
 	and.pred 	%p14, %p12, %p13;
 	mov.b32 	%r35, %r14;
-	@%p14 bra 	$L__BB2_16;
-$L__BB2_17:
+	@%p14 bra 	$L__BB3_16;
+$L__BB3_17:
 	// begin inline asm
 	ld.acquire.sys.global.u64 %rd62, [%rd59];
 	// end inline asm
@@ -336,15 +2159,519 @@ $L__BB2_17:
 	atom.cas.sys.global.b64 %rd60, [%rd59], %rd62, %rd63;
 	// end inline asm
 	setp.ne.b64 	%p15, %rd60, %rd62;
-	@%p15 bra 	$L__BB2_17;
-	@%p11 bra 	$L__BB2_19;
-	bra.uni 	$L__BB2_20;
-$L__BB2_19:
+	@%p15 bra 	$L__BB3_17;
+	@%p11 bra 	$L__BB3_19;
+	bra.uni 	$L__BB3_20;
+$L__BB3_19:
 	mov.b32 	%r30, 1;
 	// begin inline asm
 	atom.add.sys.global.u32 %r29, [%rd28], %r30;
 	// end inline asm
-	bra.uni 	$L__BB2_20;
+	bra.uni 	$L__BB3_20;
+
+}
+	// .globl	hostcall_stdin_time_test
+.visible .entry hostcall_stdin_time_test(
+	.param .u64 .ptr .align 1 hostcall_stdin_time_test_param_0,
+	.param .u64 .ptr .align 1 hostcall_stdin_time_test_param_1,
+	.param .u32 hostcall_stdin_time_test_param_2
+)
+{
+	.local .align 4 .b8 	__local_depot4[8];
+	.reg .b64 	%SP;
+	.reg .b64 	%SPL;
+	.reg .pred 	%p<60>;
+	.reg .b16 	%rs<10>;
+	.reg .b32 	%r<101>;
+	.reg .b64 	%rd<198>;
+
+	mov.b64 	%SPL, __local_depot4;
+	cvta.local.u64 	%SP, %SPL;
+	ld.param.b64 	%rd166, [hostcall_stdin_time_test_param_0];
+	ld.param.b64 	%rd50, [hostcall_stdin_time_test_param_1];
+	cvta.to.global.u64 	%rd1, %rd50;
+	cvta.to.global.u64 	%rd2, %rd166;
+	mov.u32 	%r35, %tid.x;
+	mov.u32 	%r36, %ctaid.x;
+	mov.u32 	%r37, %ntid.x;
+	mul.lo.s32 	%r38, %r36, %r37;
+	neg.s32 	%r39, %r35;
+	setp.ne.b32 	%p5, %r38, %r39;
+	@%p5 bra 	$L__BB4_60;
+	// begin inline asm
+	mov.u64 %rd51, %globaltimer;
+	// end inline asm
+	st.b32 	[%SP+4], 0;
+	add.u64 	%rd53, %SP, 0;
+	add.u64 	%rd54, %SPL, 0;
+	st.b32 	[%SP], 0;
+	ld.local.b32 	%r40, [%rd54];
+	setp.gt.u32 	%p6, %r40, 999;
+	mov.b64 	%rd190, 0;
+	@%p6 bra 	$L__BB4_4;
+$L__BB4_2:
+	add.u64 	%rd56, %SPL, 4;
+	ld.local.b32 	%r41, [%rd56];
+	cvta.to.local.u64 	%rd58, %rd53;
+	ld.local.b32 	%r42, [%rd58];
+	add.s32 	%r14, %r42, %r41;
+	st.b32 	[%SP+4], %r14;
+	add.s32 	%r43, %r42, 1;
+	st.b32 	[%SP], %r43;
+	ld.local.b32 	%r44, [%rd58];
+	setp.lt.u32 	%p7, %r44, 1000;
+	@%p7 bra 	$L__BB4_2;
+	cvt.u64.u32 	%rd190, %r14;
+$L__BB4_4:
+	ld.param.b32 	%r34, [hostcall_stdin_time_test_param_2];
+	st.volatile.global.b64 	[%rd1+24], %rd190;
+	// begin inline asm
+	mov.u64 %rd59, %globaltimer;
+	// end inline asm
+	sub.s64 	%rd60, %rd59, %rd51;
+	st.global.b64 	[%rd1], %rd60;
+$L__BB4_5:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd66, [%rd166];
+	// end inline asm
+	and.b64 	%rd7, %rd66, 65535;
+	setp.eq.b64 	%p9, %rd7, 65535;
+	mov.b64 	%rd192, 0;
+	mov.pred 	%p58, 0;
+	mov.b64 	%rd191, %rd192;
+	@%p9 bra 	$L__BB4_22;
+	mad.lo.s64 	%rd8, %rd7, 2112, %rd2;
+	cvta.global.u64 	%rd9, %rd8;
+	ld.volatile.global.b64 	%rd67, [%rd8+64];
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd64, [%rd166], %rd66, %rd67;
+	// end inline asm
+	setp.ne.b64 	%p10, %rd64, %rd66;
+	@%p10 bra 	$L__BB4_5;
+	add.s64 	%rd10, %rd8, 64;
+	cvta.global.u64 	%rd191, %rd10;
+	// begin inline asm
+	activemask.b32 %r45;
+	// end inline asm
+	st.volatile.global.b32 	[%rd8+72], %r45;
+	st.volatile.global.b32 	[%rd8+76], 9;
+	add.s64 	%rd79, %rd9, 80;
+	mov.b32 	%r46, 0;
+	// begin inline asm
+	st.release.sys.global.u32 [%rd79], %r46;
+	// end inline asm
+	// begin inline asm
+	membar.sys;
+	// end inline asm
+	add.s64 	%rd70, %rd166, 8;
+	or.b64 	%rd14, %rd7, 4294967296;
+$L__BB4_8:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd73, [%rd70];
+	// end inline asm
+	st.volatile.global.b64 	[%rd10], %rd73;
+	and.b64 	%rd75, %rd73, -4294967296;
+	add.s64 	%rd74, %rd75, %rd14;
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd71, [%rd70], %rd73, %rd74;
+	// end inline asm
+	setp.ne.b64 	%p11, %rd71, %rd73;
+	@%p11 bra 	$L__BB4_8;
+	add.s64 	%rd77, %rd166, 16;
+	mov.b64 	%rd78, 1;
+	// begin inline asm
+	atom.add.sys.global.u64 %rd76, [%rd77], %rd78;
+	// end inline asm
+	mov.b32 	%r95, 10000000;
+$L__BB4_10:
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r96, [%rd79];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r49, %r96, 1;
+	setp.ne.b32 	%p12, %r49, 0;
+	@%p12 bra 	$L__BB4_63;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r96, [%rd79];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r51, %r96, 1;
+	setp.ne.b32 	%p13, %r51, 0;
+	@%p13 bra 	$L__BB4_63;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r96, [%rd79];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r53, %r96, 1;
+	setp.ne.b32 	%p14, %r53, 0;
+	@%p14 bra 	$L__BB4_63;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r96, [%rd79];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r55, %r96, 1;
+	setp.ne.b32 	%p15, %r55, 0;
+	@%p15 bra 	$L__BB4_63;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r96, [%rd79];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r57, %r96, 1;
+	setp.ne.b32 	%p16, %r57, 0;
+	@%p16 bra 	$L__BB4_63;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r96, [%rd79];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r59, %r96, 1;
+	setp.ne.b32 	%p17, %r59, 0;
+	@%p17 bra 	$L__BB4_63;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r96, [%rd79];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r61, %r96, 1;
+	setp.ne.b32 	%p18, %r61, 0;
+	@%p18 bra 	$L__BB4_63;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r96, [%rd79];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r63, %r96, 1;
+	setp.ne.b32 	%p19, %r63, 0;
+	@%p19 bra 	$L__BB4_63;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r96, [%rd79];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r65, %r96, 1;
+	setp.ne.b32 	%p20, %r65, 0;
+	@%p20 bra 	$L__BB4_63;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r96, [%rd79];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r67, %r96, 1;
+	setp.ne.b32 	%p21, %r67, 0;
+	@%p21 bra 	$L__BB4_63;
+	add.s32 	%r95, %r95, -10;
+	setp.ne.b32 	%p22, %r95, 0;
+	@%p22 bra 	$L__BB4_10;
+$L__BB4_21:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd93, [%rd166];
+	// end inline asm
+	st.volatile.global.b64 	[%rd10], %rd93;
+	and.b64 	%rd96, %rd93, -4294967296;
+	add.s64 	%rd94, %rd96, %rd14;
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd91, [%rd166], %rd93, %rd94;
+	// end inline asm
+	setp.ne.b64 	%p24, %rd91, %rd93;
+	mov.b64 	%rd191, %rd192;
+	@%p24 bra 	$L__BB4_21;
+	bra.uni 	$L__BB4_22;
+$L__BB4_63:
+	and.b32 	%r68, %r96, 2;
+	setp.eq.b32 	%p58, %r68, 0;
+$L__BB4_22:
+	setp.eq.b64 	%p25, %rd191, 0;
+	mov.b64 	%rd193, -1;
+	@%p25 bra 	$L__BB4_28;
+	not.pred 	%p26, %p58;
+	sub.s64 	%rd189, %rd191, %rd166;
+	@%p26 bra 	$L__BB4_26;
+	ld.volatile.b64 	%rd193, [%rd191+32];
+	ld.volatile.b64 	%rd192, [%rd191+40];
+	add.s64 	%rd113, %rd189, -64;
+	mul.hi.u64 	%rd114, %rd113, 1117984489315730401;
+	bfe.u64 	%rd115, %rd114, 7, 16;
+	mad.lo.s64 	%rd18, %rd115, 2112, %rd2;
+	or.b64 	%rd19, %rd115, 4294967296;
+$L__BB4_25:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd120, [%rd166];
+	// end inline asm
+	st.volatile.global.b64 	[%rd18+64], %rd120;
+	and.b64 	%rd122, %rd120, -4294967296;
+	add.s64 	%rd121, %rd122, %rd19;
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd118, [%rd166], %rd120, %rd121;
+	// end inline asm
+	setp.eq.b64 	%p28, %rd118, %rd120;
+	@%p28 bra 	$L__BB4_28;
+	bra.uni 	$L__BB4_25;
+$L__BB4_26:
+	add.s64 	%rd100, %rd189, -64;
+	mul.hi.u64 	%rd101, %rd100, 1117984489315730401;
+	bfe.u64 	%rd102, %rd101, 7, 16;
+	mad.lo.s64 	%rd20, %rd102, 2112, %rd2;
+	or.b64 	%rd21, %rd102, 4294967296;
+$L__BB4_27:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd107, [%rd166];
+	// end inline asm
+	st.volatile.global.b64 	[%rd20+64], %rd107;
+	and.b64 	%rd111, %rd107, -4294967296;
+	add.s64 	%rd108, %rd111, %rd21;
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd105, [%rd166], %rd107, %rd108;
+	// end inline asm
+	setp.ne.b64 	%p27, %rd105, %rd107;
+	@%p27 bra 	$L__BB4_27;
+$L__BB4_28:
+	st.global.b64 	[%rd1+8], %rd193;
+	st.global.b64 	[%rd1+16], %rd192;
+	setp.ne.b32 	%p29, %r34, 0;
+	mov.b64 	%rd197, 0;
+	@%p29 bra 	$L__BB4_59;
+	bra.uni 	$L__BB4_29;
+$L__BB4_59:
+	st.global.b64 	[%rd1+24], %rd197;
+$L__BB4_60:
+	ret;
+$L__BB4_30:
+	mad.lo.s64 	%rd26, %rd25, 2112, %rd2;
+	cvta.global.u64 	%rd27, %rd26;
+	ld.volatile.global.b64 	%rd130, [%rd26+64];
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd127, [%rd166], %rd129, %rd130;
+	// end inline asm
+	setp.ne.b64 	%p32, %rd127, %rd129;
+	@%p32 bra 	$L__BB4_29;
+	bra.uni 	$L__BB4_31;
+$L__BB4_29:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd129, [%rd166];
+	// end inline asm
+	and.b64 	%rd25, %rd129, 65535;
+	setp.eq.b64 	%p31, %rd25, 65535;
+	mov.b64 	%rd197, 0;
+	mov.pred 	%p59, 0;
+	mov.b64 	%rd194, %rd197;
+	@%p31 bra 	$L__BB4_46;
+	bra.uni 	$L__BB4_30;
+$L__BB4_31:
+	add.s64 	%rd28, %rd26, 64;
+	cvta.global.u64 	%rd194, %rd28;
+	// begin inline asm
+	activemask.b32 %r69;
+	// end inline asm
+	st.volatile.global.b32 	[%rd26+72], %r69;
+	st.volatile.global.b32 	[%rd26+76], 8;
+	add.s64 	%rd142, %rd27, 80;
+	mov.b32 	%r70, 0;
+	// begin inline asm
+	st.release.sys.global.u32 [%rd142], %r70;
+	// end inline asm
+	st.volatile.global.b64 	[%rd26+96], 56;
+	// begin inline asm
+	membar.sys;
+	// end inline asm
+	add.s64 	%rd133, %rd166, 8;
+	or.b64 	%rd32, %rd25, 4294967296;
+$L__BB4_32:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd136, [%rd133];
+	// end inline asm
+	st.volatile.global.b64 	[%rd28], %rd136;
+	and.b64 	%rd138, %rd136, -4294967296;
+	add.s64 	%rd137, %rd138, %rd32;
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd134, [%rd133], %rd136, %rd137;
+	// end inline asm
+	setp.ne.b64 	%p33, %rd134, %rd136;
+	@%p33 bra 	$L__BB4_32;
+	add.s64 	%rd140, %rd166, 16;
+	mov.b64 	%rd141, 1;
+	// begin inline asm
+	atom.add.sys.global.u64 %rd139, [%rd140], %rd141;
+	// end inline asm
+	mov.b32 	%r97, 10000000;
+$L__BB4_34:
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r98, [%rd142];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r73, %r98, 1;
+	setp.ne.b32 	%p34, %r73, 0;
+	@%p34 bra 	$L__BB4_64;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r98, [%rd142];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r75, %r98, 1;
+	setp.ne.b32 	%p35, %r75, 0;
+	@%p35 bra 	$L__BB4_64;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r98, [%rd142];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r77, %r98, 1;
+	setp.ne.b32 	%p36, %r77, 0;
+	@%p36 bra 	$L__BB4_64;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r98, [%rd142];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r79, %r98, 1;
+	setp.ne.b32 	%p37, %r79, 0;
+	@%p37 bra 	$L__BB4_64;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r98, [%rd142];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r81, %r98, 1;
+	setp.ne.b32 	%p38, %r81, 0;
+	@%p38 bra 	$L__BB4_64;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r98, [%rd142];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r83, %r98, 1;
+	setp.ne.b32 	%p39, %r83, 0;
+	@%p39 bra 	$L__BB4_64;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r98, [%rd142];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r85, %r98, 1;
+	setp.ne.b32 	%p40, %r85, 0;
+	@%p40 bra 	$L__BB4_64;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r98, [%rd142];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r87, %r98, 1;
+	setp.ne.b32 	%p41, %r87, 0;
+	@%p41 bra 	$L__BB4_64;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r98, [%rd142];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r89, %r98, 1;
+	setp.ne.b32 	%p42, %r89, 0;
+	@%p42 bra 	$L__BB4_64;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r98, [%rd142];
+nanosleep.u32 64;
+	// end inline asm
+	and.b32 	%r91, %r98, 1;
+	setp.ne.b32 	%p43, %r91, 0;
+	@%p43 bra 	$L__BB4_64;
+	add.s32 	%r97, %r97, -10;
+	setp.ne.b32 	%p44, %r97, 0;
+	@%p44 bra 	$L__BB4_34;
+$L__BB4_45:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd156, [%rd166];
+	// end inline asm
+	st.volatile.global.b64 	[%rd28], %rd156;
+	and.b64 	%rd159, %rd156, -4294967296;
+	add.s64 	%rd157, %rd159, %rd32;
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd154, [%rd166], %rd156, %rd157;
+	// end inline asm
+	setp.ne.b64 	%p46, %rd154, %rd156;
+	mov.b64 	%rd194, %rd197;
+	@%p46 bra 	$L__BB4_45;
+	bra.uni 	$L__BB4_46;
+$L__BB4_64:
+	and.b32 	%r92, %r98, 2;
+	setp.eq.b32 	%p59, %r92, 0;
+$L__BB4_46:
+	setp.eq.b64 	%p47, %rd194, 0;
+	@%p47 bra 	$L__BB4_59;
+	not.pred 	%p48, %p59;
+	@%p48 bra 	$L__BB4_57;
+	ld.volatile.b64 	%rd34, [%rd194+32];
+	setp.eq.b64 	%p50, %rd34, -1;
+	@%p50 bra 	$L__BB4_56;
+	setp.eq.b64 	%p51, %rd34, 0;
+	@%p51 bra 	$L__BB4_56;
+	min.u64 	%rd43, %rd34, 56;
+	cvt.u32.u64 	%r31, %rd43;
+	and.b32 	%r100, %r31, 7;
+	setp.lt.u64 	%p52, %rd34, 8;
+	mov.b32 	%r99, 0;
+	@%p52 bra 	$L__BB4_53;
+	add.s64 	%rd42, %rd194, 40;
+	and.b64 	%rd44, %rd43, 56;
+	mov.b64 	%rd196, 0;
+	cvt.u32.u64 	%r94, %rd44;
+$L__BB4_52:
+	add.s64 	%rd174, %rd42, %rd196;
+	ld.volatile.b8 	%rs1, [%rd174];
+	ld.volatile.b8 	%rs2, [%rd174+1];
+	ld.volatile.b8 	%rs3, [%rd174+2];
+	ld.volatile.b8 	%rs4, [%rd174+3];
+	ld.volatile.b8 	%rs5, [%rd174+4];
+	ld.volatile.b8 	%rs6, [%rd174+5];
+	ld.volatile.b8 	%rs7, [%rd174+6];
+	ld.volatile.b8 	%rs8, [%rd174+7];
+	add.s64 	%rd196, %rd196, 8;
+	cvt.u32.u64 	%r99, %rd196;
+	setp.eq.b32 	%p53, %r94, %r99;
+	@%p53 bra 	$L__BB4_53;
+	bra.uni 	$L__BB4_52;
+$L__BB4_53:
+	setp.eq.b32 	%p54, %r100, 0;
+	@%p54 bra 	$L__BB4_56;
+	cvt.u64.u32 	%rd175, %r99;
+	add.s64 	%rd176, %rd175, %rd194;
+	add.s64 	%rd195, %rd176, 40;
+$L__BB4_55:
+	.pragma "nounroll";
+	ld.volatile.b8 	%rs9, [%rd195];
+	add.s64 	%rd195, %rd195, 1;
+	add.s32 	%r100, %r100, -1;
+	setp.ne.b32 	%p55, %r100, 0;
+	@%p55 bra 	$L__BB4_55;
+$L__BB4_56:
+	sub.s64 	%rd177, %rd194, %rd166;
+	add.s64 	%rd178, %rd177, -64;
+	mul.hi.u64 	%rd179, %rd178, 1117984489315730401;
+	bfe.u64 	%rd180, %rd179, 7, 16;
+	mad.lo.s64 	%rd40, %rd180, 2112, %rd2;
+	or.b64 	%rd41, %rd180, 4294967296;
+$L__BB4_61:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd185, [%rd166];
+	// end inline asm
+	st.volatile.global.b64 	[%rd40+64], %rd185;
+	and.b64 	%rd187, %rd185, -4294967296;
+	add.s64 	%rd186, %rd187, %rd41;
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd183, [%rd166], %rd185, %rd186;
+	// end inline asm
+	setp.eq.b64 	%p56, %rd183, %rd185;
+	@%p56 bra 	$L__BB4_62;
+	bra.uni 	$L__BB4_61;
+$L__BB4_62:
+	add.s64 	%rd188, %rd34, -1;
+	setp.lt.u64 	%p57, %rd188, -2;
+	selp.b64 	%rd197, 1, 0, %p57;
+	bra.uni 	$L__BB4_59;
+$L__BB4_57:
+	sub.s64 	%rd161, %rd194, %rd166;
+	add.s64 	%rd162, %rd161, -64;
+	mul.hi.u64 	%rd163, %rd162, 1117984489315730401;
+	bfe.u64 	%rd164, %rd163, 7, 16;
+	mad.lo.s64 	%rd35, %rd164, 2112, %rd2;
+	or.b64 	%rd36, %rd164, 4294967296;
+$L__BB4_58:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd169, [%rd166];
+	// end inline asm
+	st.volatile.global.b64 	[%rd35+64], %rd169;
+	and.b64 	%rd172, %rd169, -4294967296;
+	add.s64 	%rd170, %rd172, %rd36;
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd167, [%rd166], %rd169, %rd170;
+	// end inline asm
+	setp.eq.b64 	%p49, %rd167, %rd169;
+	@%p49 bra 	$L__BB4_59;
+	bra.uni 	$L__BB4_58;
 
 }
 	// .globl	integration_sys_store
@@ -364,7 +2691,7 @@ $L__BB2_19:
 	mul.lo.s32 	%r5, %r3, %r4;
 	neg.s32 	%r6, %r2;
 	setp.ne.b32 	%p1, %r5, %r6;
-	@%p1 bra 	$L__BB3_2;
+	@%p1 bra 	$L__BB5_2;
 	ld.param.b32 	%r7, [integration_sys_store_param_2];
 	ld.param.b64 	%rd4, [integration_sys_store_param_1];
 	ld.param.b64 	%rd3, [integration_sys_store_param_0];
@@ -375,7 +2702,7 @@ $L__BB2_19:
 	// begin inline asm
 	st.release.sys.global.u32 [%rd4], %r8;
 	// end inline asm
-$L__BB3_2:
+$L__BB5_2:
 	ret;
 
 }
@@ -397,16 +2724,16 @@ $L__BB3_2:
 	mov.u32 	%r4, %ntid.x;
 	mad.lo.s32 	%r5, %r3, %r4, %r2;
 	setp.lt.u32 	%p1, %r5, %r1;
-	@%p1 bra 	$L__BB4_2;
-	bra.uni 	$L__BB4_1;
-$L__BB4_2:
+	@%p1 bra 	$L__BB6_2;
+	bra.uni 	$L__BB6_1;
+$L__BB6_2:
 	mul.wide.u32 	%rd4, %r5, 4;
 	add.s64 	%rd1, %rd3, %rd4;
 	// begin inline asm
 	activemask.b32 %r6;
 	// end inline asm
 	st.global.b32 	[%rd1], %r6;
-$L__BB4_1:
+$L__BB6_1:
 	ret;
 
 }
@@ -475,13 +2802,13 @@ $L__BB4_1:
 	mov.u32 	%r4, %ntid.x;
 	mad.lo.s32 	%r5, %r3, %r4, %r2;
 	setp.lt.u32 	%p1, %r5, %r1;
-	@%p1 bra 	$L__BB7_2;
-	bra.uni 	$L__BB7_1;
-$L__BB7_2:
+	@%p1 bra 	$L__BB9_2;
+	bra.uni 	$L__BB9_1;
+$L__BB9_2:
 	mul.wide.u32 	%rd4, %r5, 4;
 	add.s64 	%rd1, %rd3, %rd4;
 	st.global.b32 	[%rd1], -559038737;
-$L__BB7_1:
+$L__BB9_1:
 	ret;
 
 }
@@ -520,16 +2847,16 @@ $L__BB7_1:
 	mov.u32 	%r4, %ntid.x;
 	mad.lo.s32 	%r5, %r3, %r4, %r2;
 	setp.lt.u32 	%p1, %r5, %r1;
-	@%p1 bra 	$L__BB9_2;
-	bra.uni 	$L__BB9_1;
-$L__BB9_2:
+	@%p1 bra 	$L__BB11_2;
+	bra.uni 	$L__BB11_1;
+$L__BB11_2:
 	mul.wide.u32 	%rd4, %r5, 4;
 	add.s64 	%rd1, %rd3, %rd4;
 	// begin inline asm
 	mov.u32 %r6, %laneid;
 	// end inline asm
 	st.global.b32 	[%rd1], %r6;
-$L__BB9_1:
+$L__BB11_1:
 	ret;
 
 }
@@ -690,9 +3017,9 @@ nanosleep.u32 64;
 	mov.u32 	%r4, %ntid.x;
 	mad.lo.s32 	%r5, %r3, %r4, %r2;
 	setp.lt.u32 	%p1, %r5, %r1;
-	@%p1 bra 	$L__BB16_2;
-	bra.uni 	$L__BB16_1;
-$L__BB16_2:
+	@%p1 bra 	$L__BB18_2;
+	bra.uni 	$L__BB18_1;
+$L__BB18_2:
 	mul.wide.u32 	%rd10, %r5, 4;
 	add.s64 	%rd1, %rd6, %rd10;
 	add.s64 	%rd2, %rd8, %rd10;
@@ -701,7 +3028,7 @@ $L__BB16_2:
 	ld.global.b32 	%r7, [%rd2];
 	add.rn.f32 	%r8, %r6, %r7;
 	st.global.b32 	[%rd1], %r8;
-$L__BB16_1:
+$L__BB18_1:
 	ret;
 
 }
@@ -723,13 +3050,13 @@ $L__BB16_1:
 	mov.u32 	%r5, %ntid.x;
 	mad.lo.s32 	%r1, %r4, %r5, %r3;
 	setp.lt.u32 	%p1, %r1, %r2;
-	@%p1 bra 	$L__BB17_2;
-	bra.uni 	$L__BB17_1;
-$L__BB17_2:
+	@%p1 bra 	$L__BB19_2;
+	bra.uni 	$L__BB19_1;
+$L__BB19_2:
 	mul.wide.u32 	%rd4, %r1, 4;
 	add.s64 	%rd1, %rd3, %rd4;
 	st.global.b32 	[%rd1], %r1;
-$L__BB17_1:
+$L__BB19_1:
 	ret;
 
 }

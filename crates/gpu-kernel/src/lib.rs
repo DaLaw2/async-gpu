@@ -729,3 +729,137 @@ pub unsafe extern "ptx-kernel" fn hostcall_file_test(buf: *mut u8, result: *mut 
         }
     }
 }
+
+// ============================================================
+// GPU Instant + stdin + time hostcall helpers (gpu-std.4)
+// ============================================================
+
+/// Read the GPU's %globaltimer register (64-bit nanosecond counter).
+/// Available on SM 3.0+ (all modern GPUs).
+/// Returns a monotonic nanosecond timestamp.
+#[inline(always)]
+unsafe fn gpu_instant_nanos() -> u64 {
+    let result: u64;
+    core::arch::asm!(
+        "mov.u64 {result}, %globaltimer;",
+        result = out(reg64) result,
+    );
+    result
+}
+
+/// GPU-side hostcall: read a line from stdin.
+/// Returns bytes read on success (data copied to out_buf), FILE_ERROR_SENTINEL on failure/EOF.
+#[inline(always)]
+unsafe fn gpu_hostcall_stdin_read(buf: *mut u8, out_buf: *mut u8, max_len: u32) -> u64 {
+    let (pkt, success) = gpu_hostcall_request(buf, SERVICE_STDIN, |payload| {
+        // Slot 0: max bytes to read
+        core::ptr::write_volatile(payload as *mut u64, max_len as u64);
+    });
+
+    if pkt.is_null() || !success {
+        if !pkt.is_null() {
+            gpu_hostcall_release(buf, pkt);
+        }
+        return FILE_ERROR_SENTINEL;
+    }
+
+    // Read response: slot 0 = bytes read, slots 1-7 = data
+    let bytes_read = core::ptr::read_volatile(pkt.add(PKT_OFF_PAYLOAD) as *const u64);
+    if bytes_read != FILE_ERROR_SENTINEL {
+        let src = pkt.add(PKT_OFF_PAYLOAD).add(8); // slots 1-7
+        let copy_len = if bytes_read > max_len as u64 {
+            max_len
+        } else {
+            bytes_read as u32
+        };
+        let mut i: u32 = 0;
+        while i < copy_len {
+            *out_buf.add(i as usize) = core::ptr::read_volatile(src.add(i as usize));
+            i += 1;
+        }
+    }
+    gpu_hostcall_release(buf, pkt);
+    bytes_read
+}
+
+/// GPU-side hostcall: get wall-clock time from host.
+/// Returns (seconds_since_epoch, nanoseconds) on success, (u64::MAX, 0) on failure.
+#[inline(always)]
+unsafe fn gpu_hostcall_time(buf: *mut u8) -> (u64, u64) {
+    let (pkt, success) = gpu_hostcall_request(buf, SERVICE_TIME, |_payload| {
+        // No request payload needed
+    });
+
+    if pkt.is_null() || !success {
+        if !pkt.is_null() {
+            gpu_hostcall_release(buf, pkt);
+        }
+        return (FILE_ERROR_SENTINEL, 0);
+    }
+
+    let secs = core::ptr::read_volatile(pkt.add(PKT_OFF_PAYLOAD) as *const u64);
+    let nanos = core::ptr::read_volatile(pkt.add(PKT_OFF_PAYLOAD).add(8) as *const u64);
+    gpu_hostcall_release(buf, pkt);
+    (secs, nanos)
+}
+
+// ============================================================
+// Stdin + time test kernel (gpu-std.4)
+// ============================================================
+
+/// Test kernel: read GPU Instant, get wall-clock time, and stdin read.
+///
+/// `buf` = hostcall buffer
+/// `result` = output array of u64[4]:
+///   [0] = GPU instant (nanoseconds from %globaltimer)
+///   [1] = host wall-clock seconds since epoch
+///   [2] = host wall-clock nanoseconds
+///   [3] = 1 if stdin read succeeded, 0 if skipped/failed
+///         (stdin test is optional — host may not provide input)
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn hostcall_stdin_time_test(
+    buf: *mut u8,
+    result: *mut u64,
+    skip_stdin: u32,
+) {
+    let thread_x = core::arch::nvptx::_thread_idx_x() as u32;
+    let block_x = core::arch::nvptx::_block_idx_x() as u32;
+    let block_dim_x = core::arch::nvptx::_block_dim_x() as u32;
+    let global_idx = block_x * block_dim_x + thread_x;
+    if global_idx != 0 {
+        return;
+    }
+
+    // Test 1: GPU Instant (%globaltimer)
+    let t0 = gpu_instant_nanos();
+    // Do a small amount of work to see non-zero delta
+    // Use volatile reads to prevent the compiler from optimizing this loop away
+    let mut dummy: u32 = 0;
+    let mut i: u32 = 0;
+    while core::ptr::read_volatile(&i) < 1000 {
+        dummy = core::ptr::read_volatile(&dummy).wrapping_add(core::ptr::read_volatile(&i));
+        i += 1;
+    }
+    // Use volatile write to ensure dummy is not dead-code eliminated
+    core::ptr::write_volatile(result.add(3), dummy as u64);
+    let t1 = gpu_instant_nanos();
+    *result.add(0) = t1 - t0; // nanosecond delta
+
+    // Test 2: Wall-clock time via hostcall
+    let (secs, nanos) = gpu_hostcall_time(buf);
+    *result.add(1) = secs;
+    *result.add(2) = nanos;
+
+    // Test 3: stdin read (optional, skip if skip_stdin != 0)
+    if skip_stdin == 0 {
+        let mut stdin_buf: [u8; 56] = [0u8; 56];
+        let bytes = gpu_hostcall_stdin_read(buf, stdin_buf.as_mut_ptr(), 56);
+        if bytes != FILE_ERROR_SENTINEL && bytes > 0 {
+            *result.add(3) = 1;
+        } else {
+            *result.add(3) = 0;
+        }
+    } else {
+        *result.add(3) = 0;
+    }
+}

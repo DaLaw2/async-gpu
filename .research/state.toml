@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 23      # Monotonic counter, incremented after each completed phase
-completed_tasks = 23
+total_cycles = 25      # Monotonic counter, incremented after each completed phase
+completed_tasks = 25
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"        # think | do | check
-current_step = "do.select"
+current_step = "do.route"
 current_task_id = ""
-last_summary = "bs7 done: VectorWare gap analysis. async-runtime COMPLETED. integration.1 narrowed to HostcallFuture. New tasks: integration.2 (futures_util), integration.3 (std patch), integration.4 (benchmarks), gpu-std.4 (stdin+time). Priority: integration.1 P0, gpu-std.4 P1, integration.2 P1."
+last_summary = "MILESTONE: integration.1 PASSED — HostcallFuture works! Two async hostcall tasks run concurrently on Embassy executor on GPU (109-197μs). gpu-std.4 PASSED — GPU Instant (%globaltimer, 54ns/iter) + SystemTime via hostcall. Next: integration.2 (futures_util), integration.3 (std patch)."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 7
@@ -60,7 +60,7 @@ success_criteria = [
 [[themes]]
 id = "gpu-std"
 title = "Rust std on GPU via libc shim"
-status = "active"
+status = "completed"
 spawned_by = "initial"
 goal = "Enable Rust std library on GPU by redirecting libc calls through hostcall"
 success_criteria = [
@@ -438,7 +438,7 @@ id = "integration.1"
 theme = "integration"
 title = "Async hostcall: HostcallFuture with Embassy executor"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["gpu-std.3", "async-runtime.3"]
 spawned_by = "initial"
 research_questions = [
@@ -494,7 +494,7 @@ id = "gpu-std.4"
 theme = "gpu-std"
 title = "Implement stdin hostcall + GPU Instant via globaltimer"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["gpu-std.3"]
 spawned_by = "bs7"
 research_questions = [

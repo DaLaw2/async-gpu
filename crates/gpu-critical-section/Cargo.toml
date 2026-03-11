@@ -1,0 +1,18 @@
+[workspace]
+
+[package]
+name = "gpu-critical-section"
+version = "0.1.0"
+edition = "2021"
+description = "No-op critical-section implementation for GPU (nvptx64) per-thread executors"
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+critical-section = "1.2"
+
+[profile.release]
+panic = "abort"
+opt-level = 3
+lto = false

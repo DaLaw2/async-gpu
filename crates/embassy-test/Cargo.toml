@@ -1,0 +1,18 @@
+[workspace]
+
+[package]
+name = "embassy-test"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+embassy-executor = { version = "0.7", features = ["arch-spin"] }
+gpu-critical-section = { path = "../gpu-critical-section" }
+
+[profile.release]
+panic = "abort"
+opt-level = 3
+lto = "fat"

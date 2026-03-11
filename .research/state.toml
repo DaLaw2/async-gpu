@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 28      # Monotonic counter, incremented after each completed phase
-completed_tasks = 28
+total_cycles = 29      # Monotonic counter, incremented after each completed phase
+completed_tasks = 29
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"        # think | do | check
 current_step = "do.route"
 current_task_id = ""
-last_summary = "MILESTONE: integration.3 DONE — -Zbuild-std=std works on nvptx64! 3 file patches + 1 new cuda.rs. Vec, String, format! all work. All 28 tasks done, all integration tasks complete. VectorWare parity ~90%."
+last_summary = "atomics.5 DONE: LLVM 21 fixed core::sync::atomic load/store/fence (now emit .sys scope), but RMW (CAS/fetch_add) still broken. VectorWare Relaxed is intentional (counters only, not hostcall sync). gpu-atomics crate still necessary for RMW. All 6 themes completed, 29 tasks done."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 8
@@ -96,7 +96,7 @@ success_criteria = [
 [[themes]]
 id = "atomics"
 title = "GPU-CPU memory model and atomics verification"
-status = "active"
+status = "completed"
 spawned_by = "bs1"
 goal = "Verify that Rust atomic operations emit correct PTX scope qualifiers for GPU-CPU communication"
 success_criteria = [
@@ -557,7 +557,7 @@ id = "atomics.5"
 theme = "atomics"
 title = "Audit .sys scope inline PTX correctness vs VectorWare Relaxed approach"
 kind = "investigation"
-status = "pending"
+status = "done"
 depends_on = ["atomics.4"]
 spawned_by = "user"
 research_questions = [

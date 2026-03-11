@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 19      # Monotonic counter, incremented after each completed phase
-completed_tasks = 19
+total_cycles = 20      # Monotonic counter, incremented after each completed phase
+completed_tasks = 20
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"        # think | do | check
 current_step = "do.execute"
-current_task_id = "async-runtime.2.1"
-last_summary = "async-runtime.2.1 done: reworked executor design per rv3. Embassy-first (fat LTO), custom executor as fallback. Per-lane packets for async hostcall (32x pool). Poll-all model replaces self-waking. Pool exhaustion → Pending. Stack-local executor ref. CS misuse warning. Register measurement in Phase 1. ADR-4 updated."
+current_task_id = "gpu-std.2"
+last_summary = "gpu-std.2 done: created gpu-libc crate (40+ #[no_mangle] extern C functions for nvptx64). Bump allocator, memcpy/memset, errno, all stubs compile to valid PTX. Cross-crate fat LTO verified — Vec/String/format! work with gpu-libc allocator. -Zbuild-std=std fails (5 missing cfg_select cases in sys/alloc,thread_local,random) but core+alloc works today. Recommended path: core+alloc+gpu-libc, not std patching."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 5
@@ -342,7 +342,7 @@ id = "gpu-std.2"
 theme = "gpu-std"
 title = "Implement libc shim layer redirecting syscalls to hostcall"
 kind = "experiment"
-status = "active"
+status = "done"
 depends_on = ["gpu-std.1"]
 spawned_by = "initial"
 research_questions = [

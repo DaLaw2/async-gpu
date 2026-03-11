@@ -1,0 +1,17 @@
+[workspace]
+
+[package]
+name = "gpu-libc"
+version = "0.1.0"
+edition = "2021"
+description = "Minimal libc shim layer for GPU: stubs + device-side implementations"
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+
+[profile.release]
+panic = "abort"
+opt-level = 3
+lto = false

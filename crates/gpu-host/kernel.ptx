@@ -51,6 +51,37 @@ $L__BB1_2:
 	ret;
 
 }
+	// .globl	test_activemask
+.visible .entry test_activemask(
+	.param .u64 .ptr .align 1 test_activemask_param_0,
+	.param .u32 test_activemask_param_1
+)
+{
+	.reg .pred 	%p<2>;
+	.reg .b32 	%r<7>;
+	.reg .b64 	%rd<5>;
+
+	ld.param.b64 	%rd2, [test_activemask_param_0];
+	cvta.to.global.u64 	%rd3, %rd2;
+	ld.param.b32 	%r1, [test_activemask_param_1];
+	mov.u32 	%r2, %tid.x;
+	mov.u32 	%r3, %ctaid.x;
+	mov.u32 	%r4, %ntid.x;
+	mad.lo.s32 	%r5, %r3, %r4, %r2;
+	setp.lt.u32 	%p1, %r5, %r1;
+	@%p1 bra 	$L__BB2_2;
+	bra.uni 	$L__BB2_1;
+$L__BB2_2:
+	mul.wide.u32 	%rd4, %r5, 4;
+	add.s64 	%rd1, %rd3, %rd4;
+	// begin inline asm
+	activemask.b32 %r6;
+	// end inline asm
+	st.global.b32 	[%rd1], %r6;
+$L__BB2_1:
+	ret;
+
+}
 	// .globl	test_asm_cas_sys
 .visible .entry test_asm_cas_sys(
 	.param .u64 .ptr .align 1 test_asm_cas_sys_param_0,
@@ -116,13 +147,13 @@ $L__BB1_2:
 	mov.u32 	%r4, %ntid.x;
 	mad.lo.s32 	%r5, %r3, %r4, %r2;
 	setp.lt.u32 	%p1, %r5, %r1;
-	@%p1 bra 	$L__BB4_2;
-	bra.uni 	$L__BB4_1;
-$L__BB4_2:
+	@%p1 bra 	$L__BB5_2;
+	bra.uni 	$L__BB5_1;
+$L__BB5_2:
 	mul.wide.u32 	%rd4, %r5, 4;
 	add.s64 	%rd1, %rd3, %rd4;
 	st.global.b32 	[%rd1], -559038737;
-$L__BB4_1:
+$L__BB5_1:
 	ret;
 
 }
@@ -140,6 +171,37 @@ $L__BB4_1:
 	// begin inline asm
 	st.release.sys.global.u32 [%rd1], %r1;
 	// end inline asm
+	ret;
+
+}
+	// .globl	test_lane_id
+.visible .entry test_lane_id(
+	.param .u64 .ptr .align 1 test_lane_id_param_0,
+	.param .u32 test_lane_id_param_1
+)
+{
+	.reg .pred 	%p<2>;
+	.reg .b32 	%r<7>;
+	.reg .b64 	%rd<5>;
+
+	ld.param.b64 	%rd2, [test_lane_id_param_0];
+	cvta.to.global.u64 	%rd3, %rd2;
+	ld.param.b32 	%r1, [test_lane_id_param_1];
+	mov.u32 	%r2, %tid.x;
+	mov.u32 	%r3, %ctaid.x;
+	mov.u32 	%r4, %ntid.x;
+	mad.lo.s32 	%r5, %r3, %r4, %r2;
+	setp.lt.u32 	%p1, %r5, %r1;
+	@%p1 bra 	$L__BB7_2;
+	bra.uni 	$L__BB7_1;
+$L__BB7_2:
+	mul.wide.u32 	%rd4, %r5, 4;
+	add.s64 	%rd1, %rd3, %rd4;
+	// begin inline asm
+	mov.u32 %r6, %laneid;
+	// end inline asm
+	st.global.b32 	[%rd1], %r6;
+$L__BB7_1:
 	ret;
 
 }
@@ -194,6 +256,105 @@ $L__BB4_1:
 	ret;
 
 }
+	// .globl	test_spin_load_u32
+.visible .entry test_spin_load_u32(
+	.param .u64 .ptr .align 1 test_spin_load_u32_param_0,
+	.param .u64 .ptr .align 1 test_spin_load_u32_param_1
+)
+{
+	.reg .b32 	%r<3>;
+	.reg .b64 	%rd<3>;
+
+	ld.param.b64 	%rd1, [test_spin_load_u32_param_0];
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r2, [%rd1];
+nanosleep.u32 64;
+	// end inline asm
+	ld.param.b64 	%rd2, [test_spin_load_u32_param_1];
+	// begin inline asm
+	st.global.b32 [%rd2], %r2;
+	// end inline asm
+	ret;
+
+}
+	// .globl	test_u64_cas
+.visible .entry test_u64_cas(
+	.param .u64 .ptr .align 1 test_u64_cas_param_0,
+	.param .u32 test_u64_cas_param_1,
+	.param .u32 test_u64_cas_param_2,
+	.param .u32 test_u64_cas_param_3,
+	.param .u32 test_u64_cas_param_4,
+	.param .u64 .ptr .align 1 test_u64_cas_param_5
+)
+{
+	.reg .b64 	%rd<13>;
+
+	ld.param.b64 	%rd2, [test_u64_cas_param_0];
+	ld.param.b64 	%rd5, [test_u64_cas_param_5];
+	cvta.to.global.u64 	%rd6, %rd5;
+	ld.param.b32 	%rd7, [test_u64_cas_param_1];
+	ld.param.b32 	%rd8, [test_u64_cas_param_2];
+	shl.b64 	%rd9, %rd8, 32;
+	ld.param.b32 	%rd10, [test_u64_cas_param_3];
+	or.b64 	%rd3, %rd9, %rd7;
+	ld.param.b32 	%rd11, [test_u64_cas_param_4];
+	shl.b64 	%rd12, %rd11, 32;
+	or.b64 	%rd4, %rd12, %rd10;
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd1, [%rd2], %rd3, %rd4;
+	// end inline asm
+	st.global.b64 	[%rd6], %rd1;
+	ret;
+
+}
+	// .globl	test_u64_exchange
+.visible .entry test_u64_exchange(
+	.param .u64 .ptr .align 1 test_u64_exchange_param_0,
+	.param .u32 test_u64_exchange_param_1,
+	.param .u32 test_u64_exchange_param_2,
+	.param .u64 .ptr .align 1 test_u64_exchange_param_3
+)
+{
+	.reg .b64 	%rd<9>;
+
+	ld.param.b64 	%rd2, [test_u64_exchange_param_0];
+	ld.param.b64 	%rd4, [test_u64_exchange_param_3];
+	cvta.to.global.u64 	%rd5, %rd4;
+	ld.param.b32 	%rd6, [test_u64_exchange_param_1];
+	ld.param.b32 	%rd7, [test_u64_exchange_param_2];
+	shl.b64 	%rd8, %rd7, 32;
+	or.b64 	%rd3, %rd8, %rd6;
+	// begin inline asm
+	atom.exch.sys.global.b64 %rd1, [%rd2], %rd3;
+	// end inline asm
+	st.global.b64 	[%rd5], %rd1;
+	ret;
+
+}
+	// .globl	test_u64_fetch_add
+.visible .entry test_u64_fetch_add(
+	.param .u64 .ptr .align 1 test_u64_fetch_add_param_0,
+	.param .u32 test_u64_fetch_add_param_1,
+	.param .u32 test_u64_fetch_add_param_2,
+	.param .u64 .ptr .align 1 test_u64_fetch_add_param_3
+)
+{
+	.reg .b64 	%rd<9>;
+
+	ld.param.b64 	%rd2, [test_u64_fetch_add_param_0];
+	ld.param.b64 	%rd4, [test_u64_fetch_add_param_3];
+	cvta.to.global.u64 	%rd5, %rd4;
+	ld.param.b32 	%rd6, [test_u64_fetch_add_param_1];
+	ld.param.b32 	%rd7, [test_u64_fetch_add_param_2];
+	shl.b64 	%rd8, %rd7, 32;
+	or.b64 	%rd3, %rd8, %rd6;
+	// begin inline asm
+	atom.add.sys.global.u64 %rd1, [%rd2], %rd3;
+	// end inline asm
+	st.global.b64 	[%rd5], %rd1;
+	ret;
+
+}
 	// .globl	test_write_volatile
 .visible .entry test_write_volatile(
 	.param .u64 .ptr .align 1 test_write_volatile_param_0,
@@ -234,9 +395,9 @@ $L__BB4_1:
 	mov.u32 	%r4, %ntid.x;
 	mad.lo.s32 	%r5, %r3, %r4, %r2;
 	setp.lt.u32 	%p1, %r5, %r1;
-	@%p1 bra 	$L__BB10_2;
-	bra.uni 	$L__BB10_1;
-$L__BB10_2:
+	@%p1 bra 	$L__BB16_2;
+	bra.uni 	$L__BB16_1;
+$L__BB16_2:
 	mul.wide.u32 	%rd10, %r5, 4;
 	add.s64 	%rd1, %rd6, %rd10;
 	add.s64 	%rd2, %rd8, %rd10;
@@ -245,7 +406,7 @@ $L__BB10_2:
 	ld.global.b32 	%r7, [%rd2];
 	add.rn.f32 	%r8, %r6, %r7;
 	st.global.b32 	[%rd1], %r8;
-$L__BB10_1:
+$L__BB16_1:
 	ret;
 
 }
@@ -267,13 +428,13 @@ $L__BB10_1:
 	mov.u32 	%r5, %ntid.x;
 	mad.lo.s32 	%r1, %r4, %r5, %r3;
 	setp.lt.u32 	%p1, %r1, %r2;
-	@%p1 bra 	$L__BB11_2;
-	bra.uni 	$L__BB11_1;
-$L__BB11_2:
+	@%p1 bra 	$L__BB17_2;
+	bra.uni 	$L__BB17_1;
+$L__BB17_2:
 	mul.wide.u32 	%rd4, %r1, 4;
 	add.s64 	%rd1, %rd3, %rd4;
 	st.global.b32 	[%rd1], %r1;
-$L__BB11_1:
+$L__BB17_1:
 	ret;
 
 }

@@ -179,6 +179,173 @@ pub unsafe fn sys_fetch_add_u32(ptr: *mut u32, val: u32) -> u32 {
 }
 
 // ============================================================
+// System-scope compare-and-swap (u64)
+// ============================================================
+
+/// System-scope compare-and-swap (CAS) on a u64.
+///
+/// Emits `atom.cas.sys.global.b64 result, [ptr], expected, desired;`
+///
+/// Atomically: if `*ptr == expected`, sets `*ptr = desired`. Returns the
+/// original value of `*ptr`. System-scope: visible to all threads including CPU.
+/// Required for tagged-pointer operations in the hostcall protocol.
+///
+/// Safety: `ptr` must be a valid, 8-byte aligned pointer to mapped (pinned)
+/// global GPU memory accessible from both GPU and CPU.
+#[inline(always)]
+pub unsafe fn sys_cas_u64(ptr: *mut u64, expected: u64, desired: u64) -> u64 {
+    let result: u64;
+    core::arch::asm!(
+        "atom.cas.sys.global.b64 {result}, [{ptr}], {expected}, {desired};",
+        result = out(reg64) result,
+        ptr = in(reg64) ptr,
+        expected = in(reg64) expected,
+        desired = in(reg64) desired,
+        options(nostack),
+    );
+    result
+}
+
+// ============================================================
+// System-scope atomic add (u64)
+// ============================================================
+
+/// System-scope atomic fetch-and-add on a u64.
+///
+/// Emits `atom.add.sys.global.u64 result, [ptr], val;`
+///
+/// Atomically adds `val` to `*ptr` and returns the original value.
+/// System-scope: visible to all threads including host CPU.
+/// NOTE: No `.sem` qualifier — use `membar_sys()` for ordering.
+#[inline(always)]
+pub unsafe fn sys_fetch_add_u64(ptr: *mut u64, val: u64) -> u64 {
+    let result: u64;
+    core::arch::asm!(
+        "atom.add.sys.global.u64 {result}, [{ptr}], {val};",
+        result = out(reg64) result,
+        ptr = in(reg64) ptr,
+        val = in(reg64) val,
+        options(nostack),
+    );
+    result
+}
+
+// ============================================================
+// System-scope atomic exchange (u64)
+// ============================================================
+
+/// System-scope atomic exchange on a u64.
+///
+/// Emits `atom.exch.sys.global.b64 result, [ptr], val;`
+///
+/// Atomically sets `*ptr = val` and returns the previous value.
+/// System-scope: visible to all threads including host CPU.
+#[inline(always)]
+pub unsafe fn sys_exchange_u64(ptr: *mut u64, val: u64) -> u64 {
+    let result: u64;
+    core::arch::asm!(
+        "atom.exch.sys.global.b64 {result}, [{ptr}], {val};",
+        result = out(reg64) result,
+        ptr = in(reg64) ptr,
+        val = in(reg64) val,
+        options(nostack),
+    );
+    result
+}
+
+// ============================================================
+// Spin-loop acquire loads (LLVM-hoist-safe)
+// ============================================================
+// These variants do NOT use `options(readonly)` which is the primary
+// defense against LLVM's LICM pass hoisting the load out of a spin loop.
+// They also include `nanosleep.u32 64` to yield the warp slot to the
+// hardware scheduler during spinning.
+//
+// NOTE: Originally designed as `#[inline(never)]` for a second LICM defense,
+// but nvptx64's PTX backend cannot link cross-crate non-inline functions
+// (they appear as unresolved `.extern .func`). Changed to `#[inline(always)]`
+// to ensure the function body is emitted in the final PTX. The absence of
+// `options(readonly)` remains the effective LICM prevention.
+//
+// Use these ONLY inside spin/poll loops. For single-shot reads,
+// prefer `sys_load_acquire_u32/u64` (with readonly, inlineable).
+
+/// Spin-loop-safe system-scope acquire load of a u32.
+///
+/// Emits `ld.acquire.sys.global.u32` followed by `nanosleep.u32 64`.
+///
+/// Unlike `sys_load_acquire_u32`, this function:
+/// - Does NOT use `options(readonly)` — prevents LLVM LICM hoisting
+/// - Includes `nanosleep` — yields warp slot during spin
+#[inline(always)]
+pub unsafe fn sys_spin_load_acquire_u32(ptr: *const u32) -> u32 {
+    let result: u32;
+    core::arch::asm!(
+        "ld.acquire.sys.global.u32 {result}, [{ptr}];",
+        "nanosleep.u32 64;",
+        result = out(reg32) result,
+        ptr = in(reg64) ptr,
+        options(nostack),
+    );
+    result
+}
+
+/// Spin-loop-safe system-scope acquire load of a u64.
+///
+/// Emits `ld.acquire.sys.global.u64` followed by `nanosleep.u32 64`.
+#[inline(always)]
+pub unsafe fn sys_spin_load_acquire_u64(ptr: *const u64) -> u64 {
+    let result: u64;
+    core::arch::asm!(
+        "ld.acquire.sys.global.u64 {result}, [{ptr}];",
+        "nanosleep.u32 64;",
+        result = out(reg64) result,
+        ptr = in(reg64) ptr,
+        options(nostack),
+    );
+    result
+}
+
+// ============================================================
+// Warp intrinsics
+// ============================================================
+
+/// Returns the active lane mask for the current warp.
+///
+/// Emits `activemask.b32 result;` (PTX ISA 6.2+, SM 7.0+).
+///
+/// Returns a 32-bit bitmask where bit N is set if lane N is currently
+/// executing (not predicated off by a conditional). Use this to fill
+/// `packet.header.active_mask` in the hostcall protocol.
+///
+/// IMPORTANT: Do NOT hardcode 0xFFFFFFFF — partial warps at kernel
+/// grid edges have fewer than 32 active lanes.
+#[inline(always)]
+pub unsafe fn activemask() -> u32 {
+    let mask: u32;
+    core::arch::asm!(
+        "activemask.b32 {mask};",
+        mask = out(reg32) mask,
+        options(nostack),
+    );
+    mask
+}
+
+/// Returns the lane ID (0..31) within the current warp.
+///
+/// Emits `mov.u32 result, %laneid;`
+#[inline(always)]
+pub unsafe fn lane_id() -> u32 {
+    let id: u32;
+    core::arch::asm!(
+        "mov.u32 {id}, %laneid;",
+        id = out(reg32) id,
+        options(nostack, readonly),
+    );
+    id
+}
+
+// ============================================================
 // Helper: store to global address space
 // ============================================================
 

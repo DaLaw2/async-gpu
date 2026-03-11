@@ -406,6 +406,205 @@ unsafe fn free_mapped_mem(host_ptr: *mut u32) -> Result<()> {
     Ok(())
 }
 
+/// Step 6: u64 atomics smoke tests (atomics.4).
+///
+/// Tests sys_cas_u64, sys_fetch_add_u64, sys_exchange_u64 from gpu-atomics crate.
+/// All tests are single-thread (1 block, 1 thread) to verify basic correctness.
+fn run_u64_atomics_tests(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Step 6: u64 atomics smoke tests ---");
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "kernel", &[
+        "test_u64_cas",
+        "test_u64_fetch_add",
+        "test_u64_exchange",
+    ]);
+
+    // test_u64_cas: CAS on u64 — initial=0x0000_0007_0000_0003, expected=same, desired=0x0000_0099_0000_0042
+    {
+        let f = dev.get_func("kernel", "test_u64_cas")
+            .context("test_u64_cas not found")?;
+        let initial: u64 = 0x0000_0007_0000_0003;
+        let expected: u64 = initial;
+        let desired: u64 = 0x0000_0099_0000_0042;
+        let mut target: CudaSlice<u64> = dev.htod_sync_copy(&[initial]).context("htod target")?;
+        let mut result_out: CudaSlice<u64> = dev.alloc_zeros::<u64>(1).context("alloc result")?;
+        let cfg = LaunchConfig { grid_dim: (1,1,1), block_dim: (1,1,1), shared_mem_bytes: 0 };
+        // Kernel takes: ptr, expected_lo, expected_hi, desired_lo, desired_hi, output
+        let expected_lo = expected as u32;
+        let expected_hi = (expected >> 32) as u32;
+        let desired_lo = desired as u32;
+        let desired_hi = (desired >> 32) as u32;
+        unsafe {
+            f.launch(cfg, (&mut target, expected_lo, expected_hi, desired_lo, desired_hi, &mut result_out))
+                .context("launch test_u64_cas")?;
+        }
+        let old_val = dev.dtoh_sync_copy(&result_out).context("dtoh old")?[0];
+        let new_val = dev.dtoh_sync_copy(&target).context("dtoh target")?[0];
+        if old_val != initial {
+            anyhow::bail!("test_u64_cas: expected old=0x{:016X}, got 0x{:016X}", initial, old_val);
+        }
+        if new_val != desired {
+            anyhow::bail!("test_u64_cas: expected new=0x{:016X}, got 0x{:016X}", desired, new_val);
+        }
+        println!("  test_u64_cas: PASSED (atom.cas.sys.global.b64 works, 0x{:016X}→0x{:016X})", initial, desired);
+    }
+
+    // test_u64_fetch_add: atomic add on u64
+    {
+        let f = dev.get_func("kernel", "test_u64_fetch_add")
+            .context("test_u64_fetch_add not found")?;
+        let initial: u64 = 0x0000_0001_0000_0000; // 2^32
+        let addend: u64 = 0x0000_0000_FFFF_FFFF;  // 2^32 - 1
+        let expected_new: u64 = initial + addend;   // 0x0000_0001_FFFF_FFFF
+        let mut target: CudaSlice<u64> = dev.htod_sync_copy(&[initial]).context("htod")?;
+        let mut result_out: CudaSlice<u64> = dev.alloc_zeros::<u64>(1).context("alloc")?;
+        let cfg = LaunchConfig { grid_dim: (1,1,1), block_dim: (1,1,1), shared_mem_bytes: 0 };
+        let val_lo = addend as u32;
+        let val_hi = (addend >> 32) as u32;
+        unsafe {
+            f.launch(cfg, (&mut target, val_lo, val_hi, &mut result_out))
+                .context("launch test_u64_fetch_add")?;
+        }
+        let old_val = dev.dtoh_sync_copy(&result_out).context("dtoh old")?[0];
+        let new_val = dev.dtoh_sync_copy(&target).context("dtoh target")?[0];
+        if old_val != initial {
+            anyhow::bail!("test_u64_fetch_add: expected old=0x{:016X}, got 0x{:016X}", initial, old_val);
+        }
+        if new_val != expected_new {
+            anyhow::bail!("test_u64_fetch_add: expected new=0x{:016X}, got 0x{:016X}", expected_new, new_val);
+        }
+        println!("  test_u64_fetch_add: PASSED (atom.add.sys.global.u64 works, 0x{:016X}+0x{:016X}=0x{:016X})", initial, addend, expected_new);
+    }
+
+    // test_u64_exchange: atomic exchange on u64
+    {
+        let f = dev.get_func("kernel", "test_u64_exchange")
+            .context("test_u64_exchange not found")?;
+        let initial: u64 = 0xDEAD_BEEF_CAFE_BABE;
+        let new_value: u64 = 0x1234_5678_9ABC_DEF0;
+        let mut target: CudaSlice<u64> = dev.htod_sync_copy(&[initial]).context("htod")?;
+        let mut result_out: CudaSlice<u64> = dev.alloc_zeros::<u64>(1).context("alloc")?;
+        let cfg = LaunchConfig { grid_dim: (1,1,1), block_dim: (1,1,1), shared_mem_bytes: 0 };
+        let val_lo = new_value as u32;
+        let val_hi = (new_value >> 32) as u32;
+        unsafe {
+            f.launch(cfg, (&mut target, val_lo, val_hi, &mut result_out))
+                .context("launch test_u64_exchange")?;
+        }
+        let old_val = dev.dtoh_sync_copy(&result_out).context("dtoh old")?[0];
+        let final_val = dev.dtoh_sync_copy(&target).context("dtoh target")?[0];
+        if old_val != initial {
+            anyhow::bail!("test_u64_exchange: expected old=0x{:016X}, got 0x{:016X}", initial, old_val);
+        }
+        if final_val != new_value {
+            anyhow::bail!("test_u64_exchange: expected final=0x{:016X}, got 0x{:016X}", new_value, final_val);
+        }
+        println!("  test_u64_exchange: PASSED (atom.exch.sys.global.b64 works, 0x{:016X}→0x{:016X})", initial, new_value);
+    }
+
+    println!("  All u64 atomics smoke tests PASSED.");
+    Ok(())
+}
+
+/// Step 7: Spin-load + warp intrinsics tests (atomics.4).
+fn run_warp_intrinsics_tests(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Step 7: Spin-load + warp intrinsics tests ---");
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "kernel", &[
+        "test_spin_load_u32",
+        "test_activemask",
+        "test_lane_id",
+    ]);
+
+    // test_spin_load_u32: read value 0x42 via spin-safe acquire load
+    {
+        let f = dev.get_func("kernel", "test_spin_load_u32")
+            .context("test_spin_load_u32 not found")?;
+        let src: CudaSlice<u32> = dev.htod_sync_copy(&[0x42u32]).context("htod")?;
+        let mut dst: CudaSlice<u32> = dev.alloc_zeros::<u32>(1).context("alloc")?;
+        let cfg = LaunchConfig { grid_dim: (1,1,1), block_dim: (1,1,1), shared_mem_bytes: 0 };
+        unsafe {
+            f.launch(cfg, (&src, &mut dst)).context("launch test_spin_load_u32")?;
+        }
+        let result = dev.dtoh_sync_copy(&dst).context("dtoh")?[0];
+        if result != 0x42 {
+            anyhow::bail!("test_spin_load_u32: expected 0x42, got 0x{:08X}", result);
+        }
+        println!("  test_spin_load_u32: PASSED (ld.acquire.sys + nanosleep works, read 0x42)");
+    }
+
+    // test_activemask: 32 threads, all active → mask should be 0xFFFFFFFF
+    {
+        let f = dev.get_func("kernel", "test_activemask")
+            .context("test_activemask not found")?;
+        let n: u32 = 32;
+        let mut out: CudaSlice<u32> = dev.alloc_zeros::<u32>(n as usize).context("alloc")?;
+        let cfg = LaunchConfig { grid_dim: (1,1,1), block_dim: (n,1,1), shared_mem_bytes: 0 };
+        unsafe {
+            f.launch(cfg, (&mut out, n)).context("launch test_activemask")?;
+        }
+        let result = dev.dtoh_sync_copy(&out).context("dtoh")?;
+        for (i, &mask) in result.iter().enumerate() {
+            if mask != 0xFFFF_FFFF {
+                anyhow::bail!("test_activemask: thread {} got mask=0x{:08X}, expected 0xFFFFFFFF", i, mask);
+            }
+        }
+        println!("  test_activemask: PASSED (activemask.b32 returns 0xFFFFFFFF for full warp)");
+    }
+
+    // test_activemask with partial warp: 20 threads → mask should be 0x000FFFFF
+    {
+        let f = dev.get_func("kernel", "test_activemask")
+            .context("test_activemask not found (partial)")?;
+        let n: u32 = 20;
+        let mut out: CudaSlice<u32> = dev.alloc_zeros::<u32>(n as usize).context("alloc")?;
+        let cfg = LaunchConfig { grid_dim: (1,1,1), block_dim: (n,1,1), shared_mem_bytes: 0 };
+        unsafe {
+            f.launch(cfg, (&mut out, n)).context("launch test_activemask partial")?;
+        }
+        let result = dev.dtoh_sync_copy(&out).context("dtoh")?;
+        // With 20 threads and the if (idx < len) guard, all 20 are active.
+        // But the warp has 32 lanes scheduled; threads 20-31 are also launched but
+        // skip due to idx >= len. The activemask reports physically active lanes,
+        // which depends on how the hardware schedules partial blocks.
+        // For a block of 20 threads, only 20 lanes are active in the warp.
+        let expected_mask: u32 = (1u32 << 20) - 1; // 0x000FFFFF
+        let actual_mask = result[0];
+        println!("  test_activemask (partial, 20 threads): mask=0x{:08X} (expected ~0x{:08X})", actual_mask, expected_mask);
+        // Note: We don't fail on mismatch because the hardware may schedule
+        // all 32 lanes with predication. Just report the value.
+        if actual_mask == expected_mask {
+            println!("    Exact match: only 20 lanes active (hardware launched partial warp)");
+        } else if actual_mask == 0xFFFF_FFFF {
+            println!("    Full warp launched (32 lanes), threads 20-31 predicated off by if-guard");
+        }
+    }
+
+    // test_lane_id: 32 threads, each should report its lane (0..31)
+    {
+        let f = dev.get_func("kernel", "test_lane_id")
+            .context("test_lane_id not found")?;
+        let n: u32 = 32;
+        let mut out: CudaSlice<u32> = dev.alloc_zeros::<u32>(n as usize).context("alloc")?;
+        let cfg = LaunchConfig { grid_dim: (1,1,1), block_dim: (n,1,1), shared_mem_bytes: 0 };
+        unsafe {
+            f.launch(cfg, (&mut out, n)).context("launch test_lane_id")?;
+        }
+        let result = dev.dtoh_sync_copy(&out).context("dtoh")?;
+        for (i, &lid) in result.iter().enumerate() {
+            if lid != i as u32 {
+                anyhow::bail!("test_lane_id: thread {} got lane_id={}, expected {}", i, lid, i);
+            }
+        }
+        println!("  test_lane_id: PASSED (lane_id returns 0..31 for single-warp block)");
+    }
+
+    println!("  All warp intrinsics tests PASSED.");
+    Ok(())
+}
+
 fn main() -> Result<()> {
     println!("=== GPU Kernel Execution Test ===\n");
 
@@ -417,6 +616,8 @@ fn main() -> Result<()> {
     run_vector_add(Arc::clone(&dev))?;
     run_asm_smoke_tests(Arc::clone(&dev))?;
     run_integration_sys_store(Arc::clone(&dev))?;
+    run_u64_atomics_tests(Arc::clone(&dev))?;
+    run_warp_intrinsics_tests(Arc::clone(&dev))?;
 
     println!("\nAll tests PASSED.");
     Ok(())

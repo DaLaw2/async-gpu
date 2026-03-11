@@ -236,24 +236,42 @@ dispatch.
 ### 5b-addendum. Async state machine + hostcall spin loop — register spill risk
 
 When an async state machine contains a hostcall spin loop and an `.await` point inside that
-loop, the live variables at the checkpoint (CAS result buffers, packet pointers, spin_count)
-are stored in the state machine enum. If the enum exceeds available registers, LLVM spills it
-to GPU local memory (per-thread DRAM-backed private memory, ~100–500 ns latency). The spin
-loop then reads `spin_count` from local memory every iteration — adding 100–500 ns overhead to
-each 1–2 µs PCIe round-trip. Not catastrophic, but avoidable.
+loop, the live variables at the checkpoint are stored in the state machine enum. The variable
+that matters is not `spin_count` — it is `packet_ptr` (a raw `*mut Packet`, 8 bytes). The
+spin loop dereferences `packet_ptr` on every iteration to read `packet.header.control`. If
+`packet_ptr` spills to local memory (per-thread DRAM-backed private memory, ~200–500 ns L2
+hit), every spin iteration serializes: load `packet_ptr` from local memory, THEN issue the
+PCIe load for `control`. This adds 10–25% overhead per iteration and is entirely avoidable.
 
-**Design constraint for async-runtime theme**: GPU async functions MUST NOT yield (`.await`)
-inside a hostcall spin loop. Hostcall must be a synchronous blocking primitive; `.await` points
-appear only after the call completes and its local variables are dead.
+The spill only occurs if `.await` placement is wrong. With correct placement, `packet_ptr` is
+dead at every `.await` point and is never stored in the state machine enum.
+
+**Design constraint for async-runtime theme**: `hostcall_blocking()` MUST be a plain `fn`,
+not `async fn`. Its signature must return `Result<[u64; 7], HostcallError>` synchronously.
+Async wrappers that call it and then `.await` other operations are permitted, but the
+hostcall call site must not be inside an `async` block or generator body. Reason: even
+without an explicit `.await` inside the call, calling a blocking function from within an
+`async fn` makes its live locals (including `packet_ptr`) candidates for the state machine
+enum if the compiler judges them potentially live across a yield point elsewhere in the
+enclosing scope. A plain `fn` boundary eliminates this at the type system level — `async fn`
+cannot call plain `fn` and have its locals escape into the state machine.
 
 ```rust
-// WRONG — .await inside spin loop saves entire spin state to the enum
+// WRONG — .await inside spin loop saves packet_ptr to the enum
 async fn bad() { loop { if poll_ready().await { break; } } }
 
-// CORRECT — hostcall_blocking() spins synchronously; .await is outside
+// ALSO WRONG — hostcall_blocking called inside async fn body near other .awaits
+async fn also_bad() {
+    let result = hostcall_blocking(...);  // packet_ptr may land in enum
+    something().await;                    // enum checkpoint: is packet_ptr live?
+}
+
+// CORRECT — hostcall_blocking is a plain fn; async wrapper yields only after it returns
+fn hostcall_blocking(...) -> Result<[u64; 7], HostcallError> { /* spins */ }
+
 async fn good() {
-    let result = hostcall_blocking(...);  // no .await inside
-    next_async_step().await;             // .await after all spin state is dead
+    let result = hostcall_blocking(...);  // plain fn call, no enum interaction
+    something_async().await;             // packet_ptr is dead here, never in enum
 }
 ```
 

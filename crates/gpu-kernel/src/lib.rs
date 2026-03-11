@@ -6,7 +6,11 @@
 
 use core::arch::nvptx;
 use core::panic::PanicInfo;
-use gpu_atomics::{membar_sys, sys_store_release_u32, sys_load_acquire_u32, sys_cas_u32, st_global_u32};
+use gpu_atomics::{
+    membar_sys, sys_store_release_u32, sys_load_acquire_u32, sys_cas_u32, st_global_u32,
+    sys_cas_u64, sys_fetch_add_u64, sys_exchange_u64,
+    sys_spin_load_acquire_u32, activemask, lane_id,
+};
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
@@ -166,5 +170,102 @@ pub unsafe extern "ptx-kernel" fn write_thread_idx(output: *mut u32, len: u32) {
     let idx = block_x * block_dim_x + thread_x;
     if idx < len {
         *output.add(idx as usize) = idx;
+    }
+}
+
+// ============================================================
+// Step 6: u64 atomics tests (atomics.4)
+// ============================================================
+
+/// Test: atom.cas.sys.global.b64 via gpu-atomics crate.
+///
+/// Thread 0 attempts CAS on a u64: if *ptr == expected, set *ptr = desired.
+/// Returns the old value in output.
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn test_u64_cas(
+    ptr: *mut u64,
+    expected_lo: u32,
+    expected_hi: u32,
+    desired_lo: u32,
+    desired_hi: u32,
+    output: *mut u64,
+) {
+    let expected = (expected_hi as u64) << 32 | expected_lo as u64;
+    let desired = (desired_hi as u64) << 32 | desired_lo as u64;
+    let result = sys_cas_u64(ptr, expected, desired);
+    // Store result to output using a plain store (single thread, no race)
+    *output = result;
+}
+
+/// Test: atom.add.sys.global.u64 via gpu-atomics crate.
+///
+/// Thread 0 atomically adds val to *ptr, returns old value in output.
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn test_u64_fetch_add(
+    ptr: *mut u64,
+    val_lo: u32,
+    val_hi: u32,
+    output: *mut u64,
+) {
+    let val = (val_hi as u64) << 32 | val_lo as u64;
+    let result = sys_fetch_add_u64(ptr, val);
+    *output = result;
+}
+
+/// Test: atom.exch.sys.global.b64 via gpu-atomics crate.
+///
+/// Thread 0 atomically exchanges *ptr with val, returns old value in output.
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn test_u64_exchange(
+    ptr: *mut u64,
+    val_lo: u32,
+    val_hi: u32,
+    output: *mut u64,
+) {
+    let val = (val_hi as u64) << 32 | val_lo as u64;
+    let result = sys_exchange_u64(ptr, val);
+    *output = result;
+}
+
+// ============================================================
+// Step 7: Spin-load + warp intrinsic tests (atomics.4)
+// ============================================================
+
+/// Test: spin-load acquire u32.
+///
+/// Reads *ptr using the spin-safe acquire load and writes to output.
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn test_spin_load_u32(ptr: *const u32, output: *mut u32) {
+    let val = sys_spin_load_acquire_u32(ptr);
+    st_global_u32(output, val);
+}
+
+/// Test: activemask.b32 instruction.
+///
+/// Each thread writes the active lane mask to output[idx].
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn test_activemask(output: *mut u32, len: u32) {
+    let thread_x = nvptx::_thread_idx_x() as u32;
+    let block_x = nvptx::_block_idx_x() as u32;
+    let block_dim_x = nvptx::_block_dim_x() as u32;
+    let idx = block_x * block_dim_x + thread_x;
+    if idx < len {
+        let mask = activemask();
+        *output.add(idx as usize) = mask;
+    }
+}
+
+/// Test: lane_id intrinsic.
+///
+/// Each thread writes its lane ID to output[idx].
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn test_lane_id(output: *mut u32, len: u32) {
+    let thread_x = nvptx::_thread_idx_x() as u32;
+    let block_x = nvptx::_block_idx_x() as u32;
+    let block_dim_x = nvptx::_block_dim_x() as u32;
+    let idx = block_x * block_dim_x + thread_x;
+    if idx < len {
+        let lid = lane_id();
+        *output.add(idx as usize) = lid;
     }
 }

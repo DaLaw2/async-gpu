@@ -42,6 +42,12 @@ patch -p0 < "$SCRIPT_DIR/random_mod.patch"
 # New file: sys/alloc/cuda.rs — bump allocator for GPU
 cp "$SCRIPT_DIR/cuda.rs" "std/src/sys/alloc/cuda.rs"
 
+# Patch 4: sys/stdio/mod.rs — add cuda case for CUDA PAL stdio
+patch -p0 < "$SCRIPT_DIR/stdio_mod.patch"
+
+# New file: sys/stdio/cuda.rs — routes stdout through extern gpu_stdout_write
+cp "$SCRIPT_DIR/stdio_cuda.rs" "std/src/sys/stdio/cuda.rs"
+
 echo ""
 echo "Patched std source is at: $OUTPUT_DIR/library"
 echo ""

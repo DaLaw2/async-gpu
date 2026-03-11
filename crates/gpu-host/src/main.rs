@@ -1285,7 +1285,11 @@ fn run_std_build_test(dev: Arc<CudaDevice>) -> Result<()> {
     println!("\n--- Integration Test 4: -Zbuild-std=std on GPU ---");
 
     let ptx = cudarc::nvrtc::Ptx::from_src(STD_BUILD_TEST_PTX);
-    dev.load_ptx(ptx, "std_test", &["std_hello_kernel", "std_format_kernel"])?;
+    dev.load_ptx(ptx, "std_test", &[
+        "std_hello_kernel", "std_format_kernel",
+        "std_dynamic_vec_kernel", "std_dynamic_format_kernel",
+        "std_dynamic_multi_vec_kernel", "std_dynamic_vec_capacity_kernel",
+    ])?;
 
     // Test 1: std_hello_kernel
     // vec![1,2,3,4,5].sum() = 15, "Hello from GPU std!".len() = 19 → 15 + 19 = 34
@@ -1329,6 +1333,233 @@ fn run_std_build_test(dev: Arc<CudaDevice>) -> Result<()> {
     Ok(())
 }
 
+fn run_std_println_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- std-pal.1: PAL stdout routing (writeln! via hostcall) ---");
+
+    use std::sync::{Arc as StdArc, Mutex};
+
+    let hc_buf = hostcall::HostcallBuffer::new(4)?;
+    let dev_ptr = hc_buf.dev_ptr;
+
+    let messages: StdArc<Mutex<Vec<String>>> = StdArc::new(Mutex::new(Vec::new()));
+    let messages_clone = StdArc::clone(&messages);
+
+    let hc_buf_ref = StdArc::new(hc_buf);
+    let hc_buf_listener = StdArc::clone(&hc_buf_ref);
+    let listener_handle = std::thread::spawn(move || {
+        hc_buf_listener.listen(|msg| {
+            let s = String::from_utf8_lossy(msg).to_string();
+            println!("  [HOST] GPU stdout: \"{}\"", s);
+            messages_clone.lock().unwrap().push(s);
+        });
+    });
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(STD_BUILD_TEST_PTX);
+    let _ = dev.load_ptx(ptx, "std_test", &[
+        "std_println_kernel", "std_println_multi_kernel", "std_println_vec_kernel",
+    ]);
+    let cfg = LaunchConfig { grid_dim: (1,1,1), block_dim: (1,1,1), shared_mem_bytes: 0 };
+
+    // Test 1: Single writeln! with runtime value
+    {
+        let (result_host_ptr, result_dev_ptr) = unsafe { alloc_mapped_u32(&dev)? };
+        unsafe { std::ptr::write_volatile(result_host_ptr, 0u32) };
+        let f = dev.get_func("std_test", "std_println_kernel")
+            .ok_or(GpuHostError::KernelNotFound("std_println_kernel"))?;
+        unsafe { f.launch(cfg, (dev_ptr as u64, 42u32, result_dev_ptr as u64))?; }
+        dev.synchronize()?;
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        let result_val = unsafe { std::ptr::read_volatile(result_host_ptr) };
+        unsafe { free_mapped_mem(result_host_ptr)? };
+        if result_val != 1 {
+            hc_buf_ref.signal_shutdown();
+            listener_handle.join().unwrap();
+            return Err(GpuHostError::Verification {
+                test: "std_println_kernel",
+                detail: format!("kernel reported failure (result={})", result_val),
+            });
+        }
+        println!("  std_println_kernel: PASSED (writeln! via std::io::stdout)");
+    }
+
+    // Test 2: Multiple writeln! calls
+    {
+        let input_data: Vec<u32> = vec![100, 200, 300];
+        let input_dev = dev.htod_sync_copy(&input_data)?;
+        let (result_host_ptr, result_dev_ptr) = unsafe { alloc_mapped_u32(&dev)? };
+        unsafe { std::ptr::write_volatile(result_host_ptr, 0u32) };
+        let f = dev.get_func("std_test", "std_println_multi_kernel")
+            .ok_or(GpuHostError::KernelNotFound("std_println_multi_kernel"))?;
+        unsafe { f.launch(cfg, (dev_ptr as u64, &input_dev, input_data.len() as u32, result_dev_ptr as u64))?; }
+        dev.synchronize()?;
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        let result_val = unsafe { std::ptr::read_volatile(result_host_ptr) };
+        unsafe { free_mapped_mem(result_host_ptr)? };
+        if result_val != 3 {
+            hc_buf_ref.signal_shutdown();
+            listener_handle.join().unwrap();
+            return Err(GpuHostError::Verification {
+                test: "std_println_multi_kernel",
+                detail: format!("expected 3 writes, got {}", result_val),
+            });
+        }
+        println!("  std_println_multi_kernel: PASSED ({} writeln! calls)", result_val);
+    }
+
+    // Test 3: writeln! with Vec data
+    {
+        let input_data: Vec<u32> = vec![10, 20, 30, 40, 50];
+        let input_dev = dev.htod_sync_copy(&input_data)?;
+        let (result_host_ptr, result_dev_ptr) = unsafe { alloc_mapped_u32(&dev)? };
+        unsafe { std::ptr::write_volatile(result_host_ptr, 0u32) };
+        let f = dev.get_func("std_test", "std_println_vec_kernel")
+            .ok_or(GpuHostError::KernelNotFound("std_println_vec_kernel"))?;
+        unsafe { f.launch(cfg, (dev_ptr as u64, &input_dev, input_data.len() as u32, result_dev_ptr as u64))?; }
+        dev.synchronize()?;
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        let result_val = unsafe { std::ptr::read_volatile(result_host_ptr) };
+        unsafe { free_mapped_mem(result_host_ptr)? };
+        if result_val != 1 {
+            hc_buf_ref.signal_shutdown();
+            listener_handle.join().unwrap();
+            return Err(GpuHostError::Verification {
+                test: "std_println_vec_kernel",
+                detail: format!("kernel reported failure (result={})", result_val),
+            });
+        }
+        println!("  std_println_vec_kernel: PASSED (Vec + writeln! via std)");
+    }
+
+    hc_buf_ref.signal_shutdown();
+    listener_handle.join().unwrap();
+
+    let received = messages.lock().unwrap();
+    println!("  Total messages received from GPU stdout: {}", received.len());
+    println!("  PAL stdout routing WORKS! writeln!(std::io::stdout(), ...) → hostcall");
+
+    Ok(())
+}
+
+fn run_dynamic_alloc_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- product.1: Dynamic Allocation Stress Test ---");
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(STD_BUILD_TEST_PTX);
+    let _ = dev.load_ptx(ptx, "std_test", &[
+        "std_dynamic_vec_kernel", "std_dynamic_format_kernel",
+        "std_dynamic_multi_vec_kernel", "std_dynamic_vec_capacity_kernel",
+    ]);
+
+    let cfg = LaunchConfig { grid_dim: (1,1,1), block_dim: (1,1,1), shared_mem_bytes: 0 };
+
+    // Test 1: Vec with runtime data
+    // Input: [10, 20, 30, 40, 50] → sum = 150
+    {
+        let input_data: Vec<u32> = vec![10, 20, 30, 40, 50];
+        let expected_sum: u32 = input_data.iter().sum();
+        let input_dev = dev.htod_sync_copy(&input_data)?;
+        let mut result: CudaSlice<u32> = dev.alloc_zeros::<u32>(1)?;
+        let f = dev.get_func("std_test", "std_dynamic_vec_kernel")
+            .ok_or(GpuHostError::KernelNotFound("std_dynamic_vec_kernel"))?;
+        unsafe { f.launch(cfg, (&input_dev, input_data.len() as u32, &mut result))?; }
+        let host_result = dev.dtoh_sync_copy(&result)?;
+        if host_result[0] != expected_sum {
+            return Err(GpuHostError::Verification {
+                test: "std_dynamic_vec_kernel",
+                detail: format!("expected {}, got {}", expected_sum, host_result[0]),
+            });
+        }
+        println!("  dynamic_vec (5 elements): PASSED (sum={}, bump allocator active)", expected_sum);
+    }
+
+    // Test 1b: Larger Vec (100 elements) — forces multiple reallocations
+    {
+        let input_data: Vec<u32> = (1..=100).collect();
+        let expected_sum: u32 = input_data.iter().sum(); // 5050
+        let input_dev = dev.htod_sync_copy(&input_data)?;
+        let mut result: CudaSlice<u32> = dev.alloc_zeros::<u32>(1)?;
+        let f = dev.get_func("std_test", "std_dynamic_vec_kernel")
+            .ok_or(GpuHostError::KernelNotFound("std_dynamic_vec_kernel"))?;
+        unsafe { f.launch(cfg, (&input_dev, input_data.len() as u32, &mut result))?; }
+        let host_result = dev.dtoh_sync_copy(&result)?;
+        if host_result[0] != expected_sum {
+            return Err(GpuHostError::Verification {
+                test: "std_dynamic_vec_kernel (100 elements)",
+                detail: format!("expected {}, got {}", expected_sum, host_result[0]),
+            });
+        }
+        println!("  dynamic_vec (100 elements): PASSED (sum={}, multiple reallocs)", expected_sum);
+    }
+
+    // Test 2: format! with runtime value
+    // format!("result = {}", 12345) → "result = 12345", len = 14
+    {
+        let f = dev.get_func("std_test", "std_dynamic_format_kernel")
+            .ok_or(GpuHostError::KernelNotFound("std_dynamic_format_kernel"))?;
+        let mut result: CudaSlice<u32> = dev.alloc_zeros::<u32>(1)?;
+        unsafe { f.launch(cfg, (12345u32, &mut result))?; }
+        let host_result = dev.dtoh_sync_copy(&result)?;
+        let expected_len = "result = 12345".len() as u32;
+        if host_result[0] != expected_len {
+            return Err(GpuHostError::Verification {
+                test: "std_dynamic_format_kernel",
+                detail: format!("expected len={}, got {}", expected_len, host_result[0]),
+            });
+        }
+        println!("  dynamic_format (value=12345): PASSED (len={}, allocator used for String)", expected_len);
+    }
+
+    // Test 3: Multiple Vecs alive simultaneously
+    // Input: [1,2,3,4,5,6,7,8,9,10]
+    // Evens (indices 0,2,4,6,8): values 1,3,5,7,9 → sum = 25
+    // Odds (indices 1,3,5,7,9): values 2,4,6,8,10 → sum = 30
+    {
+        let input_data: Vec<u32> = (1..=10).collect();
+        let input_dev = dev.htod_sync_copy(&input_data)?;
+        let mut result: CudaSlice<u32> = dev.alloc_zeros::<u32>(3)?;
+        let f = dev.get_func("std_test", "std_dynamic_multi_vec_kernel")
+            .ok_or(GpuHostError::KernelNotFound("std_dynamic_multi_vec_kernel"))?;
+        unsafe { f.launch(cfg, (&input_dev, input_data.len() as u32, &mut result))?; }
+        let host_result = dev.dtoh_sync_copy(&result)?;
+        let expected_even_sum: u32 = 1 + 3 + 5 + 7 + 9;
+        let expected_odd_sum: u32 = 2 + 4 + 6 + 8 + 10;
+        if host_result[0] != expected_even_sum || host_result[1] != expected_odd_sum || host_result[2] != 10 {
+            return Err(GpuHostError::Verification {
+                test: "std_dynamic_multi_vec_kernel",
+                detail: format!(
+                    "expected evens={}, odds={}, total=10, got evens={}, odds={}, total={}",
+                    expected_even_sum, expected_odd_sum, host_result[0], host_result[1], host_result[2]
+                ),
+            });
+        }
+        println!("  dynamic_multi_vec (2 Vecs): PASSED (even_sum={}, odd_sum={}, total={})",
+            host_result[0], host_result[1], host_result[2]);
+    }
+
+    // Test 4: Vec::with_capacity — single allocation, no realloc leaks
+    {
+        let input_data: Vec<u32> = vec![100, 200, 300, 400, 500];
+        let expected_sum: u32 = input_data.iter().sum(); // 1500
+        let input_dev = dev.htod_sync_copy(&input_data)?;
+        let mut result: CudaSlice<u32> = dev.alloc_zeros::<u32>(1)?;
+        let f = dev.get_func("std_test", "std_dynamic_vec_capacity_kernel")
+            .ok_or(GpuHostError::KernelNotFound("std_dynamic_vec_capacity_kernel"))?;
+        unsafe { f.launch(cfg, (&input_dev, input_data.len() as u32, &mut result))?; }
+        let host_result = dev.dtoh_sync_copy(&result)?;
+        if host_result[0] != expected_sum {
+            return Err(GpuHostError::Verification {
+                test: "std_dynamic_vec_capacity_kernel",
+                detail: format!("expected {}, got {}", expected_sum, host_result[0]),
+            });
+        }
+        println!("  dynamic_vec_capacity (5 elements): PASSED (sum={}, pre-allocated)", expected_sum);
+    }
+
+    println!("  All dynamic allocation tests PASSED!");
+    println!("    Bump allocator confirmed working with runtime data");
+    println!("    Vec growth, format!, multiple Vecs, with_capacity all verified");
+    Ok(())
+}
+
 fn main() -> Result<()> {
     println!("=== GPU Kernel Execution Test ===\n");
 
@@ -1367,6 +1598,12 @@ fn main() -> Result<()> {
 
     // Std-build-test (integration.3): -Zbuild-std=std on GPU
     run_std_build_test(Arc::clone(&dev))?;
+
+    // Dynamic allocation stress test (product.1)
+    run_dynamic_alloc_test(Arc::clone(&dev))?;
+
+    // PAL stdout routing test (std-pal.1)
+    run_std_println_test(Arc::clone(&dev))?;
 
     println!("\nAll tests PASSED.");
     Ok(())

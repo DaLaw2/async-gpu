@@ -1,0 +1,13 @@
+--- std/src/sys/stdio/mod.rs.orig
++++ std/src/sys/stdio/mod.rs
+@@ -41,6 +41,10 @@
+     target_os = "zkvm" => {
+         mod zkvm;
+         pub use zkvm::*;
++    }
++    target_os = "cuda" => {
++        mod cuda;
++        pub use cuda::*;
+     }
+     _ => {
+         mod unsupported;

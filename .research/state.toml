@@ -4,22 +4,22 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 29      # Monotonic counter, incremented after each completed phase
-completed_tasks = 29
+total_cycles = 31      # Monotonic counter, incremented after each completed phase
+completed_tasks = 31
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"        # think | do | check
-current_step = "do.route"
+current_step = "do.execute"
 current_task_id = ""
-last_summary = "atomics.5 DONE: LLVM 21 fixed core::sync::atomic load/store/fence (now emit .sys scope), but RMW (CAS/fetch_add) still broken. VectorWare Relaxed is intentional (counters only, not hostcall sync). gpu-atomics crate still necessary for RMW. All 6 themes completed, 29 tasks done."
+last_summary = "Batch A done: product.1 (dynamic alloc 5/5 PASSED) + std-pal.1 (PAL stdout via writeln! PASSED, println! crashes LLVM). Next: Batch B+C."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 8
+brainstorm_seq = 9
 review_seq = 3
 
 # Brainstorm trigger control
-last_brainstorm_at_completed = 26
+last_brainstorm_at_completed = 29
 brainstorm_interval = 3
 
 # ============================================================
@@ -103,6 +103,31 @@ success_criteria = [
     "Identified and validated a workaround providing system-scope atomics for GPU-CPU protocols",
     "Stress-test passes for GPU-CPU atomic communication using the validated workaround",
     "Workarounds fully documented (core::sync::atomic confirmed broken; intrinsic or Rust-CUDA path required)",
+]
+
+[[themes]]
+id = "std-pal"
+title = "Route std I/O through hostcall at the PAL level"
+status = "active"
+spawned_by = "bs9"
+goal = "Make std::io::stdout, std::io::stdin work natively via vendored std PAL layer"
+success_criteria = [
+    "println!(\"{}\", runtime_value) works from GPU kernel via std",
+    "std::io::stdin().read_line(&mut buf) works from GPU kernel via std",
+    "No custom macros or wrapper functions needed for basic I/O",
+]
+
+[[themes]]
+id = "product"
+title = "Product-ready demonstrations and stress testing"
+status = "active"
+spawned_by = "bs9"
+goal = "Validate the complete stack under realistic conditions and produce showcase demo"
+success_criteria = [
+    "Bump allocator verified with truly dynamic (non-constant-folded) data",
+    "Multi-step async workflow demonstrated end-to-end",
+    "Multi-warp (32-thread) async execution tested",
+    "Showcase demo combining std types + async + I/O + concurrent operations",
 ]
 
 # ============================================================
@@ -550,6 +575,100 @@ research_questions = [
     "Update ADR-4 with reworked design",
 ]
 
+# --- Theme: std-pal (NEW from bs9) ---
+
+[[tasks]]
+id = "std-pal.1"
+theme = "std-pal"
+title = "Implement CUDA PAL for stdout with hostcall routing"
+kind = "experiment"
+status = "done"
+depends_on = []
+spawned_by = "bs9"
+research_questions = [
+    "Can we add a cuda PAL variant to route Stdout::write() through hostcall?",
+    "How to pass the hostcall buffer pointer to the PAL layer? (global static)",
+    "Does BufWriter wrapping in std's Stdout interfere with per-packet message semantics?",
+    "Does println!(\"{}\", runtime_value) produce a correct hostcall with the formatted output?",
+]
+
+[[tasks]]
+id = "std-pal.2"
+theme = "std-pal"
+title = "Route stdin through CUDA PAL"
+kind = "experiment"
+status = "pending"
+depends_on = ["std-pal.1"]
+spawned_by = "bs9"
+research_questions = [
+    "Does std::io::stdin().read_line(&mut buf) correctly invoke SERVICE_STDIN hostcall?",
+    "Can BufReader wrapping handle the 56-byte packet limit for stdin data?",
+    "Does blocking stdin behavior work correctly (GPU thread waits for host input)?",
+]
+
+# --- Theme: product (NEW from bs9) ---
+
+[[tasks]]
+id = "product.1"
+theme = "product"
+title = "Dynamic allocation stress test with runtime data"
+kind = "experiment"
+status = "done"
+depends_on = []
+spawned_by = "bs9"
+research_questions = [
+    "Does Vec::push with runtime (kernel argument) data trigger the bump allocator?",
+    "Can Vec grow beyond its initial capacity (multiple reallocations)?",
+    "How much heap does a Vec growing to N elements consume (including leaked realloc buffers)?",
+    "What happens when the bump allocator hits OOM (does std panic or return null)?",
+    "Does format!() with runtime values correctly use the allocator?",
+]
+
+[[tasks]]
+id = "product.2"
+theme = "product"
+title = "Multi-step async I/O pipeline"
+kind = "experiment"
+status = "pending"
+depends_on = ["product.1"]
+spawned_by = "bs9"
+research_questions = [
+    "Can a single async fn chain 4+ sequential hostcall awaits (read → process → write → print)?",
+    "What is the register pressure of a 4-state async state machine?",
+    "Does the executor correctly advance through all states?",
+    "What is the end-to-end latency for the full pipeline?",
+]
+
+[[tasks]]
+id = "product.3"
+theme = "product"
+title = "Multi-warp async scaling (32 threads)"
+kind = "experiment"
+status = "pending"
+depends_on = ["product.1"]
+spawned_by = "bs9"
+research_questions = [
+    "Can 32 threads each run their own Embassy executor with async hostcall tasks?",
+    "How many hostcall packets are needed for 32 concurrent threads? (pool sizing)",
+    "Does the host listener handle 32 concurrent requests without dropping any?",
+    "What is the observable warp divergence? (measure with globaltimer per-thread)",
+    "Does the no-op critical section remain safe with 32 independent executors?",
+]
+
+[[tasks]]
+id = "product.4"
+theme = "product"
+title = "Showcase demo kernel"
+kind = "experiment"
+status = "pending"
+depends_on = ["std-pal.1", "product.1", "product.2"]
+spawned_by = "bs9"
+research_questions = [
+    "Can a single kernel combine Vec, String, format!, async file I/O, concurrent ops, and println! via std?",
+    "Is the total register pressure acceptable for a single kernel with all features?",
+    "Does the demo run reliably on repeated invocations (heap reset between launches)?",
+]
+
 # --- New task: atomics correctness audit (user requested) ---
 
 [[tasks]]
@@ -657,6 +776,17 @@ new_themes_spawned = []
 themes_parked = []
 themes_completed = []
 key_insight = "26/26 tasks done through integration.2. Two remaining: integration.4 (benchmarks/comparison, low risk) then integration.3 (std patch, high risk). Execute integration.4 first since it's independent and captures current state. integration.3 is the final VectorWare parity challenge."
+
+[[brainstorms]]
+seq = 9
+at_cycle = 29
+trigger = "user-directed (Product Ready epic)"
+level = "standard"
+new_tasks_spawned = ["std-pal.1", "std-pal.2", "product.1", "product.2", "product.3", "product.4"]
+new_themes_spawned = ["std-pal", "product"]
+themes_parked = []
+themes_completed = []
+key_insight = "Product Ready has two value streams: ergonomic parity (PAL I/O routing for println!/stdin) and robustness validation (dynamic alloc + multi-warp). product.1 (dynamic alloc) is the riskiest P0 — if bump allocator fails under real data, showcase must redesign. Batch A: product.1 + std-pal.1 (parallel, independent)."
 
 [[reviews]]
 seq = 2

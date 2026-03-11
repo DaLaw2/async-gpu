@@ -41,3 +41,12 @@ Record important technical decisions here as they emerge from research.
 - **Rationale**: (1) ROCm's design is proven in production. (2) Lock-free CAS allows multi-warp concurrency without barriers. (3) Warp-granular packets match NVIDIA's SIMT model. (4) LIFO ordering is acceptable for independent RPC requests. (5) CUDA printf is write-only (no response path). (6) Double-buffering stalls all warps (unacceptable).
 - **Alternatives**: CUDA printf-style FIFO (no response path, rejected), double-buffer (stalls all warps, rejected), single global mutex (serializes all RPCs, rejected).
 - **Sources**: hostcall.1-c1, hostcall.2-c1, atomics.3-c1, hostcall.3-c10
+
+### ADR-4: Per-thread GPU executor with bitmask run queue
+- **Date**: 2026-03-12
+- **Status**: accepted
+- **Context**: Need to decide executor granularity (per-thread vs per-warp vs per-block), memory layout, waker mechanism, and critical section strategy for running async/await on GPU.
+- **Decision**: Each GPU thread (lane) runs its own independent `GpuExecutor` instance. Executor state lives in registers/local memory. Run queue is a plain `u32` bitmask (no atomics needed — single owner). Waker encodes a task index in the `RawWaker` data pointer and sets a bit via plain `OR`. Critical section is a no-op (no shared mutable state in per-thread executor). Hostcall is exposed as an async `HostcallFuture` that returns `Poll::Pending` while waiting for host response. Default max 4-8 tasks per executor. Kernel exit when all tasks complete. Idle poll uses PTX `nanosleep` instruction.
+- **Rationale**: (1) VectorWare confirms per-thread executor works ("each GPU thread runs its own executor instance"). (2) Zero synchronization overhead — no atomics, no locks for executor internals. (3) Maps directly to Embassy's `arch-spin` model. (4) Register pressure is manageable (~20-30 registers for 2 tasks). (5) Warp divergence is a performance concern, not a correctness concern, and is inherent to async. (6) Async hostcall enables overlapping host RPCs with other GPU-side computation — the key value proposition.
+- **Alternatives**: Per-warp executor (less register pressure but complex warp-level sync, serializes task execution to lane 0), per-block executor (requires shared-memory sync, introduces bottlenecks), hybrid per-warp-with-per-lane-pools (too complex for initial implementation).
+- **Sources**: async-runtime.1-c1, async-runtime.1.1-c12, async-runtime.2-c16

@@ -10,15 +10,15 @@ status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"        # think | do | check | adapt
-current_step = "do.execute"  # Micro-step for compression resilience
-current_task_id = "hostcall.3"
+current_step = "do.select"   # Micro-step for compression resilience
+current_task_id = "atomics.4"
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 2
+brainstorm_seq = 3
 review_seq = 1
 
 # Brainstorm trigger control
-last_brainstorm_at_completed = 7
+last_brainstorm_at_completed = 10
 brainstorm_interval = 3
 
 # ============================================================
@@ -155,6 +155,21 @@ research_questions = [
     "Does llvm.nvvm.membar.sys via extern C link_name survive optimization?",
     "Does read_volatile emit ld.volatile or plain ld in PTX output?",
     "DECISION: if inline PTX fails, reconsider ADR-1 vs Rust-CUDA",
+]
+
+[[tasks]]
+id = "atomics.4"
+theme = "atomics"
+title = "Add u64 atomics + spin-load variants + activemask to gpu-atomics"
+kind = "experiment"
+status = "pending"
+depends_on = ["atomics.3.1"]
+spawned_by = "bs3"
+research_questions = [
+    "Do sys_cas_u64, sys_fetch_add_u64, sys_exchange_u64 compile to correct PTX?",
+    "Does sys_spin_load_acquire_u32/u64 (no readonly, inline(never), nanosleep) work?",
+    "Does activemask.b32 PTX instruction work from inline asm?",
+    "Unit test: u64 CAS from a single-thread kernel succeeds?",
 ]
 
 [[tasks]]
@@ -295,7 +310,7 @@ theme = "hostcall"
 title = "Experiment: GPU println via hostcall"
 kind = "experiment"
 status = "pending"
-depends_on = ["hostcall.3"]
+depends_on = ["hostcall.3", "atomics.4"]
 spawned_by = "initial"
 research_questions = [
     "Can we print strings from a GPU kernel via hostcall?",
@@ -372,6 +387,21 @@ research_questions = [
 ]
 
 [[tasks]]
+id = "async-runtime.1.1"
+theme = "async-runtime"
+title = "Experiment: attempt Embassy executor compilation for nvptx64"
+kind = "experiment"
+status = "pending"
+depends_on = ["toolchain.4"]
+spawned_by = "bs3"
+research_questions = [
+    "Does embassy-executor with arch-spin compile for nvptx64-nvidia-cuda?",
+    "What specific errors occur? AtomicU8? TLS? vtable dispatch?",
+    "Can the errors be worked around without modifying Embassy?",
+    "If not, what minimal Embassy fork changes are needed?",
+]
+
+[[tasks]]
 id = "async-runtime.2"
 theme = "async-runtime"
 title = "Design GPU executor architecture"
@@ -442,6 +472,15 @@ key_insight = "core::sync::atomic confirmed broken on nvptx64. Project viability
 # ============================================================
 # Review Records
 # ============================================================
+
+[[brainstorms]]
+seq = 3
+at_cycle = 10
+trigger = "interval"
+new_tasks_spawned = ["atomics.4", "async-runtime.1.1"]
+new_themes_spawned = []
+themes_parked = []
+key_insight = "All confirmed successes are single-thread u32 non-async. Transition to multi-warp u64 async is where real risks lie. u64 atomics + spin-load fix are critical prerequisites. Embassy compilation must be attempted early."
 
 [[reviews]]
 seq = 1

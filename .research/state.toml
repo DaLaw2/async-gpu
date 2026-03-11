@@ -4,14 +4,14 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 4       # Monotonic counter, incremented after each completed phase
-completed_tasks = 4
+total_cycles = 5       # Monotonic counter, incremented after each completed phase
+completed_tasks = 5
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"        # think | do | check | adapt
-current_step = "do.save"  # Micro-step for compression resilience
-current_task_id = ""
+current_step = "do.execute"  # Micro-step for compression resilience
+current_task_id = "atomics.1,hostcall.1,toolchain.4"
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 1
@@ -99,9 +99,9 @@ status = "active"
 spawned_by = "bs1"
 goal = "Verify that Rust atomic operations emit correct PTX scope qualifiers for GPU-CPU communication"
 success_criteria = [
-    "Confirmed PTX output for Rust atomics shows correct .sys scope",
-    "Stress-test passes for GPU-CPU atomic communication",
-    "Workarounds documented if inline PTX is needed",
+    "Identified and validated a workaround providing system-scope atomics for GPU-CPU protocols",
+    "Stress-test passes for GPU-CPU atomic communication using the validated workaround",
+    "Workarounds fully documented (core::sync::atomic confirmed broken; intrinsic or Rust-CUDA path required)",
 ]
 
 # ============================================================
@@ -115,7 +115,7 @@ id = "atomics.1"
 theme = "atomics"
 title = "Verify Rust atomic operations map to correct PTX scope qualifiers"
 kind = "investigation"
-status = "pending"
+status = "done"
 depends_on = ["toolchain.1"]
 spawned_by = "bs1"
 research_questions = [
@@ -197,7 +197,7 @@ id = "toolchain.4"
 theme = "toolchain"
 title = "Experiment: minimal GPU kernel compilation and execution"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["toolchain.1"]
 spawned_by = "initial"
 research_questions = [
@@ -214,7 +214,7 @@ id = "hostcall.1"
 theme = "hostcall"
 title = "Research GPU-Host shared memory mechanisms"
 kind = "investigation"
-status = "pending"
+status = "active"
 depends_on = []
 spawned_by = "initial"
 research_questions = [

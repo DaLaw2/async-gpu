@@ -1,0 +1,10 @@
+[package]
+name = "gpu-host"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cudarc = { version = "0.12", features = ["cuda-12060"] }
+anyhow = "1"
+
+

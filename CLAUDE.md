@@ -31,39 +31,42 @@ Exploratory research with no fixed endpoint.
 async_gpu/
 ├── CLAUDE.md
 ├── .claude/
-│   ├── settings.json                      # Agent Teams enabled
+│   ├── settings.json
 │   └── commands/
 │       └── research.md                    # /research loop engine
 ├── .research/
-│   ├── state.toml                         # State machine (SSOT)
+│   ├── state.toml                         # State machine (SSOT) + last_summary
 │   │   ├── [[themes]]                     #   Research directions
 │   │   └── [[tasks]]                      #   Actionable items per theme
 │   ├── decisions.md                       # Architecture Decision Records
 │   └── findings/
-│       ├── brainstorm/bs{seq}-*.md        # Brainstorm outputs
+│       ├── brainstorm/bs{seq}.md          # Brainstorm document
 │       ├── tasks/{task_id}-c{cycle}.md    # Task findings
-│       └── reviews/rv{seq}-{id}-*.md      # Review outputs
+│       └── reviews/rv{seq}-{task_id}.md   # Review document
 ├── crates/                                # Implementation code
 └── examples/
 ```
 
 ## Autonomous Research Workflow
 
-### Core Loop: Think → Do → Check → Adapt
+### Core Loop: Think → Do → Check
 
 | Phase | What | How |
 |-------|------|-----|
-| **Think** | Brainstorm | Agent Team: 4 teammates debate; can add/park themes, add/skip tasks |
-| **Do** | Research/Experiment | Select from active themes; parallel across themes |
-| **Check** | Code Review | Agent Team: 3 reviewers cross-discuss |
-| **Adapt** | Update Plan | Embedded in Think (themes+tasks) and Check (rework/redesign) |
-| **Save** | Git commit+push | After every completed phase |
+| **Think** | Brainstorm (tiered) | Quick (inline) / Standard (1 agent) / Deep (2-agent team) |
+| **Do** | Research/Experiment | Batch execute multiple tasks per session |
+| **Check** | Review (tiered) | Skip / self-checklist / single-agent review based on risk |
 
-### Task Selection (Theme-Aware)
+### Review Triage
+- **Skip**: Extends proven pattern (e.g., u32→u64 same asm) → no review
+- **Light**: New code in established crate → self-review checklist
+- **Full**: New protocol/crate/architecture/decision gate → single reviewer agent
+
+### Task Selection
 1. Only from `active` themes
 2. Priority: brainstorm-spawned > review-spawned > initial
-3. Within theme: investigation before experiment (research before build)
-4. Cross-theme parallelism when tasks are independent
+3. Within theme: investigation before experiment
+4. Batch: execute all ready tasks in one session, don't stop between tasks
 
 ### Launch
 ```
@@ -72,4 +75,4 @@ async_gpu/
 
 ## Git Remote
 - Origin: https://github.com/DaLaw2/async-gpu.git
-- Auto-commit and push after each phase completion
+- Commit + push after each batch of work

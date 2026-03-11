@@ -9,9 +9,10 @@ completed_tasks = 11
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
-current_mode = "do"        # think | do | check | adapt
-current_step = "do.save"   # Micro-step for compression resilience
+current_mode = "do"        # think | do | check
+current_step = "do.select" # Ready for next task selection
 current_task_id = "atomics.4"
+last_summary = "atomics.4 done: u64 CAS/add/exchange + spin-load + activemask all verified on GPU. nvptx64 requires inline(always) for cross-crate functions (no PTX linker). hostcall.4 now unblocked."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 3

@@ -6,15 +6,15 @@
 created = "2026-03-11"
 total_cycles = 0       # Monotonic counter, incremented after each completed phase
 completed_tasks = 0
-status = "ready"       # ready | running | blocked | completed
+status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "think"     # think | do | check | adapt
-current_step = "recovery"  # Micro-step for compression resilience
-current_task_id = "toolchain.1"
+current_step = "think.save"  # Micro-step for compression resilience
+current_task_id = ""
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 0
+brainstorm_seq = 1
 review_seq = 0
 
 # Brainstorm trigger control
@@ -92,9 +92,53 @@ success_criteria = [
     "Feature parity comparison with VectorWare demo",
 ]
 
+[[themes]]
+id = "atomics"
+title = "GPU-CPU memory model and atomics verification"
+status = "active"
+spawned_by = "bs1"
+goal = "Verify that Rust atomic operations emit correct PTX scope qualifiers for GPU-CPU communication"
+success_criteria = [
+    "Confirmed PTX output for Rust atomics shows correct .sys scope",
+    "Stress-test passes for GPU-CPU atomic communication",
+    "Workarounds documented if inline PTX is needed",
+]
+
 # ============================================================
 # Tasks (grouped by theme via task ID prefix)
 # ============================================================
+
+# --- Theme: atomics (NEW from bs1) ---
+
+[[tasks]]
+id = "atomics.1"
+theme = "atomics"
+title = "Verify Rust atomic operations map to correct PTX scope qualifiers"
+kind = "investigation"
+status = "pending"
+depends_on = ["toolchain.1"]
+spawned_by = "bs1"
+research_questions = [
+    "What PTX instructions does core::sync::atomic emit on nvptx64?",
+    "Are SeqCst/Release/Acquire correctly lowered to .sys scope?",
+    "Does the LLVM version in current nightly handle scoped atomics?",
+    "If .sys scope is missing, can inline PTX asm provide it?",
+]
+
+[[tasks]]
+id = "atomics.2"
+theme = "atomics"
+title = "Stress-test GPU-CPU atomic communication correctness"
+kind = "experiment"
+status = "pending"
+depends_on = ["atomics.1", "toolchain.4"]
+spawned_by = "bs1"
+research_questions = [
+    "Can GPU and CPU reliably exchange data via atomic flags in pinned memory?",
+    "Does a counter incremented by GPU and read by CPU show correct values?",
+    "Are there observable races under heavy concurrent access?",
+    "What is the minimum fence required for correctness?",
+]
 
 # --- Theme: toolchain ---
 
@@ -133,7 +177,7 @@ research_questions = [
 [[tasks]]
 id = "toolchain.3"
 theme = "toolchain"
-title = "Analyze VectorWare's rustc modifications (extern gpu-kernel ABI)"
+title = "Analyze VectorWare's rustc modifications (extern gpu-kernel ABI) — DECISION GATE"
 kind = "investigation"
 status = "pending"
 depends_on = []
@@ -143,6 +187,9 @@ research_questions = [
     "What are the differences from ptx-kernel ABI?",
     "Does VectorWare have a public rustc fork?",
     "Any Rust RFC or PR tracking progress?",
+    "Can ptx-kernel ABI serve as a sufficient fallback?",
+    "If gpu-kernel requires a rustc patch, what is the estimated scope (~LOC, ~files)?",
+    "DECISION: proceed with ptx-kernel, write our own patch, or blocked?",
 ]
 
 [[tasks]]
@@ -168,7 +215,7 @@ theme = "hostcall"
 title = "Research GPU-Host shared memory mechanisms"
 kind = "investigation"
 status = "pending"
-depends_on = ["toolchain.4"]
+depends_on = []
 spawned_by = "initial"
 research_questions = [
     "What are the semantics of cudaHostAlloc + cudaHostAllocMapped?",
@@ -198,7 +245,7 @@ theme = "hostcall"
 title = "Design and implement hostcall protocol"
 kind = "design"
 status = "pending"
-depends_on = ["hostcall.1", "hostcall.2"]
+depends_on = ["hostcall.1", "hostcall.2", "atomics.1"]
 spawned_by = "initial"
 research_questions = [
     "What serialization format for request/response?",
@@ -273,7 +320,7 @@ research_questions = [
 [[tasks]]
 id = "async-runtime.1"
 theme = "async-runtime"
-title = "Deep analysis of Embassy executor source code"
+title = "Deep analysis of Embassy executor + GPU compatibility assessment"
 kind = "investigation"
 status = "pending"
 depends_on = []
@@ -284,6 +331,9 @@ research_questions = [
     "Pender callback mechanism?",
     "Task queue data structure?",
     "Which parts depend on platform-specific features?",
+    "What changes are needed for Embassy to compile on nvptx64?",
+    "Is Embassy's CriticalSection compatible with SIMT execution?",
+    "DECISION: port Embassy, or build custom minimal executor from scratch?",
 ]
 
 [[tasks]]
@@ -336,14 +386,14 @@ research_questions = [
 # Brainstorm Records
 # ============================================================
 
-# [[brainstorms]]
-# seq = 1
-# at_cycle = 3
-# trigger = "interval"  # interval | blocked | milestone | discovery
-# new_tasks_spawned = ["hostcall.5"]
-# new_themes_spawned = []
-# themes_parked = []
-# key_insight = "..."
+[[brainstorms]]
+seq = 1
+at_cycle = 0
+trigger = "initial"
+new_tasks_spawned = ["atomics.1", "atomics.2"]
+new_themes_spawned = ["atomics"]
+themes_parked = []
+key_insight = "Front-load empirical verification: atomics scope, indirect calls, linking — each either confirms the path or forces a pivot while cost is low"
 
 # ============================================================
 # Review Records

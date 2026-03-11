@@ -4,8 +4,8 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 12      # Monotonic counter, incremented after each completed phase
-completed_tasks = 12
+total_cycles = 13      # Monotonic counter, incremented after each completed phase
+completed_tasks = 13
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
@@ -214,7 +214,7 @@ id = "toolchain.2"
 theme = "toolchain"
 title = "Investigate rust-cuda (rustc_codegen_nvvm): current status and architecture"
 kind = "investigation"
-status = "active"
+status = "done"
 depends_on = []
 spawned_by = "initial"
 research_questions = [

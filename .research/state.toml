@@ -10,15 +10,15 @@ status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"        # think | do | check | adapt
-current_step = "do.save"  # Micro-step for compression resilience
+current_step = "do.select"  # Micro-step for compression resilience
 current_task_id = ""
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 1
+brainstorm_seq = 2
 review_seq = 0
 
 # Brainstorm trigger control
-last_brainstorm_at_completed = 4
+last_brainstorm_at_completed = 7
 brainstorm_interval = 3
 
 # ============================================================
@@ -131,13 +131,30 @@ theme = "atomics"
 title = "Stress-test GPU-CPU atomic communication correctness"
 kind = "experiment"
 status = "pending"
-depends_on = ["atomics.1", "toolchain.4"]
+depends_on = ["atomics.3"]
 spawned_by = "bs1"
 research_questions = [
     "Can GPU and CPU reliably exchange data via atomic flags in pinned memory?",
     "Does a counter incremented by GPU and read by CPU show correct values?",
     "Are there observable races under heavy concurrent access?",
     "What is the minimum fence required for correctness?",
+]
+
+[[tasks]]
+id = "atomics.3"
+theme = "atomics"
+title = "Implement gpu-atomics crate with system-scope primitives — DECISION GATE"
+kind = "experiment"
+status = "pending"
+depends_on = ["atomics.1", "toolchain.4"]
+spawned_by = "bs2"
+research_questions = [
+    "Does core::arch::asm! with inline PTX work on nvptx64? — CRITICAL",
+    "Can we emit st.release.sys.global.u32 and ld.acquire.sys.global.u32?",
+    "Can we emit atom.sys.global.cas.b32 via inline PTX?",
+    "Does llvm.nvvm.membar.sys via extern C link_name survive optimization?",
+    "Does read_volatile emit ld.volatile or plain ld in PTX output?",
+    "DECISION: if inline PTX fails, reconsider ADR-1 vs Rust-CUDA",
 ]
 
 # --- Theme: toolchain ---
@@ -245,7 +262,7 @@ theme = "hostcall"
 title = "Design and implement hostcall protocol"
 kind = "design"
 status = "pending"
-depends_on = ["hostcall.1", "hostcall.2", "atomics.1"]
+depends_on = ["hostcall.1", "hostcall.2", "atomics.3"]
 spawned_by = "initial"
 research_questions = [
     "What serialization format for request/response?",
@@ -394,6 +411,15 @@ new_tasks_spawned = ["atomics.1", "atomics.2"]
 new_themes_spawned = ["atomics"]
 themes_parked = []
 key_insight = "Front-load empirical verification: atomics scope, indirect calls, linking — each either confirms the path or forces a pivot while cost is low"
+
+[[brainstorms]]
+seq = 2
+at_cycle = 7
+trigger = "interval"
+new_tasks_spawned = ["atomics.3"]
+new_themes_spawned = []
+themes_parked = []
+key_insight = "core::sync::atomic confirmed broken on nvptx64. Project viability hinges on inline PTX asm availability. atomics.3 is the decision gate."
 
 # ============================================================
 # Review Records

@@ -2,15 +2,14 @@
 #![feature(abi_ptx)]
 #![feature(stdarch_nvptx)]
 #![feature(asm_experimental_arch)]
-#![feature(link_llvm_intrinsics)]
-
 use core::arch::nvptx;
 use core::panic::PanicInfo;
 use gpu_atomics::{
     membar_sys, sys_store_release_u32, sys_load_acquire_u32, sys_cas_u32, st_global_u32,
     sys_cas_u64, sys_fetch_add_u64, sys_exchange_u64,
-    sys_spin_load_acquire_u32, activemask, lane_id,
+    sys_load_acquire_u64, sys_spin_load_acquire_u32, activemask, lane_id,
 };
+use gpu_protocol::*;
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
@@ -57,33 +56,6 @@ pub unsafe extern "ptx-kernel" fn test_asm_cas_sys(
 ) {
     let result = sys_cas_u32(ptr, expected, desired);
     st_global_u32(output, result);
-}
-
-// ============================================================
-// Step 2: NVVM intrinsics via extern "C"
-// (tested if inline asm fails)
-// ============================================================
-
-extern "C" {
-    #[link_name = "llvm.nvvm.membar.sys"]
-    fn nvvm_membar_sys();
-
-    #[link_name = "llvm.nvvm.atomic.add.gen.i.sys.i32.p0i32"]
-    fn nvvm_atomic_add_sys_i32(ptr: *mut i32, val: i32) -> i32;
-}
-
-/// Test: membar.sys via llvm.nvvm.membar.sys intrinsic
-#[no_mangle]
-pub unsafe extern "ptx-kernel" fn test_nvvm_membar_sys(flag: *mut u32) {
-    nvvm_membar_sys();
-    *flag = 1u32;
-}
-
-/// Test: scoped atomic add via llvm.nvvm.atomic.add.gen.i.sys
-#[no_mangle]
-pub unsafe extern "ptx-kernel" fn test_nvvm_atomic_add_sys(ptr: *mut i32, val: i32, output: *mut i32) {
-    let result = nvvm_atomic_add_sys_i32(ptr, val);
-    *output = result;
 }
 
 // ============================================================
@@ -267,5 +239,190 @@ pub unsafe extern "ptx-kernel" fn test_lane_id(output: *mut u32, len: u32) {
     if idx < len {
         let lid = lane_id();
         *output.add(idx as usize) = lid;
+    }
+}
+
+// ============================================================
+// Hostcall protocol (GPU side) — hostcall.4
+// ============================================================
+
+/// Pop a packet from the free stack. Returns packet index or NULL_INDEX.
+#[inline(always)]
+unsafe fn hc_pop_free(buf: *mut u8) -> u16 {
+    let free_ptr = buf.add(BUF_OFF_FREE_STACK) as *mut u64;
+    loop {
+        let old_head = sys_load_acquire_u64(free_ptr as *const u64);
+        let idx = tagged_index(old_head);
+        if idx == NULL_INDEX {
+            return NULL_INDEX;
+        }
+        let pkt = buf.add(packet_offset(idx));
+        let next = core::ptr::read_volatile(pkt.add(PKT_OFF_NEXT) as *const u64);
+        if sys_cas_u64(free_ptr, old_head, next) == old_head {
+            return idx;
+        }
+    }
+}
+
+/// Push a packet onto a tagged-pointer stack (free or ready).
+#[inline(always)]
+unsafe fn hc_push(stack_ptr: *mut u64, buf: *mut u8, pkt_idx: u16) {
+    let pkt = buf.add(packet_offset(pkt_idx));
+    loop {
+        let old_head = sys_load_acquire_u64(stack_ptr as *const u64);
+        core::ptr::write_volatile(pkt.add(PKT_OFF_NEXT) as *mut u64, old_head);
+        let new_tag = tagged_tag(old_head).wrapping_add(1);
+        let new_tagged = make_tagged(new_tag, pkt_idx);
+        if sys_cas_u64(stack_ptr, old_head, new_tagged) == old_head {
+            break;
+        }
+    }
+}
+
+/// GPU-side hostcall: send a PRINT request with a short message.
+///
+/// Only lane 0 (thread 0) should call this. The message is copied into
+/// the packet payload (mapped memory). Max 56 bytes.
+///
+/// Returns true on success, false on pool exhaustion or timeout.
+#[inline(always)]
+unsafe fn gpu_hostcall_print(buf: *mut u8, msg: *const u8, msg_len: u32) -> bool {
+    // Step 1: Pop free packet
+    let pkt_idx = hc_pop_free(buf);
+    if pkt_idx == NULL_INDEX {
+        return false;
+    }
+
+    let pkt = buf.add(packet_offset(pkt_idx));
+
+    // Step 2: Fill packet header
+    let mask = activemask();
+    core::ptr::write_volatile(pkt.add(PKT_OFF_ACTIVE_MASK) as *mut u32, mask);
+    core::ptr::write_volatile(pkt.add(PKT_OFF_SERVICE) as *mut u32, SERVICE_PRINT);
+    // Clear READY/ERROR with a release store (ensures prior state is clean)
+    sys_store_release_u32(pkt.add(PKT_OFF_CONTROL) as *mut u32, 0);
+
+    // Step 3: Fill payload (lane 0 only)
+    // Slot 0 = message length, Slots 1-7 = message bytes (up to 56 bytes)
+    let payload = pkt.add(PKT_OFF_PAYLOAD);
+    core::ptr::write_volatile(payload as *mut u64, msg_len as u64);
+
+    let copy_len = if msg_len > PRINT_MAX_MSG_LEN as u32 {
+        PRINT_MAX_MSG_LEN as u32
+    } else {
+        msg_len
+    };
+    let dst = payload.add(8); // skip slot 0
+    let mut i: u32 = 0;
+    while i < copy_len {
+        core::ptr::write_volatile(dst.add(i as usize), *msg.add(i as usize));
+        i += 1;
+    }
+
+    // Step 4: membar.sys to ensure all packet writes are visible at system scope
+    membar_sys();
+
+    // Step 5: Push to ready stack
+    let ready_ptr = buf.add(BUF_OFF_READY_STACK) as *mut u64;
+    hc_push(ready_ptr, buf, pkt_idx);
+
+    // Step 6: Ring doorbell
+    sys_fetch_add_u64(buf.add(BUF_OFF_DOORBELL) as *mut u64, 1);
+
+    // Step 7: Spin-wait for host response
+    let control_ptr = pkt.add(PKT_OFF_CONTROL) as *const u32;
+    let mut spins: u32 = 0;
+    let success;
+    loop {
+        let ctrl = sys_spin_load_acquire_u32(control_ptr);
+        if ctrl & CONTROL_READY != 0 {
+            success = true;
+            break;
+        }
+        spins += 1;
+        if spins >= GPU_MAX_SPIN {
+            success = false;
+            break;
+        }
+    }
+
+    // Step 8: Return packet to free stack
+    let free_ptr = buf.add(BUF_OFF_FREE_STACK) as *mut u64;
+    hc_push(free_ptr, buf, pkt_idx);
+
+    success
+}
+
+/// Hostcall kernel: print "Hello from GPU!" via the hostcall protocol.
+///
+/// Thread 0 of block 0 issues a single PRINT hostcall. The host listener
+/// reads the message from the packet payload and prints it to stdout.
+///
+/// `buf` is the device-side pointer to the hostcall buffer (mapped memory).
+/// `result` is a device pointer where thread 0 writes 1 (success) or 0 (failure).
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn hostcall_print_hello(buf: *mut u8, result: *mut u32) {
+    let thread_x = nvptx::_thread_idx_x() as u32;
+    let block_x = nvptx::_block_idx_x() as u32;
+    let block_dim_x = nvptx::_block_dim_x() as u32;
+    let global_idx = block_x * block_dim_x + thread_x;
+    if global_idx != 0 {
+        return;
+    }
+
+    // Hardcoded message — the bytes live in GPU .const memory
+    let msg: &[u8; 15] = b"Hello from GPU!";
+    let ok = gpu_hostcall_print(buf, msg.as_ptr(), 15);
+    sys_store_release_u32(result, if ok { 1 } else { 0 });
+}
+
+/// Hostcall kernel: multiple warps each print a message.
+///
+/// Each block's thread 0 issues a PRINT hostcall with the block index.
+/// Tests concurrent multi-warp hostcall.
+///
+/// `buf` is the hostcall buffer, `num_msgs` is total number of messages to print.
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn hostcall_print_multi(
+    buf: *mut u8,
+    success_count: *mut u32,
+) {
+    let thread_x = nvptx::_thread_idx_x() as u32;
+    let block_x = nvptx::_block_idx_x() as u32;
+
+    // Only thread 0 of each block does the hostcall
+    if thread_x != 0 {
+        return;
+    }
+
+    // Format: "Block NNN\n" — we write the block index as decimal digits
+    // Simple manual formatting since we don't have std::fmt
+    let mut msg_buf: [u8; 16] = [0u8; 16];
+    // "Block "
+    msg_buf[0] = b'B';
+    msg_buf[1] = b'l';
+    msg_buf[2] = b'o';
+    msg_buf[3] = b'c';
+    msg_buf[4] = b'k';
+    msg_buf[5] = b' ';
+    // Format block_x as decimal (max 3 digits for our test)
+    let mut n = block_x;
+    let mut pos = 6;
+    if n >= 100 {
+        msg_buf[pos] = b'0' + (n / 100) as u8;
+        pos += 1;
+        n %= 100;
+    }
+    if block_x >= 10 {
+        msg_buf[pos] = b'0' + (n / 10) as u8;
+        pos += 1;
+        n %= 10;
+    }
+    msg_buf[pos] = b'0' + n as u8;
+    pos += 1;
+
+    let ok = gpu_hostcall_print(buf, msg_buf.as_ptr(), pos as u32);
+    if ok {
+        gpu_atomics::sys_fetch_add_u32(success_count, 1);
     }
 }

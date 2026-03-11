@@ -5,6 +5,6 @@ edition = "2021"
 
 [dependencies]
 cudarc = { version = "0.12", features = ["cuda-12060"] }
-anyhow = "1"
+gpu-protocol = { path = "../gpu-protocol" }
 
 

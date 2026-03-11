@@ -11,4 +11,9 @@ name = "gpu-kernel"
 version = "0.1.0"
 dependencies = [
  "gpu-atomics",
+ "gpu-protocol",
 ]
+
+[[package]]
+name = "gpu-protocol"
+version = "0.1.0"

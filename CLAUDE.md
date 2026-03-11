@@ -5,6 +5,11 @@
 - **Files, docs, comments, code**: Always use English
 - This applies to ALL generated content without exception
 
+## Dependency Policy
+- **anyhow is PROHIBITED** — do not use `anyhow` in any crate
+- Use `thiserror` for custom error types, or plain `Result<T, E>` with concrete error types
+- Existing `anyhow` usage must be migrated when touched
+
 ## CRITICAL: Host Environment Policy
 - The research workflow MUST NOT modify anything outside this repository
 - No installing packages, toolchains, or system libraries

@@ -16,7 +16,9 @@
 
 #![no_std]
 #![feature(asm_experimental_arch)]
-#![feature(link_llvm_intrinsics)]
+// Note: link_llvm_intrinsics feature removed — NVVM intrinsics
+// (llvm.nvvm.atomic.add.gen.i.sys) fail with "Cannot select" on
+// nightly 2025-08-25 LLVM. All operations now use inline PTX asm.
 
 // ============================================================
 // System-scope fence
@@ -365,21 +367,6 @@ pub unsafe fn st_global_u32(ptr: *mut u32, val: u32) {
     );
 }
 
-// ============================================================
-// NVVM intrinsic fallbacks (internal, for comparison / older SM)
-// ============================================================
-// These are kept for testing and as a fallback path if inline asm
-// regresses in a future LLVM version. Not part of the public API.
-
-extern "C" {
-    /// LLVM NVPTX intrinsic for system-scope memory barrier.
-    /// Emits `membar.sys;` (same as membar_sys() above but via intrinsic path).
-    #[link_name = "llvm.nvvm.membar.sys"]
-    pub(crate) fn nvvm_membar_sys();
-
-    /// LLVM NVPTX intrinsic for system-scope atomic add on i32.
-    /// Emits `atom.sys.add.s32 result, [ptr], val;`
-    /// Note: `.sys` scope but no `.sem` qualifier — relaxed ordering at sys scope.
-    #[link_name = "llvm.nvvm.atomic.add.gen.i.sys.i32.p0i32"]
-    pub(crate) fn nvvm_atomic_add_sys_i32(ptr: *mut i32, val: i32) -> i32;
-}
+// NVVM intrinsic fallbacks removed — llvm.nvvm.atomic.add.gen.i.sys
+// fails with "Cannot select" on current nightly LLVM. All operations
+// use inline PTX asm which is confirmed working.

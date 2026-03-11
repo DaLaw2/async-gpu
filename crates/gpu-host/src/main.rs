@@ -1,6 +1,9 @@
-use anyhow::{Context, Result};
+mod error;
+mod hostcall;
+
 use cudarc::driver::{CudaDevice, CudaSlice, LaunchAsync, LaunchConfig};
 use cudarc::driver::sys::{self, lib as cuda_lib};
+use error::{GpuHostError, Result};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -14,48 +17,35 @@ const KERNEL_PTX: &str = include_str!("../kernel.ptx");
 fn run_write_thread_idx(dev: Arc<CudaDevice>) -> Result<()> {
     const N: usize = 64;
 
-    // Load the PTX module and get a reference to the kernel function.
     let ptx = cudarc::nvrtc::Ptx::from_src(KERNEL_PTX);
-    dev.load_ptx(ptx, "kernel", &["write_thread_idx"])
-        .context("failed to load PTX module")?;
+    dev.load_ptx(ptx, "kernel", &["write_thread_idx"])?;
 
     let f = dev
         .get_func("kernel", "write_thread_idx")
-        .context("kernel function not found")?;
+        .ok_or(GpuHostError::KernelNotFound("write_thread_idx"))?;
 
-    // Allocate device memory: N u32 values, initialized to zero.
-    let mut output: CudaSlice<u32> = dev
-        .alloc_zeros::<u32>(N)
-        .context("failed to allocate device buffer")?;
+    let mut output: CudaSlice<u32> = dev.alloc_zeros::<u32>(N)?;
 
-    // Launch: 1 block of 64 threads.
     let cfg = LaunchConfig {
         grid_dim: (1, 1, 1),
         block_dim: (N as u32, 1, 1),
         shared_mem_bytes: 0,
     };
     unsafe {
-        f.launch(cfg, (&mut output, N as u32))
-            .context("kernel launch failed")?;
+        f.launch(cfg, (&mut output, N as u32))?;
     }
 
-    // Copy result back to host.
-    let result: Vec<u32> = dev
-        .dtoh_sync_copy(&output)
-        .context("failed to copy results to host")?;
+    let result: Vec<u32> = dev.dtoh_sync_copy(&output)?;
 
     println!("write_thread_idx output ({} elements):", N);
     println!("  {:?}", &result[..N.min(16)]);
 
-    // Verify: result[i] should equal i.
     for (i, &val) in result.iter().enumerate() {
         if val != i as u32 {
-            anyhow::bail!(
-                "verification failed at index {}: expected {}, got {}",
-                i,
-                i,
-                val
-            );
+            return Err(GpuHostError::Verification {
+                test: "write_thread_idx",
+                detail: format!("index {}: expected {}, got {}", i, i, val),
+            });
         }
     }
     println!("  Verification PASSED: all {} elements correct", N);
@@ -69,16 +59,15 @@ fn run_vector_add(dev: Arc<CudaDevice>) -> Result<()> {
     let b_host: Vec<f32> = (0..N).map(|i| (N - i) as f32).collect();
 
     let ptx = cudarc::nvrtc::Ptx::from_src(KERNEL_PTX);
-    // Module may already be loaded; ignore error if so.
     let _ = dev.load_ptx(ptx, "kernel", &["vector_add"]);
 
     let f = dev
         .get_func("kernel", "vector_add")
-        .context("vector_add function not found")?;
+        .ok_or(GpuHostError::KernelNotFound("vector_add"))?;
 
-    let a_dev: CudaSlice<f32> = dev.htod_sync_copy(&a_host).context("htod a")?;
-    let b_dev: CudaSlice<f32> = dev.htod_sync_copy(&b_host).context("htod b")?;
-    let mut c_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(N).context("alloc c")?;
+    let a_dev: CudaSlice<f32> = dev.htod_sync_copy(&a_host)?;
+    let b_dev: CudaSlice<f32> = dev.htod_sync_copy(&b_host)?;
+    let mut c_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(N)?;
 
     let cfg = LaunchConfig {
         grid_dim: (1, 1, 1),
@@ -86,27 +75,21 @@ fn run_vector_add(dev: Arc<CudaDevice>) -> Result<()> {
         shared_mem_bytes: 0,
     };
     unsafe {
-        f.launch(cfg, (&a_dev, &b_dev, &mut c_dev, N as u32))
-            .context("vector_add launch failed")?;
+        f.launch(cfg, (&a_dev, &b_dev, &mut c_dev, N as u32))?;
     }
 
-    let c_host: Vec<f32> = dev
-        .dtoh_sync_copy(&c_dev)
-        .context("dtoh c")?;
+    let c_host: Vec<f32> = dev.dtoh_sync_copy(&c_dev)?;
 
     println!("\nvector_add output (first 16 of {} elements):", N);
     println!("  {:?}", &c_host[..16]);
 
-    // Each element should equal a[i] + b[i] = i + (N - i) = N = 128.0
     let expected = N as f32;
     for (i, &val) in c_host.iter().enumerate() {
         if (val - expected).abs() > 1e-5 {
-            anyhow::bail!(
-                "vector_add verification failed at index {}: expected {}, got {}",
-                i,
-                expected,
-                val
-            );
+            return Err(GpuHostError::Verification {
+                test: "vector_add",
+                detail: format!("index {}: expected {}, got {}", i, expected, val),
+            });
         }
     }
     println!("  Verification PASSED: all {} elements equal {}", N, expected);
@@ -114,8 +97,6 @@ fn run_vector_add(dev: Arc<CudaDevice>) -> Result<()> {
 }
 
 /// Step 1 + Step 3: Test inline PTX asm kernels and inspect their PTX output.
-/// This verifies the kernels launch without error (functional test).
-/// The PTX content is verified statically in the findings document.
 fn run_asm_smoke_tests(dev: Arc<CudaDevice>) -> Result<()> {
     println!("\n--- Step 1 / Step 3: Inline PTX asm smoke tests ---");
 
@@ -125,145 +106,110 @@ fn run_asm_smoke_tests(dev: Arc<CudaDevice>) -> Result<()> {
         "test_asm_st_release_sys",
         "test_asm_ld_acquire_sys",
         "test_asm_cas_sys",
-        "test_nvvm_membar_sys",
-        "test_nvvm_atomic_add_sys",
         "test_read_volatile",
         "test_write_volatile",
     ]);
 
-    // test_asm_membar_sys: 4 threads write 0xDEADBEEF to output
+    // test_asm_membar_sys
     {
         let f = dev.get_func("kernel", "test_asm_membar_sys")
-            .context("test_asm_membar_sys not found")?;
-        let mut out: CudaSlice<u32> = dev.alloc_zeros::<u32>(4).context("alloc")?;
+            .ok_or(GpuHostError::KernelNotFound("test_asm_membar_sys"))?;
+        let mut out: CudaSlice<u32> = dev.alloc_zeros::<u32>(4)?;
         let cfg = LaunchConfig { grid_dim: (1,1,1), block_dim: (4,1,1), shared_mem_bytes: 0 };
-        unsafe { f.launch(cfg, (&mut out, 4u32)).context("launch test_asm_membar_sys")? };
-        let result = dev.dtoh_sync_copy(&out).context("dtoh")?;
+        unsafe { f.launch(cfg, (&mut out, 4u32))? };
+        let result = dev.dtoh_sync_copy(&out)?;
         for &v in &result {
             if v != 0xDEAD_BEEFu32 {
-                anyhow::bail!("test_asm_membar_sys: expected 0xDEADBEEF, got 0x{:08X}", v);
+                return Err(GpuHostError::Verification {
+                    test: "test_asm_membar_sys",
+                    detail: format!("expected 0xDEADBEEF, got 0x{:08X}", v),
+                });
             }
         }
         println!("  test_asm_membar_sys: PASSED (membar.sys + st.global.b32 works, result = 0xDEADBEEF)");
     }
 
-    // test_asm_st_release_sys: write value 42 to a device buffer
+    // test_asm_st_release_sys
     {
         let f = dev.get_func("kernel", "test_asm_st_release_sys")
-            .context("test_asm_st_release_sys not found")?;
-        let mut out: CudaSlice<u32> = dev.alloc_zeros::<u32>(1).context("alloc")?;
+            .ok_or(GpuHostError::KernelNotFound("test_asm_st_release_sys"))?;
+        let mut out: CudaSlice<u32> = dev.alloc_zeros::<u32>(1)?;
         let cfg = LaunchConfig { grid_dim: (1,1,1), block_dim: (1,1,1), shared_mem_bytes: 0 };
-        unsafe { f.launch(cfg, (&mut out, 42u32)).context("launch test_asm_st_release_sys")? };
-        let result = dev.dtoh_sync_copy(&out).context("dtoh")?;
+        unsafe { f.launch(cfg, (&mut out, 42u32))? };
+        let result = dev.dtoh_sync_copy(&out)?;
         if result[0] != 42 {
-            anyhow::bail!("test_asm_st_release_sys: expected 42, got {}", result[0]);
+            return Err(GpuHostError::Verification {
+                test: "test_asm_st_release_sys",
+                detail: format!("expected 42, got {}", result[0]),
+            });
         }
         println!("  test_asm_st_release_sys: PASSED (st.release.sys.global.u32 works, wrote 42)");
     }
 
-    // test_asm_ld_acquire_sys: read from device buffer via ld.acquire.sys
+    // test_asm_ld_acquire_sys
     {
         let f = dev.get_func("kernel", "test_asm_ld_acquire_sys")
-            .context("test_asm_ld_acquire_sys not found")?;
-        let src: CudaSlice<u32> = dev.htod_sync_copy(&[99u32]).context("htod src")?;
-        let mut dst: CudaSlice<u32> = dev.alloc_zeros::<u32>(1).context("alloc")?;
+            .ok_or(GpuHostError::KernelNotFound("test_asm_ld_acquire_sys"))?;
+        let src: CudaSlice<u32> = dev.htod_sync_copy(&[99u32])?;
+        let mut dst: CudaSlice<u32> = dev.alloc_zeros::<u32>(1)?;
         let cfg = LaunchConfig { grid_dim: (1,1,1), block_dim: (1,1,1), shared_mem_bytes: 0 };
-        unsafe { f.launch(cfg, (&src, &mut dst)).context("launch test_asm_ld_acquire_sys")? };
-        let result = dev.dtoh_sync_copy(&dst).context("dtoh")?;
+        unsafe { f.launch(cfg, (&src, &mut dst))? };
+        let result = dev.dtoh_sync_copy(&dst)?;
         if result[0] != 99 {
-            anyhow::bail!("test_asm_ld_acquire_sys: expected 99, got {}", result[0]);
+            return Err(GpuHostError::Verification {
+                test: "test_asm_ld_acquire_sys",
+                detail: format!("expected 99, got {}", result[0]),
+            });
         }
         println!("  test_asm_ld_acquire_sys: PASSED (ld.acquire.sys.global.u32 works, read 99)");
     }
 
-    // test_asm_cas_sys: CAS on device memory
+    // test_asm_cas_sys
     {
         let f = dev.get_func("kernel", "test_asm_cas_sys")
-            .context("test_asm_cas_sys not found")?;
-        let mut target: CudaSlice<u32> = dev.htod_sync_copy(&[7u32]).context("htod target")?;
-        let mut result_out: CudaSlice<u32> = dev.alloc_zeros::<u32>(1).context("alloc result")?;
+            .ok_or(GpuHostError::KernelNotFound("test_asm_cas_sys"))?;
+        let mut target: CudaSlice<u32> = dev.htod_sync_copy(&[7u32])?;
+        let mut result_out: CudaSlice<u32> = dev.alloc_zeros::<u32>(1)?;
         let cfg = LaunchConfig { grid_dim: (1,1,1), block_dim: (1,1,1), shared_mem_bytes: 0 };
-        // CAS(target, expected=7, desired=99) → should succeed, return old=7, target becomes 99
         unsafe {
-            f.launch(cfg, (&mut target, 7u32, 99u32, &mut result_out))
-                .context("launch test_asm_cas_sys")?;
+            f.launch(cfg, (&mut target, 7u32, 99u32, &mut result_out))?;
         }
-        let old_val = dev.dtoh_sync_copy(&result_out).context("dtoh old_val")?[0];
-        let new_val = dev.dtoh_sync_copy(&target).context("dtoh target")?[0];
+        let old_val = dev.dtoh_sync_copy(&result_out)?[0];
+        let new_val = dev.dtoh_sync_copy(&target)?[0];
         if old_val != 7 || new_val != 99 {
-            anyhow::bail!(
-                "test_asm_cas_sys: expected old=7 new=99, got old={} new={}",
-                old_val, new_val
-            );
+            return Err(GpuHostError::Verification {
+                test: "test_asm_cas_sys",
+                detail: format!("expected old=7 new=99, got old={} new={}", old_val, new_val),
+            });
         }
         println!("  test_asm_cas_sys: PASSED (atom.cas.sys.global.b32 works, old=7→new=99)");
-    }
-
-    // test_nvvm_membar_sys: NVVM intrinsic path
-    {
-        let f = dev.get_func("kernel", "test_nvvm_membar_sys")
-            .context("test_nvvm_membar_sys not found")?;
-        let mut flag: CudaSlice<u32> = dev.alloc_zeros::<u32>(1).context("alloc")?;
-        let cfg = LaunchConfig { grid_dim: (1,1,1), block_dim: (1,1,1), shared_mem_bytes: 0 };
-        unsafe { f.launch(cfg, (&mut flag,)).context("launch test_nvvm_membar_sys")? };
-        let result = dev.dtoh_sync_copy(&flag).context("dtoh")?;
-        if result[0] != 1 {
-            anyhow::bail!("test_nvvm_membar_sys: expected 1, got {}", result[0]);
-        }
-        println!("  test_nvvm_membar_sys: PASSED (llvm.nvvm.membar.sys intrinsic works)");
-    }
-
-    // test_nvvm_atomic_add_sys: NVVM atomic add
-    {
-        let f = dev.get_func("kernel", "test_nvvm_atomic_add_sys")
-            .context("test_nvvm_atomic_add_sys not found")?;
-        let mut counter: CudaSlice<i32> = dev.htod_sync_copy(&[10i32]).context("htod")?;
-        let mut result_out: CudaSlice<i32> = dev.alloc_zeros::<i32>(1).context("alloc")?;
-        let cfg = LaunchConfig { grid_dim: (1,1,1), block_dim: (1,1,1), shared_mem_bytes: 0 };
-        unsafe {
-            f.launch(cfg, (&mut counter, 5i32, &mut result_out))
-                .context("launch test_nvvm_atomic_add_sys")?;
-        }
-        let old_val = dev.dtoh_sync_copy(&result_out).context("dtoh old")?[0];
-        let new_val = dev.dtoh_sync_copy(&counter).context("dtoh counter")?[0];
-        if old_val != 10 || new_val != 15 {
-            anyhow::bail!(
-                "test_nvvm_atomic_add_sys: expected old=10 new=15, got old={} new={}",
-                old_val, new_val
-            );
-        }
-        println!("  test_nvvm_atomic_add_sys: PASSED (llvm.nvvm.atomic.add.gen.i.sys works, 10+5=15)");
     }
 
     // test_read_volatile / test_write_volatile
     {
         let f_write = dev.get_func("kernel", "test_write_volatile")
-            .context("test_write_volatile not found")?;
+            .ok_or(GpuHostError::KernelNotFound("test_write_volatile"))?;
         let f_read = dev.get_func("kernel", "test_read_volatile")
-            .context("test_read_volatile not found")?;
+            .ok_or(GpuHostError::KernelNotFound("test_read_volatile"))?;
 
-        let mut buf: CudaSlice<u32> = dev.alloc_zeros::<u32>(1).context("alloc")?;
+        let mut buf: CudaSlice<u32> = dev.alloc_zeros::<u32>(1)?;
         let cfg = LaunchConfig { grid_dim: (1,1,1), block_dim: (1,1,1), shared_mem_bytes: 0 };
 
-        // Write 0xCAFEBABE via st.volatile.global
         unsafe {
-            f_write.launch(cfg, (&mut buf, 0xCAFE_BABEu32))
-                .context("launch test_write_volatile")?;
+            f_write.launch(cfg, (&mut buf, 0xCAFE_BABEu32))?;
         }
 
-        // Read back via ld.volatile.global
-        let mut dst: CudaSlice<u32> = dev.alloc_zeros::<u32>(1).context("alloc")?;
+        let mut dst: CudaSlice<u32> = dev.alloc_zeros::<u32>(1)?;
         unsafe {
-            f_read.launch(cfg, (&buf, &mut dst))
-                .context("launch test_read_volatile")?;
+            f_read.launch(cfg, (&buf, &mut dst))?;
         }
 
-        let result = dev.dtoh_sync_copy(&dst).context("dtoh")?;
+        let result = dev.dtoh_sync_copy(&dst)?;
         if result[0] != 0xCAFE_BABEu32 {
-            anyhow::bail!(
-                "test_read/write_volatile: expected 0xCAFEBABE, got 0x{:08X}",
-                result[0]
-            );
+            return Err(GpuHostError::Verification {
+                test: "test_read/write_volatile",
+                detail: format!("expected 0xCAFEBABE, got 0x{:08X}", result[0]),
+            });
         }
         println!("  test_write_volatile + test_read_volatile: PASSED");
         println!("    st.volatile.global.b32 wrote 0xCAFEBABE, ld.volatile.global.b32 read it back");
@@ -274,28 +220,15 @@ fn run_asm_smoke_tests(dev: Arc<CudaDevice>) -> Result<()> {
 }
 
 /// Step 5: Integration test using mapped host memory for GPU-CPU communication.
-///
-/// Uses cuMemHostAlloc(CU_MEMHOSTALLOC_DEVICEMAP) to allocate pinned host memory
-/// accessible from both GPU and CPU. The GPU writes a value and sets a flag using
-/// st.release.sys.global.u32. The CPU polls the flag (with a timeout) and verifies
-/// the written value.
-///
-/// This is the canonical GPU-CPU communication pattern required for the hostcall protocol.
 fn run_integration_sys_store(dev: Arc<CudaDevice>) -> Result<()> {
     println!("\n--- Step 5: Integration test (GPU st.release.sys → CPU poll) ---");
 
     const EXPECTED_VALUE: u32 = 0xABCD_1234;
     const TIMEOUT_ITERS: usize = 100_000_000;
 
-    // Allocate two pinned, device-mapped host memory locations:
-    //   - data_host_ptr: the "data" written by the GPU
-    //   - flag_host_ptr: the "ready" flag written by the GPU after data
-    //
-    // Both are zero-initialized.
     let (data_host_ptr, data_dev_ptr) = unsafe { alloc_mapped_u32(&dev)? };
     let (flag_host_ptr, flag_dev_ptr) = unsafe { alloc_mapped_u32(&dev)? };
 
-    // Initialize to 0
     unsafe {
         std::ptr::write_volatile(data_host_ptr, 0u32);
         std::ptr::write_volatile(flag_host_ptr, 0u32);
@@ -304,19 +237,15 @@ fn run_integration_sys_store(dev: Arc<CudaDevice>) -> Result<()> {
     let ptx = cudarc::nvrtc::Ptx::from_src(KERNEL_PTX);
     let _ = dev.load_ptx(ptx, "kernel", &["integration_sys_store"]);
     let f = dev.get_func("kernel", "integration_sys_store")
-        .context("integration_sys_store not found")?;
+        .ok_or(GpuHostError::KernelNotFound("integration_sys_store"))?;
 
-    // Launch 1 block of 32 threads. Thread 0 does the writes.
     let cfg = LaunchConfig { grid_dim: (1,1,1), block_dim: (32,1,1), shared_mem_bytes: 0 };
 
     println!("  Launching GPU kernel (thread 0 writes data + flag to pinned memory)...");
     unsafe {
-        // Pass raw device pointers as u64 (the GPU kernel expects *mut u32)
         let data_u64 = data_dev_ptr as u64;
         let flag_u64 = flag_dev_ptr as u64;
-        // integration_sys_store takes 3 params: data_ptr, flag_ptr, value
-        f.launch(cfg, (data_u64, flag_u64, EXPECTED_VALUE))
-            .context("integration_sys_store launch failed")?;
+        f.launch(cfg, (data_u64, flag_u64, EXPECTED_VALUE))?;
     }
 
     println!("  Host polling flag (with acquire semantics via AtomicU32::load)...");
@@ -337,29 +266,29 @@ fn run_integration_sys_store(dev: Arc<CudaDevice>) -> Result<()> {
     }
 
     if flag_val != 1 {
-        // Synchronize device before freeing — the kernel may still be running
-        dev.synchronize().context("device synchronize on timeout")?;
+        dev.synchronize()?;
         unsafe {
             free_mapped_mem(data_host_ptr)?;
             free_mapped_mem(flag_host_ptr)?;
         }
-        anyhow::bail!("Integration test TIMEOUT: flag never became 1 after {} iters", TIMEOUT_ITERS);
+        return Err(GpuHostError::Timeout {
+            test: "integration_sys_store",
+            detail: format!("flag never became 1 after {} iters", TIMEOUT_ITERS),
+        });
     }
 
-    // Read the data value — guaranteed visible because flag was 1 (release/acquire pair)
     let data_val = data_atomic.load(Ordering::Acquire);
 
-    // Free mapped memory
     unsafe {
         free_mapped_mem(data_host_ptr)?;
         free_mapped_mem(flag_host_ptr)?;
     }
 
     if data_val != EXPECTED_VALUE {
-        anyhow::bail!(
-            "Integration test FAILED: expected data=0x{:08X}, got 0x{:08X}",
-            EXPECTED_VALUE, data_val
-        );
+        return Err(GpuHostError::Verification {
+            test: "integration_sys_store",
+            detail: format!("expected data=0x{:08X}, got 0x{:08X}", EXPECTED_VALUE, data_val),
+        });
     }
 
     println!("  Integration test PASSED!");
@@ -375,22 +304,17 @@ unsafe fn alloc_mapped_u32(_dev: &Arc<CudaDevice>) -> Result<(*mut u32, sys::CUd
     let cu = cuda_lib();
 
     let mut host_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
-
-    // CU_MEMHOSTALLOC_DEVICEMAP = 0x02 → allow GPU to access this memory
-    // CU_MEMHOSTALLOC_PORTABLE = 0x01 → valid across CUDA contexts
     let flags = sys::CU_MEMHOSTALLOC_DEVICEMAP | sys::CU_MEMHOSTALLOC_PORTABLE;
     let result = cu.cuMemHostAlloc(&mut host_ptr, std::mem::size_of::<u32>(), flags);
     if result != sys::CUresult::CUDA_SUCCESS {
-        anyhow::bail!("cuMemHostAlloc failed: {:?}", result);
+        return Err(GpuHostError::CudaAlloc(result));
     }
 
-    // Get the device-side pointer for the same memory
     let mut dev_ptr: sys::CUdeviceptr = 0;
     let result = cu.cuMemHostGetDevicePointer_v2(&mut dev_ptr, host_ptr, 0);
     if result != sys::CUresult::CUDA_SUCCESS {
-        // Free host mem before error
         cu.cuMemFreeHost(host_ptr);
-        anyhow::bail!("cuMemHostGetDevicePointer_v2 failed: {:?}", result);
+        return Err(GpuHostError::CudaGetDevPtr(result));
     }
 
     Ok((host_ptr as *mut u32, dev_ptr))
@@ -401,15 +325,12 @@ unsafe fn free_mapped_mem(host_ptr: *mut u32) -> Result<()> {
     let cu = cuda_lib();
     let result = cu.cuMemFreeHost(host_ptr as *mut std::ffi::c_void);
     if result != sys::CUresult::CUDA_SUCCESS {
-        anyhow::bail!("cuMemFreeHost failed: {:?}", result);
+        return Err(GpuHostError::CudaFreeMem(result));
     }
     Ok(())
 }
 
 /// Step 6: u64 atomics smoke tests (atomics.4).
-///
-/// Tests sys_cas_u64, sys_fetch_add_u64, sys_exchange_u64 from gpu-atomics crate.
-/// All tests are single-thread (1 block, 1 thread) to verify basic correctness.
 fn run_u64_atomics_tests(dev: Arc<CudaDevice>) -> Result<()> {
     println!("\n--- Step 6: u64 atomics smoke tests ---");
 
@@ -420,85 +341,87 @@ fn run_u64_atomics_tests(dev: Arc<CudaDevice>) -> Result<()> {
         "test_u64_exchange",
     ]);
 
-    // test_u64_cas: CAS on u64 — initial=0x0000_0007_0000_0003, expected=same, desired=0x0000_0099_0000_0042
+    // test_u64_cas
     {
         let f = dev.get_func("kernel", "test_u64_cas")
-            .context("test_u64_cas not found")?;
+            .ok_or(GpuHostError::KernelNotFound("test_u64_cas"))?;
         let initial: u64 = 0x0000_0007_0000_0003;
         let expected: u64 = initial;
         let desired: u64 = 0x0000_0099_0000_0042;
-        let mut target: CudaSlice<u64> = dev.htod_sync_copy(&[initial]).context("htod target")?;
-        let mut result_out: CudaSlice<u64> = dev.alloc_zeros::<u64>(1).context("alloc result")?;
+        let mut target: CudaSlice<u64> = dev.htod_sync_copy(&[initial])?;
+        let mut result_out: CudaSlice<u64> = dev.alloc_zeros::<u64>(1)?;
         let cfg = LaunchConfig { grid_dim: (1,1,1), block_dim: (1,1,1), shared_mem_bytes: 0 };
-        // Kernel takes: ptr, expected_lo, expected_hi, desired_lo, desired_hi, output
         let expected_lo = expected as u32;
         let expected_hi = (expected >> 32) as u32;
         let desired_lo = desired as u32;
         let desired_hi = (desired >> 32) as u32;
         unsafe {
-            f.launch(cfg, (&mut target, expected_lo, expected_hi, desired_lo, desired_hi, &mut result_out))
-                .context("launch test_u64_cas")?;
+            f.launch(cfg, (&mut target, expected_lo, expected_hi, desired_lo, desired_hi, &mut result_out))?;
         }
-        let old_val = dev.dtoh_sync_copy(&result_out).context("dtoh old")?[0];
-        let new_val = dev.dtoh_sync_copy(&target).context("dtoh target")?[0];
+        let old_val = dev.dtoh_sync_copy(&result_out)?[0];
+        let new_val = dev.dtoh_sync_copy(&target)?[0];
         if old_val != initial {
-            anyhow::bail!("test_u64_cas: expected old=0x{:016X}, got 0x{:016X}", initial, old_val);
+            return Err(GpuHostError::Verification {
+                test: "test_u64_cas",
+                detail: format!("expected old=0x{:016X}, got 0x{:016X}", initial, old_val),
+            });
         }
         if new_val != desired {
-            anyhow::bail!("test_u64_cas: expected new=0x{:016X}, got 0x{:016X}", desired, new_val);
+            return Err(GpuHostError::Verification {
+                test: "test_u64_cas",
+                detail: format!("expected new=0x{:016X}, got 0x{:016X}", desired, new_val),
+            });
         }
         println!("  test_u64_cas: PASSED (atom.cas.sys.global.b64 works, 0x{:016X}→0x{:016X})", initial, desired);
     }
 
-    // test_u64_fetch_add: atomic add on u64
+    // test_u64_fetch_add
     {
         let f = dev.get_func("kernel", "test_u64_fetch_add")
-            .context("test_u64_fetch_add not found")?;
-        let initial: u64 = 0x0000_0001_0000_0000; // 2^32
-        let addend: u64 = 0x0000_0000_FFFF_FFFF;  // 2^32 - 1
-        let expected_new: u64 = initial + addend;   // 0x0000_0001_FFFF_FFFF
-        let mut target: CudaSlice<u64> = dev.htod_sync_copy(&[initial]).context("htod")?;
-        let mut result_out: CudaSlice<u64> = dev.alloc_zeros::<u64>(1).context("alloc")?;
+            .ok_or(GpuHostError::KernelNotFound("test_u64_fetch_add"))?;
+        let initial: u64 = 0x0000_0001_0000_0000;
+        let addend: u64 = 0x0000_0000_FFFF_FFFF;
+        let expected_new: u64 = initial + addend;
+        let mut target: CudaSlice<u64> = dev.htod_sync_copy(&[initial])?;
+        let mut result_out: CudaSlice<u64> = dev.alloc_zeros::<u64>(1)?;
         let cfg = LaunchConfig { grid_dim: (1,1,1), block_dim: (1,1,1), shared_mem_bytes: 0 };
         let val_lo = addend as u32;
         let val_hi = (addend >> 32) as u32;
         unsafe {
-            f.launch(cfg, (&mut target, val_lo, val_hi, &mut result_out))
-                .context("launch test_u64_fetch_add")?;
+            f.launch(cfg, (&mut target, val_lo, val_hi, &mut result_out))?;
         }
-        let old_val = dev.dtoh_sync_copy(&result_out).context("dtoh old")?[0];
-        let new_val = dev.dtoh_sync_copy(&target).context("dtoh target")?[0];
-        if old_val != initial {
-            anyhow::bail!("test_u64_fetch_add: expected old=0x{:016X}, got 0x{:016X}", initial, old_val);
-        }
-        if new_val != expected_new {
-            anyhow::bail!("test_u64_fetch_add: expected new=0x{:016X}, got 0x{:016X}", expected_new, new_val);
+        let old_val = dev.dtoh_sync_copy(&result_out)?[0];
+        let new_val = dev.dtoh_sync_copy(&target)?[0];
+        if old_val != initial || new_val != expected_new {
+            return Err(GpuHostError::Verification {
+                test: "test_u64_fetch_add",
+                detail: format!("old=0x{:016X} new=0x{:016X}", old_val, new_val),
+            });
         }
         println!("  test_u64_fetch_add: PASSED (atom.add.sys.global.u64 works, 0x{:016X}+0x{:016X}=0x{:016X})", initial, addend, expected_new);
     }
 
-    // test_u64_exchange: atomic exchange on u64
+    // test_u64_exchange
     {
         let f = dev.get_func("kernel", "test_u64_exchange")
-            .context("test_u64_exchange not found")?;
+            .ok_or(GpuHostError::KernelNotFound("test_u64_exchange"))?;
         let initial: u64 = 0xDEAD_BEEF_CAFE_BABE;
         let new_value: u64 = 0x1234_5678_9ABC_DEF0;
-        let mut target: CudaSlice<u64> = dev.htod_sync_copy(&[initial]).context("htod")?;
-        let mut result_out: CudaSlice<u64> = dev.alloc_zeros::<u64>(1).context("alloc")?;
+        let mut target: CudaSlice<u64> = dev.htod_sync_copy(&[initial])?;
+        let mut result_out: CudaSlice<u64> = dev.alloc_zeros::<u64>(1)?;
         let cfg = LaunchConfig { grid_dim: (1,1,1), block_dim: (1,1,1), shared_mem_bytes: 0 };
         let val_lo = new_value as u32;
         let val_hi = (new_value >> 32) as u32;
         unsafe {
-            f.launch(cfg, (&mut target, val_lo, val_hi, &mut result_out))
-                .context("launch test_u64_exchange")?;
+            f.launch(cfg, (&mut target, val_lo, val_hi, &mut result_out))?;
         }
-        let old_val = dev.dtoh_sync_copy(&result_out).context("dtoh old")?[0];
-        let final_val = dev.dtoh_sync_copy(&target).context("dtoh target")?[0];
-        if old_val != initial {
-            anyhow::bail!("test_u64_exchange: expected old=0x{:016X}, got 0x{:016X}", initial, old_val);
-        }
-        if final_val != new_value {
-            anyhow::bail!("test_u64_exchange: expected final=0x{:016X}, got 0x{:016X}", new_value, final_val);
+        let old_val = dev.dtoh_sync_copy(&result_out)?[0];
+        let final_val = dev.dtoh_sync_copy(&target)?[0];
+        if old_val != initial || final_val != new_value {
+            return Err(GpuHostError::Verification {
+                test: "test_u64_exchange",
+                detail: format!("old=0x{:016X} final=0x{:016X}", old_val, final_val),
+            });
         }
         println!("  test_u64_exchange: PASSED (atom.exch.sys.global.b64 works, 0x{:016X}→0x{:016X})", initial, new_value);
     }
@@ -518,63 +441,62 @@ fn run_warp_intrinsics_tests(dev: Arc<CudaDevice>) -> Result<()> {
         "test_lane_id",
     ]);
 
-    // test_spin_load_u32: read value 0x42 via spin-safe acquire load
+    // test_spin_load_u32
     {
         let f = dev.get_func("kernel", "test_spin_load_u32")
-            .context("test_spin_load_u32 not found")?;
-        let src: CudaSlice<u32> = dev.htod_sync_copy(&[0x42u32]).context("htod")?;
-        let mut dst: CudaSlice<u32> = dev.alloc_zeros::<u32>(1).context("alloc")?;
+            .ok_or(GpuHostError::KernelNotFound("test_spin_load_u32"))?;
+        let src: CudaSlice<u32> = dev.htod_sync_copy(&[0x42u32])?;
+        let mut dst: CudaSlice<u32> = dev.alloc_zeros::<u32>(1)?;
         let cfg = LaunchConfig { grid_dim: (1,1,1), block_dim: (1,1,1), shared_mem_bytes: 0 };
         unsafe {
-            f.launch(cfg, (&src, &mut dst)).context("launch test_spin_load_u32")?;
+            f.launch(cfg, (&src, &mut dst))?;
         }
-        let result = dev.dtoh_sync_copy(&dst).context("dtoh")?[0];
+        let result = dev.dtoh_sync_copy(&dst)?[0];
         if result != 0x42 {
-            anyhow::bail!("test_spin_load_u32: expected 0x42, got 0x{:08X}", result);
+            return Err(GpuHostError::Verification {
+                test: "test_spin_load_u32",
+                detail: format!("expected 0x42, got 0x{:08X}", result),
+            });
         }
         println!("  test_spin_load_u32: PASSED (ld.acquire.sys + nanosleep works, read 0x42)");
     }
 
-    // test_activemask: 32 threads, all active → mask should be 0xFFFFFFFF
+    // test_activemask: full warp
     {
         let f = dev.get_func("kernel", "test_activemask")
-            .context("test_activemask not found")?;
+            .ok_or(GpuHostError::KernelNotFound("test_activemask"))?;
         let n: u32 = 32;
-        let mut out: CudaSlice<u32> = dev.alloc_zeros::<u32>(n as usize).context("alloc")?;
+        let mut out: CudaSlice<u32> = dev.alloc_zeros::<u32>(n as usize)?;
         let cfg = LaunchConfig { grid_dim: (1,1,1), block_dim: (n,1,1), shared_mem_bytes: 0 };
         unsafe {
-            f.launch(cfg, (&mut out, n)).context("launch test_activemask")?;
+            f.launch(cfg, (&mut out, n))?;
         }
-        let result = dev.dtoh_sync_copy(&out).context("dtoh")?;
+        let result = dev.dtoh_sync_copy(&out)?;
         for (i, &mask) in result.iter().enumerate() {
             if mask != 0xFFFF_FFFF {
-                anyhow::bail!("test_activemask: thread {} got mask=0x{:08X}, expected 0xFFFFFFFF", i, mask);
+                return Err(GpuHostError::Verification {
+                    test: "test_activemask",
+                    detail: format!("thread {} got mask=0x{:08X}, expected 0xFFFFFFFF", i, mask),
+                });
             }
         }
         println!("  test_activemask: PASSED (activemask.b32 returns 0xFFFFFFFF for full warp)");
     }
 
-    // test_activemask with partial warp: 20 threads → mask should be 0x000FFFFF
+    // test_activemask: partial warp (20 threads)
     {
         let f = dev.get_func("kernel", "test_activemask")
-            .context("test_activemask not found (partial)")?;
+            .ok_or(GpuHostError::KernelNotFound("test_activemask"))?;
         let n: u32 = 20;
-        let mut out: CudaSlice<u32> = dev.alloc_zeros::<u32>(n as usize).context("alloc")?;
+        let mut out: CudaSlice<u32> = dev.alloc_zeros::<u32>(n as usize)?;
         let cfg = LaunchConfig { grid_dim: (1,1,1), block_dim: (n,1,1), shared_mem_bytes: 0 };
         unsafe {
-            f.launch(cfg, (&mut out, n)).context("launch test_activemask partial")?;
+            f.launch(cfg, (&mut out, n))?;
         }
-        let result = dev.dtoh_sync_copy(&out).context("dtoh")?;
-        // With 20 threads and the if (idx < len) guard, all 20 are active.
-        // But the warp has 32 lanes scheduled; threads 20-31 are also launched but
-        // skip due to idx >= len. The activemask reports physically active lanes,
-        // which depends on how the hardware schedules partial blocks.
-        // For a block of 20 threads, only 20 lanes are active in the warp.
-        let expected_mask: u32 = (1u32 << 20) - 1; // 0x000FFFFF
+        let result = dev.dtoh_sync_copy(&out)?;
+        let expected_mask: u32 = (1u32 << 20) - 1;
         let actual_mask = result[0];
         println!("  test_activemask (partial, 20 threads): mask=0x{:08X} (expected ~0x{:08X})", actual_mask, expected_mask);
-        // Note: We don't fail on mismatch because the hardware may schedule
-        // all 32 lanes with predication. Just report the value.
         if actual_mask == expected_mask {
             println!("    Exact match: only 20 lanes active (hardware launched partial warp)");
         } else if actual_mask == 0xFFFF_FFFF {
@@ -582,20 +504,23 @@ fn run_warp_intrinsics_tests(dev: Arc<CudaDevice>) -> Result<()> {
         }
     }
 
-    // test_lane_id: 32 threads, each should report its lane (0..31)
+    // test_lane_id
     {
         let f = dev.get_func("kernel", "test_lane_id")
-            .context("test_lane_id not found")?;
+            .ok_or(GpuHostError::KernelNotFound("test_lane_id"))?;
         let n: u32 = 32;
-        let mut out: CudaSlice<u32> = dev.alloc_zeros::<u32>(n as usize).context("alloc")?;
+        let mut out: CudaSlice<u32> = dev.alloc_zeros::<u32>(n as usize)?;
         let cfg = LaunchConfig { grid_dim: (1,1,1), block_dim: (n,1,1), shared_mem_bytes: 0 };
         unsafe {
-            f.launch(cfg, (&mut out, n)).context("launch test_lane_id")?;
+            f.launch(cfg, (&mut out, n))?;
         }
-        let result = dev.dtoh_sync_copy(&out).context("dtoh")?;
+        let result = dev.dtoh_sync_copy(&out)?;
         for (i, &lid) in result.iter().enumerate() {
             if lid != i as u32 {
-                anyhow::bail!("test_lane_id: thread {} got lane_id={}, expected {}", i, lid, i);
+                return Err(GpuHostError::Verification {
+                    test: "test_lane_id",
+                    detail: format!("thread {} got lane_id={}, expected {}", i, lid, i),
+                });
             }
         }
         println!("  test_lane_id: PASSED (lane_id returns 0..31 for single-warp block)");
@@ -605,11 +530,161 @@ fn run_warp_intrinsics_tests(dev: Arc<CudaDevice>) -> Result<()> {
     Ok(())
 }
 
+/// Step 8: Hostcall print test (hostcall.4).
+fn run_hostcall_print_hello(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Step 8: Hostcall print (single message) ---");
+
+    use std::sync::{Arc as StdArc, Mutex};
+
+    let hc_buf = hostcall::HostcallBuffer::new(4)?;
+    let dev_ptr = hc_buf.dev_ptr;
+
+    println!("  Hostcall buffer allocated: {} bytes, {} packets",
+             hc_buf.size, hc_buf.num_packets);
+    println!("  Host ptr: {:p}, Device ptr: 0x{:016X}", hc_buf.host_ptr, dev_ptr);
+
+    let messages: StdArc<Mutex<Vec<String>>> = StdArc::new(Mutex::new(Vec::new()));
+    let messages_clone = StdArc::clone(&messages);
+
+    let (result_host_ptr, result_dev_ptr) = unsafe { alloc_mapped_u32(&dev)? };
+    unsafe { std::ptr::write_volatile(result_host_ptr, 0u32) };
+
+    let hc_buf_ref = StdArc::new(hc_buf);
+    let hc_buf_listener = StdArc::clone(&hc_buf_ref);
+    let listener_handle = std::thread::spawn(move || {
+        hc_buf_listener.listen(|msg| {
+            let s = String::from_utf8_lossy(msg).to_string();
+            println!("  [HOST] Received from GPU: \"{}\"", s);
+            messages_clone.lock().unwrap().push(s);
+        });
+    });
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "kernel", &["hostcall_print_hello"]);
+    let f = dev.get_func("kernel", "hostcall_print_hello")
+        .ok_or(GpuHostError::KernelNotFound("hostcall_print_hello"))?;
+
+    let cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (32, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    println!("  Launching hostcall_print_hello kernel...");
+    unsafe {
+        f.launch(cfg, (dev_ptr as u64, result_dev_ptr as u64))?;
+    }
+
+    dev.synchronize()?;
+    println!("  Kernel completed.");
+
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    hc_buf_ref.signal_shutdown();
+    listener_handle.join().unwrap();
+
+    let result_val = unsafe { std::ptr::read_volatile(result_host_ptr) };
+    unsafe { free_mapped_mem(result_host_ptr)? };
+
+    let received = messages.lock().unwrap();
+    if result_val != 1 {
+        return Err(GpuHostError::Verification {
+            test: "hostcall_print_hello",
+            detail: format!("kernel reported failure (result={})", result_val),
+        });
+    }
+    if received.len() != 1 || received[0] != "Hello from GPU!" {
+        return Err(GpuHostError::Verification {
+            test: "hostcall_print_hello",
+            detail: format!("unexpected messages: {:?}", *received),
+        });
+    }
+
+    println!("  hostcall_print_hello: PASSED!");
+    println!("    GPU sent \"Hello from GPU!\" via hostcall protocol");
+    println!("    Host listener received and printed it correctly");
+    Ok(())
+}
+
+/// Step 9: Multi-warp hostcall print test.
+fn run_hostcall_print_multi(dev: Arc<CudaDevice>, num_blocks: u32) -> Result<()> {
+    println!("\n--- Step 9: Hostcall print (multi-block, {} blocks) ---", num_blocks);
+
+    use std::sync::{Arc as StdArc, Mutex};
+
+    let num_packets = (num_blocks as u16).max(8);
+    let hc_buf = hostcall::HostcallBuffer::new(num_packets)?;
+    let dev_ptr = hc_buf.dev_ptr;
+
+    println!("  Hostcall buffer: {} packets, {} bytes", num_packets, hc_buf.size);
+
+    let messages: StdArc<Mutex<Vec<String>>> = StdArc::new(Mutex::new(Vec::new()));
+    let messages_clone = StdArc::clone(&messages);
+
+    let (count_host_ptr, count_dev_ptr) = unsafe { alloc_mapped_u32(&dev)? };
+    unsafe { std::ptr::write_volatile(count_host_ptr, 0u32) };
+
+    let hc_buf_ref = StdArc::new(hc_buf);
+    let hc_buf_listener = StdArc::clone(&hc_buf_ref);
+    let listener_handle = std::thread::spawn(move || {
+        hc_buf_listener.listen(|msg| {
+            let s = String::from_utf8_lossy(msg).to_string();
+            println!("  [HOST] GPU says: \"{}\"", s);
+            messages_clone.lock().unwrap().push(s);
+        });
+    });
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "kernel", &["hostcall_print_multi"]);
+    let f = dev.get_func("kernel", "hostcall_print_multi")
+        .ok_or(GpuHostError::KernelNotFound("hostcall_print_multi"))?;
+
+    let cfg = LaunchConfig {
+        grid_dim: (num_blocks, 1, 1),
+        block_dim: (32, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    println!("  Launching hostcall_print_multi ({} blocks × 32 threads)...", num_blocks);
+    unsafe {
+        f.launch(cfg, (dev_ptr as u64, count_dev_ptr as u64))?;
+    }
+
+    dev.synchronize()?;
+    println!("  Kernel completed.");
+
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    hc_buf_ref.signal_shutdown();
+    listener_handle.join().unwrap();
+
+    let success_count = unsafe { std::ptr::read_volatile(count_host_ptr) };
+    unsafe { free_mapped_mem(count_host_ptr)? };
+
+    let received = messages.lock().unwrap();
+    println!("  Results: {} blocks succeeded, {} messages received",
+             success_count, received.len());
+
+    if success_count != num_blocks {
+        return Err(GpuHostError::Verification {
+            test: "hostcall_print_multi",
+            detail: format!("expected {} successes, got {}", num_blocks, success_count),
+        });
+    }
+    if received.len() != num_blocks as usize {
+        return Err(GpuHostError::Verification {
+            test: "hostcall_print_multi",
+            detail: format!("expected {} messages, got {}", num_blocks, received.len()),
+        });
+    }
+
+    println!("  hostcall_print_multi: PASSED!");
+    println!("    {} concurrent warps printed via hostcall successfully", num_blocks);
+    Ok(())
+}
+
 fn main() -> Result<()> {
     println!("=== GPU Kernel Execution Test ===\n");
 
-    // Initialize CUDA device 0.
-    let dev = CudaDevice::new(0).context("failed to initialize CUDA device 0")?;
+    let dev = CudaDevice::new(0).map_err(GpuHostError::CudaInit)?;
     println!("CUDA device initialized successfully");
 
     run_write_thread_idx(Arc::clone(&dev))?;
@@ -618,6 +693,10 @@ fn main() -> Result<()> {
     run_integration_sys_store(Arc::clone(&dev))?;
     run_u64_atomics_tests(Arc::clone(&dev))?;
     run_warp_intrinsics_tests(Arc::clone(&dev))?;
+
+    // Hostcall tests (hostcall.4)
+    run_hostcall_print_hello(Arc::clone(&dev))?;
+    run_hostcall_print_multi(Arc::clone(&dev), 4)?;
 
     println!("\nAll tests PASSED.");
     Ok(())

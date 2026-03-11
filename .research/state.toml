@@ -4,22 +4,22 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 26      # Monotonic counter, incremented after each completed phase
-completed_tasks = 26
+total_cycles = 27      # Monotonic counter, incremented after each completed phase
+completed_tasks = 27
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"        # think | do | check
 current_step = "do.execute"
-current_task_id = ""
-last_summary = "integration.2 DONE: futures_util::future::join works on GPU — third-party async crate compiles and runs with no alloc. Zero register overhead. 26 tasks done, 5/6 themes completed. Next: integration.3 (std patch), integration.4 (benchmarks)."
+current_task_id = "integration.3"
+last_summary = "integration.4 DONE: VectorWare parity at 80% (32/40). Key gap: -Zbuild-std=std (integration.3). We exceed VW on atomics correctness. Async concurrent 2x faster than sequential sync. 27 tasks done. Next: integration.3 (std source patching)."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 7
+brainstorm_seq = 8
 review_seq = 3
 
 # Brainstorm trigger control
-last_brainstorm_at_completed = 23
+last_brainstorm_at_completed = 26
 brainstorm_interval = 3
 
 # ============================================================
@@ -480,7 +480,7 @@ id = "integration.4"
 theme = "integration"
 title = "End-to-end benchmark and VectorWare feature comparison"
 kind = "investigation"
-status = "pending"
+status = "done"
 depends_on = ["integration.1"]
 spawned_by = "bs7"
 research_questions = [
@@ -628,6 +628,17 @@ new_themes_spawned = []
 themes_parked = []
 themes_completed = ["async-runtime"]
 key_insight = "All foundations work individually. HostcallFuture (integration.1) is the critical missing piece — transforms sync spin-wait into async yield, enabling true concurrent I/O. Std patching fixes compilation but PAL routing is the real challenge for std I/O. Priority: HostcallFuture P0 > futures_util+stdin P1 > std patch P2 > benchmarks P3."
+
+[[brainstorms]]
+seq = 8
+at_cycle = 26
+trigger = "interval"
+level = "quick"
+new_tasks_spawned = []
+new_themes_spawned = []
+themes_parked = []
+themes_completed = []
+key_insight = "26/26 tasks done through integration.2. Two remaining: integration.4 (benchmarks/comparison, low risk) then integration.3 (std patch, high risk). Execute integration.4 first since it's independent and captures current state. integration.3 is the final VectorWare parity challenge."
 
 [[reviews]]
 seq = 2

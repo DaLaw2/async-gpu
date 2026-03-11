@@ -1,0 +1,18 @@
+--- C:/Users/DaLaw2/.rustup/toolchains/nightly-x86_64-pc-windows-msvc/lib/rustlib/src/rust/library/std/src/sys/random/mod.rs	2025-08-26 21:28:41.860973900 +0800
++++ D:/Code/Rust/async_gpu/patched-std/library/std/src/sys/random/mod.rs	2026-03-12 01:27:58.834479300 +0800
+@@ -97,6 +97,7 @@
+     any(
+         all(target_family = "wasm", target_os = "unknown"),
+         target_os = "xous",
++        target_os = "cuda",
+     ) => {
+         // FIXME: finally remove std support for wasm32-unknown-unknown
+         // FIXME: add random data generation to xous
+@@ -111,6 +112,7 @@
+     target_os = "android",
+     all(target_family = "wasm", target_os = "unknown"),
+     target_os = "xous",
++    target_os = "cuda",
+ )))]
+ pub fn hashmap_random_keys() -> (u64, u64) {
+     let mut buf = [0; 16];

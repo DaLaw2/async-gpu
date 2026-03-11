@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 27      # Monotonic counter, incremented after each completed phase
-completed_tasks = 27
+total_cycles = 28      # Monotonic counter, incremented after each completed phase
+completed_tasks = 28
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"        # think | do | check
-current_step = "do.execute"
-current_task_id = "integration.3"
-last_summary = "integration.4 DONE: VectorWare parity at 80% (32/40). Key gap: -Zbuild-std=std (integration.3). We exceed VW on atomics correctness. Async concurrent 2x faster than sequential sync. 27 tasks done. Next: integration.3 (std source patching)."
+current_step = "do.route"
+current_task_id = ""
+last_summary = "MILESTONE: integration.3 DONE — -Zbuild-std=std works on nvptx64! 3 file patches + 1 new cuda.rs. Vec, String, format! all work. All 28 tasks done, all integration tasks complete. VectorWare parity ~90%."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 8
@@ -84,7 +84,7 @@ success_criteria = [
 [[themes]]
 id = "integration"
 title = "End-to-end integration: async + std + hostcall on GPU"
-status = "active"
+status = "completed"
 spawned_by = "initial"
 goal = "Combine all components into a working async GPU runtime with std support"
 success_criteria = [
@@ -96,7 +96,7 @@ success_criteria = [
 [[themes]]
 id = "atomics"
 title = "GPU-CPU memory model and atomics verification"
-status = "completed"
+status = "active"
 spawned_by = "bs1"
 goal = "Verify that Rust atomic operations emit correct PTX scope qualifiers for GPU-CPU communication"
 success_criteria = [
@@ -466,7 +466,7 @@ id = "integration.3"
 theme = "integration"
 title = "Vendor and patch std source for -Zbuild-std=std"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["gpu-std.2"]
 spawned_by = "bs7"
 research_questions = [
@@ -548,6 +548,24 @@ research_questions = [
     "Handle pool exhaustion via Pending back-pressure, not hard error",
     "Specify concrete CURRENT_EXECUTOR access mechanism (stack-local, not TLS)",
     "Update ADR-4 with reworked design",
+]
+
+# --- New task: atomics correctness audit (user requested) ---
+
+[[tasks]]
+id = "atomics.5"
+theme = "atomics"
+title = "Audit .sys scope inline PTX correctness vs VectorWare Relaxed approach"
+kind = "investigation"
+status = "pending"
+depends_on = ["atomics.4"]
+spawned_by = "user"
+research_questions = [
+    "Is our sys-scope inline PTX (st.release.sys, ld.acquire.sys, atom.cas.sys) actually correct for GPU-CPU communication?",
+    "VectorWare uses Ordering::Relaxed — is that sufficient or incorrect for their use case?",
+    "Does core::sync::atomic on nvptx64 emit any scope qualifier at all? Verify with latest nightly PTX output.",
+    "Are there scenarios where sys-scope is unnecessary (e.g., unified memory with coherent caching)?",
+    "What does NVIDIA's official documentation say about cross-device memory ordering requirements?",
 ]
 
 # ============================================================

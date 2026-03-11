@@ -1,0 +1,17 @@
+[workspace]
+
+[package]
+name = "std-build-test"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+gpu-libc = { path = "../gpu-libc" }
+
+[profile.release]
+panic = "abort"
+opt-level = 3
+lto = "fat"

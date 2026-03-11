@@ -5,3 +5,4 @@ crates/*/target/
 *~
 .DS_Store
 Thumbs.db
+patched-std/

@@ -1,0 +1,18 @@
+--- C:/Users/DaLaw2/.rustup/toolchains/nightly-x86_64-pc-windows-msvc/lib/rustlib/src/rust/library/std/src/sys/thread_local/mod.rs	2025-08-26 21:28:41.860973900 +0800
++++ D:/Code/Rust/async_gpu/patched-std/library/std/src/sys/thread_local/mod.rs	2026-03-12 01:27:42.953383400 +0800
+@@ -29,6 +29,7 @@
+         target_os = "uefi",
+         target_os = "zkvm",
+         target_os = "trusty",
++        target_os = "cuda",
+     ) => {
+         mod no_threads;
+         pub use no_threads::{EagerStorage, LazyStorage, thread_local_inner};
+@@ -98,6 +99,7 @@
+             target_os = "uefi",
+             target_os = "zkvm",
+             target_os = "trusty",
++            target_os = "cuda",
+         ) => {
+             pub(crate) fn enable() {
+                 // FIXME: Right now there is no concept of "thread exit" on

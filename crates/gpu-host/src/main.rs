@@ -20,6 +20,9 @@ const EMBASSY_PTX: &str = include_str!("../embassy_test.ptx");
 // Async hostcall test PTX — compiled from crates/async-hostcall-test with fat LTO
 const ASYNC_HOSTCALL_PTX: &str = include_str!("../async_hostcall_test.ptx");
 
+// Std-build-test PTX — compiled from crates/std-build-test with -Zbuild-std=std + patched std
+const STD_BUILD_TEST_PTX: &str = include_str!("../std_build_test.ptx");
+
 fn run_write_thread_idx(dev: Arc<CudaDevice>) -> Result<()> {
     const N: usize = 64;
 
@@ -1272,6 +1275,60 @@ fn run_hostcall_time_test(dev: Arc<CudaDevice>) -> Result<()> {
     Ok(())
 }
 
+// ============================================================
+// Std-build-test (integration.3): -Zbuild-std=std on GPU
+// ============================================================
+
+/// Test: GPU kernels compiled with -Zbuild-std=std and patched std source.
+/// Verifies Vec, String, and format! work on GPU via std (not just core+alloc).
+fn run_std_build_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Integration Test 4: -Zbuild-std=std on GPU ---");
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(STD_BUILD_TEST_PTX);
+    dev.load_ptx(ptx, "std_test", &["std_hello_kernel", "std_format_kernel"])?;
+
+    // Test 1: std_hello_kernel
+    // vec![1,2,3,4,5].sum() = 15, "Hello from GPU std!".len() = 19 → 15 + 19 = 34
+    {
+        let f = dev.get_func("std_test", "std_hello_kernel")
+            .ok_or(GpuHostError::KernelNotFound("std_hello_kernel"))?;
+        let mut result: CudaSlice<u32> = dev.alloc_zeros::<u32>(1)?;
+        let cfg = LaunchConfig { grid_dim: (1,1,1), block_dim: (1,1,1), shared_mem_bytes: 0 };
+        unsafe { f.launch(cfg, (&mut result,))?; }
+        let host_result = dev.dtoh_sync_copy(&result)?;
+        if host_result[0] != 34 {
+            return Err(GpuHostError::Verification {
+                test: "std_hello_kernel",
+                detail: format!("expected 34, got {}", host_result[0]),
+            });
+        }
+        println!("  std_hello_kernel: PASSED (Vec + String via std, result=34)");
+    }
+
+    // Test 2: std_format_kernel
+    // format!("value = {}", 42) → "value = 42", len = 10
+    {
+        let f = dev.get_func("std_test", "std_format_kernel")
+            .ok_or(GpuHostError::KernelNotFound("std_format_kernel"))?;
+        let mut result: CudaSlice<u32> = dev.alloc_zeros::<u32>(1)?;
+        let cfg = LaunchConfig { grid_dim: (1,1,1), block_dim: (1,1,1), shared_mem_bytes: 0 };
+        unsafe { f.launch(cfg, (&mut result,))?; }
+        let host_result = dev.dtoh_sync_copy(&result)?;
+        if host_result[0] != 10 {
+            return Err(GpuHostError::Verification {
+                test: "std_format_kernel",
+                detail: format!("expected 10, got {}", host_result[0]),
+            });
+        }
+        println!("  std_format_kernel: PASSED (format! via std, result=10)");
+    }
+
+    println!("  -Zbuild-std=std compilation WORKS on nvptx64!");
+    println!("    Vec, String, format! all available via patched std");
+    println!("    Patches: 3 files modified + 1 new file (cuda.rs allocator)");
+    Ok(())
+}
+
 fn main() -> Result<()> {
     println!("=== GPU Kernel Execution Test ===\n");
 
@@ -1307,6 +1364,9 @@ fn main() -> Result<()> {
 
     // GPU Instant + Time test (gpu-std.4)
     run_hostcall_time_test(Arc::clone(&dev))?;
+
+    // Std-build-test (integration.3): -Zbuild-std=std on GPU
+    run_std_build_test(Arc::clone(&dev))?;
 
     println!("\nAll tests PASSED.");
     Ok(())

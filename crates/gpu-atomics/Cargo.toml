@@ -1,0 +1,17 @@
+[workspace]
+
+[package]
+name = "gpu-atomics"
+version = "0.1.0"
+edition = "2021"
+description = "System-scope GPU atomic primitives for nvptx64 via inline PTX asm"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+
+[profile.release]
+panic = "abort"
+opt-level = 3
+lto = false

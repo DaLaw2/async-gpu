@@ -314,7 +314,8 @@ fn run_integration_sys_store(dev: Arc<CudaDevice>) -> Result<()> {
         // Pass raw device pointers as u64 (the GPU kernel expects *mut u32)
         let data_u64 = data_dev_ptr as u64;
         let flag_u64 = flag_dev_ptr as u64;
-        f.launch(cfg, (data_u64, flag_u64, EXPECTED_VALUE, 32u32))
+        // integration_sys_store takes 3 params: data_ptr, flag_ptr, value
+        f.launch(cfg, (data_u64, flag_u64, EXPECTED_VALUE))
             .context("integration_sys_store launch failed")?;
     }
 
@@ -329,13 +330,15 @@ fn run_integration_sys_store(dev: Arc<CudaDevice>) -> Result<()> {
             println!("  Flag became 1 after {} poll iterations.", i);
             break;
         }
+        std::hint::spin_loop();
         if i % 10_000_000 == 0 && i > 0 {
             println!("  ... still polling, iteration {}", i);
         }
     }
 
     if flag_val != 1 {
-        // Free pinned memory before returning
+        // Synchronize device before freeing — the kernel may still be running
+        dev.synchronize().context("device synchronize on timeout")?;
         unsafe {
             free_mapped_mem(data_host_ptr)?;
             free_mapped_mem(flag_host_ptr)?;
@@ -374,7 +377,8 @@ unsafe fn alloc_mapped_u32(_dev: &Arc<CudaDevice>) -> Result<(*mut u32, sys::CUd
     let mut host_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
 
     // CU_MEMHOSTALLOC_DEVICEMAP = 0x02 → allow GPU to access this memory
-    let flags = sys::CU_MEMHOSTALLOC_DEVICEMAP;
+    // CU_MEMHOSTALLOC_PORTABLE = 0x01 → valid across CUDA contexts
+    let flags = sys::CU_MEMHOSTALLOC_DEVICEMAP | sys::CU_MEMHOSTALLOC_PORTABLE;
     let result = cu.cuMemHostAlloc(&mut host_ptr, std::mem::size_of::<u32>(), flags);
     if result != sys::CUresult::CUDA_SUCCESS {
         anyhow::bail!("cuMemHostAlloc failed: {:?}", result);

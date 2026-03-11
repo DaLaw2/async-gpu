@@ -4,8 +4,8 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 8       # Monotonic counter, incremented after each completed phase
-completed_tasks = 8
+total_cycles = 9       # Monotonic counter, incremented after each completed phase
+completed_tasks = 9
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
@@ -162,7 +162,7 @@ id = "atomics.3.1"
 theme = "atomics"
 title = "Rework gpu-atomics crate: fix review issues (rv1)"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["atomics.3"]
 spawned_by = "rv1"
 research_questions = [

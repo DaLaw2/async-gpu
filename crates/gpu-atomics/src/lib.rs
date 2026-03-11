@@ -15,16 +15,8 @@
 //! 3. No bounds checking or lifetime tracking.
 
 #![no_std]
-#![feature(abi_ptx)]
 #![feature(asm_experimental_arch)]
 #![feature(link_llvm_intrinsics)]
-
-use core::panic::PanicInfo;
-
-#[panic_handler]
-fn panic(_info: &PanicInfo) -> ! {
-    loop {}
-}
 
 // ============================================================
 // System-scope fence
@@ -100,6 +92,11 @@ pub unsafe fn sys_store_release_u64(ptr: *mut u64, val: u64) {
 ///
 /// Safety: `ptr` must be a valid, aligned pointer to mapped (pinned) global
 /// GPU memory accessible from both GPU and CPU.
+///
+/// NOTE: The `readonly` asm option tells LLVM this block does not write
+/// memory. If used inside a GPU-side spin loop, LLVM may hoist the load
+/// out of the loop. For spin-loop use cases, prefer calling this in a
+/// function not marked `#[inline(always)]` or use a volatile fence.
 #[inline(always)]
 pub unsafe fn sys_load_acquire_u32(ptr: *const u32) -> u32 {
     let result: u32;
@@ -182,67 +179,40 @@ pub unsafe fn sys_fetch_add_u32(ptr: *mut u32, val: u32) -> u32 {
 }
 
 // ============================================================
-// NVVM intrinsic fallbacks (for comparison / older SM)
+// Helper: store to global address space
 // ============================================================
+
+/// Plain store to global address space (no ordering qualifier).
+///
+/// Emits `st.global.b32 [ptr], val;`
+///
+/// Use this instead of a Rust pointer dereference (`*ptr = val`) when
+/// you need an explicit `.global` address space qualifier in PTX.
+#[inline(always)]
+pub unsafe fn st_global_u32(ptr: *mut u32, val: u32) {
+    core::arch::asm!(
+        "st.global.b32 [{ptr}], {val};",
+        ptr = in(reg64) ptr,
+        val = in(reg32) val,
+        options(nostack),
+    );
+}
+
+// ============================================================
+// NVVM intrinsic fallbacks (internal, for comparison / older SM)
+// ============================================================
+// These are kept for testing and as a fallback path if inline asm
+// regresses in a future LLVM version. Not part of the public API.
 
 extern "C" {
     /// LLVM NVPTX intrinsic for system-scope memory barrier.
     /// Emits `membar.sys;` (same as membar_sys() above but via intrinsic path).
     #[link_name = "llvm.nvvm.membar.sys"]
-    pub fn nvvm_membar_sys();
+    pub(crate) fn nvvm_membar_sys();
 
     /// LLVM NVPTX intrinsic for system-scope atomic add on i32.
     /// Emits `atom.sys.add.s32 result, [ptr], val;`
     /// Note: `.sys` scope but no `.sem` qualifier — relaxed ordering at sys scope.
     #[link_name = "llvm.nvvm.atomic.add.gen.i.sys.i32.p0i32"]
-    pub fn nvvm_atomic_add_sys_i32(ptr: *mut i32, val: i32) -> i32;
-}
-
-// ============================================================
-// Integration test kernel
-// ============================================================
-
-/// Integration test kernel.
-///
-/// Thread 0 writes `value` to `data_ptr` with a system-scope release store,
-/// then sets `flag_ptr = 1` with a system-scope release store. The host can
-/// poll `flag_ptr` (with an acquire load) and when it sees 1, `data_ptr`
-/// is guaranteed to be visible.
-///
-/// This implements a minimal producer (GPU) / consumer (CPU) protocol.
-#[no_mangle]
-pub unsafe extern "ptx-kernel" fn kernel_sys_store_and_signal(
-    data_ptr: *mut u32,
-    flag_ptr: *mut u32,
-    value: u32,
-    thread_count: u32,
-) {
-    // Read thread/block indices via inline asm (no stdarch_nvptx needed)
-    let tid_x: u32;
-    let ctaid_x: u32;
-    let ntid_x: u32;
-    core::arch::asm!(
-        "mov.u32 {tid}, %tid.x;",
-        tid = out(reg32) tid_x,
-        options(nostack, readonly),
-    );
-    core::arch::asm!(
-        "mov.u32 {ctaid}, %ctaid.x;",
-        ctaid = out(reg32) ctaid_x,
-        options(nostack, readonly),
-    );
-    core::arch::asm!(
-        "mov.u32 {ntid}, %ntid.x;",
-        ntid = out(reg32) ntid_x,
-        options(nostack, readonly),
-    );
-    let idx = ctaid_x * ntid_x + tid_x;
-    if idx < thread_count && idx == 0 {
-        // Write data with system-scope release store
-        sys_store_release_u32(data_ptr, value);
-        // Extra fence for belt-and-suspenders
-        membar_sys();
-        // Signal CPU: flag = 1, system-scope release
-        sys_store_release_u32(flag_ptr, 1u32);
-    }
+    pub(crate) fn nvvm_atomic_add_sys_i32(ptr: *mut i32, val: i32) -> i32;
 }

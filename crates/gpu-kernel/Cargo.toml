@@ -9,6 +9,7 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
+gpu-atomics = { path = "../gpu-atomics" }
 
 [profile.release]
 panic = "abort"

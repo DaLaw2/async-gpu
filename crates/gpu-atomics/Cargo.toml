@@ -7,7 +7,7 @@ edition = "2021"
 description = "System-scope GPU atomic primitives for nvptx64 via inline PTX asm"
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["rlib"]
 
 [dependencies]
 

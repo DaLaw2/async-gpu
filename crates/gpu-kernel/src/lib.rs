@@ -6,6 +6,7 @@
 
 use core::arch::nvptx;
 use core::panic::PanicInfo;
+use gpu_atomics::{membar_sys, sys_store_release_u32, sys_load_acquire_u32, sys_cas_u32, st_global_u32};
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
@@ -13,14 +14,13 @@ fn panic(_info: &PanicInfo) -> ! {
 }
 
 // ============================================================
-// Step 1: Inline PTX asm test — CRITICAL EXPERIMENT
+// Step 1: Inline PTX asm test — uses gpu-atomics crate
 // ============================================================
 
-/// Test: membar.sys via inline PTX asm
-/// If this compiles, inline PTX asm works on nvptx64.
+/// Test: membar.sys via gpu-atomics crate
 #[no_mangle]
 pub unsafe extern "ptx-kernel" fn test_asm_membar_sys(output: *mut u32, len: u32) {
-    core::arch::asm!("membar.sys;", options(nostack));
+    membar_sys();
     let thread_x = nvptx::_thread_idx_x() as u32;
     let block_x = nvptx::_block_idx_x() as u32;
     let block_dim_x = nvptx::_block_dim_x() as u32;
@@ -30,36 +30,20 @@ pub unsafe extern "ptx-kernel" fn test_asm_membar_sys(output: *mut u32, len: u32
     }
 }
 
-/// Test: st.release.sys.global.u32 via inline PTX asm
+/// Test: st.release.sys.global.u32 via gpu-atomics crate
 #[no_mangle]
 pub unsafe extern "ptx-kernel" fn test_asm_st_release_sys(ptr: *mut u32, val: u32) {
-    core::arch::asm!(
-        "st.release.sys.global.u32 [{ptr}], {val};",
-        ptr = in(reg64) ptr,
-        val = in(reg32) val,
-        options(nostack),
-    );
+    sys_store_release_u32(ptr, val);
 }
 
-/// Test: ld.acquire.sys.global.u32 via inline PTX asm
+/// Test: ld.acquire.sys.global.u32 via gpu-atomics crate
 #[no_mangle]
 pub unsafe extern "ptx-kernel" fn test_asm_ld_acquire_sys(ptr: *const u32, output: *mut u32) {
-    let result: u32;
-    core::arch::asm!(
-        "ld.acquire.sys.global.u32 {result}, [{ptr}];",
-        result = out(reg32) result,
-        ptr = in(reg64) ptr,
-        options(nostack, readonly),
-    );
-    core::arch::asm!(
-        "st.global.b32 [{output}], {result};",
-        output = in(reg64) output,
-        result = in(reg32) result,
-        options(nostack),
-    );
+    let result = sys_load_acquire_u32(ptr);
+    st_global_u32(output, result);
 }
 
-/// Test: atom.cas.sys.global.b32 via inline PTX asm
+/// Test: atom.cas.sys.global.b32 via gpu-atomics crate
 #[no_mangle]
 pub unsafe extern "ptx-kernel" fn test_asm_cas_sys(
     ptr: *mut u32,
@@ -67,20 +51,12 @@ pub unsafe extern "ptx-kernel" fn test_asm_cas_sys(
     desired: u32,
     output: *mut u32,
 ) {
-    let result: u32;
-    core::arch::asm!(
-        "atom.cas.sys.global.b32 {result}, [{ptr}], {expected}, {desired};",
-        result = out(reg32) result,
-        ptr = in(reg64) ptr,
-        expected = in(reg32) expected,
-        desired = in(reg32) desired,
-        options(nostack),
-    );
-    *output = result;
+    let result = sys_cas_u32(ptr, expected, desired);
+    st_global_u32(output, result);
 }
 
 // ============================================================
-// Step 2 fallback: NVVM intrinsics via extern "C"
+// Step 2: NVVM intrinsics via extern "C"
 // (tested if inline asm fails)
 // ============================================================
 
@@ -124,13 +100,19 @@ pub unsafe extern "ptx-kernel" fn test_write_volatile(ptr: *mut u32, val: u32) {
 }
 
 // ============================================================
-// Step 5: Integration kernel using sys atomics
+// Step 5: Integration kernel using gpu-atomics crate
 // ============================================================
 
-/// Integration test kernel:
-/// 1. Write a value to data_ptr using st.release.sys.global.u32
-/// 2. Set flag_ptr = 1 using st.release.sys.global.u32
-/// Host reads flag and verifies data.
+/// Integration test kernel (producer side of GPU-CPU protocol).
+///
+/// Thread 0 writes `value` to `data_ptr` with a system-scope release store,
+/// then sets `flag_ptr = 1` with a system-scope release store. The host can
+/// poll `flag_ptr` (with an acquire load) and when it sees 1, `data_ptr`
+/// is guaranteed to be visible.
+///
+/// The release on the flag store is the architectural guarantee that the
+/// data write is ordered before it. No additional `membar.sys` is needed
+/// between two `st.release.sys` instructions.
 #[no_mangle]
 pub unsafe extern "ptx-kernel" fn integration_sys_store(
     data_ptr: *mut u32,
@@ -144,21 +126,10 @@ pub unsafe extern "ptx-kernel" fn integration_sys_store(
     let idx = block_x * block_dim_x + thread_x;
     if idx == 0 {
         // Write data with system-scope release
-        core::arch::asm!(
-            "st.release.sys.global.u32 [{ptr}], {val};",
-            ptr = in(reg64) data_ptr,
-            val = in(reg32) value,
-            options(nostack),
-        );
-        // Fence for extra safety
-        core::arch::asm!("membar.sys;", options(nostack));
-        // Set flag with system-scope release
-        core::arch::asm!(
-            "st.release.sys.global.u32 [{ptr}], {val};",
-            ptr = in(reg64) flag_ptr,
-            val = in(reg32) 1u32,
-            options(nostack),
-        );
+        sys_store_release_u32(data_ptr, value);
+        // Signal CPU: flag = 1, system-scope release
+        // (release semantics guarantee data store is visible before flag)
+        sys_store_release_u32(flag_ptr, 1u32);
     }
 }
 

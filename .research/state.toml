@@ -9,13 +9,13 @@ completed_tasks = 8
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
-current_mode = "check"     # think | do | check | adapt
-current_step = "check.pending"  # Micro-step for compression resilience
-current_task_id = "atomics.3"
+current_mode = "do"        # think | do | check | adapt
+current_step = "do.select"   # Micro-step for compression resilience
+current_task_id = "atomics.3.1"
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 2
-review_seq = 0
+review_seq = 1
 
 # Brainstorm trigger control
 last_brainstorm_at_completed = 7
@@ -131,7 +131,7 @@ theme = "atomics"
 title = "Stress-test GPU-CPU atomic communication correctness"
 kind = "experiment"
 status = "pending"
-depends_on = ["atomics.3"]
+depends_on = ["atomics.3.1"]
 spawned_by = "bs1"
 research_questions = [
     "Can GPU and CPU reliably exchange data via atomic flags in pinned memory?",
@@ -155,6 +155,24 @@ research_questions = [
     "Does llvm.nvvm.membar.sys via extern C link_name survive optimization?",
     "Does read_volatile emit ld.volatile or plain ld in PTX output?",
     "DECISION: if inline PTX fails, reconsider ADR-1 vs Rust-CUDA",
+]
+
+[[tasks]]
+id = "atomics.3.1"
+theme = "atomics"
+title = "Rework gpu-atomics crate: fix review issues (rv1)"
+kind = "experiment"
+status = "pending"
+depends_on = ["atomics.3"]
+spawned_by = "rv1"
+research_questions = [
+    "Remove panic handler from gpu-atomics library crate",
+    "Fix use-after-free in host timeout path (synchronize before free)",
+    "Fix kernel argument mismatch (3 vs 4 params)",
+    "Remove redundant membar.sys between release stores",
+    "Move test kernel from gpu-atomics to gpu-kernel",
+    "Make gpu-kernel depend on gpu-atomics (eliminate PTX duplication)",
+    "Gate or internalize NVVM intrinsic fallbacks",
 ]
 
 # --- Theme: toolchain ---
@@ -262,7 +280,7 @@ theme = "hostcall"
 title = "Design and implement hostcall protocol"
 kind = "design"
 status = "pending"
-depends_on = ["hostcall.1", "hostcall.2", "atomics.3"]
+depends_on = ["hostcall.1", "hostcall.2", "atomics.3.1"]
 spawned_by = "initial"
 research_questions = [
     "What serialization format for request/response?",
@@ -425,10 +443,18 @@ key_insight = "core::sync::atomic confirmed broken on nvptx64. Project viability
 # Review Records
 # ============================================================
 
-# [[reviews]]
-# seq = 1
-# at_cycle = 5
-# task_reviewed = "toolchain.4"
-# verdict = "pass"  # pass | rework | redesign
-# issues = []
-# new_tasks_spawned = []
+[[reviews]]
+seq = 1
+at_cycle = 8
+task_reviewed = "atomics.3"
+verdict = "rework"
+issues = [
+    "Panic handler in library crate (hard blocker)",
+    "Use-after-free on timeout path",
+    "Kernel argument mismatch (4 vs 3 params)",
+    "Redundant membar.sys between release stores",
+    "PTX duplication between gpu-kernel and gpu-atomics",
+    "Test kernel embedded in library crate",
+    "NVVM intrinsics as unexplained public API",
+]
+new_tasks_spawned = ["atomics.3.1"]

@@ -24,39 +24,53 @@ Exploratory research with no fixed endpoint.
 ```
 async_gpu/
 ├── CLAUDE.md
+├── .claude/
+│   ├── settings.json                      # Agent Teams enabled
+│   └── commands/
+│       └── research.md                    # /research loop engine
 ├── .research/
 │   ├── state.toml                         # State machine (SSOT)
 │   ├── decisions.md                       # Architecture Decision Records
 │   └── findings/
 │       ├── brainstorm/
-│       │   ├── bs{seq}-{role}.md          # Individual agent output
-│       │   └── bs{seq}-synthesis.md       # Combined synthesis
+│       │   ├── bs{seq}-{role}.md          # Individual teammate output
+│       │   └── bs{seq}-synthesis.md       # Lead's combined synthesis
 │       ├── tasks/
 │       │   └── {task_id}-c{cycle}.md      # Task findings at cycle N
 │       └── reviews/
 │           ├── rv{seq}-{id}-{role}.md     # Individual reviewer output
 │           └── rv{seq}-{id}-synthesis.md  # Combined verdict
-├── .claude/commands/
-│   └── research.md                        # /research loop engine
 ├── crates/                                # Implementation code
 └── examples/
 ```
 
 ## Autonomous Research Workflow
 
+### Agent Teams (Experimental Feature)
+- Enabled via `.claude/settings.json`
+- Used for **Think** (brainstorm) and **Check** (code review) phases
+- Teammates can read each other's output, challenge assumptions, and debate directly
+- This is fundamentally different from independent subagents — teammates collaborate
+- Always clean up teams after each phase
+
 ### Core Loop: Think → Do → Check → Adapt
 
 | Phase | What | How |
 |-------|------|-----|
-| **Think** | Brainstorm | 4 Agents (Systems/Compiler/GPU/Skeptic), each writes own file |
-| **Do** | Research/Experiment | WebSearch or code+compile, findings to disk immediately |
-| **Check** | Code Review | 3 Agents (Correctness/Architecture/Performance), each writes own file |
-| **Adapt** | Update Plan | Add/remove/reorder tasks, embedded in Think and Check |
+| **Think** | Brainstorm | Agent Team: 4 teammates (Systems/Compiler/GPU/Skeptic) debate each other |
+| **Do** | Research/Experiment | Agent Team for parallel research; direct for experiments |
+| **Check** | Code Review | Agent Team: 3 reviewers (Correctness/Architecture/Performance) cross-discuss |
+| **Adapt** | Update Plan | Lead synthesizes from teammate files, updates task list |
 | **Save** | Git commit+push | After every completed phase |
+
+### When to Use Agent Teams vs. Subagents
+- **Agent Team**: When debate/challenge is valuable (brainstorm, review)
+- **Subagent**: When just fetching info independently (simple lookup)
+- **Direct**: When doing it yourself is faster (single experiment)
 
 ### Compression Resilience
 - `current_step` tracks micro-state within each phase
-- Agent results → individual files → synthesis reads from files (never from context)
+- Teammate results → individual files → synthesis reads from files (never from context)
 - Recovery protocol runs first every time: re-reads state.toml + checks file existence
 
 ### Multi-Iteration Naming

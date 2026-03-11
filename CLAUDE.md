@@ -78,6 +78,12 @@ async_gpu/
 /research
 ```
 
+## Autonomous Operation Policy
+- **Do NOT stop** between research sessions unless the user explicitly says to stop
+- Keep iterating the Think → Do → Check loop continuously
+- Target: reproduce all features from VectorWare's published blog posts
+- Only pause for: environment changes needed, all tasks blocked, or user says "stop"
+
 ## Git Remote
 - Origin: https://github.com/DaLaw2/async-gpu.git
 - Commit + push after each batch of work

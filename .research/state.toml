@@ -10,17 +10,16 @@ status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"        # think | do | check
-current_step = "do.route"
+current_step = "do.select"
 current_task_id = ""
-last_summary = "MILESTONE: async-runtime.3 PASSED — Embassy async/await runs on GPU (ImmediateFuture, CountdownFuture, 2-task concurrent, 56 regs). gpu-std.3 PASSED — File I/O from GPU works (open/write/close/read/verify, 1.33ms round-trip). integration.1 now UNBLOCKED — all prerequisites met."
-last_summary = "Batch done: async-runtime.2.1 (reworked design, Embassy-first, ADR-4 updated), gpu-std.2 (gpu-libc crate created, core+alloc works, -Zbuild-std=std blocked by 5 missing cfg), async-runtime.1.3 (no-op CS works, zero overhead, 31 regs). hostcall theme COMPLETED. 3 themes active: gpu-std, async-runtime, integration."
+last_summary = "bs7 done: VectorWare gap analysis. async-runtime COMPLETED. integration.1 narrowed to HostcallFuture. New tasks: integration.2 (futures_util), integration.3 (std patch), integration.4 (benchmarks), gpu-std.4 (stdin+time). Priority: integration.1 P0, gpu-std.4 P1, integration.2 P1."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 6
+brainstorm_seq = 7
 review_seq = 3
 
 # Brainstorm trigger control
-last_brainstorm_at_completed = 21
+last_brainstorm_at_completed = 23
 brainstorm_interval = 3
 
 # ============================================================
@@ -73,7 +72,7 @@ success_criteria = [
 [[themes]]
 id = "async-runtime"
 title = "Async executor on GPU"
-status = "active"
+status = "completed"
 spawned_by = "initial"
 goal = "Port an async executor (Embassy-based) to run on GPU hardware"
 success_criteria = [
@@ -437,16 +436,71 @@ research_questions = [
 [[tasks]]
 id = "integration.1"
 theme = "integration"
-title = "Integration: async GPU kernel + hostcall + std"
+title = "Async hostcall: HostcallFuture with Embassy executor"
 kind = "experiment"
 status = "pending"
 depends_on = ["gpu-std.3", "async-runtime.3"]
 spawned_by = "initial"
 research_questions = [
-    "Does using std APIs inside async fn work correctly?",
-    "Correctness of multiple async tasks issuing hostcalls in parallel?",
-    "End-to-end performance benchmarks",
-    "Feature comparison with VectorWare demo",
+    "Does HostcallFuture correctly yield and resume across poll rounds?",
+    "Can two async hostcall tasks run concurrently on one executor?",
+    "What is the register pressure for async hostcall vs sync hostcall?",
+]
+
+[[tasks]]
+id = "integration.2"
+theme = "integration"
+title = "Third-party async crate: futures_util on GPU"
+kind = "experiment"
+status = "pending"
+depends_on = ["integration.1"]
+spawned_by = "bs7"
+research_questions = [
+    "Does futures_util compile for nvptx64 with Fat LTO?",
+    "Does futures::future::join(hostcall_a, hostcall_b) produce correct concurrent execution?",
+    "What is the register pressure impact of futures combinators?",
+]
+
+[[tasks]]
+id = "integration.3"
+theme = "integration"
+title = "Vendor and patch std source for -Zbuild-std=std"
+kind = "experiment"
+status = "pending"
+depends_on = ["gpu-std.2"]
+spawned_by = "bs7"
+research_questions = [
+    "Does vendored std compile with cfg_select patches for nvptx64?",
+    "Can we route std::io::stdout() through hostcall at the PAL level?",
+    "What additional patches are needed beyond cfg_select?",
+]
+
+[[tasks]]
+id = "integration.4"
+theme = "integration"
+title = "End-to-end benchmark and VectorWare feature comparison"
+kind = "investigation"
+status = "pending"
+depends_on = ["integration.1"]
+spawned_by = "bs7"
+research_questions = [
+    "Async hostcall latency vs sync hostcall latency?",
+    "Feature-by-feature comparison with VectorWare blog posts?",
+    "What would be needed to close remaining gaps?",
+]
+
+[[tasks]]
+id = "gpu-std.4"
+theme = "gpu-std"
+title = "Implement stdin hostcall + GPU Instant via globaltimer"
+kind = "experiment"
+status = "pending"
+depends_on = ["gpu-std.3"]
+spawned_by = "bs7"
+research_questions = [
+    "Can we read from stdin via a new hostcall SERVICE_STDIN opcode?",
+    "Does PTX %globaltimer give accurate nanosecond timing on GPU?",
+    "Can SystemTime be obtained via hostcall to host clock?",
 ]
 
 # --- New tasks from bs4 ---
@@ -563,6 +617,17 @@ new_themes_spawned = []
 themes_parked = []
 themes_completed = []
 key_insight = "All prerequisites met. async-runtime.3 (Embassy on GPU) and gpu-std.3 (File I/O) are the final experiment tasks before integration. Both ready to execute in parallel."
+
+[[brainstorms]]
+seq = 7
+at_cycle = 23
+trigger = "vectorware_gap_analysis"
+level = "standard"
+new_tasks_spawned = ["integration.2", "integration.3", "integration.4", "gpu-std.4"]
+new_themes_spawned = []
+themes_parked = []
+themes_completed = ["async-runtime"]
+key_insight = "All foundations work individually. HostcallFuture (integration.1) is the critical missing piece — transforms sync spin-wait into async yield, enabling true concurrent I/O. Std patching fixes compilation but PAL routing is the real challenge for std I/O. Priority: HostcallFuture P0 > futures_util+stdin P1 > std patch P2 > benchmarks P3."
 
 [[reviews]]
 seq = 2

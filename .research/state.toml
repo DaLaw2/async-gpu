@@ -1,70 +1,111 @@
 # Autonomous Research Loop State File
-# This is exploratory research — the task list evolves dynamically.
-# All filenames use sequence counters (seq) to support multiple iterations.
+# Two-level hierarchy: Theme → Task
+# Themes are research directions; Tasks are actionable items within a theme.
 
 [meta]
 created = "2026-03-11"
-total_cycles = 0       # Monotonic counter, incremented after each Do/Think/Check phase
+total_cycles = 0       # Monotonic counter, incremented after each completed phase
 completed_tasks = 0
 status = "ready"       # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "think"     # think | do | check | adapt
-current_step = "recovery"  # Micro-step for compression resilience (see research.md)
-current_task_id = "1.1"
+current_step = "recovery"  # Micro-step for compression resilience
+current_task_id = "toolchain.1"
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 0     # Incremented each brainstorm session
-review_seq = 0         # Incremented each review session
+brainstorm_seq = 0
+review_seq = 0
 
 # Brainstorm trigger control
 last_brainstorm_at_completed = 0
-brainstorm_interval = 3  # Trigger brainstorm every N completed tasks
-
-# ============================================================
-# Research Themes (high-level goals, not a fixed list)
-# ============================================================
-
-[themes]
-active = [
-    "GPU compilation toolchain selection and validation",
-    "GPU-Host communication mechanism",
-    "Viable path for Rust std on GPU",
-    "Async runtime porting to GPU",
-]
-discovered = []  # New themes found during brainstorm
-parked = []      # Themes temporarily shelved
+brainstorm_interval = 3
 
 # ============================================================
 # File Naming Convention
 # ============================================================
-# Brainstorm individual:  brainstorm/bs{seq}-{role}.md
-# Brainstorm synthesis:   brainstorm/bs{seq}-synthesis.md
-# Task findings:          tasks/{task_id}-c{cycle}.md
-# Review individual:      reviews/rv{seq}-{task_id}-{role}.md
-# Review synthesis:       reviews/rv{seq}-{task_id}-synthesis.md
-#
-# Examples (multi-iteration scenario):
-#   brainstorm/bs1-systems.md      (1st brainstorm, systems agent)
-#   brainstorm/bs1-synthesis.md    (1st brainstorm, synthesis)
-#   brainstorm/bs2-systems.md      (2nd brainstorm, systems agent)
-#   tasks/1.1-c1.md                (task 1.1, done at cycle 1)
-#   tasks/1.4-c5.md                (task 1.4, done at cycle 5)
-#   tasks/1.4.1-c8.md              (rework of 1.4, done at cycle 8)
-#   reviews/rv1-1.4-correctness.md (1st review, task 1.4, correctness)
-#   reviews/rv2-1.4.1-correctness.md (2nd review, reworked task)
+# Brainstorm:  brainstorm/bs{seq}-{role}.md, bs{seq}-synthesis.md
+# Task:        tasks/{task_id}-c{cycle}.md     (e.g., tasks/toolchain.1-c3.md)
+# Review:      reviews/rv{seq}-{task_id}-{role}.md, rv{seq}-{task_id}-synthesis.md
+# Rework:      new task ID with .{n} suffix    (e.g., toolchain.4.1)
 
 # ============================================================
-# Task Queue (dynamically evolves)
+# Themes
 # ============================================================
+
+[[themes]]
+id = "toolchain"
+title = "GPU compilation toolchain selection and validation"
+status = "active"      # active | parked | completed
+spawned_by = "initial" # initial | bs{seq}
+goal = "Determine the best Rust-to-GPU compilation path and validate it works"
+success_criteria = [
+    "Can compile and run a minimal Rust kernel on GPU",
+    "Toolchain choice documented with rationale in ADR",
+]
+
+[[themes]]
+id = "hostcall"
+title = "GPU-Host communication mechanism"
+status = "active"
+spawned_by = "initial"
+goal = "Design and implement reliable GPU-to-Host RPC via shared memory"
+success_criteria = [
+    "GPU kernel can send structured requests to host",
+    "Host responds with results",
+    "Multiple warps can issue concurrent hostcalls correctly",
+]
+
+[[themes]]
+id = "gpu-std"
+title = "Rust std on GPU via libc shim"
+status = "active"
+spawned_by = "initial"
+goal = "Enable Rust std library on GPU by redirecting libc calls through hostcall"
+success_criteria = [
+    "println! works from GPU kernel",
+    "File I/O works from GPU kernel",
+    "Minimal libc facade documented",
+]
+
+[[themes]]
+id = "async-runtime"
+title = "Async executor on GPU"
+status = "active"
+spawned_by = "initial"
+goal = "Port an async executor (Embassy-based) to run on GPU hardware"
+success_criteria = [
+    "Can poll a Future on GPU",
+    "Multiple async tasks run concurrently on GPU",
+    "Register pressure and occupancy impact measured",
+]
+
+[[themes]]
+id = "integration"
+title = "End-to-end integration: async + std + hostcall on GPU"
+status = "active"
+spawned_by = "initial"
+goal = "Combine all components into a working async GPU runtime with std support"
+success_criteria = [
+    "async fn using std APIs runs correctly on GPU",
+    "Performance benchmarked against native CUDA",
+    "Feature parity comparison with VectorWare demo",
+]
+
+# ============================================================
+# Tasks (grouped by theme via task ID prefix)
+# ============================================================
+
+# --- Theme: toolchain ---
 
 [[tasks]]
-id = "1.1"
-phase = 1
+id = "toolchain.1"
+theme = "toolchain"
 title = "Investigate nvptx64 built-in target: full capabilities and limitations"
-status = "pending"  # pending | active | done | skipped | blocked
+kind = "investigation"   # investigation | experiment | design
+status = "pending"       # pending | active | done | skipped | blocked
 depends_on = []
-spawned_by = "initial"  # initial | bs{seq} | rv{seq}
+spawned_by = "initial"   # initial | bs{seq} | rv{seq}
 research_questions = [
     "What Rust language features does the nvptx64-nvidia-cuda target support?",
     "What are the limitations of the extern ptx-kernel ABI?",
@@ -74,9 +115,10 @@ research_questions = [
 ]
 
 [[tasks]]
-id = "1.2"
-phase = 1
+id = "toolchain.2"
+theme = "toolchain"
 title = "Investigate rust-cuda (rustc_codegen_nvvm): current status and architecture"
+kind = "investigation"
 status = "pending"
 depends_on = []
 spawned_by = "initial"
@@ -89,9 +131,10 @@ research_questions = [
 ]
 
 [[tasks]]
-id = "1.3"
-phase = 1
+id = "toolchain.3"
+theme = "toolchain"
 title = "Analyze VectorWare's rustc modifications (extern gpu-kernel ABI)"
+kind = "investigation"
 status = "pending"
 depends_on = []
 spawned_by = "initial"
@@ -103,11 +146,12 @@ research_questions = [
 ]
 
 [[tasks]]
-id = "1.4"
-phase = 1
+id = "toolchain.4"
+theme = "toolchain"
 title = "Experiment: minimal GPU kernel compilation and execution"
+kind = "experiment"
 status = "pending"
-depends_on = ["1.1"]
+depends_on = ["toolchain.1"]
 spawned_by = "initial"
 research_questions = [
     "Can we compile a minimal kernel using the nvptx64 target?",
@@ -116,12 +160,15 @@ research_questions = [
     "Document error messages and debug workflow",
 ]
 
+# --- Theme: hostcall ---
+
 [[tasks]]
-id = "2.1"
-phase = 2
+id = "hostcall.1"
+theme = "hostcall"
 title = "Research GPU-Host shared memory mechanisms"
+kind = "investigation"
 status = "pending"
-depends_on = ["1.4"]
+depends_on = ["toolchain.4"]
 spawned_by = "initial"
 research_questions = [
     "What are the semantics of cudaHostAlloc + cudaHostAllocMapped?",
@@ -131,9 +178,10 @@ research_questions = [
 ]
 
 [[tasks]]
-id = "2.2"
-phase = 2
+id = "hostcall.2"
+theme = "hostcall"
 title = "Research existing hostcall implementations (AMD ROCm, CUDA printf)"
+kind = "investigation"
 status = "pending"
 depends_on = []
 spawned_by = "initial"
@@ -145,11 +193,12 @@ research_questions = [
 ]
 
 [[tasks]]
-id = "2.3"
-phase = 2
+id = "hostcall.3"
+theme = "hostcall"
 title = "Design and implement hostcall protocol"
+kind = "design"
 status = "pending"
-depends_on = ["2.1", "2.2"]
+depends_on = ["hostcall.1", "hostcall.2"]
 spawned_by = "initial"
 research_questions = [
     "What serialization format for request/response?",
@@ -159,11 +208,12 @@ research_questions = [
 ]
 
 [[tasks]]
-id = "2.4"
-phase = 2
+id = "hostcall.4"
+theme = "hostcall"
 title = "Experiment: GPU println via hostcall"
+kind = "experiment"
 status = "pending"
-depends_on = ["2.3"]
+depends_on = ["hostcall.3"]
 spawned_by = "initial"
 research_questions = [
     "Can we print strings from a GPU kernel via hostcall?",
@@ -171,12 +221,15 @@ research_questions = [
     "Correctness with multiple threads printing simultaneously",
 ]
 
+# --- Theme: gpu-std ---
+
 [[tasks]]
-id = "3.1"
-phase = 3
+id = "gpu-std.1"
+theme = "gpu-std"
 title = "Analyze Rust std's dependency graph on libc"
+kind = "investigation"
 status = "pending"
-depends_on = ["2.4"]
+depends_on = ["hostcall.4"]
 spawned_by = "initial"
 research_questions = [
     "Which std modules directly call into libc?",
@@ -187,11 +240,12 @@ research_questions = [
 ]
 
 [[tasks]]
-id = "3.2"
-phase = 3
+id = "gpu-std.2"
+theme = "gpu-std"
 title = "Implement libc shim layer redirecting syscalls to hostcall"
+kind = "experiment"
 status = "pending"
-depends_on = ["3.1"]
+depends_on = ["gpu-std.1"]
 spawned_by = "initial"
 research_questions = [
     "Which libc functions can be stubbed (return error)?",
@@ -201,11 +255,12 @@ research_questions = [
 ]
 
 [[tasks]]
-id = "3.3"
-phase = 3
+id = "gpu-std.3"
+theme = "gpu-std"
 title = "Experiment: run std::fs::File::create on GPU"
+kind = "experiment"
 status = "pending"
-depends_on = ["3.2"]
+depends_on = ["gpu-std.2"]
 spawned_by = "initial"
 research_questions = [
     "Can we create a file from the GPU?",
@@ -213,10 +268,13 @@ research_questions = [
     "Measure performance impact",
 ]
 
+# --- Theme: async-runtime ---
+
 [[tasks]]
-id = "4.1"
-phase = 4
+id = "async-runtime.1"
+theme = "async-runtime"
 title = "Deep analysis of Embassy executor source code"
+kind = "investigation"
 status = "pending"
 depends_on = []
 spawned_by = "initial"
@@ -229,11 +287,12 @@ research_questions = [
 ]
 
 [[tasks]]
-id = "4.2"
-phase = 4
+id = "async-runtime.2"
+theme = "async-runtime"
 title = "Design GPU executor architecture"
+kind = "design"
 status = "pending"
-depends_on = ["4.1", "2.4"]
+depends_on = ["async-runtime.1", "hostcall.4"]
 spawned_by = "initial"
 research_questions = [
     "Which memory level should the executor live in?",
@@ -243,11 +302,12 @@ research_questions = [
 ]
 
 [[tasks]]
-id = "4.3"
-phase = 4
+id = "async-runtime.3"
+theme = "async-runtime"
 title = "Experiment: minimal async/await execution on GPU"
+kind = "experiment"
 status = "pending"
-depends_on = ["4.2"]
+depends_on = ["async-runtime.2"]
 spawned_by = "initial"
 research_questions = [
     "Can we poll a simple Future on the GPU?",
@@ -255,12 +315,15 @@ research_questions = [
     "Performance comparison with synchronous version",
 ]
 
+# --- Theme: integration ---
+
 [[tasks]]
-id = "5.1"
-phase = 5
+id = "integration.1"
+theme = "integration"
 title = "Integration: async GPU kernel + hostcall + std"
+kind = "experiment"
 status = "pending"
-depends_on = ["3.3", "4.3"]
+depends_on = ["gpu-std.3", "async-runtime.3"]
 spawned_by = "initial"
 research_questions = [
     "Does using std APIs inside async fn work correctly?",
@@ -277,8 +340,8 @@ research_questions = [
 # seq = 1
 # at_cycle = 3
 # trigger = "interval"  # interval | blocked | milestone | discovery
-# new_tasks_spawned = ["X.Y"]
-# themes_added = []
+# new_tasks_spawned = ["hostcall.5"]
+# new_themes_spawned = []
 # themes_parked = []
 # key_insight = "..."
 
@@ -289,7 +352,7 @@ research_questions = [
 # [[reviews]]
 # seq = 1
 # at_cycle = 5
-# task_reviewed = "1.4"
+# task_reviewed = "toolchain.4"
 # verdict = "pass"  # pass | rework | redesign
 # issues = []
 # new_tasks_spawned = []

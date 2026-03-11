@@ -4,13 +4,13 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 0       # Monotonic counter, incremented after each completed phase
-completed_tasks = 0
+total_cycles = 4       # Monotonic counter, incremented after each completed phase
+completed_tasks = 4
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
-current_mode = "think"     # think | do | check | adapt
-current_step = "think.save"  # Micro-step for compression resilience
+current_mode = "do"        # think | do | check | adapt
+current_step = "do.save"  # Micro-step for compression resilience
 current_task_id = ""
 
 # Sequence counters for unique file naming across iterations
@@ -18,7 +18,7 @@ brainstorm_seq = 1
 review_seq = 0
 
 # Brainstorm trigger control
-last_brainstorm_at_completed = 0
+last_brainstorm_at_completed = 4
 brainstorm_interval = 3
 
 # ============================================================
@@ -147,7 +147,7 @@ id = "toolchain.1"
 theme = "toolchain"
 title = "Investigate nvptx64 built-in target: full capabilities and limitations"
 kind = "investigation"   # investigation | experiment | design
-status = "pending"       # pending | active | done | skipped | blocked
+status = "done"          # pending | active | done | skipped | blocked
 depends_on = []
 spawned_by = "initial"   # initial | bs{seq} | rv{seq}
 research_questions = [
@@ -179,7 +179,7 @@ id = "toolchain.3"
 theme = "toolchain"
 title = "Analyze VectorWare's rustc modifications (extern gpu-kernel ABI) — DECISION GATE"
 kind = "investigation"
-status = "pending"
+status = "done"
 depends_on = []
 spawned_by = "initial"
 research_questions = [
@@ -229,7 +229,7 @@ id = "hostcall.2"
 theme = "hostcall"
 title = "Research existing hostcall implementations (AMD ROCm, CUDA printf)"
 kind = "investigation"
-status = "pending"
+status = "done"
 depends_on = []
 spawned_by = "initial"
 research_questions = [
@@ -322,7 +322,7 @@ id = "async-runtime.1"
 theme = "async-runtime"
 title = "Deep analysis of Embassy executor + GPU compatibility assessment"
 kind = "investigation"
-status = "pending"
+status = "done"
 depends_on = []
 spawned_by = "initial"
 research_questions = [

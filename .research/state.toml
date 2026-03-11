@@ -4,22 +4,22 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 18      # Monotonic counter, incremented after each completed phase
-completed_tasks = 18
+total_cycles = 19      # Monotonic counter, incremented after each completed phase
+completed_tasks = 19
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"        # think | do | check
-current_step = "do.select"
-current_task_id = ""
-last_summary = "Batch done: gpu-std.1 (libc needs ~12 functions, core::fmt is no_std), async-runtime.1.2 (fat LTO resolves ALL Embassy extern calls, no fork needed!), async-runtime.2 (ADR-4: per-thread executor with bitmask run queue, async HostcallFuture design). Next: review triage then brainstorm."
+current_step = "do.execute"
+current_task_id = "async-runtime.2.1"
+last_summary = "async-runtime.2.1 done: reworked executor design per rv3. Embassy-first (fat LTO), custom executor as fallback. Per-lane packets for async hostcall (32x pool). Poll-all model replaces self-waking. Pool exhaustion → Pending. Stack-local executor ref. CS misuse warning. Register measurement in Phase 1. ADR-4 updated."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 4
+brainstorm_seq = 5
 review_seq = 3
 
 # Brainstorm trigger control
-last_brainstorm_at_completed = 15
+last_brainstorm_at_completed = 18
 brainstorm_interval = 3
 
 # ============================================================
@@ -48,7 +48,7 @@ success_criteria = [
 [[themes]]
 id = "hostcall"
 title = "GPU-Host communication mechanism"
-status = "active"
+status = "completed"
 spawned_by = "initial"
 goal = "Design and implement reliable GPU-to-Host RPC via shared memory"
 success_criteria = [
@@ -342,7 +342,7 @@ id = "gpu-std.2"
 theme = "gpu-std"
 title = "Implement libc shim layer redirecting syscalls to hostcall"
 kind = "experiment"
-status = "pending"
+status = "active"
 depends_on = ["gpu-std.1"]
 spawned_by = "initial"
 research_questions = [
@@ -469,7 +469,7 @@ id = "async-runtime.1.3"
 theme = "async-runtime"
 title = "Implement GPU critical-section provider for Embassy"
 kind = "experiment"
-status = "pending"
+status = "active"
 depends_on = ["async-runtime.1.2"]
 spawned_by = "bs4"
 research_questions = [
@@ -483,7 +483,7 @@ id = "async-runtime.2.1"
 theme = "async-runtime"
 title = "Rework GPU executor design: Embassy-first + fix rv3 issues"
 kind = "design"
-status = "pending"
+status = "done"
 depends_on = ["async-runtime.2"]
 spawned_by = "rv3"
 research_questions = [
@@ -540,6 +540,17 @@ new_themes_spawned = []
 themes_parked = []
 themes_completed = ["toolchain", "atomics"]
 key_insight = "All 4 batch tasks passed. toolchain + atomics themes COMPLETED (all success criteria met). Embassy compiles for GPU out-of-box. hostcall protocol works first try. Critical path is now async-runtime (LTO/critical-section) and gpu-std (libc shim). Next batch: gpu-std.1 + async-runtime.1.2 + async-runtime.2."
+
+[[brainstorms]]
+seq = 5
+at_cycle = 18
+trigger = "interval"
+level = "quick"
+new_tasks_spawned = []
+new_themes_spawned = []
+themes_parked = []
+themes_completed = ["hostcall"]
+key_insight = "Fat LTO is the universal cross-crate solution for nvptx64. hostcall theme COMPLETED. async-runtime.2.1 rework is top priority (Embassy-first path). gpu-std.2 (libc shim) is now unblocked. Next batch: async-runtime.2.1 + gpu-std.2 + async-runtime.1.3."
 
 [[reviews]]
 seq = 2

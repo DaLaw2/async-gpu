@@ -480,3 +480,79 @@ pub unsafe extern "ptx-kernel" fn async_hostcall_two_kernel(buf: *mut u8, result
     *result = poll_rounds;
     *result.add(1) = 1;
 }
+
+// ============================================================
+// Test kernel 3: futures_util::future::join on GPU (integration.2)
+// ============================================================
+
+/// A join future that wraps two HostcallPrintFutures using futures_util::future::join.
+/// This proves that third-party async combinators work on GPU.
+type JoinFuture = futures_util::future::Join<HostcallPrintFuture, HostcallPrintFutureB>;
+
+static EXECUTOR_STORAGE_3: ExecutorStorage = ExecutorStorage {
+    inner: MaybeUninit::uninit(),
+};
+
+static JOIN_TASK: TaskStorage<JoinFuture> = TaskStorage::new();
+
+/// Test: futures_util::future::join on GPU.
+///
+/// Uses `futures_util::future::join(task_a, task_b)` to create a combined future
+/// that polls both hostcall tasks concurrently. This proves that third-party
+/// async crates (futures-util) compile and run correctly on GPU hardware.
+///
+/// `buf` = hostcall buffer (mapped memory)
+/// `result` = output array of u32[2]:
+///   [0] = poll rounds executed
+///   [1] = 1 on success
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn futures_join_kernel(buf: *mut u8, result: *mut u32) {
+    // Only thread 0 executes.
+    let global_idx: u32;
+    core::arch::asm!(
+        "mov.u32 {idx}, %tid.x;",
+        idx = out(reg32) global_idx,
+        options(nostack, readonly),
+    );
+    if global_idx != 0 {
+        return;
+    }
+
+    // Initialize result to zero.
+    *result = 0;
+    *result.add(1) = 0;
+
+    // Initialize the executor.
+    let storage_ptr =
+        &EXECUTOR_STORAGE_3.inner as *const MaybeUninit<Executor> as *mut MaybeUninit<Executor>;
+    (*storage_ptr).write(Executor::new(core::ptr::null_mut()));
+    let executor: &'static Executor = (*storage_ptr).assume_init_ref();
+
+    // Create a joined future using futures_util::future::join.
+    // This is a third-party combinator that polls both futures concurrently.
+    let token = JOIN_TASK.spawn(|| {
+        futures_util::future::join(
+            HostcallPrintFuture::new(buf, b"Join task A from GPU!"),
+            HostcallPrintFutureB::new(buf, b"Join task B from GPU!"),
+        )
+    });
+    let spawner = executor.spawner();
+    let _ = spawner.spawn(token);
+
+    // Poll the executor.
+    let mut poll_rounds: u32 = 0;
+    let max_rounds: u32 = 100;
+    loop {
+        executor.poll();
+        poll_rounds += 1;
+
+        let current = core::ptr::read_volatile(&poll_rounds);
+        if current >= max_rounds {
+            break;
+        }
+    }
+
+    // Write results.
+    *result = poll_rounds;
+    *result.add(1) = 1;
+}

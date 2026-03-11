@@ -1095,6 +1095,84 @@ fn run_async_hostcall_two(dev: Arc<CudaDevice>) -> Result<()> {
 }
 
 // ============================================================
+// futures_util::future::join on GPU (integration.2)
+// ============================================================
+
+/// Test: futures_util::future::join — third-party async combinator on GPU.
+fn run_futures_join(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Integration Test 3: futures_util::future::join on GPU ---");
+
+    use std::sync::{Arc as StdArc, Mutex};
+
+    let hc_buf = hostcall::HostcallBuffer::new(4)?;
+    let dev_ptr = hc_buf.dev_ptr;
+
+    let messages: StdArc<Mutex<Vec<String>>> = StdArc::new(Mutex::new(Vec::new()));
+    let messages_clone = StdArc::clone(&messages);
+
+    let (result_host_ptr, result_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 2)? };
+
+    let hc_buf_ref = StdArc::new(hc_buf);
+    let hc_buf_listener = StdArc::clone(&hc_buf_ref);
+    let listener_handle = std::thread::spawn(move || {
+        hc_buf_listener.listen(|msg| {
+            let s = String::from_utf8_lossy(msg).to_string();
+            println!("  [HOST] Received from GPU: \"{}\"", s);
+            messages_clone.lock().unwrap().push(s);
+        });
+    });
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(ASYNC_HOSTCALL_PTX);
+    let _ = dev.load_ptx(ptx, "async_hostcall", &["futures_join_kernel"]);
+    let f = dev.get_func("async_hostcall", "futures_join_kernel")
+        .ok_or(GpuHostError::KernelNotFound("futures_join_kernel"))?;
+
+    let cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (1, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    println!("  Launching futures_join_kernel...");
+    let start = std::time::Instant::now();
+    unsafe {
+        f.launch(cfg, (dev_ptr as u64, result_dev_ptr as u64))?;
+    }
+
+    dev.synchronize()?;
+    let elapsed = start.elapsed();
+    println!("  Kernel completed in {:?}.", elapsed);
+
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    hc_buf_ref.signal_shutdown();
+    listener_handle.join().unwrap();
+
+    let poll_rounds = unsafe { std::ptr::read_volatile(result_host_ptr.add(0)) };
+    let success = unsafe { std::ptr::read_volatile(result_host_ptr.add(1)) };
+    unsafe { free_mapped_mem(result_host_ptr)? };
+
+    let received = messages.lock().unwrap();
+    if success != 1 {
+        return Err(GpuHostError::Verification {
+            test: "futures_join_kernel",
+            detail: format!("success marker not set (got {}), poll_rounds={}", success, poll_rounds),
+        });
+    }
+    if received.len() < 2 {
+        return Err(GpuHostError::Verification {
+            test: "futures_join_kernel",
+            detail: format!("expected 2 messages, got {}: {:?}", received.len(), *received),
+        });
+    }
+
+    println!("  futures_join_kernel: PASSED!");
+    println!("    Poll rounds: {}", poll_rounds);
+    println!("    Messages: {:?}", *received);
+    println!("    futures_util::future::join works on GPU! Third-party async crate confirmed.");
+    Ok(())
+}
+
+// ============================================================
 // GPU Instant + Time test (gpu-std.4)
 // ============================================================
 
@@ -1223,6 +1301,9 @@ fn main() -> Result<()> {
     // Async hostcall tests (integration.1)
     run_async_hostcall_single(Arc::clone(&dev))?;
     run_async_hostcall_two(Arc::clone(&dev))?;
+
+    // futures_util::future::join on GPU (integration.2)
+    run_futures_join(Arc::clone(&dev))?;
 
     // GPU Instant + Time test (gpu-std.4)
     run_hostcall_time_test(Arc::clone(&dev))?;

@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 25      # Monotonic counter, incremented after each completed phase
-completed_tasks = 25
+total_cycles = 26      # Monotonic counter, incremented after each completed phase
+completed_tasks = 26
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"        # think | do | check
-current_step = "do.route"
+current_step = "do.execute"
 current_task_id = ""
-last_summary = "MILESTONE: integration.1 PASSED — HostcallFuture works! Two async hostcall tasks run concurrently on Embassy executor on GPU (109-197μs). gpu-std.4 PASSED — GPU Instant (%globaltimer, 54ns/iter) + SystemTime via hostcall. Next: integration.2 (futures_util), integration.3 (std patch)."
+last_summary = "integration.2 DONE: futures_util::future::join works on GPU — third-party async crate compiles and runs with no alloc. Zero register overhead. 26 tasks done, 5/6 themes completed. Next: integration.3 (std patch), integration.4 (benchmarks)."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 7
@@ -452,7 +452,7 @@ id = "integration.2"
 theme = "integration"
 title = "Third-party async crate: futures_util on GPU"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["integration.1"]
 spawned_by = "bs7"
 research_questions = [

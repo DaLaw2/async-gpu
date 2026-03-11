@@ -1,0 +1,20 @@
+[workspace]
+
+[package]
+name = "async-pipeline-test"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+embassy-executor = { version = "0.7", features = ["arch-spin"] }
+gpu-critical-section = { path = "../gpu-critical-section" }
+gpu-atomics = { path = "../gpu-atomics" }
+gpu-protocol = { path = "../gpu-protocol" }
+
+[profile.release]
+panic = "abort"
+opt-level = 3
+lto = "fat"

@@ -8,11 +8,13 @@
 
 use crate::io::{self, IoSlice, IoSliceMut, BorrowedCursor};
 
-// External write function provided by the GPU kernel crate via Fat LTO.
-// The kernel crate implements this using the hostcall PRINT service.
-// Returns the number of bytes written, or 0 on failure.
+// External I/O functions provided by the GPU kernel crate via Fat LTO.
+// The kernel crate implements these using the hostcall PRINT/STDIN services.
 unsafe extern "Rust" {
+    /// Write bytes to stdout. Returns number of bytes written.
     fn gpu_stdout_write(buf: *const u8, len: usize) -> usize;
+    /// Read bytes from stdin into buf. Returns number of bytes read, or 0 on EOF/error.
+    fn gpu_stdin_read(buf: *mut u8, max_len: usize) -> usize;
 }
 
 pub struct Stdin;
@@ -26,45 +28,29 @@ impl Stdin {
 }
 
 impl io::Read for Stdin {
-    #[inline]
-    fn read(&mut self, _buf: &mut [u8]) -> io::Result<usize> {
-        // TODO: implement via hostcall SERVICE_STDIN in std-pal.2
-        Ok(0)
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if buf.is_empty() {
+            return Ok(0);
+        }
+        // Call the external read function provided by the kernel crate.
+        // Safety: gpu_stdin_read is linked via Fat LTO from the kernel crate.
+        let n = unsafe { gpu_stdin_read(buf.as_mut_ptr(), buf.len()) };
+        Ok(n)
     }
 
-    #[inline]
-    fn read_buf(&mut self, _cursor: BorrowedCursor<'_>) -> io::Result<()> {
-        Ok(())
-    }
-
-    #[inline]
-    fn read_vectored(&mut self, _bufs: &mut [IoSliceMut<'_>]) -> io::Result<usize> {
+    fn read_vectored(&mut self, bufs: &mut [IoSliceMut<'_>]) -> io::Result<usize> {
+        // Read into the first non-empty buffer.
+        for buf in bufs {
+            if !buf.is_empty() {
+                return self.read(buf);
+            }
+        }
         Ok(0)
     }
 
     #[inline]
     fn is_read_vectored(&self) -> bool {
         false
-    }
-
-    #[inline]
-    fn read_exact(&mut self, buf: &mut [u8]) -> io::Result<()> {
-        if !buf.is_empty() { Err(io::Error::READ_EXACT_EOF) } else { Ok(()) }
-    }
-
-    #[inline]
-    fn read_buf_exact(&mut self, cursor: BorrowedCursor<'_>) -> io::Result<()> {
-        if cursor.capacity() != 0 { Err(io::Error::READ_EXACT_EOF) } else { Ok(()) }
-    }
-
-    #[inline]
-    fn read_to_end(&mut self, _buf: &mut Vec<u8>) -> io::Result<usize> {
-        Ok(0)
-    }
-
-    #[inline]
-    fn read_to_string(&mut self, _buf: &mut String) -> io::Result<usize> {
-        Ok(0)
     }
 }
 
@@ -104,7 +90,7 @@ impl io::Write for Stdout {
     }
 }
 
-pub const STDIN_BUF_SIZE: usize = 0;
+pub const STDIN_BUF_SIZE: usize = 56; // Matches STDIN_MAX_READ_LEN from hostcall protocol
 
 pub fn is_ebadf(_err: &io::Error) -> bool {
     true

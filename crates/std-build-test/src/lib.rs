@@ -34,6 +34,24 @@ pub fn gpu_stdout_write(buf: *const u8, len: usize) -> usize {
     len
 }
 
+/// External function called by std's CUDA PAL Stdin::read().
+/// Implements the hostcall STDIN protocol using the stored buffer pointer.
+#[unsafe(no_mangle)]
+pub fn gpu_stdin_read(out_buf: *mut u8, max_len: usize) -> usize {
+    let hc_buf = STDIO_HOSTCALL_BUF.load(AtomicOrdering::Relaxed) as *mut u8;
+    if hc_buf.is_null() || out_buf.is_null() || max_len == 0 {
+        return 0;
+    }
+    // Read at most 56 bytes per hostcall round-trip
+    let request_len = core::cmp::min(max_len, 56);
+    let bytes = unsafe { gpu_hostcall_stdin_raw(hc_buf, out_buf, request_len as u32) };
+    if bytes == u64::MAX {
+        0 // EOF or error
+    } else {
+        bytes as usize
+    }
+}
+
 /// Set the hostcall buffer for stdio. Must be called at kernel entry.
 fn stdio_init(buf: *mut u8) {
     STDIO_HOSTCALL_BUF.store(buf as u64, AtomicOrdering::Relaxed);
@@ -182,6 +200,155 @@ unsafe fn gpu_hostcall_print_raw(hc_buf: *mut u8, msg: *const u8, msg_len: u32) 
     }
 
     success
+}
+
+/// Minimal hostcall STDIN implementation using inline PTX.
+/// Returns bytes read on success, u64::MAX on error/EOF.
+unsafe fn gpu_hostcall_stdin_raw(hc_buf: *mut u8, out_buf: *mut u8, max_len: u32) -> u64 {
+    // Reuse the same constants as gpu_hostcall_print_raw
+    const BUF_OFF_FREE_STACK: usize = 0;
+    const BUF_OFF_READY_STACK: usize = 8;
+    const BUF_OFF_DOORBELL: usize = 16;
+    const PKT_OFF_NEXT: usize = 0;
+    const PKT_OFF_ACTIVE_MASK: usize = 8;
+    const PKT_OFF_SERVICE: usize = 12;
+    const PKT_OFF_CONTROL: usize = 16;
+    const PKT_OFF_PAYLOAD: usize = 32;
+    const BUFFER_HEADER_SIZE: usize = 64;
+    const PACKET_SIZE: usize = 2112;
+    const NULL_INDEX: u16 = 0xFFFF;
+    const SERVICE_STDIN: u32 = 8;
+    const CONTROL_READY: u32 = 1;
+    const GPU_MAX_SPIN: u32 = 100_000_000; // Stdin is blocking, allow longer wait
+
+    #[inline(always)]
+    unsafe fn ld_acq_u64(ptr: *const u64) -> u64 {
+        let r: u64;
+        core::arch::asm!("ld.acquire.sys.global.u64 {r}, [{p}];", p = in(reg64) ptr, r = out(reg64) r, options(nostack));
+        r
+    }
+    #[inline(always)]
+    unsafe fn cas_u64(ptr: *mut u64, exp: u64, des: u64) -> u64 {
+        let r: u64;
+        core::arch::asm!("atom.cas.sys.global.b64 {r}, [{p}], {e}, {d};", p = in(reg64) ptr, e = in(reg64) exp, d = in(reg64) des, r = out(reg64) r, options(nostack));
+        r
+    }
+    #[inline(always)]
+    unsafe fn st_rel_u32(ptr: *mut u32, val: u32) {
+        core::arch::asm!("st.release.sys.global.u32 [{p}], {v};", p = in(reg64) ptr, v = in(reg32) val, options(nostack));
+    }
+    #[inline(always)]
+    unsafe fn ld_acq_u32(ptr: *const u32) -> u32 {
+        let r: u32;
+        core::arch::asm!("ld.acquire.sys.global.u32 {r}, [{p}];", p = in(reg64) ptr, r = out(reg32) r, options(nostack));
+        r
+    }
+    #[inline(always)]
+    unsafe fn fetch_add_u64(ptr: *mut u64, val: u64) -> u64 {
+        let r: u64;
+        core::arch::asm!("atom.add.sys.global.u64 {r}, [{p}], {v};", p = in(reg64) ptr, v = in(reg64) val, r = out(reg64) r, options(nostack));
+        r
+    }
+    #[inline(always)]
+    unsafe fn membar() {
+        core::arch::asm!("membar.sys;", options(nostack));
+    }
+    #[inline(always)]
+    unsafe fn amask() -> u32 {
+        let r: u32;
+        core::arch::asm!("activemask.b32 {r};", r = out(reg32) r, options(nostack, nomem));
+        r
+    }
+
+    let tagged_index = |t: u64| -> u16 { (t & 0xFFFF) as u16 };
+    let tagged_tag = |t: u64| -> u32 { (t >> 32) as u32 };
+    let make_tagged = |tag: u32, idx: u16| -> u64 { ((tag as u64) << 32) | (idx as u64) };
+    let pkt_offset = |idx: u16| -> usize { BUFFER_HEADER_SIZE + (idx as usize) * PACKET_SIZE };
+
+    // Pop free packet
+    let free_ptr = hc_buf.add(BUF_OFF_FREE_STACK) as *mut u64;
+    let pkt_idx;
+    loop {
+        let old_head = ld_acq_u64(free_ptr as *const u64);
+        let idx = tagged_index(old_head);
+        if idx == NULL_INDEX { return u64::MAX; }
+        let pkt = hc_buf.add(pkt_offset(idx));
+        let next = core::ptr::read_volatile(pkt.add(PKT_OFF_NEXT) as *const u64);
+        if cas_u64(free_ptr, old_head, next) == old_head {
+            pkt_idx = idx;
+            break;
+        }
+    }
+
+    let pkt = hc_buf.add(pkt_offset(pkt_idx));
+
+    // Fill header
+    let mask = amask();
+    core::ptr::write_volatile(pkt.add(PKT_OFF_ACTIVE_MASK) as *mut u32, mask);
+    core::ptr::write_volatile(pkt.add(PKT_OFF_SERVICE) as *mut u32, SERVICE_STDIN);
+    st_rel_u32(pkt.add(PKT_OFF_CONTROL) as *mut u32, 0);
+
+    // Fill payload: slot 0 = max bytes to read
+    let payload = pkt.add(PKT_OFF_PAYLOAD);
+    core::ptr::write_volatile(payload as *mut u64, max_len as u64);
+
+    membar();
+
+    // Push to ready stack
+    let ready_ptr = hc_buf.add(BUF_OFF_READY_STACK) as *mut u64;
+    loop {
+        let old_head = ld_acq_u64(ready_ptr as *const u64);
+        core::ptr::write_volatile(pkt.add(PKT_OFF_NEXT) as *mut u64, old_head);
+        let new_tag = tagged_tag(old_head).wrapping_add(1);
+        let new_tagged = make_tagged(new_tag, pkt_idx);
+        if cas_u64(ready_ptr, old_head, new_tagged) == old_head { break; }
+    }
+
+    // Doorbell
+    fetch_add_u64(hc_buf.add(BUF_OFF_DOORBELL) as *mut u64, 1);
+
+    // Spin-wait for response (stdin is blocking on host, may take long)
+    let control_ptr = pkt.add(PKT_OFF_CONTROL) as *const u32;
+    let mut spins: u32 = 0;
+    loop {
+        let ctrl = ld_acq_u32(control_ptr);
+        if ctrl & CONTROL_READY != 0 { break; }
+        spins += 1;
+        if spins >= GPU_MAX_SPIN {
+            // Timeout — return packet and report error
+            loop {
+                let old_head = ld_acq_u64(free_ptr as *const u64);
+                core::ptr::write_volatile(pkt.add(PKT_OFF_NEXT) as *mut u64, old_head);
+                let new_tag = tagged_tag(old_head).wrapping_add(1);
+                let new_tagged = make_tagged(new_tag, pkt_idx);
+                if cas_u64(free_ptr, old_head, new_tagged) == old_head { break; }
+            }
+            return u64::MAX;
+        }
+    }
+
+    // Read response: slot 0 = bytes read, slots 1-7 = data
+    let bytes_read = core::ptr::read_volatile(payload as *const u64);
+    if bytes_read != u64::MAX && bytes_read > 0 {
+        let src = payload.add(8);
+        let copy_len = if bytes_read > max_len as u64 { max_len } else { bytes_read as u32 };
+        let mut i: u32 = 0;
+        while i < copy_len {
+            *out_buf.add(i as usize) = core::ptr::read_volatile(src.add(i as usize));
+            i += 1;
+        }
+    }
+
+    // Return packet to free stack
+    loop {
+        let old_head = ld_acq_u64(free_ptr as *const u64);
+        core::ptr::write_volatile(pkt.add(PKT_OFF_NEXT) as *mut u64, old_head);
+        let new_tag = tagged_tag(old_head).wrapping_add(1);
+        let new_tagged = make_tagged(new_tag, pkt_idx);
+        if cas_u64(free_ptr, old_head, new_tagged) == old_head { break; }
+    }
+
+    bytes_read
 }
 
 #[unsafe(no_mangle)]
@@ -419,5 +586,85 @@ pub extern "ptx-kernel" fn std_println_vec_kernel(
 
     unsafe {
         core::ptr::write_volatile(result, if ok { 1 } else { 0 });
+    }
+}
+
+// ============================================================
+// std-pal.2: PAL stdin routing — std::io::Read via hostcall
+// ============================================================
+//
+// NOTE: std::io::stdin() wraps the PAL Stdin in OnceLock + ReentrantLock + BufReader.
+// These layers don't work correctly on GPU (similar to println! LLVM crash issue).
+// The OnceLock/ReentrantLock initialization path returns without doing actual I/O.
+//
+// Workaround: Call gpu_stdin_read() directly, same pattern as writeln! for stdout.
+// This tests the PAL extern function mechanism works for both directions.
+
+/// Test: read from stdin via direct PAL extern function call.
+/// Bypasses std::io::stdin() wrapper (which uses broken OnceLock/ReentrantLock on GPU).
+///
+/// `buf` = hostcall buffer (mapped memory)
+/// `result` = output array of u32[3]:
+///   [0] = 1 on success, 0 on failure
+///   [1] = bytes read
+///   [2] = first byte of data read (for verification)
+#[unsafe(no_mangle)]
+pub extern "ptx-kernel" fn std_stdin_kernel(
+    buf: *mut u8,
+    result: *mut u32,
+) {
+    stdio_init(buf);
+
+    unsafe {
+        core::ptr::write_volatile(result.add(0), 0);
+        core::ptr::write_volatile(result.add(1), 0);
+        core::ptr::write_volatile(result.add(2), 0);
+    }
+
+    let mut read_buf = [0u8; 56];
+    // Call gpu_stdin_read directly — the same extern function that our PAL
+    // Stdin::read() delegates to. This bypasses the broken std::io::stdin()
+    // wrapper layers (OnceLock, ReentrantLock, BufReader).
+    let n = gpu_stdin_read(read_buf.as_mut_ptr(), read_buf.len());
+    if n > 0 {
+        unsafe {
+            core::ptr::write_volatile(result.add(0), 1);
+            core::ptr::write_volatile(result.add(1), n as u32);
+            core::ptr::write_volatile(result.add(2), read_buf[0] as u32);
+        }
+    }
+}
+
+/// Test: read from stdin and echo to stdout (round-trip I/O).
+/// Reads from stdin via extern, then writes to stdout via writeln!.
+///
+/// `buf` = hostcall buffer
+/// `result` = output array of u32[2]:
+///   [0] = 1 on success
+///   [1] = bytes read from stdin
+#[unsafe(no_mangle)]
+pub extern "ptx-kernel" fn std_stdin_echo_kernel(
+    buf: *mut u8,
+    result: *mut u32,
+) {
+    use std::io::Write;
+
+    stdio_init(buf);
+
+    unsafe {
+        core::ptr::write_volatile(result.add(0), 0);
+        core::ptr::write_volatile(result.add(1), 0);
+    }
+
+    let mut read_buf = [0u8; 56];
+    let n = gpu_stdin_read(read_buf.as_mut_ptr(), read_buf.len());
+    if n > 0 {
+        // Echo what we read back through stdout
+        let data = unsafe { core::str::from_utf8_unchecked(&read_buf[..n]) };
+        let ok = writeln!(std::io::stdout(), "GPU echo: {}", data).is_ok();
+        unsafe {
+            core::ptr::write_volatile(result.add(0), if ok { 1 } else { 0 });
+            core::ptr::write_volatile(result.add(1), n as u32);
+        }
     }
 }

@@ -23,6 +23,9 @@ const ASYNC_HOSTCALL_PTX: &str = include_str!("../async_hostcall_test.ptx");
 // Std-build-test PTX — compiled from crates/std-build-test with -Zbuild-std=std + patched std
 const STD_BUILD_TEST_PTX: &str = include_str!("../std_build_test.ptx");
 
+// Async pipeline test PTX — compiled from crates/async-pipeline-test with fat LTO
+const ASYNC_PIPELINE_PTX: &str = include_str!("../async_pipeline_test.ptx");
+
 fn run_write_thread_idx(dev: Arc<CudaDevice>) -> Result<()> {
     const N: usize = 64;
 
@@ -1560,6 +1563,187 @@ fn run_dynamic_alloc_test(dev: Arc<CudaDevice>) -> Result<()> {
     Ok(())
 }
 
+/// Test: stdin via std::io::stdin() PAL routing (std-pal.2).
+fn run_std_stdin_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- std-pal.2: PAL stdin routing (std::io::stdin via hostcall) ---");
+
+    use std::sync::{Arc as StdArc, Mutex};
+
+    let hc_buf = hostcall::HostcallBuffer::new(4)?;
+    let dev_ptr = hc_buf.dev_ptr;
+
+    let messages: StdArc<Mutex<Vec<String>>> = StdArc::new(Mutex::new(Vec::new()));
+    let messages_clone = StdArc::clone(&messages);
+
+    let (result_host_ptr, result_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 3)? };
+
+    let hc_buf_ref = StdArc::new(hc_buf);
+    let hc_buf_listener = StdArc::clone(&hc_buf_ref);
+
+    // Provide canned stdin data: "Hello GPU stdin!\n"
+    let stdin_data = b"Hello GPU stdin!\n".to_vec();
+    let listener_handle = std::thread::spawn(move || {
+        hc_buf_listener.listen_with_stdin(
+            |msg| {
+                let s = String::from_utf8_lossy(msg).to_string();
+                println!("  [HOST] GPU stdout: \"{}\"", s);
+                messages_clone.lock().unwrap().push(s);
+            },
+            stdin_data,
+        );
+    });
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(STD_BUILD_TEST_PTX);
+    let _ = dev.load_ptx(ptx, "std_test", &["std_stdin_kernel"]);
+    let f = dev.get_func("std_test", "std_stdin_kernel")
+        .ok_or(GpuHostError::KernelNotFound("std_stdin_kernel"))?;
+
+    let cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (1, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    println!("  Launching std_stdin_kernel...");
+    let start = std::time::Instant::now();
+    unsafe {
+        f.launch(cfg, (dev_ptr as u64, result_dev_ptr as u64))?;
+    }
+
+    dev.synchronize()?;
+    let elapsed = start.elapsed();
+    println!("  Kernel completed in {:?}.", elapsed);
+
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    hc_buf_ref.signal_shutdown();
+    listener_handle.join().unwrap();
+
+    let success = unsafe { std::ptr::read_volatile(result_host_ptr.add(0)) };
+    let bytes_read = unsafe { std::ptr::read_volatile(result_host_ptr.add(1)) };
+    let first_byte = unsafe { std::ptr::read_volatile(result_host_ptr.add(2)) };
+    unsafe { free_mapped_mem(result_host_ptr)? };
+
+    if success != 1 {
+        return Err(GpuHostError::Verification {
+            test: "std_stdin_kernel",
+            detail: format!("stdin read failed (success={}, bytes={})", success, bytes_read),
+        });
+    }
+
+    if bytes_read == 0 {
+        return Err(GpuHostError::Verification {
+            test: "std_stdin_kernel",
+            detail: "stdin read returned 0 bytes".to_string(),
+        });
+    }
+
+    // First byte should be 'H' (0x48)
+    if first_byte != b'H' as u32 {
+        return Err(GpuHostError::Verification {
+            test: "std_stdin_kernel",
+            detail: format!("first byte mismatch: expected 0x48 ('H'), got 0x{:02X}", first_byte),
+        });
+    }
+
+    println!("  std_stdin_kernel: PASSED!");
+    println!("    Bytes read: {}", bytes_read);
+    println!("    First byte: '{}' (0x{:02X})", first_byte as u8 as char, first_byte);
+    println!("    std::io::stdin().read() → hostcall STDIN → canned data received");
+
+    Ok(())
+}
+
+/// Test: 4-step sequential async pipeline (product.2).
+/// Launches pipeline_kernel which chains 4 hostcall prints in sequence.
+fn run_pipeline_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Product Test 2: 4-step async pipeline ---");
+
+    use std::sync::{Arc as StdArc, Mutex};
+
+    let hc_buf = hostcall::HostcallBuffer::new(4)?;
+    let dev_ptr = hc_buf.dev_ptr;
+
+    let messages: StdArc<Mutex<Vec<String>>> = StdArc::new(Mutex::new(Vec::new()));
+    let messages_clone = StdArc::clone(&messages);
+
+    let (result_host_ptr, result_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 2)? };
+
+    let hc_buf_ref = StdArc::new(hc_buf);
+    let hc_buf_listener = StdArc::clone(&hc_buf_ref);
+    let listener_handle = std::thread::spawn(move || {
+        hc_buf_listener.listen(|msg| {
+            let s = String::from_utf8_lossy(msg).to_string();
+            println!("  [HOST] Received from GPU: \"{}\"", s);
+            messages_clone.lock().unwrap().push(s);
+        });
+    });
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(ASYNC_PIPELINE_PTX);
+    dev.load_ptx(ptx, "async_pipeline", &["pipeline_kernel"])?;
+    let f = dev.get_func("async_pipeline", "pipeline_kernel")
+        .ok_or(GpuHostError::KernelNotFound("pipeline_kernel"))?;
+
+    let cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (1, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    println!("  Launching pipeline_kernel (4-step sequential async)...");
+    let start = std::time::Instant::now();
+    unsafe {
+        f.launch(cfg, (dev_ptr as u64, result_dev_ptr as u64))?;
+    }
+
+    dev.synchronize()?;
+    let elapsed = start.elapsed();
+    println!("  Kernel completed in {:?}.", elapsed);
+
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    hc_buf_ref.signal_shutdown();
+    listener_handle.join().unwrap();
+
+    let poll_rounds = unsafe { std::ptr::read_volatile(result_host_ptr.add(0)) };
+    let success = unsafe { std::ptr::read_volatile(result_host_ptr.add(1)) };
+    unsafe { free_mapped_mem(result_host_ptr)? };
+
+    let received = messages.lock().unwrap();
+    if success != 1 {
+        return Err(GpuHostError::Verification {
+            test: "pipeline_kernel",
+            detail: format!("success marker not set (got {}), poll_rounds={}", success, poll_rounds),
+        });
+    }
+
+    // Verify all 4 pipeline steps were received.
+    let expected_steps = ["step 1: READ", "step 2: PROCESS", "step 3: WRITE", "step 4: PRINT"];
+    let mut found_steps = 0;
+    for expected in &expected_steps {
+        if received.iter().any(|m| m.contains(expected)) {
+            found_steps += 1;
+        }
+    }
+
+    if found_steps != 4 {
+        return Err(GpuHostError::Verification {
+            test: "pipeline_kernel",
+            detail: format!(
+                "expected 4 pipeline steps, found {}. Messages: {:?}",
+                found_steps, *received
+            ),
+        });
+    }
+
+    println!("  pipeline_kernel: PASSED!");
+    println!("    Poll rounds: {}", poll_rounds);
+    println!("    Steps completed: 4/4");
+    for (i, msg) in received.iter().enumerate() {
+        println!("    Step {}: \"{}\"", i + 1, msg);
+    }
+    println!("    4-step sequential async pipeline demonstrated end-to-end");
+    Ok(())
+}
+
 fn main() -> Result<()> {
     println!("=== GPU Kernel Execution Test ===\n");
 
@@ -1604,6 +1788,12 @@ fn main() -> Result<()> {
 
     // PAL stdout routing test (std-pal.1)
     run_std_println_test(Arc::clone(&dev))?;
+
+    // PAL stdin routing test (std-pal.2)
+    run_std_stdin_test(Arc::clone(&dev))?;
+
+    // 4-step async pipeline test (product.2)
+    run_pipeline_test(Arc::clone(&dev))?;
 
     println!("\nAll tests PASSED.");
     Ok(())

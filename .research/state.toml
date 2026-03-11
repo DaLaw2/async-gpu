@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 31      # Monotonic counter, incremented after each completed phase
-completed_tasks = 31
+total_cycles = 33      # Monotonic counter, incremented after each completed phase
+completed_tasks = 33
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"        # think | do | check
 current_step = "do.execute"
-current_task_id = ""
-last_summary = "Batch A done: product.1 (dynamic alloc 5/5 PASSED) + std-pal.1 (PAL stdout via writeln! PASSED, println! crashes LLVM). Next: Batch B+C."
+current_task_id = "product.3"
+last_summary = "std-pal.2 done: gpu_stdin_read() works (17 bytes, 229.9µs). std::io::stdin() broken (OnceLock/ReentrantLock, same as println!). Next: product.3 (multi-warp 32 threads)."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 9
@@ -96,7 +96,7 @@ success_criteria = [
 [[themes]]
 id = "atomics"
 title = "GPU-CPU memory model and atomics verification"
-status = "completed"
+status = "active"
 spawned_by = "bs1"
 goal = "Verify that Rust atomic operations emit correct PTX scope qualifiers for GPU-CPU communication"
 success_criteria = [
@@ -597,7 +597,7 @@ id = "std-pal.2"
 theme = "std-pal"
 title = "Route stdin through CUDA PAL"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["std-pal.1"]
 spawned_by = "bs9"
 research_questions = [
@@ -629,7 +629,7 @@ id = "product.2"
 theme = "product"
 title = "Multi-step async I/O pipeline"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["product.1"]
 spawned_by = "bs9"
 research_questions = [
@@ -637,6 +637,22 @@ research_questions = [
     "What is the register pressure of a 4-state async state machine?",
     "Does the executor correctly advance through all states?",
     "What is the end-to-end latency for the full pipeline?",
+]
+
+[[tasks]]
+id = "atomics.6"
+theme = "atomics"
+title = "Research LLVM atomics fixes in latest versions"
+kind = "investigation"
+status = "active"
+depends_on = ["atomics.5"]
+spawned_by = "user"
+research_questions = [
+    "Has LLVM fixed the missing .sys scope qualifier for atomicrmw/cmpxchg on NVPTX?",
+    "Which LLVM version (if any) correctly emits atom.acq_rel.sys or atom.acquire.sys?",
+    "Are there relevant LLVM bug reports or patches tracking this issue?",
+    "Does the latest Rust nightly (LLVM 21) emit correct system-scope atomics?",
+    "If fixed, can we remove our inline PTX workarounds in gpu-atomics?",
 ]
 
 [[tasks]]

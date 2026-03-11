@@ -537,6 +537,118 @@ impl HostcallBuffer {
             }
         }
     }
+    /// Handle SERVICE_STDIN with canned data instead of reading from real stdin.
+    /// Returns the provided data as the stdin response.
+    unsafe fn handle_stdin_canned(&self, pkt: *mut u8, data: &[u8]) -> bool {
+        let payload = pkt.add(PKT_OFF_PAYLOAD);
+        let max_len = std::ptr::read_volatile(payload as *const u64) as usize;
+        let max_len = max_len.min(STDIN_MAX_READ_LEN);
+        let copy_len = data.len().min(max_len);
+
+        println!("  [HOST] STDIN (canned): providing {} bytes", copy_len);
+        std::ptr::write_volatile(payload as *mut u64, copy_len as u64);
+        let dst = payload.add(8);
+        for i in 0..copy_len {
+            std::ptr::write_volatile(dst.add(i), data[i]);
+        }
+        false
+    }
+
+    /// Listen with both a print callback and a canned stdin provider.
+    pub fn listen_with_stdin<F>(&self, mut on_print: F, stdin_data: Vec<u8>)
+    where
+        F: FnMut(&[u8]),
+    {
+        let mut last_doorbell: u64 = 0;
+        let mut idle_spins: u32 = 0;
+        const MAX_IDLE_SPINS: u32 = 1_000_000;
+
+        let mut fd_table: HashMap<u64, File> = HashMap::new();
+        let mut next_fd: u64 = 1;
+        let mut stdin_consumed = false;
+
+        loop {
+            if self.shutdown().load(Ordering::Acquire) != 0 {
+                break;
+            }
+
+            let current_doorbell = self.doorbell().load(Ordering::Acquire);
+            if current_doorbell == last_doorbell {
+                idle_spins += 1;
+                if idle_spins > MAX_IDLE_SPINS {
+                    std::thread::yield_now();
+                    idle_spins = 0;
+                }
+                std::hint::spin_loop();
+                continue;
+            }
+
+            last_doorbell = current_doorbell;
+            idle_spins = 0;
+
+            let ready_head =
+                self.ready_stack().swap(null_tagged(), Ordering::AcqRel);
+            if tagged_index(ready_head) == NULL_INDEX {
+                continue;
+            }
+
+            let mut current = ready_head;
+            while tagged_index(current) != NULL_INDEX {
+                let idx = tagged_index(current);
+                let pkt = self.packet_ptr(idx);
+
+                unsafe {
+                    let next =
+                        std::ptr::read_volatile(pkt.add(PKT_OFF_NEXT) as *const u64);
+                    let service =
+                        std::ptr::read_volatile(pkt.add(PKT_OFF_SERVICE) as *const u32);
+
+                    let has_error = match service {
+                        SERVICE_PRINT => {
+                            self.handle_print(pkt, &mut on_print);
+                            false
+                        }
+                        SERVICE_STDIN => {
+                            if !stdin_consumed {
+                                stdin_consumed = true;
+                                self.handle_stdin_canned(pkt, &stdin_data)
+                            } else {
+                                // Subsequent reads return EOF
+                                self.handle_stdin_canned(pkt, &[])
+                            }
+                        }
+                        SERVICE_TIME => {
+                            self.handle_time(pkt)
+                        }
+                        SERVICE_OPEN => {
+                            self.handle_open(pkt, &mut fd_table, &mut next_fd)
+                        }
+                        SERVICE_WRITE => {
+                            self.handle_write(pkt, &mut fd_table)
+                        }
+                        SERVICE_READ => {
+                            self.handle_read(pkt, &mut fd_table)
+                        }
+                        SERVICE_CLOSE => {
+                            self.handle_close(pkt, &mut fd_table)
+                        }
+                        _ => true,
+                    };
+
+                    let control =
+                        &*(pkt.add(PKT_OFF_CONTROL) as *const AtomicU32);
+                    let flags = if has_error {
+                        CONTROL_READY | CONTROL_ERROR
+                    } else {
+                        CONTROL_READY
+                    };
+                    control.store(flags, Ordering::Release);
+
+                    current = next;
+                }
+            }
+        }
+    }
 }
 
 impl Drop for HostcallBuffer {

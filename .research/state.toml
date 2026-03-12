@@ -10,16 +10,16 @@ status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"        # think | do | check
-current_step = "do.route"
+current_step = "do.select"
 current_task_id = ""
-last_summary = "Product Ready epic COMPLETE. All 6 tasks done: PAL stdout/stdin, dynamic alloc, async pipeline, 32-thread multi-warp, showcase demo (Vec+format!+stdin+stdout in 325.5µs)."
+last_summary = "bs10 done: all 8 themes completed. New direction: allocator (P0), multiblock (P0), oncelock (P1), error-handling (P1), benchmark (parked). Next: allocator.1 + multiblock.1 + oncelock.1 in parallel."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 9
+brainstorm_seq = 10
 review_seq = 3
 
 # Brainstorm trigger control
-last_brainstorm_at_completed = 29
+last_brainstorm_at_completed = 36
 brainstorm_interval = 3
 
 # ============================================================
@@ -849,3 +849,253 @@ issues = [
     "Minor: register pressure estimates should be validated early",
 ]
 new_tasks_spawned = ["async-runtime.2.1"]
+
+# --- New themes and tasks from bs10 ---
+
+[[themes]]
+id = "allocator"
+title = "Production-grade GPU memory allocator"
+status = "active"
+spawned_by = "bs10"
+goal = "Replace bump allocator with a proper allocator that supports deallocation"
+success_criteria = [
+    "Vec can grow and shrink without leaking memory",
+    "drop() actually frees memory",
+    "Multiple kernel launches can reuse heap space",
+    "OOM returns null gracefully (no UB)",
+]
+
+[[themes]]
+id = "multiblock"
+title = "Multi-block GPU execution and scaling"
+status = "active"
+spawned_by = "bs10"
+goal = "Prove the hostcall protocol works with multiple blocks and hundreds of threads"
+success_criteria = [
+    "4+ blocks x 32+ threads all issuing hostcall successfully",
+    "No packet starvation or deadlock under contention",
+    "Host listener handles 100+ concurrent packets",
+    "Performance measured and documented",
+]
+
+[[themes]]
+id = "oncelock"
+title = "Fix OnceLock/println!() for full std parity"
+status = "active"
+spawned_by = "bs10"
+goal = "Make println!() and std::io::stdin() work through std's normal code path"
+success_criteria = [
+    "println!(\"{}\", value) compiles and runs on GPU",
+    "std::io::stdin().read_line() compiles and runs on GPU",
+    "Approach documented (std patch vs spin-based OnceLock)",
+]
+
+[[themes]]
+id = "error-handling"
+title = "End-to-end error propagation through hostcall"
+status = "active"
+spawned_by = "bs10"
+goal = "Hostcall failures propagate as io::Error to GPU-side Rust code"
+success_criteria = [
+    "File-not-found returns Err(io::Error) on GPU side",
+    "Pool exhaustion returns Err (not panic)",
+    "Host timeout propagates as error to GPU",
+]
+
+[[themes]]
+id = "benchmark"
+title = "Performance characterization and comparison"
+status = "parked"
+spawned_by = "bs10"
+goal = "Quantify performance characteristics and compare with native CUDA"
+success_criteria = [
+    "Hostcall round-trip latency measured with statistical rigor",
+    "Register pressure profiled with hardware counters",
+    "At least one workload compared with equivalent CUDA C++",
+]
+
+# --- Tasks: allocator ---
+
+[[tasks]]
+id = "allocator.1"
+theme = "allocator"
+title = "Survey GPU allocator designs (TLSF, slab, buddy)"
+kind = "investigation"
+status = "pending"
+depends_on = []
+spawned_by = "bs10"
+research_questions = [
+    "What allocator designs work best in GPU's constrained environment (no OS, limited stack)?",
+    "Can TLSF be made lock-free for multi-thread GPU use?",
+    "What is the register pressure impact of different allocator designs?",
+    "How do existing GPU allocators (halloc, XMalloc) handle thread safety?",
+]
+
+[[tasks]]
+id = "allocator.2"
+theme = "allocator"
+title = "Implement chosen allocator as GlobalAlloc replacement"
+kind = "experiment"
+status = "pending"
+depends_on = ["allocator.1"]
+spawned_by = "bs10"
+research_questions = [
+    "Does the allocator correctly handle Vec grow+shrink+drop (memory freed)?",
+    "Does format!() with temporary Strings not leak memory?",
+    "What is the fragmentation ratio after mixed alloc/dealloc patterns?",
+    "Does the allocator work with -Zbuild-std=std?",
+]
+
+[[tasks]]
+id = "allocator.3"
+theme = "allocator"
+title = "Concurrent allocator stress test (32 threads)"
+kind = "experiment"
+status = "pending"
+depends_on = ["allocator.2"]
+spawned_by = "bs10"
+research_questions = [
+    "Can 32 threads allocate and free concurrently without corruption?",
+    "What is the throughput (allocs/sec) under contention?",
+    "Does fragmentation remain bounded after 1000+ alloc/free cycles?",
+    "What is the maximum useful heap per thread?",
+]
+
+# --- Tasks: multiblock ---
+
+[[tasks]]
+id = "multiblock.1"
+theme = "multiblock"
+title = "4-block sync hostcall test (128 threads)"
+kind = "experiment"
+status = "pending"
+depends_on = []
+spawned_by = "bs10"
+research_questions = [
+    "Can 4 blocks x 32 threads all issue hostcall successfully?",
+    "Are all 128 messages received correctly?",
+    "What is the CAS retry rate under 128-thread contention?",
+    "Does host listener throughput keep up?",
+]
+
+[[tasks]]
+id = "multiblock.2"
+theme = "multiblock"
+title = "Scale to 8 blocks x 64 threads (512 threads)"
+kind = "experiment"
+status = "pending"
+depends_on = ["multiblock.1"]
+spawned_by = "bs10"
+research_questions = [
+    "Does the protocol scale to 512 concurrent threads?",
+    "Is per-block pool sharding needed to reduce contention?",
+    "What is the total kernel time vs 32-thread baseline?",
+    "Are there any message drops or ordering anomalies?",
+]
+
+[[tasks]]
+id = "multiblock.3"
+theme = "multiblock"
+title = "Multi-block async with Embassy executors"
+kind = "experiment"
+status = "pending"
+depends_on = ["multiblock.1", "allocator.2"]
+spawned_by = "bs10"
+research_questions = [
+    "Can each thread in a multi-block launch run its own Embassy executor?",
+    "Does the LLVM circular dependency issue recur with many static executors?",
+    "What is the register pressure with async + multi-block?",
+    "Do heterogeneous async tasks across blocks complete correctly?",
+]
+
+# --- Tasks: oncelock ---
+
+[[tasks]]
+id = "oncelock.1"
+theme = "oncelock"
+title = "Analyze OnceLock's full dependency chain on GPU"
+kind = "investigation"
+status = "pending"
+depends_on = []
+spawned_by = "bs10"
+research_questions = [
+    "What does OnceLock's call chain look like on the cuda PAL path?",
+    "Which operations are GPU-incompatible (futex, thread parking, TLS)?",
+    "Can OnceLock be replaced with a spin-based alternative in vendored std?",
+    "What other std internals depend on OnceLock (panic handler, backtrace)?",
+]
+
+[[tasks]]
+id = "oncelock.2"
+theme = "oncelock"
+title = "Implement spin-based OnceLock replacement"
+kind = "experiment"
+status = "pending"
+depends_on = ["oncelock.1"]
+spawned_by = "bs10"
+research_questions = [
+    "Does spin-based OnceLock make println!() work on GPU?",
+    "Does std::io::stdin().read_line() work with the replacement?",
+    "Are there deadlock risks with multi-block execution?",
+    "What is the register pressure impact?",
+]
+
+[[tasks]]
+id = "oncelock.3"
+theme = "oncelock"
+title = "Verify no cascading breakage from OnceLock replacement"
+kind = "experiment"
+status = "pending"
+depends_on = ["oncelock.2"]
+spawned_by = "bs10"
+research_questions = [
+    "Does thread::panicking() still work?",
+    "Does the panic hook still function correctly?",
+    "Are there any other std subsystems that break?",
+    "Is the OnceLock replacement safe for single-block and multi-block?",
+]
+
+# --- Tasks: error-handling ---
+
+[[tasks]]
+id = "error-handling.1"
+theme = "error-handling"
+title = "Design error propagation protocol extension"
+kind = "design"
+status = "pending"
+depends_on = []
+spawned_by = "bs10"
+research_questions = [
+    "How to encode error codes in hostcall response packets?",
+    "How to map errno values to io::Error on GPU side?",
+    "Should errors use a separate control field or reuse existing packet slots?",
+    "How to handle host timeout (GPU-side detection)?",
+]
+
+[[tasks]]
+id = "error-handling.2"
+theme = "error-handling"
+title = "Implement error propagation end-to-end"
+kind = "experiment"
+status = "pending"
+depends_on = ["error-handling.1"]
+spawned_by = "bs10"
+research_questions = [
+    "Does File::open of nonexistent file return Err on GPU?",
+    "Does pool exhaustion return Err instead of panic?",
+    "Can the host deliberately inject errors for testing?",
+    "Is the error mapping complete for common errno values?",
+]
+
+# --- Brainstorm record for bs10 ---
+
+[[brainstorms]]
+seq = 10
+at_cycle = 36
+trigger = "all_themes_completed"
+level = "standard"
+new_tasks_spawned = ["allocator.1", "allocator.2", "allocator.3", "multiblock.1", "multiblock.2", "multiblock.3", "oncelock.1", "oncelock.2", "oncelock.3", "error-handling.1", "error-handling.2"]
+new_themes_spawned = ["allocator", "multiblock", "oncelock", "error-handling", "benchmark"]
+themes_parked = ["benchmark"]
+themes_completed = ["std-pal", "product"]
+key_insight = "Research mission complete — all VectorWare features reproduced. Next phase: production depth (allocator P0, multiblock P0) before breadth (AMDGPU). OnceLock fix is high-risk — investigate before committing."

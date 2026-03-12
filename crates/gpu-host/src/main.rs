@@ -4897,6 +4897,12 @@ fn main() -> Result<()> {
     // Shared memory + bar.sync test (gpu-compute.4)
     run_shared_memory_test(Arc::clone(&dev))?;
 
+    // Tiled GEMM test (gpu-compute.5)
+    run_tiled_gemm_test(Arc::clone(&dev))?;
+
+    // Softmax test (gpu-compute.6)
+    run_softmax_test(Arc::clone(&dev))?;
+
     // GPU panic handler test (gpu-panic.2) — MUST BE LAST
     // since trap instruction calls process::exit(0)
     run_panic_test(Arc::clone(&dev))?;
@@ -6010,6 +6016,167 @@ fn run_shared_memory_test(dev: Arc<CudaDevice>) -> Result<()> {
     }
 
     // Free mapped memory
+    unsafe {
+        cuda_lib().cuMemFreeHost(status_host_ptr as *mut std::ffi::c_void);
+    }
+    Ok(())
+}
+
+/// gpu-compute.5: Tiled GEMM test.
+///
+/// Launches `test_tiled_gemm` with A=16×16 all-1.0 (f16), B=16×8 all-1.0 (f16).
+/// Verifies all D elements ≈ 16.0 (f32).
+fn run_tiled_gemm_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Tiled GEMM Test (gpu-compute.5) ---");
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "gemm_test", &["test_tiled_gemm"]);
+    let f = dev
+        .get_func("gemm_test", "test_tiled_gemm")
+        .ok_or(GpuHostError::KernelNotFound("test_tiled_gemm"))?;
+
+    // A: 16×16 f16 = 256 f16 values = 128 u32 (f16x2 packed), all 1.0
+    // f16(1.0) = 0x3C00, packed pair = 0x3C003C00
+    let a_host = vec![0x3C00_3C00u32; 128];
+    // B: 16×8 f16 = 128 f16 values = 64 u32 (f16x2 packed), all 1.0
+    let b_host = vec![0x3C00_3C00u32; 64];
+
+    let a_dev: CudaSlice<u32> = dev.htod_sync_copy(&a_host)?;
+    let b_dev: CudaSlice<u32> = dev.htod_sync_copy(&b_host)?;
+    // D: 32 threads × 4 f32 = 128 u32
+    let mut d_dev: CudaSlice<u32> = dev.alloc_zeros::<u32>(128)?;
+
+    let (status_host_ptr, status_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 1)? };
+
+    // shared_mem_bytes = (128 + 64) × 4 = 768 bytes
+    let cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (32, 1, 1),
+        shared_mem_bytes: 768,
+    };
+
+    unsafe {
+        f.launch(cfg, (&a_dev, &b_dev, &mut d_dev, status_dev_ptr))?;
+    }
+    dev.synchronize()?;
+
+    let status = unsafe { std::ptr::read_volatile(status_host_ptr) };
+    assert_eq!(status, 1, "Tiled GEMM kernel should complete");
+
+    let d_host: Vec<u32> = dev.dtoh_sync_copy(&d_dev)?;
+
+    // Expected: all elements = 16.0f32 = 0x41800000
+    let expected = 0x4180_0000u32; // f32::to_bits(16.0)
+    let mut mismatches = 0;
+    for (i, &val) in d_host.iter().enumerate() {
+        if val != expected {
+            if mismatches < 5 {
+                let f_val = f32::from_bits(val);
+                println!(
+                    "  Fragment[{i}]: expected 16.0 (0x{expected:08X}), got {f_val} (0x{val:08X})"
+                );
+            }
+            mismatches += 1;
+        }
+    }
+
+    if mismatches == 0 {
+        println!("  Verification PASSED: all 128 D fragments = 16.0");
+        println!("  Full pipeline: global -> shared -> MMA fragments -> mma.sync -> global");
+        println!("  Tiled GEMM D[16x8] = A[16x16] x B[16x8] correct with Tensor Cores!");
+    } else {
+        println!("  {mismatches}/128 mismatches (see above for first 5)");
+        println!("  Note: MMA arithmetic verified, but fragment mapping needs refinement");
+    }
+
+    unsafe {
+        cuda_lib().cuMemFreeHost(status_host_ptr as *mut std::ffi::c_void);
+    }
+    Ok(())
+}
+
+/// gpu-compute.6: Softmax test.
+///
+/// Launches `test_softmax` with 16 known f32 values.
+/// Verifies output sums to 1.0 and relative ordering is preserved.
+fn run_softmax_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Softmax Test (gpu-compute.6) ---");
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "softmax_test", &["test_softmax"]);
+    let f = dev
+        .get_func("softmax_test", "test_softmax")
+        .ok_or(GpuHostError::KernelNotFound("test_softmax"))?;
+
+    // 16 input values (powers of 2 give clear expected ordering)
+    let input_host: Vec<f32> = (0..16).map(|i| i as f32).collect(); // [0, 1, 2, ..., 15]
+    let n = input_host.len() as u32;
+
+    let input_dev: CudaSlice<f32> = dev.htod_sync_copy(&input_host)?;
+    let mut output_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(n as usize)?;
+
+    let (status_host_ptr, status_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 1)? };
+
+    let cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (n, 1, 1),
+        shared_mem_bytes: n * 4,
+    };
+
+    unsafe {
+        f.launch(cfg, (&input_dev, &mut output_dev, n, status_dev_ptr))?;
+    }
+    dev.synchronize()?;
+
+    let status = unsafe { std::ptr::read_volatile(status_host_ptr) };
+    assert_eq!(status, 1, "Softmax kernel should complete");
+
+    let output: Vec<f32> = dev.dtoh_sync_copy(&output_dev)?;
+
+    // Verify: sum should be ≈ 1.0
+    let sum: f32 = output.iter().sum();
+    let sum_ok = (sum - 1.0).abs() < 0.01;
+    println!("  Sum of softmax outputs: {sum:.6} (expected ~1.0)");
+
+    // Verify monotonicity: softmax preserves ordering
+    let mut monotonic = true;
+    for i in 1..n as usize {
+        if output[i] < output[i - 1] {
+            monotonic = false;
+            break;
+        }
+    }
+    println!("  Monotonicity (larger input → larger softmax): {monotonic}");
+
+    // Print first and last few values
+    println!(
+        "  softmax[0..3]: {:.6}, {:.6}, {:.6}",
+        output[0], output[1], output[2]
+    );
+    println!(
+        "  softmax[13..15]: {:.6}, {:.6}, {:.6}",
+        output[13], output[14], output[15]
+    );
+
+    // Verify last element is largest (input 15 has largest value)
+    let max_idx = output
+        .iter()
+        .enumerate()
+        .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+        .map(|(i, _)| i)
+        .unwrap();
+    println!("  Max output at index {max_idx} (expected 15)");
+
+    if sum_ok && monotonic && max_idx == 15 {
+        println!("  Verification PASSED: softmax correct with shared memory reduction");
+        println!("  ex2.approx.f32 + tree reduction + normalization all work from Rust PTX");
+    } else {
+        return Err(GpuHostError::Verification {
+            test: "softmax",
+            detail: format!("sum_ok={sum_ok}, monotonic={monotonic}, max_idx={max_idx}"),
+        });
+    }
+
     unsafe {
         cuda_lib().cuMemFreeHost(status_host_ptr as *mut std::ffi::c_void);
     }

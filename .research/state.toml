@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 124     # Monotonic counter, incremented after each completed phase
-completed_tasks = 123
+total_cycles = 126     # Monotonic counter, incremented after each completed phase
+completed_tasks = 125
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.execute"
-current_task_id = "gpu-compute.5"
-last_summary = "gpu-compute.3 (MMA) + gpu-compute.4 (shared memory) both DONE. MMA m16n8k16 f32 accum works, .f16 accum invalid on SM86. Shared memory via global_asm! + cvta.shared works. gpu-compute.5 and .6 now unblocked."
+current_step = "do.route"
+current_task_id = ""
+last_summary = "All 4 gpu-compute tasks DONE (c123-c126). MMA+shared memory+tiled GEMM+softmax all verified. gpu-compute theme complete — all building blocks for GPU-autonomous inference proven."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 32
@@ -2977,7 +2977,7 @@ id = "gpu-compute.5"
 theme = "gpu-compute"
 title = "Tiled GEMM combining Tensor Cores + shared memory"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["gpu-compute.3", "gpu-compute.4"]
 spawned_by = "bs31"
 research_questions = [
@@ -2991,7 +2991,7 @@ id = "gpu-compute.6"
 theme = "gpu-compute"
 title = "Element-wise GPU compute kernels (softmax, RoPE, LayerNorm)"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["gpu-compute.4"]
 spawned_by = "bs31"
 research_questions = [

@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 43      # Monotonic counter, incremented after each completed phase
-completed_tasks = 43
+total_cycles = 46      # Monotonic counter, incremented after each completed phase
+completed_tasks = 46
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"        # think | do | check
 current_step = "do.execute"
-current_task_id = "allocator.3"
-last_summary = "allocator theme COMPLETE (3/3 tasks). Slab+bitmap allocator: 32-thread concurrent alloc/dealloc passes (442µs). Next: oncelock.2, error-handling.2, multiblock.3."
+current_task_id = ""
+last_summary = "oncelock.2+3 done (println works, no cascading breakage), error-handling.2 done (structured error codes propagate host→GPU). 3 themes completed this session: oncelock, error-handling, allocator. Next: multiblock.3, then brainstorm (interval triggered)."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 10
@@ -881,7 +881,7 @@ success_criteria = [
 [[themes]]
 id = "oncelock"
 title = "Fix OnceLock/println!() for full std parity"
-status = "active"
+status = "completed"
 spawned_by = "bs10"
 goal = "Make println!() and std::io::stdin() work through std's normal code path"
 success_criteria = [
@@ -893,7 +893,7 @@ success_criteria = [
 [[themes]]
 id = "error-handling"
 title = "End-to-end error propagation through hostcall"
-status = "active"
+status = "completed"
 spawned_by = "bs10"
 goal = "Hostcall failures propagate as io::Error to GPU-side Rust code"
 success_criteria = [
@@ -1028,9 +1028,9 @@ research_questions = [
 [[tasks]]
 id = "oncelock.2"
 theme = "oncelock"
-title = "Implement spin-based OnceLock replacement"
+title = "Implement OnceLock bypass for println!() on GPU"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["oncelock.1"]
 spawned_by = "bs10"
 research_questions = [
@@ -1045,7 +1045,7 @@ id = "oncelock.3"
 theme = "oncelock"
 title = "Verify no cascading breakage from OnceLock replacement"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["oncelock.2"]
 spawned_by = "bs10"
 research_questions = [
@@ -1077,7 +1077,7 @@ id = "error-handling.2"
 theme = "error-handling"
 title = "Implement error propagation end-to-end"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["error-handling.1"]
 spawned_by = "bs10"
 research_questions = [

@@ -2219,6 +2219,169 @@ fn run_showcase_test(dev: Arc<CudaDevice>) -> Result<()> {
     Ok(())
 }
 
+/// Test: println!() works directly on GPU (oncelock.2).
+/// This was previously broken — now _print() bypasses OnceLock on CUDA.
+/// Test: error propagation through hostcall (error-handling.2).
+/// GPU tries to open nonexistent file, close invalid fd, read invalid fd.
+/// Verifies structured error codes propagate from host to GPU.
+fn run_error_propagation_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Error Handling Test: error propagation (hostcall → GPU) ---");
+
+    let hc_buf = hostcall::HostcallBuffer::new(4)?;
+    let dev_ptr = hc_buf.dev_ptr;
+
+    let (result_host_ptr, result_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 6)? };
+
+    let hc_buf_ref = std::sync::Arc::new(hc_buf);
+    let hc_buf_listener = std::sync::Arc::clone(&hc_buf_ref);
+    let listener_handle = std::thread::spawn(move || {
+        hc_buf_listener.listen(|_msg| {
+            // No print messages expected in this test
+        });
+    });
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "error_test", &["error_propagation_test"]);
+    let f = dev.get_func("error_test", "error_propagation_test")
+        .ok_or(GpuHostError::KernelNotFound("error_propagation_test"))?;
+
+    let cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (1, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    println!("  Launching error_propagation_test kernel...");
+    let start = std::time::Instant::now();
+    unsafe {
+        f.launch(cfg, (dev_ptr as u64, result_dev_ptr as u64))?;
+    }
+
+    dev.synchronize()?;
+    let elapsed = start.elapsed();
+
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    hc_buf_ref.signal_shutdown();
+    listener_handle.join().unwrap();
+
+    let success = unsafe { std::ptr::read_volatile(result_host_ptr.add(0)) };
+    let err1_cat = unsafe { std::ptr::read_volatile(result_host_ptr.add(1)) };
+    let err2_cat = unsafe { std::ptr::read_volatile(result_host_ptr.add(2)) };
+    let err3_cat = unsafe { std::ptr::read_volatile(result_host_ptr.add(3)) };
+    let err1_fd = unsafe { std::ptr::read_volatile(result_host_ptr.add(4)) };
+    let passed = unsafe { std::ptr::read_volatile(result_host_ptr.add(5)) };
+    unsafe { free_mapped_mem(result_host_ptr)? };
+
+    // Error category constants (from gpu_protocol)
+    let err_not_found: u32 = 1; // ERR_NOT_FOUND
+
+    println!("  Test 1 (open nonexistent): category={} (expected {}), fd={}", err1_cat, err_not_found, err1_fd);
+    println!("  Test 2 (close invalid fd): category={} (expected nonzero)", err2_cat);
+    println!("  Test 3 (read invalid fd):  category={} (expected nonzero)", err3_cat);
+    println!("  Tests passed: {}/3", passed);
+
+    if success != 1 {
+        return Err(GpuHostError::Verification {
+            test: "error_propagation_test",
+            detail: format!(
+                "not all tests passed ({}/3). categories: open={}, close={}, read={}",
+                passed, err1_cat, err2_cat, err3_cat
+            ),
+        });
+    }
+
+    println!("  error_propagation_test: PASSED! ({:?})", elapsed);
+    println!("    Structured error codes propagate from host to GPU correctly!");
+    println!("    File-not-found → ERR_NOT_FOUND ({}), Invalid fd → error category", err_not_found);
+    Ok(())
+}
+
+fn run_println_direct_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- OnceLock Test: println!() direct (no writeln! workaround) ---");
+
+    use std::sync::{Arc as StdArc, Mutex};
+
+    let hc_buf = hostcall::HostcallBuffer::new(4)?;
+    let dev_ptr = hc_buf.dev_ptr;
+
+    let messages: StdArc<Mutex<Vec<String>>> = StdArc::new(Mutex::new(Vec::new()));
+    let messages_clone = StdArc::clone(&messages);
+
+    let (result_host_ptr, result_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 2)? };
+
+    let hc_buf_ref = StdArc::new(hc_buf);
+    let hc_buf_listener = StdArc::clone(&hc_buf_ref);
+    let listener_handle = std::thread::spawn(move || {
+        hc_buf_listener.listen(|msg| {
+            let s = String::from_utf8_lossy(msg).to_string();
+            println!("  [GPU println] {}", s);
+            messages_clone.lock().unwrap().push(s);
+        });
+    });
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(STD_BUILD_TEST_PTX);
+    let _ = dev.load_ptx(ptx, "println_test", &["println_direct_test_kernel"]);
+    let f = dev.get_func("println_test", "println_direct_test_kernel")
+        .ok_or(GpuHostError::KernelNotFound("println_direct_test_kernel"))?;
+
+    let cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (1, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    let input_val: u32 = 42;
+    println!("  Launching println_direct_test_kernel (println! with value={})...", input_val);
+    let start = std::time::Instant::now();
+    unsafe {
+        f.launch(cfg, (dev_ptr as u64, input_val, result_dev_ptr as u64))?;
+    }
+
+    dev.synchronize()?;
+    let elapsed = start.elapsed();
+
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    hc_buf_ref.signal_shutdown();
+    listener_handle.join().unwrap();
+
+    let success = unsafe { std::ptr::read_volatile(result_host_ptr.add(0)) };
+    let count = unsafe { std::ptr::read_volatile(result_host_ptr.add(1)) };
+    unsafe { free_mapped_mem(result_host_ptr)? };
+
+    let received = messages.lock().unwrap();
+
+    if success != 1 {
+        return Err(GpuHostError::Verification {
+            test: "println_direct_test_kernel",
+            detail: format!("kernel reported failure (success={})", success),
+        });
+    }
+
+    // write_fmt sends each format fragment as a separate hostcall message,
+    // so concatenate all fragments into a single string before verification.
+    let full_output: String = received.iter().map(|s| s.as_str()).collect();
+
+    let has_hello = full_output.contains("hello from GPU");
+    let has_value = full_output.contains("value = 42");
+    let has_multi = full_output.contains("x=84") && full_output.contains("y=52");
+
+    if !has_hello || !has_value || !has_multi {
+        return Err(GpuHostError::Verification {
+            test: "println_direct_test_kernel",
+            detail: format!(
+                "missing expected content (hello={}, value={}, multi={}). Full output: {:?}",
+                has_hello, has_value, has_multi, full_output
+            ),
+        });
+    }
+
+    println!("  println_direct_test_kernel: PASSED! ({:?})", elapsed);
+    println!("    println!() works directly on GPU — no writeln! workaround needed!");
+    println!("    {} println! calls completed, {} messages received", count, received.len());
+    println!("    Full VectorWare parity achieved for println!");
+    Ok(())
+}
+
 /// Test: slab allocator deallocation (allocator.2).
 /// Runs 10 Vec alloc/dealloc cycles + 10 String cycles on GPU.
 fn run_slab_dealloc_test(dev: Arc<CudaDevice>) -> Result<()> {
@@ -2391,6 +2554,10 @@ fn main() -> Result<()> {
 
     // Concurrent slab allocator test (allocator.3)
     run_slab_concurrent_test(Arc::clone(&dev))?;
+
+    run_println_direct_test(Arc::clone(&dev))?;
+
+    run_error_propagation_test(Arc::clone(&dev))?;
 
     println!("\nAll tests PASSED.");
     Ok(())

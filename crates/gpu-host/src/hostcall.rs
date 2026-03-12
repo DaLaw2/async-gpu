@@ -11,6 +11,32 @@ use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
+/// Map a std::io::Error to an error category code for hostcall error propagation.
+fn io_error_to_category(e: &std::io::Error) -> u16 {
+    use std::io::ErrorKind;
+    match e.kind() {
+        ErrorKind::NotFound => ERR_NOT_FOUND,
+        ErrorKind::PermissionDenied => ERR_PERMISSION_DENIED,
+        ErrorKind::AlreadyExists => ERR_ALREADY_EXISTS,
+        ErrorKind::InvalidInput => ERR_INVALID_INPUT,
+        ErrorKind::TimedOut => ERR_TIMED_OUT,
+        ErrorKind::WouldBlock => ERR_WOULD_BLOCK,
+        ErrorKind::BrokenPipe => ERR_BROKEN_PIPE,
+        ErrorKind::OutOfMemory => ERR_OUT_OF_MEMORY,
+        ErrorKind::Unsupported => ERR_UNSUPPORTED,
+        _ => ERR_OTHER,
+    }
+}
+
+/// Encode an io::Error into the hostcall error format and write it to payload slot 0.
+/// Returns `true` to signal CONTROL_ERROR should be set.
+unsafe fn write_error_response(payload: *mut u8, e: &std::io::Error) -> bool {
+    let category = io_error_to_category(e);
+    let raw_errno = e.raw_os_error().unwrap_or(0) as u16;
+    std::ptr::write_volatile(payload as *mut u64, encode_error(category, raw_errno));
+    true
+}
+
 #[derive(Debug)]
 pub enum HostcallError {
     CudaAlloc(sys::CUresult),
@@ -314,8 +340,9 @@ impl HostcallBuffer {
         let path_str = match std::str::from_utf8(&path_buf[..path_len]) {
             Ok(s) => s,
             Err(_) => {
-                std::ptr::write_volatile(payload as *mut u64, FILE_ERROR_SENTINEL);
-                return false; // Not a protocol error, just file error
+                let e = std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid UTF-8 path");
+                eprintln!("  [HOST] FILE OPEN ERROR: invalid UTF-8 path");
+                return write_error_response(payload, &e);
             }
         };
 
@@ -324,8 +351,9 @@ impl HostcallBuffer {
             FILE_OPEN_WRITE_CREATE => File::create(path_str),
             FILE_OPEN_APPEND => OpenOptions::new().append(true).create(true).open(path_str),
             _ => {
-                std::ptr::write_volatile(payload as *mut u64, FILE_ERROR_SENTINEL);
-                return false;
+                let e = std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid open flags");
+                eprintln!("  [HOST] FILE OPEN ERROR: invalid flags={}", flags);
+                return write_error_response(payload, &e);
             }
         };
 
@@ -340,8 +368,7 @@ impl HostcallBuffer {
             }
             Err(e) => {
                 eprintln!("  [HOST] FILE OPEN ERROR: \"{}\": {}", path_str, e);
-                std::ptr::write_volatile(payload as *mut u64, FILE_ERROR_SENTINEL);
-                false
+                write_error_response(payload, &e)
             }
         }
     }
@@ -376,8 +403,8 @@ impl HostcallBuffer {
             Some(f) => f,
             None => {
                 eprintln!("  [HOST] FILE WRITE ERROR: invalid fd={}", fd);
-                std::ptr::write_volatile(payload as *mut u64, FILE_ERROR_SENTINEL);
-                return false;
+                std::ptr::write_volatile(payload as *mut u64, encode_error(ERR_INVALID_FD, 0));
+                return true;
             }
         };
 
@@ -391,8 +418,7 @@ impl HostcallBuffer {
             }
             Err(e) => {
                 eprintln!("  [HOST] FILE WRITE ERROR: fd={}: {}", fd, e);
-                std::ptr::write_volatile(payload as *mut u64, FILE_ERROR_SENTINEL);
-                false
+                write_error_response(payload, &e)
             }
         }
     }
@@ -420,8 +446,8 @@ impl HostcallBuffer {
             Some(f) => f,
             None => {
                 eprintln!("  [HOST] FILE READ ERROR: invalid fd={}", fd);
-                std::ptr::write_volatile(payload as *mut u64, FILE_ERROR_SENTINEL);
-                return false;
+                std::ptr::write_volatile(payload as *mut u64, encode_error(ERR_INVALID_FD, 0));
+                return true;
             }
         };
 
@@ -440,8 +466,7 @@ impl HostcallBuffer {
             }
             Err(e) => {
                 eprintln!("  [HOST] FILE READ ERROR: fd={}: {}", fd, e);
-                std::ptr::write_volatile(payload as *mut u64, FILE_ERROR_SENTINEL);
-                false
+                write_error_response(payload, &e)
             }
         }
     }
@@ -462,9 +487,10 @@ impl HostcallBuffer {
         let mut line = String::new();
         match std::io::stdin().read_line(&mut line) {
             Ok(0) => {
-                // EOF
+                // EOF — not an error, just zero bytes
                 println!("  [HOST] STDIN: EOF");
-                std::ptr::write_volatile(payload as *mut u64, FILE_ERROR_SENTINEL);
+                std::ptr::write_volatile(payload as *mut u64, 0u64);
+                false
             }
             Ok(n) => {
                 let bytes = line.as_bytes();
@@ -475,13 +501,13 @@ impl HostcallBuffer {
                 for i in 0..copy_len {
                     std::ptr::write_volatile(dst.add(i), bytes[i]);
                 }
+                false
             }
             Err(e) => {
                 eprintln!("  [HOST] STDIN ERROR: {}", e);
-                std::ptr::write_volatile(payload as *mut u64, FILE_ERROR_SENTINEL);
+                write_error_response(payload, &e)
             }
         }
-        false
     }
 
     /// Handle SERVICE_TIME: return wall-clock time.
@@ -532,8 +558,8 @@ impl HostcallBuffer {
             }
             None => {
                 eprintln!("  [HOST] FILE CLOSE ERROR: invalid fd={}", fd);
-                std::ptr::write_volatile(payload as *mut u64, FILE_ERROR_SENTINEL);
-                false
+                std::ptr::write_volatile(payload as *mut u64, encode_error(ERR_INVALID_FD, 0));
+                true
             }
         }
     }

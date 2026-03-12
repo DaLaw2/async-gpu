@@ -781,6 +781,46 @@ pub extern "ptx-kernel" fn showcase_kernel(
 }
 
 // ============================================================
+// oncelock.2: println!() direct test (bypasses OnceLock)
+// ============================================================
+
+/// Test that println!() works directly on GPU (no writeln! workaround needed).
+/// This was previously broken due to OnceLock/ReentrantLock in std's Stdout.
+/// The fix: _print() on CUDA bypasses OnceLock and writes through PAL directly.
+///
+/// result[0] = 1 on success
+/// result[1] = number of println! calls completed
+#[unsafe(no_mangle)]
+pub extern "ptx-kernel" fn println_direct_test_kernel(
+    buf: *mut u8,
+    input_val: u32,
+    result: *mut u32,
+) {
+    stdio_init(buf);
+
+    let mut count: u32 = 0;
+
+    // Test 1: Simple string literal
+    println!("println test: hello from GPU!");
+    count += 1;
+
+    // Test 2: With runtime value formatting
+    println!("println test: value = {}", input_val);
+    count += 1;
+
+    // Test 3: Multiple format args
+    let x = input_val * 2;
+    let y = input_val + 10;
+    println!("println test: x={}, y={}, sum={}", x, y, x + y);
+    count += 1;
+
+    unsafe {
+        core::ptr::write_volatile(result.add(0), 1);
+        core::ptr::write_volatile(result.add(1), count);
+    }
+}
+
+// ============================================================
 // allocator.2: Slab allocator deallocation test
 // ============================================================
 

@@ -170,6 +170,54 @@ pub const FILE_OPEN_WRITE_CREATE: u32 = 1;
 pub const FILE_OPEN_APPEND: u32 = 2;
 
 // ============================================================
+// Error encoding (error-handling.1 design)
+// ============================================================
+//
+// When CONTROL_ERROR is set in the response, payload slot 0 contains:
+//   Bits 63..32: reserved (zero)
+//   Bits 31..16: raw OS errno (optional, 0 = not provided)
+//   Bits 15..0:  error category (ErrorCategory)
+
+/// Error category codes for hostcall error propagation.
+/// Maps to a subset of `std::io::ErrorKind`.
+pub const ERR_OTHER: u16 = 0;
+pub const ERR_NOT_FOUND: u16 = 1;
+pub const ERR_PERMISSION_DENIED: u16 = 2;
+pub const ERR_ALREADY_EXISTS: u16 = 3;
+pub const ERR_INVALID_INPUT: u16 = 4;
+pub const ERR_IO_ERROR: u16 = 5;
+pub const ERR_TIMED_OUT: u16 = 6;
+pub const ERR_WOULD_BLOCK: u16 = 7;
+pub const ERR_BROKEN_PIPE: u16 = 8;
+pub const ERR_RESOURCE_BUSY: u16 = 9;
+pub const ERR_STORAGE_FULL: u16 = 10;
+pub const ERR_TOO_MANY_FILES: u16 = 11;
+pub const ERR_OUT_OF_MEMORY: u16 = 12;
+pub const ERR_INVALID_FD: u16 = 13;
+pub const ERR_CONNECTION_REFUSED: u16 = 14;
+pub const ERR_IS_A_DIRECTORY: u16 = 15;
+pub const ERR_HOST_TIMEOUT: u16 = 16;
+pub const ERR_UNSUPPORTED: u16 = 17;
+
+/// Encode an error into payload slot 0 format.
+#[inline(always)]
+pub const fn encode_error(category: u16, raw_errno: u16) -> u64 {
+    ((raw_errno as u64) << 16) | (category as u64)
+}
+
+/// Decode error category from payload slot 0.
+#[inline(always)]
+pub const fn error_category(slot0: u64) -> u16 {
+    (slot0 & 0xFFFF) as u16
+}
+
+/// Decode raw errno from payload slot 0.
+#[inline(always)]
+pub const fn error_raw_errno(slot0: u64) -> u16 {
+    ((slot0 >> 16) & 0xFFFF) as u16
+}
+
+// ============================================================
 // GPU-side spin limit
 // ============================================================
 

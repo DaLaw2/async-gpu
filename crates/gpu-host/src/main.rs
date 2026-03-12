@@ -3288,6 +3288,102 @@ fn run_warp_macro_print_test(dev: Arc<CudaDevice>) -> Result<()> {
     Ok(())
 }
 
+/// Hybrid executor test: WarpFuture PRINT → per-thread compute → WarpFuture PRINT (hybrid-executor.1)
+///
+/// Validates that a WarpFuture state machine can transition to per-thread divergent
+/// computation and back to warp-cooperative I/O. Each lane computes lane_id^2 + 1
+/// independently, then all lanes reconverge for the final PRINT.
+fn run_hybrid_executor_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Hybrid Executor Test (hybrid-executor.1) ---");
+
+    let hc_buf = hostcall::HostcallBuffer::new(4)?;
+    let dev_ptr = hc_buf.dev_ptr;
+
+    // Allocate mapped memory for results: 32 u32 values (one per lane) + 1 status
+    let (results_host, results_dev) = unsafe { alloc_mapped_result_array(&dev, 33)? };
+    let status_dev = results_dev + (32 * std::mem::size_of::<u32>()) as u64;
+
+    let hc_buf_ref = std::sync::Arc::new(hc_buf);
+    let hc_buf_listener = std::sync::Arc::clone(&hc_buf_ref);
+
+    let messages = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let msg_clone = std::sync::Arc::clone(&messages);
+
+    let listener_handle = std::thread::spawn(move || {
+        hc_buf_listener.listen(move |msg| {
+            let text = String::from_utf8_lossy(msg).to_string();
+            println!("  [HOST] Hybrid says: \"{}\"", text);
+            let mut guard = msg_clone.lock().unwrap();
+            guard.push(text);
+        });
+    });
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "kernel", &["hybrid_executor_test"]);
+    let f = dev
+        .get_func("kernel", "hybrid_executor_test")
+        .ok_or(GpuHostError::KernelNotFound("hybrid_executor_test"))?;
+
+    // Launch: 1 block x 32 threads (1 full warp)
+    let cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (32, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    let start = std::time::Instant::now();
+    unsafe {
+        f.launch(cfg, (dev_ptr as u64, results_dev as u64, status_dev as u64))?;
+    }
+    dev.synchronize()?;
+    let elapsed = start.elapsed();
+
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    hc_buf_ref.signal_shutdown();
+    listener_handle.join().unwrap();
+
+    let status_host = unsafe { results_host.add(32) };
+    let status_val = unsafe { std::ptr::read_volatile(status_host) };
+    let msgs = messages.lock().unwrap();
+
+    println!("  Status: {} (1=success)", status_val);
+    println!("  Elapsed: {:.3}ms", elapsed.as_secs_f64() * 1000.0);
+    println!("  Messages received: {}", msgs.len());
+
+    // Verify per-thread computation results: results[i] = i*i + 1
+    let mut compute_ok = true;
+    for i in 0u32..32 {
+        let actual = unsafe { std::ptr::read_volatile(results_host.add(i as usize)) };
+        let expected = i * i + 1;
+        if actual != expected {
+            println!("  FAIL: results[{}] = {} (expected {})", i, actual, expected);
+            compute_ok = false;
+        }
+    }
+
+    // Verify messages: expect "hybrid: start" and "hybrid: done"
+    let msg_ok = msgs.len() == 2
+        && msgs[0].contains("hybrid: start")
+        && msgs[1].contains("hybrid: done");
+
+    if status_val == 1 && compute_ok && msg_ok {
+        println!("  Hybrid Executor: PASSED!");
+        println!("    WarpFuture PRINT → per-thread compute (32 lanes, each lane_id^2+1) → WarpFuture PRINT");
+        println!("    Demonstrates: warp-cooperative I/O ↔ per-thread divergent computation switching");
+    } else {
+        println!("  Hybrid Executor: FAILED");
+        if !compute_ok {
+            println!("    Per-thread computation results incorrect");
+        }
+        if !msg_ok {
+            println!("    Messages: {:?}", *msgs);
+        }
+    }
+
+    unsafe { free_mapped_mem(results_host)? };
+    Ok(())
+}
+
 /// GPU panic handler test: verify panic message is received via hostcall.
 ///
 /// The test kernel deliberately panics. We expect:
@@ -3431,6 +3527,9 @@ fn main() -> Result<()> {
 
     // WarpFuture proc macro test (warp-future.5)
     run_warp_macro_print_test(Arc::clone(&dev))?;
+
+    // Hybrid executor test (hybrid-executor.1)
+    run_hybrid_executor_test(Arc::clone(&dev))?;
 
     // GPU panic handler test (gpu-panic.2) — MUST BE LAST
     // since trap instruction calls process::exit(0)

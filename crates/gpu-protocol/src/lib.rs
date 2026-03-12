@@ -183,24 +183,45 @@ pub const PKT_OFF_PAYLOAD: usize = PACKET_HEADER_SIZE;
 //   Bits 15..0:  packet index (0..N-1), or 0xFFFF = NULL
 
 /// Extract the packet index from a tagged pointer.
+///
+/// ```
+/// use gpu_protocol::{make_tagged, tagged_index};
+/// assert_eq!(tagged_index(make_tagged(5, 42)), 42);
+/// ```
 #[inline(always)]
 pub const fn tagged_index(tagged: u64) -> u16 {
     (tagged & 0xFFFF) as u16
 }
 
 /// Extract the ABA tag from a tagged pointer.
+///
+/// ```
+/// use gpu_protocol::{make_tagged, tagged_tag};
+/// assert_eq!(tagged_tag(make_tagged(5, 42)), 5);
+/// ```
 #[inline(always)]
 pub const fn tagged_tag(tagged: u64) -> u32 {
     (tagged >> 32) as u32
 }
 
 /// Construct a tagged pointer from a tag and packet index.
+///
+/// ```
+/// use gpu_protocol::make_tagged;
+/// let ptr = make_tagged(1, 0);
+/// assert_eq!(ptr, 0x0000_0001_0000_0000);
+/// ```
 #[inline(always)]
 pub const fn make_tagged(tag: u32, index: u16) -> u64 {
     ((tag as u64) << 32) | (index as u64)
 }
 
 /// Construct a null tagged pointer (index = `NULL_INDEX`).
+///
+/// ```
+/// use gpu_protocol::{null_tagged, tagged_index, NULL_INDEX};
+/// assert_eq!(tagged_index(null_tagged()), NULL_INDEX);
+/// ```
 #[inline(always)]
 pub const fn null_tagged() -> u64 {
     make_tagged(0, NULL_INDEX)
@@ -330,6 +351,13 @@ pub const ERR_HOST_TIMEOUT: u16 = 16;
 pub const ERR_UNSUPPORTED: u16 = 17;
 
 /// Encode an error category and raw errno into payload slot 0 format.
+///
+/// ```
+/// use gpu_protocol::{encode_error, error_category, error_raw_errno, ERR_NOT_FOUND};
+/// let encoded = encode_error(ERR_NOT_FOUND, 2);
+/// assert_eq!(error_category(encoded), ERR_NOT_FOUND);
+/// assert_eq!(error_raw_errno(encoded), 2);
+/// ```
 #[inline(always)]
 pub const fn encode_error(category: u16, raw_errno: u16) -> u64 {
     ((raw_errno as u64) << 16) | (category as u64)
@@ -365,6 +393,14 @@ pub const fn error_raw_errno(slot0: u64) -> u16 {
 pub const PANIC_MAX_MSG_LEN: usize = 56;
 
 /// Encode panic metadata: thread index, block index, and message length.
+///
+/// ```
+/// use gpu_protocol::{encode_panic_metadata, panic_thread_idx, panic_block_idx, panic_msg_len};
+/// let meta = encode_panic_metadata(5, 3, 20);
+/// assert_eq!(panic_thread_idx(meta), 5);
+/// assert_eq!(panic_block_idx(meta), 3);
+/// assert_eq!(panic_msg_len(meta), 20);
+/// ```
 #[inline(always)]
 pub const fn encode_panic_metadata(thread_idx: u16, block_idx: u16, msg_len: u16) -> u64 {
     (thread_idx as u64) | ((block_idx as u64) << 16) | ((msg_len as u64) << 32)

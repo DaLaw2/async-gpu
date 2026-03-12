@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 102     # Monotonic counter, incremented after each completed phase
-completed_tasks = 101
+total_cycles = 103     # Monotonic counter, incremented after each completed phase
+completed_tasks = 102
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "docs.3"
-last_summary = "docs.1+2 done: full rustdoc on gpu-protocol (all constants, functions, types documented) and gpu-host (HostcallError, GpuHostError, HostcallBuffer). Next: docs.3 doc-tests."
+current_task_id = ""
+last_summary = "docs theme complete: rustdoc on gpu-protocol + gpu-host, 6 doc-tests passing, CI updated with doc-test step. Cycle 103. All product-ready criteria met."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 25
@@ -2328,7 +2328,7 @@ key_insight = "All research themes done. Product-ready gaps: CI pipeline, clippy
 [[themes]]
 id = "docs"
 title = "API documentation and rustdoc for public crates"
-status = "active"
+status = "completed"
 spawned_by = "bs25"
 goal = "Add rustdoc documentation to public API surfaces of gpu-protocol, gpu-host, gpu-runtime, and warp-macro crates"
 success_criteria = [
@@ -2370,7 +2370,7 @@ id = "docs.3"
 theme = "docs"
 title = "Add doc-tests or examples to key APIs"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["docs.1", "docs.2"]
 spawned_by = "bs25"
 research_questions = [

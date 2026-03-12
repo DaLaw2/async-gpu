@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 108     # Monotonic counter, incremented after each completed phase
-completed_tasks = 107
+total_cycles = 115     # Monotonic counter, incremented after each completed phase
+completed_tasks = 114
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.select"
+current_step = "do.save"
 current_task_id = ""
-last_summary = "BS29 quick brainstorm: 3 epics established. Product-ready: 4 themes (onboarding, ci-protect, api-docs, perf-data). Warp-cooperative-async: warp-cfg active (5 tasks from bs28). GPU-autonomous: gpu-compute investigation. Next: select ready tasks."
+last_summary = "Batch of 7 tasks done: onboarding.1+.2, ci-protect.1, api-docs.1, perf-data.1, warp-cfg.1 (design), gpu-compute.1 (investigation). README updated with single-command quickstart, accurate perf numbers. warp-cfg.1 produced full CFG state machine design. Next: lint+commit, then warp-cfg.2."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 29
@@ -2548,7 +2548,7 @@ id = "warp-cfg.1"
 theme = "warp-cfg"
 title = "Design CFG-based state machine generation for #[warp_async]"
 kind = "design"
-status = "pending"
+status = "done"
 depends_on = []
 spawned_by = "bs28"
 research_questions = [
@@ -2700,7 +2700,7 @@ id = "onboarding.1"
 theme = "onboarding"
 title = "Create single-command build+run for hello-gpu"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = []
 spawned_by = "bs29"
 research_questions = [
@@ -2713,7 +2713,7 @@ id = "onboarding.2"
 theme = "onboarding"
 title = "Update README quick start to single-command flow"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["onboarding.1"]
 spawned_by = "bs29"
 research_questions = [
@@ -2742,7 +2742,7 @@ id = "ci-protect.1"
 theme = "ci-protect"
 title = "Audit and harden CI coverage"
 kind = "investigation"
-status = "pending"
+status = "done"
 depends_on = []
 spawned_by = "bs29"
 research_questions = [
@@ -2773,7 +2773,7 @@ id = "api-docs.1"
 theme = "api-docs"
 title = "Add rustdoc to public crates (gpu-protocol, gpu-runtime, warp-macro)"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = []
 spawned_by = "bs29"
 research_questions = [
@@ -2803,12 +2803,38 @@ id = "perf-data.1"
 theme = "perf-data"
 title = "Create benchmark script and verify README numbers"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = []
 spawned_by = "bs29"
 research_questions = [
     "Are the current README performance numbers still accurate?",
     "What is the simplest reproducible benchmark methodology?",
+]
+
+[[tasks]]
+id = "api-docs.2"
+theme = "api-docs"
+title = "Add #[cfg(doc)] stubs to gpu-runtime and gpu-atomics for doc generation on x86_64"
+kind = "experiment"
+status = "pending"
+depends_on = ["api-docs.1"]
+spawned_by = "c109"
+research_questions = [
+    "Can cfg(doc) stubs make gpu-runtime and gpu-atomics doc-buildable on x86_64?",
+    "What functions need stubbing and what are the right stub signatures?",
+]
+
+[[tasks]]
+id = "ci-protect.2"
+theme = "ci-protect"
+title = "Add test kernel PTX builds and doc-check to CI"
+kind = "experiment"
+status = "pending"
+depends_on = ["ci-protect.1"]
+spawned_by = "c109"
+research_questions = [
+    "Can we build all 6 test kernel crates in the build-ptx CI job?",
+    "Should we add cargo doc --no-deps -D missing_docs for gpu-protocol and warp-macro?",
 ]
 
 # ============================================================
@@ -2833,7 +2859,7 @@ id = "gpu-compute.1"
 theme = "gpu-compute"
 title = "Survey: what capabilities does GPU need for autonomous complex compute?"
 kind = "investigation"
-status = "pending"
+status = "done"
 depends_on = []
 spawned_by = "bs29"
 research_questions = [

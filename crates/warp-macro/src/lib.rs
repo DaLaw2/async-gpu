@@ -465,6 +465,25 @@ fn to_pascal_case(s: &str) -> String {
 // Main proc macro
 // ============================================================
 
+/// Transform a sequential function with `warp_*!()` calls into a WarpFuture state machine.
+///
+/// The generated struct implements `WarpFuture` where each `warp_*!()` call becomes
+/// a pair of states (INIT + WAIT) in a cooperative state machine shared by all 32
+/// lanes in a warp. Lane 0 drives state transitions; all lanes read the current state
+/// via `shfl.sync.idx.b32` broadcast.
+///
+/// # Example
+///
+/// ```ignore
+/// #[warp_async]
+/// fn my_pipeline(buf: *mut u8, result: *mut u32) {
+///     let fd = warp_open!(buf, b"file.txt", FILE_OPEN_READ);
+///     warp_close!(buf, fd);
+///     warp_print!(buf, b"done");
+/// }
+/// ```
+///
+/// This generates a `MyPipelineFuture` struct with 7 states (3 INIT/WAIT pairs + DONE).
 #[proc_macro_attribute]
 pub fn warp_async(attr: TokenStream, item: TokenStream) -> TokenStream {
     if !attr.is_empty() {

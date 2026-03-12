@@ -135,32 +135,36 @@ OPEN_IN → WAIT → BULK_READ → WAIT → COMPUTE → OPEN_OUT → WAIT → BU
 
 ### Prerequisites
 
-- Rust nightly (`nightly-2026-03-11`) with `nvptx64-nvidia-cuda` target
-- `llvm-bitcode-linker` component
+- [Rust](https://rustup.rs/) (nightly toolchain auto-installed via `rust-toolchain.toml`)
 - NVIDIA GPU (SM70+) with CUDA driver
 
-### Run the Demo
+### Run
 
 ```bash
-# Build the GPU kernel
+git clone https://github.com/DaLaw2/async-gpu.git
+cd async-gpu
+./run-hello-gpu.sh        # Linux/macOS
+run-hello-gpu.bat          # Windows
+```
+
+That's it. The build script auto-compiles the GPU kernel to PTX, builds the host binary, and runs four demos: vector addition, GPU-to-host print, file I/O from GPU, and bulk sideband read.
+
+<details>
+<summary>Manual steps (or to run the full test suite)</summary>
+
+```bash
+# Build all GPU kernels
 cd crates/gpu-kernel
 cargo build --release
-# .cargo/config.toml auto-sets target and build-std
 
 # Copy PTX to host crate
 cp target/nvptx64-nvidia-cuda/release/gpu_kernel.ptx ../gpu-host/kernel.ptx
 
-# Build and run (includes the file transform pipeline demo)
+# Run the full test suite (includes pipeline demos, ML workloads, etc.)
 cd ../gpu-host
 cargo run --release
 ```
-
-Or use the standalone hello-gpu example:
-
-```bash
-cd examples/hello-gpu/host
-cargo run --release
-```
+</details>
 
 ## What Works
 
@@ -187,11 +191,23 @@ Measured on RTX 3060 (SM_86). Hostcall round-trip via NOP benchmark:
 
 | Threads | p50 Latency | Throughput | CAS/call |
 |---------|-------------|------------|----------|
-| 1 | ~20 us | 26-41K/s | 0 |
-| 32 | ~1 ms | 20-24K/s | 3-7 |
-| 128 | ~6 ms | 14K/s | 28-43 |
+| 1 | ~42-101 us | 10-15K/s | 0 |
+| 32 | ~1.1 ms | 20-23K/s | 14-17 |
+| 128 | ~5-6 ms | ~14K/s | 33-34 |
 
-Per-block sharding reduces CAS contention by **99%** (from ~53 retries/call to ~0.5).
+Per-block sharding reduces CAS contention significantly. Higher thread counts show increased variance due to packet pool contention.
+
+<details>
+<summary>Reproduce these numbers</summary>
+
+```bash
+# Build all kernels first (see manual steps above), then:
+cd crates/gpu-host
+cargo run --release 2>&1 | grep -A 10 "Hostcall Latency Benchmark"
+```
+
+Numbers vary by ±30% between runs depending on GPU load and host scheduling.
+</details>
 
 ## Project Structure
 

@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 78      # Monotonic counter, incremented after each completed phase
-completed_tasks = 77
+total_cycles = 79      # Monotonic counter, incremented after each completed phase
+completed_tasks = 78
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
 current_task_id = ""
-last_summary = "warp-future.2+3 done. Measurement: single warp 27% faster than 32 blocks (CAS contention > divergence). Intrinsics: syncwarp + shfl.sync.idx verified on hardware (32/32 lanes). WarpFuture PoC (warp-future.4) unblocked."
+last_summary = "warp-future.4 done: WarpFuture PoC verified on hardware. 32 lanes cooperatively sent PRINT via WarpFuture trait. 0.373ms round-trip (~3x faster than per-thread). PTX: 4x shfl.sync + 5x bar.warp.sync. warp-future.5 (proc macro) unblocked but user requested stop."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 16
@@ -1868,7 +1868,7 @@ id = "warp-future.4"
 theme = "warp-future"
 title = "Implement minimal hand-written WarpFuture: single PRINT hostcall PoC"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["warp-future.2", "warp-future.3"]
 spawned_by = "user"
 research_questions = [

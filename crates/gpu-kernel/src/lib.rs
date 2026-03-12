@@ -1217,6 +1217,198 @@ pub unsafe extern "ptx-kernel" fn test_warp_intrinsics(output: *mut u32) {
 }
 
 // ============================================================
+// WarpFuture PoC: hand-written warp-level PRINT hostcall (warp-future.4)
+// ============================================================
+
+/// State discriminant values for WarpPrintFuture.
+const WPF_INIT: u32 = 0;
+const WPF_WAIT: u32 = 1;
+const WPF_DONE: u32 = 2;
+
+/// Hand-written WarpFuture: all 32 lanes cooperatively send a PRINT hostcall.
+///
+/// Each lane contributes its lane_id as a byte to the message.
+/// Lane 0 handles packet allocation, submission, and release.
+/// All lanes stay convergent throughout the state machine.
+struct WarpPrintFuture {
+    buf: *mut u8,
+    state: u32,       // discriminant (lane 0 authoritative)
+    pkt_idx: u16,     // packet index (uniform after broadcast)
+}
+
+impl WarpPrintFuture {
+    #[inline(always)]
+    fn new(buf: *mut u8) -> Self {
+        Self {
+            buf,
+            state: WPF_INIT,
+            pkt_idx: gpu_protocol::NULL_INDEX,
+        }
+    }
+}
+
+unsafe impl gpu_runtime::warp_future::WarpFuture for WarpPrintFuture {
+    type Output = bool;
+
+    fn poll_warp(
+        &mut self,
+        wcx: &mut gpu_runtime::warp_future::WarpContext,
+    ) -> gpu_runtime::warp_future::WarpPoll<bool> {
+        use gpu_runtime::warp_future::{WarpPoll, broadcast_u32};
+
+        // Broadcast state from lane 0 to all lanes
+        let state = unsafe { broadcast_u32(wcx.active_mask, self.state) };
+
+        match state {
+            WPF_INIT => unsafe {
+                // Lane 0: pop a free packet
+                let mut idx_raw: u32 = gpu_protocol::NULL_INDEX as u32;
+                if wcx.is_leader() {
+                    idx_raw = gpu_runtime::hostcall::hc_pop_free(self.buf) as u32;
+                }
+
+                // Broadcast packet index to all lanes
+                let idx = broadcast_u32(wcx.active_mask, idx_raw) as u16;
+
+                if idx == gpu_protocol::NULL_INDEX {
+                    return WarpPoll::Pending; // backpressure — no free packets
+                }
+                self.pkt_idx = idx;
+
+                // Compute packet pointer
+                let pkt_off = gpu_runtime::hostcall::pkt_offset(self.buf as *const u8, idx);
+                let pkt = self.buf.add(pkt_off);
+                let payload = pkt.add(gpu_protocol::PKT_OFF_PAYLOAD);
+
+                // Build message: "WarpFuture: ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_"
+                // Header "WarpFuture: " in slot 0 (msg_len) + slots 1..
+                // Each lane writes its character at the right position
+                let prefix = b"WarpFuture: ";
+                let msg_len = prefix.len() as u32 + 32; // 12 + 32 = 44 bytes
+
+                // Lane 0 writes the length into slot 0
+                if wcx.is_leader() {
+                    core::ptr::write_volatile(payload as *mut u64, msg_len as u64);
+                }
+
+                // All lanes write their byte into the message body
+                // Message starts at payload + 8 (slot 1)
+                let msg_base = payload.add(8);
+                let lid = wcx.lane_id;
+
+                // First 12 bytes are the prefix — only lanes 0..11 write those
+                if lid < prefix.len() as u32 {
+                    core::ptr::write_volatile(
+                        msg_base.add(lid as usize),
+                        prefix[lid as usize],
+                    );
+                }
+
+                // Bytes 12..43 are 'A' + lane_id (all 32 lanes write)
+                let char_offset = prefix.len() as u32 + lid;
+                if char_offset < msg_len {
+                    core::ptr::write_volatile(
+                        msg_base.add(char_offset as usize),
+                        b'A'.wrapping_add(lid as u8),
+                    );
+                }
+
+                // Sync: ensure all payload writes are visible
+                gpu_atomics::syncwarp(wcx.active_mask);
+
+                // Lane 0: fill header, mark FILLED, push to ready, ring doorbell
+                if wcx.is_leader() {
+                    core::ptr::write_volatile(
+                        pkt.add(gpu_protocol::PKT_OFF_ACTIVE_MASK) as *mut u32,
+                        wcx.active_mask,
+                    );
+                    core::ptr::write_volatile(
+                        pkt.add(gpu_protocol::PKT_OFF_SERVICE) as *mut u32,
+                        gpu_protocol::SERVICE_PRINT,
+                    );
+                    sys_store_release_u32(
+                        pkt.add(gpu_protocol::PKT_OFF_CONTROL) as *mut u32,
+                        0,
+                    );
+                    sys_store_release_u32(
+                        pkt.add(gpu_protocol::PKT_OFF_CONTROL) as *mut u32,
+                        gpu_protocol::CONTROL_FILLED,
+                    );
+
+                    // Push to ready stack + ring doorbell
+                    let (num_shards, shard_off, _) =
+                        gpu_runtime::hostcall::read_shard_info(self.buf as *const u8);
+                    let ready_ptr = gpu_runtime::hostcall::get_ready_stack_ptr(
+                        self.buf, num_shards, shard_off,
+                    );
+                    gpu_runtime::hostcall::hc_push(ready_ptr, self.buf, idx);
+                    sys_fetch_add_u64(
+                        self.buf.add(gpu_protocol::BUF_OFF_DOORBELL) as *mut u64,
+                        1,
+                    );
+
+                    self.state = WPF_WAIT;
+                }
+
+                gpu_atomics::syncwarp(wcx.active_mask);
+                WarpPoll::Pending
+            },
+
+            WPF_WAIT => unsafe {
+                // All lanes read the same control word — perfectly convergent spin
+                let idx = broadcast_u32(wcx.active_mask, self.pkt_idx as u32) as u16;
+                let pkt_off = gpu_runtime::hostcall::pkt_offset(self.buf as *const u8, idx);
+                let pkt = self.buf.add(pkt_off);
+                let ctrl = sys_spin_load_acquire_u32(
+                    pkt.add(gpu_protocol::PKT_OFF_CONTROL) as *const u32,
+                );
+
+                if ctrl & gpu_protocol::CONTROL_READY != 0 {
+                    // Host responded — release packet
+                    if wcx.is_leader() {
+                        gpu_runtime::hostcall::gpu_hostcall_release(self.buf, pkt);
+                        self.state = WPF_DONE;
+                    }
+                    gpu_atomics::syncwarp(wcx.active_mask);
+                    return WarpPoll::Ready(true);
+                }
+
+                WarpPoll::Pending
+            },
+
+            WPF_DONE => {
+                WarpPoll::Ready(true)
+            },
+
+            _ => WarpPoll::Pending, // unreachable
+        }
+    }
+}
+
+/// WarpFuture PoC kernel: all 32 lanes cooperatively send a PRINT hostcall.
+///
+/// Uses the WarpFuture trait + WarpExecutor. Lane 0 handles packet management,
+/// all lanes write message data in parallel, all lanes spin-wait convergently.
+///
+/// `buf` = hostcall buffer
+/// `result` = output u32 (set to 1 if WarpFuture completed successfully)
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn warp_future_print_test(
+    buf: *mut u8,
+    result: *mut u32,
+) {
+    gpu_runtime::panic::gpu_panic_init(buf);
+
+    let mut future = WarpPrintFuture::new(buf);
+    let ok = gpu_runtime::warp_future::WarpExecutor::run(&mut future);
+
+    // Lane 0 writes the result
+    if gpu_atomics::lane_id() == 0 {
+        core::ptr::write_volatile(result, if ok { 1 } else { 0 });
+    }
+}
+
+// ============================================================
 // Sharding-aware print test — uses gpu-runtime's hostcall path
 // ============================================================
 

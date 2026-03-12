@@ -3058,6 +3058,78 @@ fn run_warp_intrinsics_test(dev: Arc<CudaDevice>) -> Result<()> {
     Ok(())
 }
 
+/// WarpFuture PoC test: 32 lanes cooperatively send a PRINT hostcall.
+///
+/// Launches 1 block x 32 threads. All lanes execute the WarpPrintFuture
+/// state machine via WarpExecutor. The message "WarpFuture: ABCDEFGHIJKLMNOP..."
+/// should appear on the host.
+fn run_warp_future_print_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- WarpFuture PoC Test (warp-future.4) ---");
+
+    let hc_buf = hostcall::HostcallBuffer::new(4)?;
+    let dev_ptr = hc_buf.dev_ptr;
+
+    let (result_host, result_dev) = unsafe { alloc_mapped_result_array(&dev, 1)? };
+
+    let hc_buf_ref = std::sync::Arc::new(hc_buf);
+    let hc_buf_listener = std::sync::Arc::clone(&hc_buf_ref);
+
+    let msg_received = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+    let msg_clone = std::sync::Arc::clone(&msg_received);
+
+    let listener_handle = std::thread::spawn(move || {
+        hc_buf_listener.listen(move |msg| {
+            let text = String::from_utf8_lossy(msg);
+            let mut guard = msg_clone.lock().unwrap();
+            *guard = text.to_string();
+            println!("  [HOST] WarpFuture says: \"{}\"", text);
+        });
+    });
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "kernel", &["warp_future_print_test"]);
+    let f = dev
+        .get_func("kernel", "warp_future_print_test")
+        .ok_or(GpuHostError::KernelNotFound("warp_future_print_test"))?;
+
+    // Launch: 1 block x 32 threads (1 full warp)
+    let cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (32, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    let start = std::time::Instant::now();
+    unsafe {
+        f.launch(cfg, (dev_ptr as u64, result_dev as u64))?;
+    }
+    dev.synchronize()?;
+    let elapsed = start.elapsed();
+
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    hc_buf_ref.signal_shutdown();
+    listener_handle.join().unwrap();
+
+    let result_val = unsafe { std::ptr::read_volatile(result_host) };
+
+    println!("  Result: {} (1=success)", result_val);
+    println!("  Elapsed: {:.3}ms", elapsed.as_secs_f64() * 1000.0);
+
+    let received_msg = msg_received.lock().unwrap();
+    if result_val == 1 && received_msg.starts_with("WarpFuture: ") {
+        println!("  WarpFuture PoC: PASSED!");
+        println!("    32 lanes cooperatively built and sent a message via WarpFuture trait.");
+        println!("    State machine: INIT -> WAIT -> DONE (zero divergence by construction).");
+    } else if result_val == 1 {
+        println!("  WarpFuture completed but message format unexpected: \"{}\"", *received_msg);
+    } else {
+        println!("  WarpFuture PoC: FAILED (result={})", result_val);
+    }
+
+    unsafe { free_mapped_mem(result_host)? };
+    Ok(())
+}
+
 /// GPU panic handler test: verify panic message is received via hostcall.
 ///
 /// The test kernel deliberately panics. We expect:
@@ -3186,6 +3258,9 @@ fn main() -> Result<()> {
 
     // Warp intrinsics test (warp-future.3): syncwarp + shfl.sync.idx
     run_warp_intrinsics_test(Arc::clone(&dev))?;
+
+    // WarpFuture PoC test (warp-future.4)
+    run_warp_future_print_test(Arc::clone(&dev))?;
 
     // GPU panic handler test (gpu-panic.2) — MUST BE LAST
     // since trap instruction calls process::exit(0)

@@ -26,6 +26,7 @@
 
 #![no_std]
 #![feature(stdarch_nvptx)]
+#![feature(asm_experimental_arch)]
 
 // Re-export sub-crates
 pub use gpu_protocol;
@@ -673,6 +674,135 @@ macro_rules! panic_handler {
     };
 }
 
+/// Warp-level Future — SIMT-convergent async on GPU.
+///
+/// A `WarpFuture` represents an entire warp (32 lanes) executing in lockstep.
+/// Unlike `core::future::Future` where each thread has its own state machine,
+/// a WarpFuture has ONE state discriminant shared across all 32 lanes via
+/// `shfl.sync.idx.b32`. All lanes enter the same match arm on every poll;
+/// only per-lane data differs (SIMD semantics).
+///
+/// # Key Concepts
+///
+/// - **WarpPoll**: `Ready(T)` or `Pending`, analogous to `core::task::Poll`.
+/// - **WarpContext**: Provides `lane_id` and `active_mask`. No `Waker` —
+///   warp futures use synchronous spin-poll.
+/// - **WarpFuture trait**: `poll_warp(&mut self, wcx: &mut WarpContext) -> WarpPoll<T>`.
+/// - **WarpExecutor**: Simple loop that polls a WarpFuture until Ready.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// // All 32 lanes call this simultaneously
+/// let mut future = MyWarpFuture::new(buf);
+/// let result = WarpExecutor::run(&mut future);
+/// ```
+pub mod warp_future {
+    use gpu_atomics::{syncwarp, shfl_sync_idx_u32, lane_id, activemask};
+
+    /// Result of polling a warp-level future.
+    pub enum WarpPoll<T> {
+        /// All lanes completed. Output is per-lane.
+        Ready(T),
+        /// Warp yielded — will be re-polled.
+        Pending,
+    }
+
+    /// Context passed to WarpFuture::poll_warp.
+    ///
+    /// Contains warp metadata needed during polling. Unlike `core::task::Context`,
+    /// there is no Waker — warp futures use synchronous spin-poll driven by
+    /// the WarpExecutor.
+    pub struct WarpContext {
+        /// Active lane mask (from `activemask.b32`)
+        pub active_mask: u32,
+        /// This lane's ID (0..31)
+        pub lane_id: u32,
+    }
+
+    impl WarpContext {
+        /// Create a new WarpContext by reading hardware registers.
+        #[inline(always)]
+        pub unsafe fn new() -> Self {
+            Self {
+                active_mask: activemask(),
+                lane_id: lane_id(),
+            }
+        }
+
+        /// Returns true if this is lane 0 (the "leader" lane).
+        #[inline(always)]
+        pub fn is_leader(&self) -> bool {
+            self.lane_id == 0
+        }
+    }
+
+    /// A future representing an entire warp (32 lanes) in SIMT lockstep.
+    ///
+    /// # Contract
+    /// - All active lanes must call `poll_warp()` simultaneously.
+    /// - The state discriminant must be uniform across all lanes
+    ///   (broadcast via `shfl.sync.idx.b32` from lane 0).
+    /// - Divergent control flow within `poll_warp()` is forbidden —
+    ///   all lanes must execute the same code path with different data.
+    ///
+    /// # Safety
+    /// Implementing this trait requires maintaining warp convergence.
+    /// Breaking convergence causes deadlock or incorrect results.
+    pub unsafe trait WarpFuture {
+        /// Per-lane output type.
+        type Output;
+
+        /// Poll the warp future. Called by all active lanes simultaneously.
+        fn poll_warp(&mut self, wcx: &mut WarpContext) -> WarpPoll<Self::Output>;
+    }
+
+    /// Minimal warp-level executor.
+    ///
+    /// Polls a single WarpFuture in a loop until completion. All active lanes
+    /// participate in every poll. No run queue, no waker — just spin-poll
+    /// with `nanosleep` yield between iterations.
+    pub struct WarpExecutor;
+
+    impl WarpExecutor {
+        /// Run a WarpFuture to completion. All active lanes must call this.
+        ///
+        /// Returns the per-lane output value.
+        ///
+        /// # Safety
+        /// Must be called by all active lanes of a warp simultaneously.
+        #[inline(always)]
+        pub unsafe fn run<F: WarpFuture>(future: &mut F) -> F::Output {
+            let mut wcx = WarpContext::new();
+            let mut polls: u32 = 0;
+            const MAX_POLLS: u32 = 10_000_000;
+
+            loop {
+                match future.poll_warp(&mut wcx) {
+                    WarpPoll::Ready(output) => return output,
+                    WarpPoll::Pending => {
+                        polls += 1;
+                        if polls >= MAX_POLLS {
+                            // Timeout — trap to avoid infinite loop
+                            core::arch::asm!("trap;", options(noreturn));
+                        }
+                        // Yield warp scheduler slot
+                        core::arch::asm!("nanosleep.u32 64;", options(nostack));
+                    }
+                }
+                // Ensure convergence before next poll
+                syncwarp(wcx.active_mask);
+            }
+        }
+    }
+
+    /// Broadcast a u32 from lane 0 to all lanes. Convenience wrapper.
+    #[inline(always)]
+    pub unsafe fn broadcast_u32(mask: u32, val: u32) -> u32 {
+        shfl_sync_idx_u32(mask, val, 0)
+    }
+}
+
 /// Prelude — import everything you need for a basic GPU kernel.
 ///
 /// ```rust,ignore
@@ -697,5 +827,9 @@ pub mod prelude {
 
     pub use crate::sideband::{
         gpu_bulk_read, gpu_bulk_write, sideband_alloc, sideband_reset,
+    };
+
+    pub use crate::warp_future::{
+        WarpPoll, WarpContext, WarpFuture, WarpExecutor, broadcast_u32,
     };
 }

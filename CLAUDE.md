@@ -78,14 +78,6 @@ async_gpu/
 /research
 ```
 
-## Autonomous Operation Policy
-- **Do NOT stop** until the project is truly **product ready**
-- "Product ready" means: performance characterized, host listener stable, CI in place, clean public API with examples, and README updated with real data
-- Keep iterating the Think → Do → Check loop continuously across all phases
-- Completing the VectorWare reproduction was Phase 1. Phase 2 (measure → stabilize → package) and any subsequent phases must also be driven to completion autonomously
-- Only pause for: environment changes needed (`awaiting_user`), or user explicitly says "stop"
-- Do NOT declare the project "done" or ask the user what to do next — brainstorm and keep going
-
 ## Git Remote
 - Origin: https://github.com/DaLaw2/async-gpu.git
 - Commit + push after each batch of work

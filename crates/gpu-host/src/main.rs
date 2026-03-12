@@ -3583,7 +3583,7 @@ fn run_hybrid_executor_test(dev: Arc<CudaDevice>) -> Result<()> {
 
     let start = std::time::Instant::now();
     unsafe {
-        f.launch(cfg, (dev_ptr, results_dev, status_dev as u64))?;
+        f.launch(cfg, (dev_ptr, results_dev, status_dev))?;
     }
     dev.synchronize()?;
     let elapsed = start.elapsed();
@@ -3680,7 +3680,7 @@ fn run_hybrid_stress_test(dev: Arc<CudaDevice>) -> Result<()> {
 
     let start = std::time::Instant::now();
     unsafe {
-        f.launch(cfg, (dev_ptr, results_dev, status_dev as u64))?;
+        f.launch(cfg, (dev_ptr, results_dev, status_dev))?;
     }
     dev.synchronize()?;
     let elapsed = start.elapsed();

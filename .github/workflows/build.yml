@@ -97,6 +97,9 @@ jobs:
           echo "PTX compiled successfully: $PTX_FILE"
           wc -l "$PTX_FILE"
 
+      - name: Check hello-gpu example host compiles
+        run: cargo +stable check --manifest-path examples/hello-gpu/host/Cargo.toml
+
   build-host:
     name: Check host crate compiles
     runs-on: ubuntu-latest
@@ -120,6 +123,3 @@ jobs:
 
       - name: Check gpu-host compiles
         run: cargo +stable check --manifest-path crates/gpu-host/Cargo.toml
-
-      - name: Check hello-gpu example host compiles
-        run: cargo +stable check --manifest-path examples/hello-gpu/host/Cargo.toml

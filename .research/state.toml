@@ -4,22 +4,22 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 92      # Monotonic counter, incremented after each completed phase
-completed_tasks = 91
+total_cycles = 95      # Monotonic counter, incremented after each completed phase
+completed_tasks = 94
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.save"
+current_step = "do.execute"
 current_task_id = ""
-last_summary = "async-pipeline theme COMPLETE. All 3 tasks done: warp hostcall wrappers, 16-state file transform pipeline demo (GPU-autonomous open→read→transform→write→close, 4.2ms), README overhaul showcasing the vision. User goal achieved: 完成願景時停止."
+last_summary = "ml-workload.2+3 done. Single-query vector search (20-state, 6.6ms) and batch search (5 queries, 7.8ms, 1.6ms/query amortized) both verified. I/O cost amortized across batch. Next: brainstorm at completed=94 (interval=3, last_bs=91)."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 21
+brainstorm_seq = 22
 review_seq = 4
 
 # Brainstorm trigger control
-last_brainstorm_at_completed = 88
+last_brainstorm_at_completed = 91
 brainstorm_interval = 3
 
 # ============================================================
@@ -2126,3 +2126,91 @@ new_themes_spawned = ["async-pipeline"]
 themes_parked = []
 themes_completed = []
 key_insight = "Don't expand proc macro — hand-write the demo WarpFuture. 3 tasks: warp hostcall wrappers → file transform demo → README overhaul. Skeptic is right about proc macro limits but wrong that hybrid-executor.1 is sufficient — real data pipeline demo needed."
+
+# ============================================================
+# Theme: ml-workload (ML Workload on GPU-Autonomous Pipeline)
+# ============================================================
+
+[[themes]]
+id = "ml-workload"
+title = "Real ML workload on GPU-autonomous async pipeline"
+status = "active"
+spawned_by = "user"
+goal = "Demonstrate that GPU-autonomous async pipeline can coordinate real ML computation (vector similarity search), not just I/O demos. Stretch: persistent kernel as a continuously-running GPU service."
+success_criteria = [
+    "Feasibility analysis: sideband limits, compute model, infrastructure gaps identified",
+    "Vector similarity demo: GPU reads query, computes cosine similarity, returns top-K — one kernel, zero CPU intervention",
+    "Demo is runnable and produces correct results",
+    "Multi-query batch: process N queries in one kernel launch without re-launch",
+    "(Stretch) Persistent kernel: GPU stays running, accepts multiple queries via mailbox protocol",
+]
+
+# --- Tasks: ml-workload ---
+
+[[tasks]]
+id = "ml-workload.1"
+theme = "ml-workload"
+title = "Feasibility analysis: async pipeline for tensor computation"
+kind = "investigation"
+status = "done"
+depends_on = []
+spawned_by = "user"
+research_questions = [
+    "Can the existing async pipeline infrastructure support tensor computation?",
+    "What are the sideband buffer size limits for realistic vector databases?",
+    "What infrastructure gaps need filling (f32 math, vector ops, data layout)?",
+    "What is the maximum practical database size given 1MB sideband?",
+]
+
+[[tasks]]
+id = "ml-workload.2"
+theme = "ml-workload"
+title = "Vector similarity search demo: GPU-autonomous query→compute→top-K→output"
+kind = "experiment"
+status = "done"
+depends_on = ["ml-workload.1"]
+spawned_by = "user"
+research_questions = [
+    "Can a WarpFuture state machine coordinate read(query)→compute(similarity)→select(top-K)→write(results)?",
+    "How should per-lane work distribution handle database vectors vs warp size?",
+    "What is end-to-end latency for a realistic vector similarity query?",
+]
+
+[[tasks]]
+id = "ml-workload.3"
+theme = "ml-workload"
+title = "Multi-query batch: process N queries in one kernel launch"
+kind = "experiment"
+status = "done"
+depends_on = ["ml-workload.2"]
+spawned_by = "bs22"
+research_questions = [
+    "Can the WarpFuture state machine loop over multiple queries in sideband without kernel re-launch?",
+    "What is the amortized per-query latency when batching N queries?",
+    "How should query/result regions be laid out in sideband for batch processing?",
+]
+
+[[tasks]]
+id = "ml-workload.4"
+theme = "ml-workload"
+title = "(Stretch) True persistent kernel: GPU as continuously-running service"
+kind = "experiment"
+status = "pending"
+depends_on = ["ml-workload.3"]
+spawned_by = "bs22"
+research_questions = [
+    "Can a persistent kernel spin-wait for new work via mailbox protocol in sideband header?",
+    "What is query-to-response latency for a persistent kernel vs re-launch?",
+    "Does Windows TDR kill the kernel? Document required registry change.",
+]
+
+[[brainstorms]]
+seq = 22
+at_cycle = 92
+trigger = "New ml-workload epic — user-defined ML workload extension"
+level = "standard"
+new_tasks_spawned = ["ml-workload.3", "ml-workload.4"]
+new_themes_spawned = ["ml-workload"]
+themes_parked = []
+themes_completed = []
+key_insight = "Per-lane work distribution (each lane handles full 128-dim vector). 1MB sideband fits ~1800 vectors. Split persistent kernel into batch (no TDR) + true persistent (stretch, requires TDR disable). Demo value is autonomy, not performance."

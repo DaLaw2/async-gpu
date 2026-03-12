@@ -654,3 +654,98 @@ pub unsafe extern "ptx-kernel" fn multi_block_async_kernel(buf: *mut u8, result:
         options(nostack),
     );
 }
+
+// ============================================================
+// Test kernel 5: Warp-scale Embassy (32 threads, 1 block)
+// ============================================================
+//
+// 1 block × 32 threads (one full warp). Each thread runs its own
+// Embassy executor with an async hostcall print. Tests CAS contention
+// on the free/ready stacks when all 32 lanes compete simultaneously.
+
+const WARP_SCALE_THREADS: usize = 32;
+
+macro_rules! repeat_executor_storage {
+    ($n:expr) => {{
+        const INIT: ExecutorStorage = ExecutorStorage { inner: MaybeUninit::uninit() };
+        [INIT; $n]
+    }};
+}
+
+macro_rules! repeat_task_storage {
+    ($n:expr) => {{
+        const INIT: TaskStorage<HostcallPrintFuture> = TaskStorage::new();
+        [INIT; $n]
+    }};
+}
+
+static WARP_EXEC_STORAGE: [ExecutorStorage; WARP_SCALE_THREADS] = repeat_executor_storage!(32);
+static WARP_TASKS: [TaskStorage<HostcallPrintFuture>; WARP_SCALE_THREADS] = repeat_task_storage!(32);
+
+/// Warp-scale Embassy async test: 32 threads in one warp, each with own executor.
+///
+/// This is the stress test for per-thread CAS contention. All 32 threads
+/// in a single warp compete for packets from the same free stack, submit
+/// to the same ready stack, and ring the same doorbell — simultaneously.
+///
+/// `buf` = hostcall buffer (mapped memory)
+/// `result` = output array of u32[WARP_SCALE_THREADS + 1]:
+///   [0] = number of threads that completed successfully
+///   [1..32] = per-thread poll rounds
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn warp_scale_async_kernel(buf: *mut u8, result: *mut u32) {
+    let tid: u32;
+    core::arch::asm!("mov.u32 {idx}, %tid.x;", idx = out(reg32) tid, options(nostack, readonly));
+
+    // Only the first 32 threads participate (should be exactly 1 block × 32 threads)
+    if tid >= WARP_SCALE_THREADS as u32 {
+        return;
+    }
+
+    let idx = tid as usize;
+
+    // Build a unique message: "Warp lane XX!"
+    let mut msg = *b"Warp lane XX!";
+    msg[10] = b'0' + (tid / 10) as u8;
+    msg[11] = b'0' + (tid % 10) as u8;
+
+    // Initialize executor from static storage array
+    let storage_ptr = &WARP_EXEC_STORAGE[idx].inner
+        as *const MaybeUninit<Executor> as *mut MaybeUninit<Executor>;
+    (*storage_ptr).write(Executor::new(core::ptr::null_mut()));
+    let executor: &'static Executor = (*storage_ptr).assume_init_ref();
+
+    // Spawn async hostcall print task
+    let task_storage = &WARP_TASKS[idx];
+    let msg_static: &'static [u8] = core::slice::from_raw_parts(msg.as_ptr(), msg.len());
+    let token = task_storage.spawn(|| HostcallPrintFuture::new(buf, msg_static));
+    let spawner = executor.spawner();
+    let _ = spawner.spawn(token);
+
+    // Poll until completion or max rounds.
+    // With 32 threads competing for CAS, may need more rounds than 4-thread test.
+    let mut poll_rounds: u32 = 0;
+    let max_rounds: u32 = 500;
+    loop {
+        executor.poll();
+        poll_rounds += 1;
+
+        let current = core::ptr::read_volatile(&poll_rounds);
+        if current >= max_rounds {
+            break;
+        }
+    }
+
+    // Write per-thread poll rounds
+    core::ptr::write_volatile(result.add(1 + idx), poll_rounds);
+
+    // Atomically increment success counter (result[0])
+    let counter_ptr = result as *mut u32;
+    let _old: u32;
+    core::arch::asm!(
+        "atom.add.u32 {result}, [{addr}], 1;",
+        result = out(reg32) _old,
+        addr = in(reg64) counter_ptr,
+        options(nostack),
+    );
+}

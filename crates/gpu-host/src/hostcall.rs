@@ -112,9 +112,9 @@ pub enum HostcallError {
 impl fmt::Display for HostcallError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::CudaAlloc(r) => write!(f, "cuMemHostAlloc failed: {:?}", r),
+            Self::CudaAlloc(r) => write!(f, "cuMemHostAlloc failed: {r:?}"),
             Self::CudaGetDevPtr(r) => {
-                write!(f, "cuMemHostGetDevicePointer_v2 failed: {:?}", r)
+                write!(f, "cuMemHostGetDevicePointer_v2 failed: {r:?}")
             }
         }
     }
@@ -578,7 +578,7 @@ impl HostcallBuffer {
         let thread_idx = std::ptr::read_volatile(payload.add(68) as *const u32);
 
         // Format: [B{block}.T{thread}] message
-        let prefix = format!("[B{}.T{}] ", block_idx, thread_idx);
+        let prefix = format!("[B{block_idx}.T{thread_idx}] ");
         let mut full_msg = Vec::with_capacity(prefix.len() + msg_len);
         full_msg.extend_from_slice(prefix.as_bytes());
         full_msg.extend_from_slice(&msg_buf[..msg_len]);
@@ -635,7 +635,7 @@ impl HostcallBuffer {
             FILE_OPEN_APPEND => OpenOptions::new().append(true).create(true).open(path_str),
             _ => {
                 let e = std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid open flags");
-                eprintln!("  [HOST] FILE OPEN ERROR: invalid flags={}", flags);
+                eprintln!("  [HOST] FILE OPEN ERROR: invalid flags={flags}");
                 return write_error_response(payload, &e);
             }
         };
@@ -646,14 +646,11 @@ impl HostcallBuffer {
                 *next_fd += 1;
                 fd_table.insert(fd, file);
                 std::ptr::write_volatile(payload as *mut u64, fd);
-                println!(
-                    "  [HOST] FILE OPEN: \"{}\" flags={} -> fd={}",
-                    path_str, flags, fd
-                );
+                println!("  [HOST] FILE OPEN: \"{path_str}\" flags={flags} -> fd={fd}");
                 false
             }
             Err(e) => {
-                eprintln!("  [HOST] FILE OPEN ERROR: \"{}\": {}", path_str, e);
+                eprintln!("  [HOST] FILE OPEN ERROR: \"{path_str}\": {e}");
                 write_error_response(payload, &e)
             }
         }
@@ -684,7 +681,7 @@ impl HostcallBuffer {
         let file = match fd_table.get_mut(&fd) {
             Some(f) => f,
             None => {
-                eprintln!("  [HOST] FILE WRITE ERROR: invalid fd={}", fd);
+                eprintln!("  [HOST] FILE WRITE ERROR: invalid fd={fd}");
                 std::ptr::write_volatile(payload as *mut u64, encode_error(ERR_INVALID_FD, 0));
                 return true;
             }
@@ -694,12 +691,12 @@ impl HostcallBuffer {
             Ok(n) => {
                 // Flush to ensure data is persisted
                 let _ = file.flush();
-                println!("  [HOST] FILE WRITE: fd={} {} bytes written", fd, n);
+                println!("  [HOST] FILE WRITE: fd={fd} {n} bytes written");
                 std::ptr::write_volatile(payload as *mut u64, n as u64);
                 false
             }
             Err(e) => {
-                eprintln!("  [HOST] FILE WRITE ERROR: fd={}: {}", fd, e);
+                eprintln!("  [HOST] FILE WRITE ERROR: fd={fd}: {e}");
                 write_error_response(payload, &e)
             }
         }
@@ -723,7 +720,7 @@ impl HostcallBuffer {
         let file = match fd_table.get_mut(&fd) {
             Some(f) => f,
             None => {
-                eprintln!("  [HOST] FILE READ ERROR: invalid fd={}", fd);
+                eprintln!("  [HOST] FILE READ ERROR: invalid fd={fd}");
                 std::ptr::write_volatile(payload as *mut u64, encode_error(ERR_INVALID_FD, 0));
                 return true;
             }
@@ -732,7 +729,7 @@ impl HostcallBuffer {
         let mut read_buf = [0u8; FILE_MAX_READ_LEN];
         match file.read(&mut read_buf[..max_len]) {
             Ok(n) => {
-                println!("  [HOST] FILE READ: fd={} {} bytes read", fd, n);
+                println!("  [HOST] FILE READ: fd={fd} {n} bytes read");
                 // Write response: slot 0 = bytes read
                 std::ptr::write_volatile(payload as *mut u64, n as u64);
                 // Slots 1-7 = data bytes
@@ -743,7 +740,7 @@ impl HostcallBuffer {
                 false
             }
             Err(e) => {
-                eprintln!("  [HOST] FILE READ ERROR: fd={}: {}", fd, e);
+                eprintln!("  [HOST] FILE READ ERROR: fd={fd}: {e}");
                 write_error_response(payload, &e)
             }
         }
@@ -763,7 +760,7 @@ impl HostcallBuffer {
                 let nanos = duration.subsec_nanos() as u64;
                 std::ptr::write_volatile(payload as *mut u64, secs);
                 std::ptr::write_volatile(payload.add(8) as *mut u64, nanos);
-                println!("  [HOST] TIME: epoch_secs={} nanos={}", secs, nanos);
+                println!("  [HOST] TIME: epoch_secs={secs} nanos={nanos}");
             }
             Err(_) => {
                 std::ptr::write_volatile(payload as *mut u64, FILE_ERROR_SENTINEL);
@@ -797,10 +794,7 @@ impl HostcallBuffer {
         }
 
         let msg = std::str::from_utf8(&msg_buf[..msg_len]).unwrap_or("<invalid UTF-8>");
-        eprintln!(
-            "\x1b[1;31m[GPU PANIC]\x1b[0m block={} thread={}: {}",
-            block_idx, thread_idx, msg
-        );
+        eprintln!("\x1b[1;31m[GPU PANIC]\x1b[0m block={block_idx} thread={thread_idx}: {msg}");
 
         false // No error — GPU thread will trap after receiving response
     }
@@ -819,12 +813,12 @@ impl HostcallBuffer {
         match fd_table.remove(&fd) {
             Some(_file) => {
                 // File is dropped here, which closes it
-                println!("  [HOST] FILE CLOSE: fd={} closed", fd);
+                println!("  [HOST] FILE CLOSE: fd={fd} closed");
                 std::ptr::write_volatile(payload as *mut u64, 0);
                 false
             }
             None => {
-                eprintln!("  [HOST] FILE CLOSE ERROR: invalid fd={}", fd);
+                eprintln!("  [HOST] FILE CLOSE ERROR: invalid fd={fd}");
                 std::ptr::write_volatile(payload as *mut u64, encode_error(ERR_INVALID_FD, 0));
                 true
             }
@@ -845,7 +839,7 @@ impl HostcallBuffer {
         let mut buf = [0u8; STDIN_MAX_READ_LEN];
         let n = stdin.read_line_bytes(&mut buf[..max_len]);
 
-        println!("  [HOST] STDIN: {} bytes", n);
+        println!("  [HOST] STDIN: {n} bytes");
         std::ptr::write_volatile(payload as *mut u64, n as u64);
         let dst = payload.add(8);
         for i in 0..n {
@@ -875,8 +869,7 @@ impl HostcallBuffer {
         ) as usize;
         if sb_offset + length > capacity {
             eprintln!(
-                "  [HOST] BULK WRITE ERROR: offset={} + len={} > capacity={}",
-                sb_offset, length, capacity
+                "  [HOST] BULK WRITE ERROR: offset={sb_offset} + len={length} > capacity={capacity}"
             );
             std::ptr::write_volatile(payload as *mut u64, encode_error(ERR_INVALID_INPUT, 0));
             return true;
@@ -885,7 +878,7 @@ impl HostcallBuffer {
         let file = match fd_table.get_mut(&fd) {
             Some(f) => f,
             None => {
-                eprintln!("  [HOST] BULK WRITE ERROR: invalid fd={}", fd);
+                eprintln!("  [HOST] BULK WRITE ERROR: invalid fd={fd}");
                 std::ptr::write_volatile(payload as *mut u64, encode_error(ERR_INVALID_FD, 0));
                 return true;
             }
@@ -897,12 +890,12 @@ impl HostcallBuffer {
         match file.write_all(data) {
             Ok(()) => {
                 let _ = file.flush();
-                println!("  [HOST] BULK WRITE: fd={} {} bytes written", fd, length);
+                println!("  [HOST] BULK WRITE: fd={fd} {length} bytes written");
                 std::ptr::write_volatile(payload as *mut u64, length as u64);
                 false
             }
             Err(e) => {
-                eprintln!("  [HOST] BULK WRITE ERROR: fd={}: {}", fd, e);
+                eprintln!("  [HOST] BULK WRITE ERROR: fd={fd}: {e}");
                 write_error_response(payload, &e)
             }
         }
@@ -929,8 +922,7 @@ impl HostcallBuffer {
         ) as usize;
         if sb_offset + max_length > capacity {
             eprintln!(
-                "  [HOST] BULK READ ERROR: offset={} + len={} > capacity={}",
-                sb_offset, max_length, capacity
+                "  [HOST] BULK READ ERROR: offset={sb_offset} + len={max_length} > capacity={capacity}"
             );
             std::ptr::write_volatile(payload as *mut u64, encode_error(ERR_INVALID_INPUT, 0));
             return true;
@@ -939,7 +931,7 @@ impl HostcallBuffer {
         let file = match fd_table.get_mut(&fd) {
             Some(f) => f,
             None => {
-                eprintln!("  [HOST] BULK READ ERROR: invalid fd={}", fd);
+                eprintln!("  [HOST] BULK READ ERROR: invalid fd={fd}");
                 std::ptr::write_volatile(payload as *mut u64, encode_error(ERR_INVALID_FD, 0));
                 return true;
             }
@@ -950,12 +942,12 @@ impl HostcallBuffer {
 
         match file.read(buf) {
             Ok(n) => {
-                println!("  [HOST] BULK READ: fd={} {} bytes read", fd, n);
+                println!("  [HOST] BULK READ: fd={fd} {n} bytes read");
                 std::ptr::write_volatile(payload as *mut u64, n as u64);
                 false
             }
             Err(e) => {
-                eprintln!("  [HOST] BULK READ ERROR: fd={}: {}", fd, e);
+                eprintln!("  [HOST] BULK READ ERROR: fd={fd}: {e}");
                 write_error_response(payload, &e)
             }
         }

@@ -97,7 +97,6 @@ impl ServiceKind {
             Self::BulkWrite => 3, // fd, sb_offset, length
         }
     }
-
 }
 
 // ============================================================
@@ -162,8 +161,7 @@ fn extract_warp_calls(
                         return Err(syn::Error::new_spanned(
                             &stmt_mac.mac.path,
                             format!(
-                                "#[warp_async] unsupported macro `{}!`. Supported: {}",
-                                name, SUPPORTED_MACROS,
+                                "#[warp_async] unsupported macro `{name}!`. Supported: {SUPPORTED_MACROS}",
                             ),
                         )
                         .to_compile_error());
@@ -181,8 +179,7 @@ fn extract_warp_calls(
                         return Err(syn::Error::new_spanned(
                             &mac.path,
                             format!(
-                                "#[warp_async] unsupported macro `{}!`. Supported: {}",
-                                name, SUPPORTED_MACROS,
+                                "#[warp_async] unsupported macro `{name}!`. Supported: {SUPPORTED_MACROS}",
                             ),
                         )
                         .to_compile_error());
@@ -212,8 +209,7 @@ fn extract_warp_calls(
                             return Err(syn::Error::new_spanned(
                                 &mac.path,
                                 format!(
-                                    "#[warp_async] unsupported macro `{}!`. Supported: {}",
-                                    name, SUPPORTED_MACROS,
+                                    "#[warp_async] unsupported macro `{name}!`. Supported: {SUPPORTED_MACROS}",
                                 ),
                             )
                             .to_compile_error());
@@ -234,8 +230,7 @@ fn extract_warp_calls(
                     quote! { #other },
                     format!(
                         "#[warp_async] function body must contain only warp_*!() calls and \
-                         `let var = warp_*!()` bindings. Supported macros: {}",
-                        SUPPORTED_MACROS,
+                         `let var = warp_*!()` bindings. Supported macros: {SUPPORTED_MACROS}",
                     ),
                 )
                 .to_compile_error());
@@ -247,9 +242,7 @@ fn extract_warp_calls(
 }
 
 /// Extract the identifier from a `let` pattern. Only simple `let x = ...` supported.
-fn extract_local_ident(
-    local: &syn::Local,
-) -> Result<syn::Ident, proc_macro2::TokenStream> {
+fn extract_local_ident(local: &syn::Local) -> Result<syn::Ident, proc_macro2::TokenStream> {
     if let syn::Pat::Ident(pat_ident) = &local.pat {
         Ok(pat_ident.ident.clone())
     } else {
@@ -275,11 +268,7 @@ fn try_parse_macro_call(
     };
 
     let parsed: MacroArgs = syn::parse2(mac.tokens.clone()).map_err(|e| {
-        syn::Error::new_spanned(
-            &mac.tokens,
-            format!("{}! parse error: {}", name, e),
-        )
-        .to_compile_error()
+        syn::Error::new_spanned(&mac.tokens, format!("{name}! parse error: {e}")).to_compile_error()
     })?;
 
     // Validate buf argument
@@ -301,7 +290,9 @@ fn try_parse_macro_call(
             &mac.tokens,
             format!(
                 "{}! expects {} argument(s) after `buf`, found {}",
-                name, expected, parsed.args.len(),
+                name,
+                expected,
+                parsed.args.len(),
             ),
         )
         .to_compile_error());
@@ -579,9 +570,8 @@ pub fn warp_async(attr: TokenStream, item: TokenStream) -> TokenStream {
                 return syn::Error::new_spanned(
                     var,
                     format!(
-                        "#[warp_async] duplicate variable name `{}`. Each `let` binding \
+                        "#[warp_async] duplicate variable name `{var}`. Each `let` binding \
                          must use a unique name (e.g., `fd_in`, `fd_out`).",
-                        var,
                     ),
                 )
                 .to_compile_error()
@@ -596,17 +586,11 @@ pub fn warp_async(attr: TokenStream, item: TokenStream) -> TokenStream {
         .iter()
         .map(|(name, ty)| quote! { #name: #ty })
         .collect();
-    let user_var_fields: Vec<_> = user_vars
-        .iter()
-        .map(|v| quote! { #v: u64 })
-        .collect();
+    let user_var_fields: Vec<_> = user_vars.iter().map(|v| quote! { #v: u64 }).collect();
 
     // ---- Generate constructor ----
     let param_names: Vec<_> = params.iter().map(|(name, _)| name).collect();
-    let user_var_inits: Vec<_> = user_vars
-        .iter()
-        .map(|v| quote! { #v: 0 })
-        .collect();
+    let user_var_inits: Vec<_> = user_vars.iter().map(|v| quote! { #v: 0 }).collect();
 
     // ---- Generate match arms ----
     let mut arms = Vec::new();
@@ -682,10 +666,7 @@ pub fn warp_async(attr: TokenStream, item: TokenStream) -> TokenStream {
         .iter()
         .map(|(name, ty)| quote! { #name: #ty })
         .collect();
-    let struct_init_args: Vec<_> = params
-        .iter()
-        .map(|(name, _)| quote! { #name })
-        .collect();
+    let struct_init_args: Vec<_> = params.iter().map(|(name, _)| quote! { #name }).collect();
 
     // ---- Kernel result expression ----
     let kernel_result_expr = if is_bool_return {

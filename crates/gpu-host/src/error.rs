@@ -29,21 +29,21 @@ pub enum GpuHostError {
 impl fmt::Display for GpuHostError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::CudaInit(e) => write!(f, "CUDA device init failed: {}", e),
-            Self::CudaAlloc(r) => write!(f, "cuMemHostAlloc failed: {:?}", r),
+            Self::CudaInit(e) => write!(f, "CUDA device init failed: {e}"),
+            Self::CudaAlloc(r) => write!(f, "cuMemHostAlloc failed: {r:?}"),
             Self::CudaGetDevPtr(r) => {
-                write!(f, "cuMemHostGetDevicePointer_v2 failed: {:?}", r)
+                write!(f, "cuMemHostGetDevicePointer_v2 failed: {r:?}")
             }
-            Self::CudaFreeMem(r) => write!(f, "cuMemFreeHost failed: {:?}", r),
-            Self::Cudarc(e) => write!(f, "cudarc error: {}", e),
-            Self::KernelNotFound(name) => write!(f, "kernel function not found: {}", name),
+            Self::CudaFreeMem(r) => write!(f, "cuMemFreeHost failed: {r:?}"),
+            Self::Cudarc(e) => write!(f, "cudarc error: {e}"),
+            Self::KernelNotFound(name) => write!(f, "kernel function not found: {name}"),
             Self::Verification { test, detail } => {
-                write!(f, "{}: verification failed: {}", test, detail)
+                write!(f, "{test}: verification failed: {detail}")
             }
             Self::Timeout { test, detail } => {
-                write!(f, "{}: timeout: {}", test, detail)
+                write!(f, "{test}: timeout: {detail}")
             }
-            Self::Hostcall(e) => write!(f, "hostcall error: {}", e),
+            Self::Hostcall(e) => write!(f, "hostcall error: {e}"),
         }
     }
 }

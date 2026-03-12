@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 107     # Monotonic counter, incremented after each completed phase
-completed_tasks = 106
+total_cycles = 108     # Monotonic counter, incremented after each completed phase
+completed_tasks = 107
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "async-pipeline.5"
-last_summary = "async-pipeline.1-4 done. .3: branching pipeline (14-state, conditional state via CONTROL_ERROR bit). .4: pipelined I/O+compute (~17k FMA iterations during hostcall round-trip). CI fix: +stable for lint/check jobs (rust-toolchain.toml overrides). Next: .5 Embassy 32-thread warp-scale test."
+current_task_id = ""
+last_summary = "async-pipeline EPIC COMPLETE. All 5 tasks done: .1 move helpers, .2 macro generalization, .3 branching pipeline, .4 pipelined I/O+compute, .5 warp-scale Embassy (32/32 threads PASSED). CI fixed: +stable for lint/check, clippy uninlined_format_args fixed."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 27
@@ -2396,7 +2396,7 @@ key_insight = "All product-ready criteria met. Documentation is the highest-impa
 [[themes]]
 id = "async-pipeline"
 title = "GPU-Native Async Pipeline — generalize warp_async macro to all hostcall services"
-status = "active"
+status = "completed"
 spawned_by = "bs27"
 goal = "Close the GPU-Native Async Pipeline EPIC: generalized #[warp_async] proc macro supporting all hostcall services, plus documentation/examples for branching and pipelining patterns."
 success_criteria = [
@@ -2468,7 +2468,7 @@ id = "async-pipeline.5"
 theme = "async-pipeline"
 title = "Test Embassy per-thread divergent I/O at warp scale (32 threads)"
 kind = "investigation"
-status = "pending"
+status = "done"
 depends_on = []
 spawned_by = "bs27"
 research_questions = [

@@ -6,1619 +6,1492 @@
 .target sm_86
 .address_size 64
 
-	// .globl	__pender                // -- Begin function __pender
-.func _ZN16embassy_executor3raw20TaskStorage$LT$F$GT$4poll17hc68279d1e83c567eE
+.func _RNvNtCsdwh7N5MnlkE_16embassy_executor3raw11poll_exited
 (
-	.param .b64 _ZN16embassy_executor3raw20TaskStorage$LT$F$GT$4poll17hc68279d1e83c567eE_param_0
+	.param .b64 _RNvNtCsdwh7N5MnlkE_16embassy_executor3raw11poll_exited_param_0
 )
 ;
-.func _ZN16embassy_executor3raw4util19UninitCell$LT$T$GT$14write_in_place17h804fcc30eab3d33cE
-(
-	.param .b64 _ZN16embassy_executor3raw4util19UninitCell$LT$T$GT$14write_in_place17h804fcc30eab3d33cE_param_0
-)
-;
-.func _ZN16embassy_executor3raw11poll_exited17h98db27a08fdb03b3E
-(
-	.param .b64 _ZN16embassy_executor3raw11poll_exited17h98db27a08fdb03b3E_param_0
-)
-;
-.func _ZN16embassy_executor3raw4util19UninitCell$LT$T$GT$14write_in_place17h84a83f66da5d6c2fE
-(
-	.param .b64 _ZN16embassy_executor3raw4util19UninitCell$LT$T$GT$14write_in_place17h84a83f66da5d6c2fE_param_0
-)
-;
-.func _ZN16embassy_executor3raw20TaskStorage$LT$F$GT$4poll17hdba4dae397348858E
-(
-	.param .b64 _ZN16embassy_executor3raw20TaskStorage$LT$F$GT$4poll17hdba4dae397348858E_param_0
-)
-;
-.func _ZN16embassy_executor3raw4util19UninitCell$LT$T$GT$14write_in_place17h60fe0929b5f7e7b1E
-(
-	.param .b64 _ZN16embassy_executor3raw4util19UninitCell$LT$T$GT$14write_in_place17h60fe0929b5f7e7b1E_param_0
-)
-;
-.func _ZN16embassy_executor3raw20TaskStorage$LT$F$GT$4poll17h928a13fd38902728E
-(
-	.param .b64 _ZN16embassy_executor3raw20TaskStorage$LT$F$GT$4poll17h928a13fd38902728E_param_0
-)
-;
-.func _ZN16embassy_executor3raw4util19UninitCell$LT$T$GT$14write_in_place17h7e0f23683fdb94a6E
-(
-	.param .b64 _ZN16embassy_executor3raw4util19UninitCell$LT$T$GT$14write_in_place17h7e0f23683fdb94a6E_param_0
-)
-;
-.func _ZN4core9panicking5panic17h0fa9c1a1b8644949E
+.func _RNvNtCs9yDKPPKA7vZ_4core6option13unwrap_failed
 ()
 .noreturn;
-.func _ZN4core6option13unwrap_failed17h56953dcb4fc3a73bE
-()
-.noreturn;
-.func _ZN4core9panicking9panic_fmt17h91912e5afa70f32dE
-()
-.noreturn;
-.func _ZN16embassy_executor3raw4util19UninitCell$LT$T$GT$14write_in_place17ha7224bb75357157cE
+.func _RNvNtCs9yDKPPKA7vZ_4core9panicking5panic
 (
-	.param .b64 _ZN16embassy_executor3raw4util19UninitCell$LT$T$GT$14write_in_place17ha7224bb75357157cE_param_0,
-	.param .b64 _ZN16embassy_executor3raw4util19UninitCell$LT$T$GT$14write_in_place17ha7224bb75357157cE_param_1,
-	.param .b64 _ZN16embassy_executor3raw4util19UninitCell$LT$T$GT$14write_in_place17ha7224bb75357157cE_param_2
+	.param .b64 _RNvNtCs9yDKPPKA7vZ_4core9panicking5panic_param_0,
+	.param .b64 _RNvNtCs9yDKPPKA7vZ_4core9panicking5panic_param_1,
+	.param .b64 _RNvNtCs9yDKPPKA7vZ_4core9panicking5panic_param_2
 )
-;
-.global .align 8 .b8 _ZN19async_hostcall_test11MULTI_TASKS17h427653e635aae588E[320] = {};
-.global .align 8 .b8 _ZN19async_hostcall_test11SINGLE_TASK17he7e4937f8799905cE[80] = {};
-.global .align 8 .b8 _ZN19async_hostcall_test18EXECUTOR_STORAGE_117h621eb889c0ee648dE[16];
-.global .align 8 .b8 _ZN19async_hostcall_test18EXECUTOR_STORAGE_217h07a5635fa2dc89baE[16];
-.global .align 8 .b8 _ZN19async_hostcall_test18EXECUTOR_STORAGE_317h09c5e74de153a170E[16];
-.global .align 8 .b8 _ZN19async_hostcall_test18MULTI_EXEC_STORAGE17h16f720b9ced6a2b8E[64];
-.global .align 1 .b8 anon_$_f15894a641323bb25775af0e658b4f4a_$_5[21] = {74, 111, 105, 110, 32, 116, 97, 115, 107, 32, 65, 32, 102, 114, 111, 109, 32, 71, 80, 85, 33};
-.global .align 1 .b8 anon_$_f15894a641323bb25775af0e658b4f4a_$_6[21] = {74, 111, 105, 110, 32, 116, 97, 115, 107, 32, 66, 32, 102, 114, 111, 109, 32, 71, 80, 85, 33};
-.global .align 1 .b8 anon_$_f15894a641323bb25775af0e658b4f4a_$_7[22] = {65, 115, 121, 110, 99, 32, 116, 97, 115, 107, 32, 66, 32, 102, 114, 111, 109, 32, 71, 80, 85, 33};
-.global .align 1 .b8 anon_$_f15894a641323bb25775af0e658b4f4a_$_8[22] = {65, 115, 121, 110, 99, 32, 116, 97, 115, 107, 32, 65, 32, 102, 114, 111, 109, 32, 71, 80, 85, 33};
-.global .align 1 .b8 anon_$_f15894a641323bb25775af0e658b4f4a_$_9[21] = {65, 115, 121, 110, 99, 32, 104, 101, 108, 108, 111, 32, 102, 114, 111, 109, 32, 71, 80, 85, 33};
-.global .align 8 .b8 _ZN19async_hostcall_test6TASK_A17h8c071a330addc354E[80] = {};
-.global .align 8 .b8 _ZN19async_hostcall_test6TASK_B17h01fc129f996ec686E[80] = {};
-.global .align 8 .b8 _ZN19async_hostcall_test9JOIN_TASK17h73e396a3cdf9bcb6E[112] = {};
-.global .align 1 .b8 anon_$_f15894a641323bb25775af0e658b4f4a_$_10[19] = {65, 115, 121, 110, 99, 32, 98, 108, 111, 99, 107, 32, 88, 32, 100, 111, 110, 101, 33};
-                                        // @__pender
+.noreturn;
+.global .align 1 .b8 anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_0[21] = {74, 111, 105, 110, 32, 116, 97, 115, 107, 32, 65, 32, 102, 114, 111, 109, 32, 71, 80, 85, 33};
+.global .align 1 .b8 anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_1[21] = {74, 111, 105, 110, 32, 116, 97, 115, 107, 32, 66, 32, 102, 114, 111, 109, 32, 71, 80, 85, 33};
+.global .align 1 .b8 anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_2[22] = {65, 115, 121, 110, 99, 32, 116, 97, 115, 107, 32, 65, 32, 102, 114, 111, 109, 32, 71, 80, 85, 33};
+.global .align 1 .b8 anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_3[22] = {65, 115, 121, 110, 99, 32, 116, 97, 115, 107, 32, 66, 32, 102, 114, 111, 109, 32, 71, 80, 85, 33};
+.global .align 1 .b8 anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_4[21] = {65, 115, 121, 110, 99, 32, 104, 101, 108, 108, 111, 32, 102, 114, 111, 109, 32, 71, 80, 85, 33};
+.global .align 8 .b8 _RNvCsaU7OcvMiU4k_19async_hostcall_test10WARP_TASKS[2560];
+.global .align 8 .b8 _RNvCsaU7OcvMiU4k_19async_hostcall_test11MULTI_TASKS[320] = {};
+.global .align 8 .b8 _RNvCsaU7OcvMiU4k_19async_hostcall_test11SINGLE_TASK[80] = {};
+.global .align 8 .b8 _RNvCsaU7OcvMiU4k_19async_hostcall_test17WARP_EXEC_STORAGE[512];
+.global .align 8 .b8 _RNvCsaU7OcvMiU4k_19async_hostcall_test18EXECUTOR_STORAGE_1[16];
+.global .align 8 .b8 _RNvCsaU7OcvMiU4k_19async_hostcall_test18EXECUTOR_STORAGE_2[16];
+.global .align 8 .b8 _RNvCsaU7OcvMiU4k_19async_hostcall_test18EXECUTOR_STORAGE_3[16];
+.global .align 8 .b8 _RNvCsaU7OcvMiU4k_19async_hostcall_test18MULTI_EXEC_STORAGE[64];
+.global .align 8 .b8 _RNvCsaU7OcvMiU4k_19async_hostcall_test6TASK_A[80] = {};
+.global .align 8 .b8 _RNvCsaU7OcvMiU4k_19async_hostcall_test6TASK_B[80] = {};
+.global .align 8 .b8 _RNvCsaU7OcvMiU4k_19async_hostcall_test9JOIN_TASK[112] = {};
+.global .align 1 .b8 anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_5[114] = {67, 58, 92, 85, 115, 101, 114, 115, 92, 68, 97, 76, 97, 119, 50, 92, 46, 99, 97, 114, 103, 111, 92, 114, 101, 103, 105, 115, 116, 114, 121, 92, 115, 114, 99, 92, 105, 110, 100, 101, 120, 46, 99, 114, 97, 116, 101, 115, 46, 105, 111, 45, 49, 57, 52, 57, 99, 102, 56, 99, 54, 98, 53, 98, 53, 53, 55, 102, 92, 102, 117, 116, 117, 114, 101, 115, 45, 117, 116, 105, 108, 45, 48, 46, 51, 46, 51, 50, 92, 115, 114, 99, 92, 102, 117, 116, 117, 114, 101, 92, 109, 97, 121, 98, 101, 95, 100, 111, 110, 101, 46, 114, 115};
+.global .align 1 .b8 anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_6[108] = {67, 58, 92, 85, 115, 101, 114, 115, 92, 68, 97, 76, 97, 119, 50, 92, 46, 99, 97, 114, 103, 111, 92, 114, 101, 103, 105, 115, 116, 114, 121, 92, 115, 114, 99, 92, 105, 110, 100, 101, 120, 46, 99, 114, 97, 116, 101, 115, 46, 105, 111, 45, 49, 57, 52, 57, 99, 102, 56, 99, 54, 98, 53, 98, 53, 53, 55, 102, 92, 102, 117, 116, 117, 114, 101, 115, 45, 117, 116, 105, 108, 45, 48, 46, 51, 46, 51, 50, 92, 115, 114, 99, 92, 102, 117, 116, 117, 114, 101, 92, 106, 111, 105, 110, 46, 114, 115};
+.global .align 8 .u64 anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_7[3] = {generic(anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_6), 107, 4294967372};
+.global .align 1 .b8 anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_8[34] = {77, 97, 121, 98, 101, 68, 111, 110, 101, 32, 112, 111, 108, 108, 101, 100, 32, 97, 102, 116, 101, 114, 32, 118, 97, 108, 117, 101, 32, 116, 97, 107, 101, 110};
+.global .align 8 .u64 anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_9[3] = {generic(anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_5), 113, 133143986276};
+.global .align 1 .b8 anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_10[19] = {65, 115, 121, 110, 99, 32, 98, 108, 111, 99, 107, 32, 88, 32, 100, 111, 110, 101, 33};
+.global .align 1 .b8 anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_11[13] = {87, 97, 114, 112, 32, 108, 97, 110, 101, 32, 88, 88, 33};
+.global .align 1 .b8 anon_$_e09c4c056e1bca7941fa860b803178d0_$_7[43] = {99, 97, 108, 108, 101, 100, 32, 96, 79, 112, 116, 105, 111, 110, 58, 58, 117, 110, 119, 114, 97, 112, 40, 41, 96, 32, 111, 110, 32, 97, 32, 96, 78, 111, 110, 101, 96, 32, 118, 97, 108, 117, 101};
+
+.func _RINvMNtNtCsdwh7N5MnlkE_16embassy_executor3raw4utilINtB3_10UninitCellINtNtNtCs2jK5DEHBoFM_12futures_util6future4join4JoinNtCsaU7OcvMiU4k_19async_hostcall_test19HostcallPrintFutureNtB1W_20HostcallPrintFutureBEE14write_in_placeNCNvB1W_19futures_join_kernel0EB1W_(
+	.param .b64 _RINvMNtNtCsdwh7N5MnlkE_16embassy_executor3raw4utilINtB3_10UninitCellINtNtNtCs2jK5DEHBoFM_12futures_util6future4join4JoinNtCsaU7OcvMiU4k_19async_hostcall_test19HostcallPrintFutureNtB1W_20HostcallPrintFutureBEE14write_in_placeNCNvB1W_19futures_join_kernel0EB1W__param_0
+)
+{
+	.reg .b64 	%rd<6>;
+
+	ld.param.b64 	%rd1, [_RINvMNtNtCsdwh7N5MnlkE_16embassy_executor3raw4utilINtB3_10UninitCellINtNtNtCs2jK5DEHBoFM_12futures_util6future4join4JoinNtCsaU7OcvMiU4k_19async_hostcall_test19HostcallPrintFutureNtB1W_20HostcallPrintFutureBEE14write_in_placeNCNvB1W_19futures_join_kernel0EB1W__param_0];
+	mov.b64 	%rd2, anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_0;
+	cvta.global.u64 	%rd3, %rd2;
+	st.global.b64 	[_RNvCsaU7OcvMiU4k_19async_hostcall_test9JOIN_TASK+48], %rd3;
+	st.global.b64 	[_RNvCsaU7OcvMiU4k_19async_hostcall_test9JOIN_TASK+56], 21;
+	st.global.b64 	[_RNvCsaU7OcvMiU4k_19async_hostcall_test9JOIN_TASK+64], %rd1;
+	st.global.b16 	[_RNvCsaU7OcvMiU4k_19async_hostcall_test9JOIN_TASK+72], -1;
+	st.global.b8 	[_RNvCsaU7OcvMiU4k_19async_hostcall_test9JOIN_TASK+74], 0;
+	mov.b64 	%rd4, anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_1;
+	cvta.global.u64 	%rd5, %rd4;
+	st.global.b64 	[_RNvCsaU7OcvMiU4k_19async_hostcall_test9JOIN_TASK+80], %rd5;
+	st.global.b64 	[_RNvCsaU7OcvMiU4k_19async_hostcall_test9JOIN_TASK+88], 21;
+	st.global.b64 	[_RNvCsaU7OcvMiU4k_19async_hostcall_test9JOIN_TASK+96], %rd1;
+	st.global.b16 	[_RNvCsaU7OcvMiU4k_19async_hostcall_test9JOIN_TASK+104], -1;
+	st.global.b8 	[_RNvCsaU7OcvMiU4k_19async_hostcall_test9JOIN_TASK+106], 0;
+	ret;
+
+}
+.func _RINvMNtNtCsdwh7N5MnlkE_16embassy_executor3raw4utilINtB3_10UninitCellNtCsaU7OcvMiU4k_19async_hostcall_test19HostcallPrintFutureE14write_in_placeNCNvB16_23warp_scale_async_kernel0EB16_(
+	.param .b64 _RINvMNtNtCsdwh7N5MnlkE_16embassy_executor3raw4utilINtB3_10UninitCellNtCsaU7OcvMiU4k_19async_hostcall_test19HostcallPrintFutureE14write_in_placeNCNvB16_23warp_scale_async_kernel0EB16__param_0,
+	.param .b64 _RINvMNtNtCsdwh7N5MnlkE_16embassy_executor3raw4utilINtB3_10UninitCellNtCsaU7OcvMiU4k_19async_hostcall_test19HostcallPrintFutureE14write_in_placeNCNvB16_23warp_scale_async_kernel0EB16__param_1,
+	.param .b64 _RINvMNtNtCsdwh7N5MnlkE_16embassy_executor3raw4utilINtB3_10UninitCellNtCsaU7OcvMiU4k_19async_hostcall_test19HostcallPrintFutureE14write_in_placeNCNvB16_23warp_scale_async_kernel0EB16__param_2
+)
+{
+	.reg .b64 	%rd<4>;
+
+	ld.param.b64 	%rd1, [_RINvMNtNtCsdwh7N5MnlkE_16embassy_executor3raw4utilINtB3_10UninitCellNtCsaU7OcvMiU4k_19async_hostcall_test19HostcallPrintFutureE14write_in_placeNCNvB16_23warp_scale_async_kernel0EB16__param_0];
+	ld.param.b64 	%rd2, [_RINvMNtNtCsdwh7N5MnlkE_16embassy_executor3raw4utilINtB3_10UninitCellNtCsaU7OcvMiU4k_19async_hostcall_test19HostcallPrintFutureE14write_in_placeNCNvB16_23warp_scale_async_kernel0EB16__param_2];
+	st.b64 	[%rd1], %rd2;
+	ld.param.b64 	%rd3, [_RINvMNtNtCsdwh7N5MnlkE_16embassy_executor3raw4utilINtB3_10UninitCellNtCsaU7OcvMiU4k_19async_hostcall_test19HostcallPrintFutureE14write_in_placeNCNvB16_23warp_scale_async_kernel0EB16__param_1];
+	st.b64 	[%rd1+8], 13;
+	st.b64 	[%rd1+16], %rd3;
+	st.b16 	[%rd1+24], -1;
+	st.b8 	[%rd1+26], 0;
+	ret;
+
+}
+.func _RINvMNtNtCsdwh7N5MnlkE_16embassy_executor3raw4utilINtB3_10UninitCellNtCsaU7OcvMiU4k_19async_hostcall_test19HostcallPrintFutureE14write_in_placeNCNvB16_24multi_block_async_kernel0EB16_(
+	.param .b64 _RINvMNtNtCsdwh7N5MnlkE_16embassy_executor3raw4utilINtB3_10UninitCellNtCsaU7OcvMiU4k_19async_hostcall_test19HostcallPrintFutureE14write_in_placeNCNvB16_24multi_block_async_kernel0EB16__param_0,
+	.param .b64 _RINvMNtNtCsdwh7N5MnlkE_16embassy_executor3raw4utilINtB3_10UninitCellNtCsaU7OcvMiU4k_19async_hostcall_test19HostcallPrintFutureE14write_in_placeNCNvB16_24multi_block_async_kernel0EB16__param_1,
+	.param .b64 _RINvMNtNtCsdwh7N5MnlkE_16embassy_executor3raw4utilINtB3_10UninitCellNtCsaU7OcvMiU4k_19async_hostcall_test19HostcallPrintFutureE14write_in_placeNCNvB16_24multi_block_async_kernel0EB16__param_2
+)
+{
+	.reg .b64 	%rd<4>;
+
+	ld.param.b64 	%rd1, [_RINvMNtNtCsdwh7N5MnlkE_16embassy_executor3raw4utilINtB3_10UninitCellNtCsaU7OcvMiU4k_19async_hostcall_test19HostcallPrintFutureE14write_in_placeNCNvB16_24multi_block_async_kernel0EB16__param_0];
+	ld.param.b64 	%rd2, [_RINvMNtNtCsdwh7N5MnlkE_16embassy_executor3raw4utilINtB3_10UninitCellNtCsaU7OcvMiU4k_19async_hostcall_test19HostcallPrintFutureE14write_in_placeNCNvB16_24multi_block_async_kernel0EB16__param_2];
+	st.b64 	[%rd1], %rd2;
+	ld.param.b64 	%rd3, [_RINvMNtNtCsdwh7N5MnlkE_16embassy_executor3raw4utilINtB3_10UninitCellNtCsaU7OcvMiU4k_19async_hostcall_test19HostcallPrintFutureE14write_in_placeNCNvB16_24multi_block_async_kernel0EB16__param_1];
+	st.b64 	[%rd1+8], 19;
+	st.b64 	[%rd1+16], %rd3;
+	st.b16 	[%rd1+24], -1;
+	st.b8 	[%rd1+26], 0;
+	ret;
+
+}
+.func _RINvMNtNtCsdwh7N5MnlkE_16embassy_executor3raw4utilINtB3_10UninitCellNtCsaU7OcvMiU4k_19async_hostcall_test19HostcallPrintFutureE14write_in_placeNCNvB16_25async_hostcall_two_kernel0EB16_(
+	.param .b64 _RINvMNtNtCsdwh7N5MnlkE_16embassy_executor3raw4utilINtB3_10UninitCellNtCsaU7OcvMiU4k_19async_hostcall_test19HostcallPrintFutureE14write_in_placeNCNvB16_25async_hostcall_two_kernel0EB16__param_0
+)
+{
+	.reg .b64 	%rd<4>;
+
+	ld.param.b64 	%rd1, [_RINvMNtNtCsdwh7N5MnlkE_16embassy_executor3raw4utilINtB3_10UninitCellNtCsaU7OcvMiU4k_19async_hostcall_test19HostcallPrintFutureE14write_in_placeNCNvB16_25async_hostcall_two_kernel0EB16__param_0];
+	mov.b64 	%rd2, anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_2;
+	cvta.global.u64 	%rd3, %rd2;
+	st.global.b64 	[_RNvCsaU7OcvMiU4k_19async_hostcall_test6TASK_A+48], %rd3;
+	st.global.b64 	[_RNvCsaU7OcvMiU4k_19async_hostcall_test6TASK_A+56], 22;
+	st.global.b64 	[_RNvCsaU7OcvMiU4k_19async_hostcall_test6TASK_A+64], %rd1;
+	st.global.b16 	[_RNvCsaU7OcvMiU4k_19async_hostcall_test6TASK_A+72], -1;
+	st.global.b8 	[_RNvCsaU7OcvMiU4k_19async_hostcall_test6TASK_A+74], 0;
+	ret;
+
+}
+.func _RINvMNtNtCsdwh7N5MnlkE_16embassy_executor3raw4utilINtB3_10UninitCellNtCsaU7OcvMiU4k_19async_hostcall_test19HostcallPrintFutureE14write_in_placeNCNvB16_28async_hostcall_single_kernel0EB16_(
+	.param .b64 _RINvMNtNtCsdwh7N5MnlkE_16embassy_executor3raw4utilINtB3_10UninitCellNtCsaU7OcvMiU4k_19async_hostcall_test19HostcallPrintFutureE14write_in_placeNCNvB16_28async_hostcall_single_kernel0EB16__param_0
+)
+{
+	.reg .b64 	%rd<4>;
+
+	ld.param.b64 	%rd1, [_RINvMNtNtCsdwh7N5MnlkE_16embassy_executor3raw4utilINtB3_10UninitCellNtCsaU7OcvMiU4k_19async_hostcall_test19HostcallPrintFutureE14write_in_placeNCNvB16_28async_hostcall_single_kernel0EB16__param_0];
+	mov.b64 	%rd2, anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_4;
+	cvta.global.u64 	%rd3, %rd2;
+	st.global.b64 	[_RNvCsaU7OcvMiU4k_19async_hostcall_test11SINGLE_TASK+48], %rd3;
+	st.global.b64 	[_RNvCsaU7OcvMiU4k_19async_hostcall_test11SINGLE_TASK+56], 21;
+	st.global.b64 	[_RNvCsaU7OcvMiU4k_19async_hostcall_test11SINGLE_TASK+64], %rd1;
+	st.global.b16 	[_RNvCsaU7OcvMiU4k_19async_hostcall_test11SINGLE_TASK+72], -1;
+	st.global.b8 	[_RNvCsaU7OcvMiU4k_19async_hostcall_test11SINGLE_TASK+74], 0;
+	ret;
+
+}
+.func _RINvMNtNtCsdwh7N5MnlkE_16embassy_executor3raw4utilINtB3_10UninitCellNtCsaU7OcvMiU4k_19async_hostcall_test20HostcallPrintFutureBE14write_in_placeNCNvB16_25async_hostcall_two_kernels_0EB16_(
+	.param .b64 _RINvMNtNtCsdwh7N5MnlkE_16embassy_executor3raw4utilINtB3_10UninitCellNtCsaU7OcvMiU4k_19async_hostcall_test20HostcallPrintFutureBE14write_in_placeNCNvB16_25async_hostcall_two_kernels_0EB16__param_0
+)
+{
+	.reg .b64 	%rd<4>;
+
+	ld.param.b64 	%rd1, [_RINvMNtNtCsdwh7N5MnlkE_16embassy_executor3raw4utilINtB3_10UninitCellNtCsaU7OcvMiU4k_19async_hostcall_test20HostcallPrintFutureBE14write_in_placeNCNvB16_25async_hostcall_two_kernels_0EB16__param_0];
+	mov.b64 	%rd2, anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_3;
+	cvta.global.u64 	%rd3, %rd2;
+	st.global.b64 	[_RNvCsaU7OcvMiU4k_19async_hostcall_test6TASK_B+48], %rd3;
+	st.global.b64 	[_RNvCsaU7OcvMiU4k_19async_hostcall_test6TASK_B+56], 22;
+	st.global.b64 	[_RNvCsaU7OcvMiU4k_19async_hostcall_test6TASK_B+64], %rd1;
+	st.global.b16 	[_RNvCsaU7OcvMiU4k_19async_hostcall_test6TASK_B+72], -1;
+	st.global.b8 	[_RNvCsaU7OcvMiU4k_19async_hostcall_test6TASK_B+74], 0;
+	ret;
+
+}
+.func _RNvMs1_NtCsdwh7N5MnlkE_16embassy_executor3rawINtB5_11TaskStorageINtNtNtCs2jK5DEHBoFM_12futures_util6future4join4JoinNtCsaU7OcvMiU4k_19async_hostcall_test19HostcallPrintFutureNtB1S_20HostcallPrintFutureBEE4pollB1S_(
+	.param .b64 _RNvMs1_NtCsdwh7N5MnlkE_16embassy_executor3rawINtB5_11TaskStorageINtNtNtCs2jK5DEHBoFM_12futures_util6future4join4JoinNtCsaU7OcvMiU4k_19async_hostcall_test19HostcallPrintFutureNtB1S_20HostcallPrintFutureBEE4pollB1S__param_0
+)
+{
+	.reg .pred 	%p<56>;
+	.reg .b16 	%rs<29>;
+	.reg .b32 	%r<41>;
+	.reg .b64 	%rd<123>;
+
+	ld.param.b64 	%rd37, [_RNvMs1_NtCsdwh7N5MnlkE_16embassy_executor3rawINtB5_11TaskStorageINtNtNtCs2jK5DEHBoFM_12futures_util6future4join4JoinNtCsaU7OcvMiU4k_19async_hostcall_test19HostcallPrintFutureNtB1S_20HostcallPrintFutureBEE4pollB1S__param_0];
+	ld.b8 	%rs25, [%rd37+74];
+	setp.gt.u16 	%p2, %rs25, 2;
+	cvt.u64.u16 	%rd39, %rs25;
+	add.s64 	%rd40, %rd39, -2;
+	selp.b64 	%rd38, %rd40, 0, %p2;
+	mov.pred 	%p1, 0;
+	setp.eq.b64 	%p3, %rd38, 0;
+	@%p3 bra 	$L__BB6_3;
+	setp.eq.b64 	%p4, %rd38, 1;
+	mov.pred 	%p54, %p1;
+	@%p4 bra 	$L__BB6_33;
+	{ // callseq 0, 0
+	.param .b64 	param0;
+	.param .b64 	param1;
+	.param .b64 	param2;
+	mov.b64 	%rd41, anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_9;
+	cvta.global.u64 	%rd42, %rd41;
+	st.param.b64 	[param2], %rd42;
+	mov.b64 	%rd43, anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_8;
+	cvta.global.u64 	%rd44, %rd43;
+	st.param.b64 	[param0], %rd44;
+	st.param.b64 	[param1], 34;
+	call.uni _RNvNtCs9yDKPPKA7vZ_4core9panicking5panic, (param0, param1, param2);
+	} // callseq 0
+	// begin inline asm
+	exit;
+	// end inline asm
+	trap; exit;
+$L__BB6_3:
+	setp.eq.b16 	%p5, %rs25, 0;
+	@%p5 bra 	$L__BB6_9;
+	mov.b16 	%rs26, 0;
+	mov.b16 	%rs3, 2;
+	setp.eq.b16 	%p6, %rs25, 1;
+	mov.b16 	%rs25, %rs3;
+	@%p6 bra 	$L__BB6_5;
+	bra.uni 	$L__BB6_31;
+$L__BB6_5:
+	ld.b64 	%rd2, [%rd37+64];
+	ld.b16 	%rs4, [%rd37+72];
+	cvt.u32.u16 	%r6, %rs4;
+	mul.wide.u32 	%rd46, %r6, 2112;
+	add.s64 	%rd4, %rd2, %rd46;
+	add.s64 	%rd45, %rd4, 80;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r5, [%rd45];
+	// end inline asm
+	and.b32 	%r7, %r5, 1;
+	setp.ne.b32 	%p7, %r7, 0;
+	not.pred 	%p8, %p7;
+	@%p8 bra 	$L__BB6_28;
+	bra.uni 	$L__BB6_6;
+$L__BB6_28:
+	atom.or.b32 	%r9, [%rd37+40], 2;
+	and.b32 	%r10, %r9, 2;
+	setp.ne.b32 	%p11, %r10, 0;
+	mov.b16 	%rs26, 2;
+	mov.b16 	%rs25, 1;
+	@%p11 bra 	$L__BB6_31;
+	ld.relaxed.sys.b64 	%rd16, [%rd37+24];
+	fence.sc.sys;
+	ld.acquire.sys.b64 	%rd115, [%rd16];
+$L__BB6_30:
+	st.b64 	[%rd37+16], %rd115;
+	fence.sc.sys;
+	atom.acquire.sys.cas.b64 	%rd17, [%rd16], %rd115, %rd37;
+	setp.eq.b64 	%p12, %rd17, %rd115;
+	mov.b64 	%rd115, %rd17;
+	@%p12 bra 	$L__BB6_31;
+	bra.uni 	$L__BB6_30;
+$L__BB6_9:
+	ld.b64 	%rd1, [%rd37+64];
+$L__BB6_10:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd52, [%rd1];
+	// end inline asm
+	cvt.u16.u64 	%rs1, %rd52;
+	setp.eq.b16 	%p13, %rs1, -1;
+	@%p13 bra 	$L__BB6_15;
+	and.b64 	%rd5, %rd52, 65535;
+	mad.lo.s64 	%rd6, %rd5, 2112, %rd1;
+	ld.volatile.b64 	%rd53, [%rd6+64];
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd51, [%rd1], %rd52, %rd53;
+	// end inline asm
+	setp.eq.b64 	%p14, %rd51, %rd52;
+	@%p14 bra 	$L__BB6_12;
+	bra.uni 	$L__BB6_10;
+$L__BB6_12:
+	st.b16 	[%rd37+72], %rs1;
+	// begin inline asm
+	activemask.b32 %r11;
+	// end inline asm
+	st.volatile.b32 	[%rd6+72], %r11;
+	st.volatile.b32 	[%rd6+76], 1;
+	add.s64 	%rd54, %rd6, 80;
+	mov.b32 	%r12, 0;
+	// begin inline asm
+	st.release.sys.global.u32 [%rd54], %r12;
+	// end inline asm
+	ld.b64 	%rd55, [%rd37+56];
+	and.b64 	%rd56, %rd55, 4294967295;
+	cvt.u32.u64 	%r1, %rd55;
+	st.volatile.b64 	[%rd6+96], %rd56;
+	setp.eq.b32 	%p15, %r1, 0;
+	@%p15 bra 	$L__BB6_21;
+	min.u32 	%r2, %r1, 56;
+	ld.b64 	%rd9, [%rd37+48];
+	and.b32 	%r38, %r2, 7;
+	setp.gt.u32 	%p16, %r1, 7;
+	cvt.u32.u16 	%r36, %rs1;
+	@%p16 bra 	$L__BB6_26;
+	mul.wide.u32 	%rd110, %r36, 2112;
+	mov.b32 	%r37, 0;
+	bra.uni 	$L__BB6_19;
+$L__BB6_15:
+	atom.or.b32 	%r17, [%rd37+40], 2;
+	and.b32 	%r18, %r17, 2;
+	setp.ne.b32 	%p23, %r18, 0;
+	mov.b16 	%rs26, 2;
+	mov.b16 	%rs25, 0;
+	@%p23 bra 	$L__BB6_31;
+	ld.relaxed.sys.b64 	%rd7, [%rd37+24];
+	fence.sc.sys;
+	ld.acquire.sys.b64 	%rd109, [%rd7];
+$L__BB6_17:
+	st.b64 	[%rd37+16], %rd109;
+	fence.sc.sys;
+	atom.acquire.sys.cas.b64 	%rd8, [%rd7], %rd109, %rd37;
+	setp.eq.b64 	%p24, %rd8, %rd109;
+	mov.b64 	%rd109, %rd8;
+	@%p24 bra 	$L__BB6_31;
+	bra.uni 	$L__BB6_17;
+$L__BB6_6:
+	cvt.u64.u16 	%rd3, %rs4;
+	or.b64 	%rd18, %rd3, 4294967296;
+$L__BB6_7:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd48, [%rd2];
+	// end inline asm
+	st.volatile.b64 	[%rd4+64], %rd48;
+	and.b64 	%rd50, %rd48, -4294967296;
+	add.s64 	%rd49, %rd18, %rd50;
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd47, [%rd2], %rd48, %rd49;
+	// end inline asm
+	setp.ne.b64 	%p9, %rd47, %rd48;
+	@%p9 bra 	$L__BB6_7;
+	and.b32 	%r8, %r5, 2;
+	setp.eq.b32 	%p10, %r8, 0;
+	st.b8 	[%rd37+74], 2;
+	selp.b16 	%rs26, 1, 0, %p10;
+	mov.b16 	%rs25, %rs3;
+	bra.uni 	$L__BB6_31;
+$L__BB6_26:
+	cvt.u64.u32 	%rd57, %r1;
+	min.u64 	%rd58, %rd57, 56;
+	and.b64 	%rd10, %rd58, 56;
+	add.s64 	%rd11, %rd9, 3;
+	mul.wide.u32 	%rd110, %r36, 2112;
+	add.s64 	%rd59, %rd1, %rd110;
+	add.s64 	%rd12, %rd59, 111;
+	mov.b64 	%rd114, 0;
+	cvt.u32.u64 	%r13, %rd10;
+$L__BB6_27:
+	add.s64 	%rd60, %rd12, %rd114;
+	add.s64 	%rd61, %rd11, %rd114;
+	ld.b8 	%rs5, [%rd61+-3];
+	st.volatile.b8 	[%rd60+-7], %rs5;
+	ld.b8 	%rs6, [%rd61+-2];
+	st.volatile.b8 	[%rd60+-6], %rs6;
+	ld.b8 	%rs7, [%rd61+-1];
+	st.volatile.b8 	[%rd60+-5], %rs7;
+	ld.b8 	%rs8, [%rd61];
+	st.volatile.b8 	[%rd60+-4], %rs8;
+	ld.b8 	%rs9, [%rd61+1];
+	st.volatile.b8 	[%rd60+-3], %rs9;
+	ld.b8 	%rs10, [%rd61+2];
+	st.volatile.b8 	[%rd60+-2], %rs10;
+	ld.b8 	%rs11, [%rd61+3];
+	st.volatile.b8 	[%rd60+-1], %rs11;
+	ld.b8 	%rs12, [%rd61+4];
+	st.volatile.b8 	[%rd60], %rs12;
+	add.s64 	%rd114, %rd114, 8;
+	cvt.u32.u64 	%r37, %rd114;
+	setp.eq.b32 	%p17, %r13, %r37;
+	@%p17 bra 	$L__BB6_18;
+	bra.uni 	$L__BB6_27;
+$L__BB6_18:
+	setp.eq.b32 	%p18, %r38, 0;
+	@%p18 bra 	$L__BB6_21;
+$L__BB6_19:
+	cvt.u64.u32 	%rd62, %r37;
+	add.s64 	%rd63, %rd62, %rd1;
+	add.s64 	%rd64, %rd63, %rd110;
+	add.s64 	%rd112, %rd64, 104;
+	add.s64 	%rd111, %rd9, %rd62;
+$L__BB6_20:
+	.pragma "nounroll";
+	ld.b8 	%rs13, [%rd111];
+	st.volatile.b8 	[%rd112], %rs13;
+	add.s64 	%rd112, %rd112, 1;
+	add.s64 	%rd111, %rd111, 1;
+	add.s32 	%r38, %r38, -1;
+	setp.ne.b32 	%p19, %r38, 0;
+	@%p19 bra 	$L__BB6_20;
+$L__BB6_21:
+	mov.b32 	%r14, 4;
+	// begin inline asm
+	st.release.sys.global.u32 [%rd54], %r14;
+	// end inline asm
+	add.s64 	%rd65, %rd1, 8;
+	or.b64 	%rd13, %rd5, 4294967296;
+$L__BB6_22:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd67, [%rd65];
+	// end inline asm
+	st.volatile.b64 	[%rd6+64], %rd67;
+	and.b64 	%rd69, %rd67, -4294967296;
+	add.s64 	%rd68, %rd13, %rd69;
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd66, [%rd65], %rd67, %rd68;
+	// end inline asm
+	setp.ne.b64 	%p20, %rd66, %rd67;
+	@%p20 bra 	$L__BB6_22;
+	add.s64 	%rd71, %rd1, 16;
+	mov.b64 	%rd72, 1;
+	// begin inline asm
+	atom.add.sys.global.u64 %rd70, [%rd71], %rd72;
+	// end inline asm
+	st.b8 	[%rd37+74], 1;
+	atom.or.b32 	%r15, [%rd37+40], 2;
+	and.b32 	%r16, %r15, 2;
+	setp.ne.b32 	%p21, %r16, 0;
+	mov.b16 	%rs26, 2;
+	mov.b16 	%rs25, 1;
+	@%p21 bra 	$L__BB6_31;
+	ld.relaxed.sys.b64 	%rd14, [%rd37+24];
+	fence.sc.sys;
+	ld.acquire.sys.b64 	%rd113, [%rd14];
+$L__BB6_25:
+	st.b64 	[%rd37+16], %rd113;
+	fence.sc.sys;
+	atom.acquire.sys.cas.b64 	%rd15, [%rd14], %rd113, %rd37;
+	setp.eq.b64 	%p22, %rd15, %rd113;
+	mov.b64 	%rd113, %rd15;
+	@%p22 bra 	$L__BB6_31;
+	bra.uni 	$L__BB6_25;
+$L__BB6_31:
+	setp.eq.b16 	%p25, %rs26, 2;
+	mov.pred 	%p54, -1;
+	@%p25 bra 	$L__BB6_33;
+	st.b8 	[%rd37+48], %rs26;
+	st.b8 	[%rd37+74], 3;
+	mov.b16 	%rs25, 3;
+	mov.pred 	%p54, %p1;
+$L__BB6_33:
+	ld.b8 	%rs27, [%rd37+106];
+	setp.gt.u16 	%p27, %rs27, 2;
+	cvt.u64.u16 	%rd74, %rs27;
+	add.s64 	%rd75, %rd74, -2;
+	selp.b64 	%rd73, %rd75, 0, %p27;
+	mov.pred 	%p26, 0;
+	setp.eq.b64 	%p28, %rd73, 0;
+	@%p28 bra 	$L__BB6_36;
+	setp.eq.b64 	%p29, %rd73, 1;
+	mov.pred 	%p55, %p26;
+	@%p29 bra 	$L__BB6_66;
+	{ // callseq 1, 0
+	.param .b64 	param0;
+	.param .b64 	param1;
+	.param .b64 	param2;
+	mov.b64 	%rd76, anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_9;
+	cvta.global.u64 	%rd77, %rd76;
+	st.param.b64 	[param2], %rd77;
+	mov.b64 	%rd78, anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_8;
+	cvta.global.u64 	%rd79, %rd78;
+	st.param.b64 	[param0], %rd79;
+	st.param.b64 	[param1], 34;
+	call.uni _RNvNtCs9yDKPPKA7vZ_4core9panicking5panic, (param0, param1, param2);
+	} // callseq 1
+	// begin inline asm
+	exit;
+	// end inline asm
+	trap; exit;
+$L__BB6_36:
+	setp.eq.b16 	%p30, %rs27, 0;
+	@%p30 bra 	$L__BB6_42;
+	mov.b16 	%rs28, 0;
+	mov.b16 	%rs14, 2;
+	setp.eq.b16 	%p31, %rs27, 1;
+	mov.b16 	%rs27, %rs14;
+	@%p31 bra 	$L__BB6_38;
+	bra.uni 	$L__BB6_64;
+$L__BB6_38:
+	ld.b64 	%rd20, [%rd37+96];
+	ld.b16 	%rs15, [%rd37+104];
+	cvt.u32.u16 	%r20, %rs15;
+	mul.wide.u32 	%rd81, %r20, 2112;
+	add.s64 	%rd22, %rd20, %rd81;
+	add.s64 	%rd80, %rd22, 80;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r19, [%rd80];
+	// end inline asm
+	and.b32 	%r21, %r19, 1;
+	setp.ne.b32 	%p32, %r21, 0;
+	not.pred 	%p33, %p32;
+	@%p33 bra 	$L__BB6_61;
+	bra.uni 	$L__BB6_39;
+$L__BB6_61:
+	atom.or.b32 	%r23, [%rd37+40], 2;
+	and.b32 	%r24, %r23, 2;
+	setp.ne.b32 	%p36, %r24, 0;
+	mov.b16 	%rs28, 2;
+	mov.b16 	%rs27, 1;
+	@%p36 bra 	$L__BB6_64;
+	ld.relaxed.sys.b64 	%rd34, [%rd37+24];
+	fence.sc.sys;
+	ld.acquire.sys.b64 	%rd122, [%rd34];
+$L__BB6_63:
+	st.b64 	[%rd37+16], %rd122;
+	fence.sc.sys;
+	atom.acquire.sys.cas.b64 	%rd35, [%rd34], %rd122, %rd37;
+	setp.eq.b64 	%p37, %rd35, %rd122;
+	mov.b64 	%rd122, %rd35;
+	@%p37 bra 	$L__BB6_64;
+	bra.uni 	$L__BB6_63;
+$L__BB6_42:
+	ld.b64 	%rd19, [%rd37+96];
+$L__BB6_43:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd87, [%rd19];
+	// end inline asm
+	cvt.u16.u64 	%rs2, %rd87;
+	setp.eq.b16 	%p38, %rs2, -1;
+	@%p38 bra 	$L__BB6_48;
+	and.b64 	%rd23, %rd87, 65535;
+	mad.lo.s64 	%rd24, %rd23, 2112, %rd19;
+	ld.volatile.b64 	%rd88, [%rd24+64];
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd86, [%rd19], %rd87, %rd88;
+	// end inline asm
+	setp.eq.b64 	%p39, %rd86, %rd87;
+	@%p39 bra 	$L__BB6_45;
+	bra.uni 	$L__BB6_43;
+$L__BB6_45:
+	st.b16 	[%rd37+104], %rs2;
+	// begin inline asm
+	activemask.b32 %r25;
+	// end inline asm
+	st.volatile.b32 	[%rd24+72], %r25;
+	st.volatile.b32 	[%rd24+76], 1;
+	add.s64 	%rd89, %rd24, 80;
+	mov.b32 	%r26, 0;
+	// begin inline asm
+	st.release.sys.global.u32 [%rd89], %r26;
+	// end inline asm
+	ld.b64 	%rd90, [%rd37+88];
+	and.b64 	%rd91, %rd90, 4294967295;
+	cvt.u32.u64 	%r3, %rd90;
+	st.volatile.b64 	[%rd24+96], %rd91;
+	setp.eq.b32 	%p40, %r3, 0;
+	@%p40 bra 	$L__BB6_54;
+	min.u32 	%r4, %r3, 56;
+	ld.b64 	%rd27, [%rd37+80];
+	and.b32 	%r40, %r4, 7;
+	setp.gt.u32 	%p41, %r3, 7;
+	@%p41 bra 	$L__BB6_59;
+	cvt.u32.u16 	%r29, %rs2;
+	mul.wide.u32 	%rd117, %r29, 2112;
+	mov.b32 	%r39, 0;
+	bra.uni 	$L__BB6_52;
+$L__BB6_48:
+	atom.or.b32 	%r33, [%rd37+40], 2;
+	and.b32 	%r34, %r33, 2;
+	setp.ne.b32 	%p48, %r34, 0;
+	mov.b16 	%rs28, 2;
+	mov.b16 	%rs27, 0;
+	@%p48 bra 	$L__BB6_64;
+	ld.relaxed.sys.b64 	%rd25, [%rd37+24];
+	fence.sc.sys;
+	ld.acquire.sys.b64 	%rd116, [%rd25];
+$L__BB6_50:
+	st.b64 	[%rd37+16], %rd116;
+	fence.sc.sys;
+	atom.acquire.sys.cas.b64 	%rd26, [%rd25], %rd116, %rd37;
+	setp.eq.b64 	%p49, %rd26, %rd116;
+	mov.b64 	%rd116, %rd26;
+	@%p49 bra 	$L__BB6_64;
+	bra.uni 	$L__BB6_50;
+$L__BB6_39:
+	cvt.u64.u16 	%rd21, %rs15;
+	or.b64 	%rd36, %rd21, 4294967296;
+$L__BB6_40:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd83, [%rd20];
+	// end inline asm
+	st.volatile.b64 	[%rd22+64], %rd83;
+	and.b64 	%rd85, %rd83, -4294967296;
+	add.s64 	%rd84, %rd36, %rd85;
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd82, [%rd20], %rd83, %rd84;
+	// end inline asm
+	setp.ne.b64 	%p34, %rd82, %rd83;
+	@%p34 bra 	$L__BB6_40;
+	and.b32 	%r22, %r19, 2;
+	setp.eq.b32 	%p35, %r22, 0;
+	st.b8 	[%rd37+106], 2;
+	selp.b16 	%rs28, 1, 0, %p35;
+	mov.b16 	%rs27, %rs14;
+	bra.uni 	$L__BB6_64;
+$L__BB6_59:
+	cvt.u64.u32 	%rd92, %r3;
+	min.u64 	%rd93, %rd92, 56;
+	and.b64 	%rd28, %rd93, 56;
+	add.s64 	%rd29, %rd27, 3;
+	cvt.u32.u16 	%r27, %rs2;
+	mul.wide.u32 	%rd117, %r27, 2112;
+	add.s64 	%rd94, %rd19, %rd117;
+	add.s64 	%rd30, %rd94, 111;
+	mov.b64 	%rd121, 0;
+	cvt.u32.u64 	%r28, %rd28;
+$L__BB6_60:
+	add.s64 	%rd95, %rd30, %rd121;
+	add.s64 	%rd96, %rd29, %rd121;
+	ld.b8 	%rs16, [%rd96+-3];
+	st.volatile.b8 	[%rd95+-7], %rs16;
+	ld.b8 	%rs17, [%rd96+-2];
+	st.volatile.b8 	[%rd95+-6], %rs17;
+	ld.b8 	%rs18, [%rd96+-1];
+	st.volatile.b8 	[%rd95+-5], %rs18;
+	ld.b8 	%rs19, [%rd96];
+	st.volatile.b8 	[%rd95+-4], %rs19;
+	ld.b8 	%rs20, [%rd96+1];
+	st.volatile.b8 	[%rd95+-3], %rs20;
+	ld.b8 	%rs21, [%rd96+2];
+	st.volatile.b8 	[%rd95+-2], %rs21;
+	ld.b8 	%rs22, [%rd96+3];
+	st.volatile.b8 	[%rd95+-1], %rs22;
+	ld.b8 	%rs23, [%rd96+4];
+	st.volatile.b8 	[%rd95], %rs23;
+	add.s64 	%rd121, %rd121, 8;
+	cvt.u32.u64 	%r39, %rd121;
+	setp.eq.b32 	%p42, %r28, %r39;
+	@%p42 bra 	$L__BB6_51;
+	bra.uni 	$L__BB6_60;
+$L__BB6_51:
+	setp.eq.b32 	%p43, %r40, 0;
+	@%p43 bra 	$L__BB6_54;
+$L__BB6_52:
+	cvt.u64.u32 	%rd97, %r39;
+	add.s64 	%rd98, %rd97, %rd19;
+	add.s64 	%rd99, %rd98, %rd117;
+	add.s64 	%rd119, %rd99, 104;
+	add.s64 	%rd118, %rd27, %rd97;
+$L__BB6_53:
+	.pragma "nounroll";
+	ld.b8 	%rs24, [%rd118];
+	st.volatile.b8 	[%rd119], %rs24;
+	add.s64 	%rd119, %rd119, 1;
+	add.s64 	%rd118, %rd118, 1;
+	add.s32 	%r40, %r40, -1;
+	setp.ne.b32 	%p44, %r40, 0;
+	@%p44 bra 	$L__BB6_53;
+$L__BB6_54:
+	mov.b32 	%r30, 4;
+	// begin inline asm
+	st.release.sys.global.u32 [%rd89], %r30;
+	// end inline asm
+	add.s64 	%rd100, %rd19, 8;
+	or.b64 	%rd31, %rd23, 4294967296;
+$L__BB6_55:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd102, [%rd100];
+	// end inline asm
+	st.volatile.b64 	[%rd24+64], %rd102;
+	and.b64 	%rd104, %rd102, -4294967296;
+	add.s64 	%rd103, %rd31, %rd104;
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd101, [%rd100], %rd102, %rd103;
+	// end inline asm
+	setp.ne.b64 	%p45, %rd101, %rd102;
+	@%p45 bra 	$L__BB6_55;
+	add.s64 	%rd106, %rd19, 16;
+	mov.b64 	%rd107, 1;
+	// begin inline asm
+	atom.add.sys.global.u64 %rd105, [%rd106], %rd107;
+	// end inline asm
+	st.b8 	[%rd37+106], 1;
+	atom.or.b32 	%r31, [%rd37+40], 2;
+	and.b32 	%r32, %r31, 2;
+	setp.ne.b32 	%p46, %r32, 0;
+	mov.b16 	%rs28, 2;
+	mov.b16 	%rs27, 1;
+	@%p46 bra 	$L__BB6_64;
+	ld.relaxed.sys.b64 	%rd32, [%rd37+24];
+	fence.sc.sys;
+	ld.acquire.sys.b64 	%rd120, [%rd32];
+$L__BB6_58:
+	st.b64 	[%rd37+16], %rd120;
+	fence.sc.sys;
+	atom.acquire.sys.cas.b64 	%rd33, [%rd32], %rd120, %rd37;
+	setp.eq.b64 	%p47, %rd33, %rd120;
+	mov.b64 	%rd120, %rd33;
+	@%p47 bra 	$L__BB6_64;
+	bra.uni 	$L__BB6_58;
+$L__BB6_64:
+	setp.eq.b16 	%p50, %rs28, 2;
+	mov.pred 	%p55, -1;
+	@%p50 bra 	$L__BB6_66;
+	st.b8 	[%rd37+80], %rs28;
+	st.b8 	[%rd37+106], 3;
+	mov.b16 	%rs27, 3;
+	mov.pred 	%p55, %p26;
+$L__BB6_66:
+	or.pred 	%p51, %p54, %p55;
+	@%p51 bra 	$L__BB6_70;
+	setp.ne.b16 	%p52, %rs25, 3;
+	@%p52 bra 	$L__BB6_71;
+	st.b8 	[%rd37+74], 4;
+	setp.ne.b16 	%p53, %rs27, 3;
+	@%p53 bra 	$L__BB6_72;
+	st.b8 	[%rd37+106], 4;
+	mov.b64 	%rd108, _RNvNtCsdwh7N5MnlkE_16embassy_executor3raw11poll_exited;
+	st.b64 	[%rd37+32], %rd108;
+	atom.and.b32 	%r35, [%rd37+40], -2;
+$L__BB6_70:
+	ret;
+$L__BB6_71:
+	{ // callseq 2, 0
+	call.uni _RNvNtCs9yDKPPKA7vZ_4core6option13unwrap_failed, ();
+	} // callseq 2
+	// begin inline asm
+	exit;
+	// end inline asm
+	trap; exit;
+$L__BB6_72:
+	{ // callseq 3, 0
+	call.uni _RNvNtCs9yDKPPKA7vZ_4core6option13unwrap_failed, ();
+	} // callseq 3
+	// begin inline asm
+	exit;
+	// end inline asm
+	trap; exit;
+
+}
+.func _RNvMs1_NtCsdwh7N5MnlkE_16embassy_executor3rawINtB5_11TaskStorageNtCsaU7OcvMiU4k_19async_hostcall_test19HostcallPrintFutureE4pollB12_(
+	.param .b64 _RNvMs1_NtCsdwh7N5MnlkE_16embassy_executor3rawINtB5_11TaskStorageNtCsaU7OcvMiU4k_19async_hostcall_test19HostcallPrintFutureE4pollB12__param_0
+)
+{
+	.reg .pred 	%p<20>;
+	.reg .b16 	%rs<13>;
+	.reg .b32 	%r<21>;
+	.reg .b64 	%rd<56>;
+
+	ld.param.b64 	%rd19, [_RNvMs1_NtCsdwh7N5MnlkE_16embassy_executor3rawINtB5_11TaskStorageNtCsaU7OcvMiU4k_19async_hostcall_test19HostcallPrintFutureE4pollB12__param_0];
+	ld.b8 	%rs2, [%rd19+74];
+	setp.eq.b16 	%p1, %rs2, 0;
+	@%p1 bra 	$L__BB7_7;
+	setp.eq.b16 	%p2, %rs2, 1;
+	@%p2 bra 	$L__BB7_2;
+	bra.uni 	$L__BB7_6;
+$L__BB7_2:
+	ld.b64 	%rd2, [%rd19+64];
+	ld.b16 	%rs3, [%rd19+72];
+	cvt.u32.u16 	%r4, %rs3;
+	mul.wide.u32 	%rd21, %r4, 2112;
+	add.s64 	%rd4, %rd2, %rd21;
+	add.s64 	%rd20, %rd4, 80;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r3, [%rd20];
+	// end inline asm
+	and.b32 	%r5, %r3, 1;
+	setp.ne.b32 	%p3, %r5, 0;
+	not.pred 	%p4, %p3;
+	@%p4 bra 	$L__BB7_26;
+	bra.uni 	$L__BB7_3;
+$L__BB7_26:
+	atom.or.b32 	%r7, [%rd19+40], 2;
+	and.b32 	%r8, %r7, 2;
+	setp.ne.b32 	%p6, %r8, 0;
+	@%p6 bra 	$L__BB7_29;
+	ld.relaxed.sys.b64 	%rd16, [%rd19+24];
+	fence.sc.sys;
+	ld.acquire.sys.b64 	%rd55, [%rd16];
+$L__BB7_28:
+	st.b64 	[%rd19+16], %rd55;
+	fence.sc.sys;
+	atom.acquire.sys.cas.b64 	%rd17, [%rd16], %rd55, %rd19;
+	setp.eq.b64 	%p7, %rd17, %rd55;
+	mov.b64 	%rd55, %rd17;
+	@%p7 bra 	$L__BB7_29;
+	bra.uni 	$L__BB7_28;
+$L__BB7_7:
+	ld.b64 	%rd1, [%rd19+64];
+$L__BB7_8:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd28, [%rd1];
+	// end inline asm
+	cvt.u16.u64 	%rs1, %rd28;
+	setp.eq.b16 	%p8, %rs1, -1;
+	@%p8 bra 	$L__BB7_13;
+	and.b64 	%rd5, %rd28, 65535;
+	mad.lo.s64 	%rd6, %rd5, 2112, %rd1;
+	ld.volatile.b64 	%rd29, [%rd6+64];
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd27, [%rd1], %rd28, %rd29;
+	// end inline asm
+	setp.eq.b64 	%p9, %rd27, %rd28;
+	@%p9 bra 	$L__BB7_10;
+	bra.uni 	$L__BB7_8;
+$L__BB7_10:
+	st.b16 	[%rd19+72], %rs1;
+	// begin inline asm
+	activemask.b32 %r9;
+	// end inline asm
+	st.volatile.b32 	[%rd6+72], %r9;
+	st.volatile.b32 	[%rd6+76], 1;
+	add.s64 	%rd30, %rd6, 80;
+	mov.b32 	%r10, 0;
+	// begin inline asm
+	st.release.sys.global.u32 [%rd30], %r10;
+	// end inline asm
+	ld.b64 	%rd31, [%rd19+56];
+	and.b64 	%rd32, %rd31, 4294967295;
+	cvt.u32.u64 	%r1, %rd31;
+	st.volatile.b64 	[%rd6+96], %rd32;
+	setp.eq.b32 	%p10, %r1, 0;
+	@%p10 bra 	$L__BB7_19;
+	min.u32 	%r2, %r1, 56;
+	ld.b64 	%rd9, [%rd19+48];
+	and.b32 	%r20, %r2, 7;
+	setp.gt.u32 	%p11, %r1, 7;
+	@%p11 bra 	$L__BB7_24;
+	cvt.u32.u16 	%r13, %rs1;
+	mul.wide.u32 	%rd50, %r13, 2112;
+	mov.b32 	%r19, 0;
+	bra.uni 	$L__BB7_17;
+$L__BB7_13:
+	atom.or.b32 	%r17, [%rd19+40], 2;
+	and.b32 	%r18, %r17, 2;
+	setp.ne.b32 	%p18, %r18, 0;
+	@%p18 bra 	$L__BB7_29;
+	ld.relaxed.sys.b64 	%rd7, [%rd19+24];
+	fence.sc.sys;
+	ld.acquire.sys.b64 	%rd49, [%rd7];
+$L__BB7_15:
+	st.b64 	[%rd19+16], %rd49;
+	fence.sc.sys;
+	atom.acquire.sys.cas.b64 	%rd8, [%rd7], %rd49, %rd19;
+	setp.eq.b64 	%p19, %rd8, %rd49;
+	mov.b64 	%rd49, %rd8;
+	@%p19 bra 	$L__BB7_29;
+	bra.uni 	$L__BB7_15;
+$L__BB7_3:
+	cvt.u64.u16 	%rd3, %rs3;
+	or.b64 	%rd18, %rd3, 4294967296;
+$L__BB7_4:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd23, [%rd2];
+	// end inline asm
+	st.volatile.b64 	[%rd4+64], %rd23;
+	and.b64 	%rd25, %rd23, -4294967296;
+	add.s64 	%rd24, %rd25, %rd18;
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd22, [%rd2], %rd23, %rd24;
+	// end inline asm
+	setp.ne.b64 	%p5, %rd22, %rd23;
+	@%p5 bra 	$L__BB7_4;
+	st.b8 	[%rd19+74], 2;
+$L__BB7_6:
+	mov.b64 	%rd26, _RNvNtCsdwh7N5MnlkE_16embassy_executor3raw11poll_exited;
+	st.b64 	[%rd19+32], %rd26;
+	atom.and.b32 	%r6, [%rd19+40], -2;
+$L__BB7_29:
+	ret;
+$L__BB7_24:
+	cvt.u64.u32 	%rd33, %r1;
+	min.u64 	%rd34, %rd33, 56;
+	and.b64 	%rd10, %rd34, 56;
+	add.s64 	%rd11, %rd9, 3;
+	cvt.u32.u16 	%r11, %rs1;
+	mul.wide.u32 	%rd50, %r11, 2112;
+	add.s64 	%rd35, %rd1, %rd50;
+	add.s64 	%rd12, %rd35, 111;
+	mov.b64 	%rd54, 0;
+	cvt.u32.u64 	%r12, %rd10;
+$L__BB7_25:
+	add.s64 	%rd36, %rd12, %rd54;
+	add.s64 	%rd37, %rd11, %rd54;
+	ld.b8 	%rs4, [%rd37+-3];
+	st.volatile.b8 	[%rd36+-7], %rs4;
+	ld.b8 	%rs5, [%rd37+-2];
+	st.volatile.b8 	[%rd36+-6], %rs5;
+	ld.b8 	%rs6, [%rd37+-1];
+	st.volatile.b8 	[%rd36+-5], %rs6;
+	ld.b8 	%rs7, [%rd37];
+	st.volatile.b8 	[%rd36+-4], %rs7;
+	ld.b8 	%rs8, [%rd37+1];
+	st.volatile.b8 	[%rd36+-3], %rs8;
+	ld.b8 	%rs9, [%rd37+2];
+	st.volatile.b8 	[%rd36+-2], %rs9;
+	ld.b8 	%rs10, [%rd37+3];
+	st.volatile.b8 	[%rd36+-1], %rs10;
+	ld.b8 	%rs11, [%rd37+4];
+	st.volatile.b8 	[%rd36], %rs11;
+	add.s64 	%rd54, %rd54, 8;
+	cvt.u32.u64 	%r19, %rd54;
+	setp.eq.b32 	%p12, %r12, %r19;
+	@%p12 bra 	$L__BB7_16;
+	bra.uni 	$L__BB7_25;
+$L__BB7_16:
+	setp.eq.b32 	%p13, %r20, 0;
+	@%p13 bra 	$L__BB7_19;
+$L__BB7_17:
+	cvt.u64.u32 	%rd38, %r19;
+	add.s64 	%rd39, %rd38, %rd1;
+	add.s64 	%rd40, %rd39, %rd50;
+	add.s64 	%rd52, %rd40, 104;
+	add.s64 	%rd51, %rd9, %rd38;
+$L__BB7_18:
+	.pragma "nounroll";
+	ld.b8 	%rs12, [%rd51];
+	st.volatile.b8 	[%rd52], %rs12;
+	add.s64 	%rd52, %rd52, 1;
+	add.s64 	%rd51, %rd51, 1;
+	add.s32 	%r20, %r20, -1;
+	setp.ne.b32 	%p14, %r20, 0;
+	@%p14 bra 	$L__BB7_18;
+$L__BB7_19:
+	mov.b32 	%r14, 4;
+	// begin inline asm
+	st.release.sys.global.u32 [%rd30], %r14;
+	// end inline asm
+	add.s64 	%rd41, %rd1, 8;
+	or.b64 	%rd13, %rd5, 4294967296;
+$L__BB7_20:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd43, [%rd41];
+	// end inline asm
+	st.volatile.b64 	[%rd6+64], %rd43;
+	and.b64 	%rd45, %rd43, -4294967296;
+	add.s64 	%rd44, %rd45, %rd13;
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd42, [%rd41], %rd43, %rd44;
+	// end inline asm
+	setp.ne.b64 	%p15, %rd42, %rd43;
+	@%p15 bra 	$L__BB7_20;
+	add.s64 	%rd47, %rd1, 16;
+	mov.b64 	%rd48, 1;
+	// begin inline asm
+	atom.add.sys.global.u64 %rd46, [%rd47], %rd48;
+	// end inline asm
+	st.b8 	[%rd19+74], 1;
+	atom.or.b32 	%r15, [%rd19+40], 2;
+	and.b32 	%r16, %r15, 2;
+	setp.ne.b32 	%p16, %r16, 0;
+	@%p16 bra 	$L__BB7_29;
+	ld.relaxed.sys.b64 	%rd14, [%rd19+24];
+	fence.sc.sys;
+	ld.acquire.sys.b64 	%rd53, [%rd14];
+$L__BB7_23:
+	st.b64 	[%rd19+16], %rd53;
+	fence.sc.sys;
+	atom.acquire.sys.cas.b64 	%rd15, [%rd14], %rd53, %rd19;
+	setp.eq.b64 	%p17, %rd15, %rd53;
+	mov.b64 	%rd53, %rd15;
+	@%p17 bra 	$L__BB7_29;
+	bra.uni 	$L__BB7_23;
+
+}
+.func _RNvMs1_NtCsdwh7N5MnlkE_16embassy_executor3rawINtB5_11TaskStorageNtCsaU7OcvMiU4k_19async_hostcall_test20HostcallPrintFutureBE4pollB12_(
+	.param .b64 _RNvMs1_NtCsdwh7N5MnlkE_16embassy_executor3rawINtB5_11TaskStorageNtCsaU7OcvMiU4k_19async_hostcall_test20HostcallPrintFutureBE4pollB12__param_0
+)
+{
+	.reg .pred 	%p<20>;
+	.reg .b16 	%rs<13>;
+	.reg .b32 	%r<21>;
+	.reg .b64 	%rd<56>;
+
+	ld.param.b64 	%rd19, [_RNvMs1_NtCsdwh7N5MnlkE_16embassy_executor3rawINtB5_11TaskStorageNtCsaU7OcvMiU4k_19async_hostcall_test20HostcallPrintFutureBE4pollB12__param_0];
+	ld.b8 	%rs2, [%rd19+74];
+	setp.eq.b16 	%p1, %rs2, 0;
+	@%p1 bra 	$L__BB8_7;
+	setp.eq.b16 	%p2, %rs2, 1;
+	@%p2 bra 	$L__BB8_2;
+	bra.uni 	$L__BB8_6;
+$L__BB8_2:
+	ld.b64 	%rd2, [%rd19+64];
+	ld.b16 	%rs3, [%rd19+72];
+	cvt.u32.u16 	%r4, %rs3;
+	mul.wide.u32 	%rd21, %r4, 2112;
+	add.s64 	%rd4, %rd2, %rd21;
+	add.s64 	%rd20, %rd4, 80;
+	// begin inline asm
+	ld.acquire.sys.global.u32 %r3, [%rd20];
+	// end inline asm
+	and.b32 	%r5, %r3, 1;
+	setp.ne.b32 	%p3, %r5, 0;
+	not.pred 	%p4, %p3;
+	@%p4 bra 	$L__BB8_26;
+	bra.uni 	$L__BB8_3;
+$L__BB8_26:
+	atom.or.b32 	%r7, [%rd19+40], 2;
+	and.b32 	%r8, %r7, 2;
+	setp.ne.b32 	%p6, %r8, 0;
+	@%p6 bra 	$L__BB8_29;
+	ld.relaxed.sys.b64 	%rd16, [%rd19+24];
+	fence.sc.sys;
+	ld.acquire.sys.b64 	%rd55, [%rd16];
+$L__BB8_28:
+	st.b64 	[%rd19+16], %rd55;
+	fence.sc.sys;
+	atom.acquire.sys.cas.b64 	%rd17, [%rd16], %rd55, %rd19;
+	setp.eq.b64 	%p7, %rd17, %rd55;
+	mov.b64 	%rd55, %rd17;
+	@%p7 bra 	$L__BB8_29;
+	bra.uni 	$L__BB8_28;
+$L__BB8_7:
+	ld.b64 	%rd1, [%rd19+64];
+$L__BB8_8:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd28, [%rd1];
+	// end inline asm
+	cvt.u16.u64 	%rs1, %rd28;
+	setp.eq.b16 	%p8, %rs1, -1;
+	@%p8 bra 	$L__BB8_13;
+	and.b64 	%rd5, %rd28, 65535;
+	mad.lo.s64 	%rd6, %rd5, 2112, %rd1;
+	ld.volatile.b64 	%rd29, [%rd6+64];
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd27, [%rd1], %rd28, %rd29;
+	// end inline asm
+	setp.eq.b64 	%p9, %rd27, %rd28;
+	@%p9 bra 	$L__BB8_10;
+	bra.uni 	$L__BB8_8;
+$L__BB8_10:
+	st.b16 	[%rd19+72], %rs1;
+	// begin inline asm
+	activemask.b32 %r9;
+	// end inline asm
+	st.volatile.b32 	[%rd6+72], %r9;
+	st.volatile.b32 	[%rd6+76], 1;
+	add.s64 	%rd30, %rd6, 80;
+	mov.b32 	%r10, 0;
+	// begin inline asm
+	st.release.sys.global.u32 [%rd30], %r10;
+	// end inline asm
+	ld.b64 	%rd31, [%rd19+56];
+	and.b64 	%rd32, %rd31, 4294967295;
+	cvt.u32.u64 	%r1, %rd31;
+	st.volatile.b64 	[%rd6+96], %rd32;
+	setp.eq.b32 	%p10, %r1, 0;
+	@%p10 bra 	$L__BB8_19;
+	min.u32 	%r2, %r1, 56;
+	ld.b64 	%rd9, [%rd19+48];
+	and.b32 	%r20, %r2, 7;
+	setp.gt.u32 	%p11, %r1, 7;
+	@%p11 bra 	$L__BB8_24;
+	cvt.u32.u16 	%r13, %rs1;
+	mul.wide.u32 	%rd50, %r13, 2112;
+	mov.b32 	%r19, 0;
+	bra.uni 	$L__BB8_17;
+$L__BB8_13:
+	atom.or.b32 	%r17, [%rd19+40], 2;
+	and.b32 	%r18, %r17, 2;
+	setp.ne.b32 	%p18, %r18, 0;
+	@%p18 bra 	$L__BB8_29;
+	ld.relaxed.sys.b64 	%rd7, [%rd19+24];
+	fence.sc.sys;
+	ld.acquire.sys.b64 	%rd49, [%rd7];
+$L__BB8_15:
+	st.b64 	[%rd19+16], %rd49;
+	fence.sc.sys;
+	atom.acquire.sys.cas.b64 	%rd8, [%rd7], %rd49, %rd19;
+	setp.eq.b64 	%p19, %rd8, %rd49;
+	mov.b64 	%rd49, %rd8;
+	@%p19 bra 	$L__BB8_29;
+	bra.uni 	$L__BB8_15;
+$L__BB8_3:
+	cvt.u64.u16 	%rd3, %rs3;
+	or.b64 	%rd18, %rd3, 4294967296;
+$L__BB8_4:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd23, [%rd2];
+	// end inline asm
+	st.volatile.b64 	[%rd4+64], %rd23;
+	and.b64 	%rd25, %rd23, -4294967296;
+	add.s64 	%rd24, %rd25, %rd18;
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd22, [%rd2], %rd23, %rd24;
+	// end inline asm
+	setp.ne.b64 	%p5, %rd22, %rd23;
+	@%p5 bra 	$L__BB8_4;
+	st.b8 	[%rd19+74], 2;
+$L__BB8_6:
+	mov.b64 	%rd26, _RNvNtCsdwh7N5MnlkE_16embassy_executor3raw11poll_exited;
+	st.b64 	[%rd19+32], %rd26;
+	atom.and.b32 	%r6, [%rd19+40], -2;
+$L__BB8_29:
+	ret;
+$L__BB8_24:
+	cvt.u64.u32 	%rd33, %r1;
+	min.u64 	%rd34, %rd33, 56;
+	and.b64 	%rd10, %rd34, 56;
+	add.s64 	%rd11, %rd9, 3;
+	cvt.u32.u16 	%r11, %rs1;
+	mul.wide.u32 	%rd50, %r11, 2112;
+	add.s64 	%rd35, %rd1, %rd50;
+	add.s64 	%rd12, %rd35, 111;
+	mov.b64 	%rd54, 0;
+	cvt.u32.u64 	%r12, %rd10;
+$L__BB8_25:
+	add.s64 	%rd36, %rd12, %rd54;
+	add.s64 	%rd37, %rd11, %rd54;
+	ld.b8 	%rs4, [%rd37+-3];
+	st.volatile.b8 	[%rd36+-7], %rs4;
+	ld.b8 	%rs5, [%rd37+-2];
+	st.volatile.b8 	[%rd36+-6], %rs5;
+	ld.b8 	%rs6, [%rd37+-1];
+	st.volatile.b8 	[%rd36+-5], %rs6;
+	ld.b8 	%rs7, [%rd37];
+	st.volatile.b8 	[%rd36+-4], %rs7;
+	ld.b8 	%rs8, [%rd37+1];
+	st.volatile.b8 	[%rd36+-3], %rs8;
+	ld.b8 	%rs9, [%rd37+2];
+	st.volatile.b8 	[%rd36+-2], %rs9;
+	ld.b8 	%rs10, [%rd37+3];
+	st.volatile.b8 	[%rd36+-1], %rs10;
+	ld.b8 	%rs11, [%rd37+4];
+	st.volatile.b8 	[%rd36], %rs11;
+	add.s64 	%rd54, %rd54, 8;
+	cvt.u32.u64 	%r19, %rd54;
+	setp.eq.b32 	%p12, %r12, %r19;
+	@%p12 bra 	$L__BB8_16;
+	bra.uni 	$L__BB8_25;
+$L__BB8_16:
+	setp.eq.b32 	%p13, %r20, 0;
+	@%p13 bra 	$L__BB8_19;
+$L__BB8_17:
+	cvt.u64.u32 	%rd38, %r19;
+	add.s64 	%rd39, %rd38, %rd1;
+	add.s64 	%rd40, %rd39, %rd50;
+	add.s64 	%rd52, %rd40, 104;
+	add.s64 	%rd51, %rd9, %rd38;
+$L__BB8_18:
+	.pragma "nounroll";
+	ld.b8 	%rs12, [%rd51];
+	st.volatile.b8 	[%rd52], %rs12;
+	add.s64 	%rd52, %rd52, 1;
+	add.s64 	%rd51, %rd51, 1;
+	add.s32 	%r20, %r20, -1;
+	setp.ne.b32 	%p14, %r20, 0;
+	@%p14 bra 	$L__BB8_18;
+$L__BB8_19:
+	mov.b32 	%r14, 4;
+	// begin inline asm
+	st.release.sys.global.u32 [%rd30], %r14;
+	// end inline asm
+	add.s64 	%rd41, %rd1, 8;
+	or.b64 	%rd13, %rd5, 4294967296;
+$L__BB8_20:
+	// begin inline asm
+	ld.acquire.sys.global.u64 %rd43, [%rd41];
+	// end inline asm
+	st.volatile.b64 	[%rd6+64], %rd43;
+	and.b64 	%rd45, %rd43, -4294967296;
+	add.s64 	%rd44, %rd45, %rd13;
+	// begin inline asm
+	atom.cas.sys.global.b64 %rd42, [%rd41], %rd43, %rd44;
+	// end inline asm
+	setp.ne.b64 	%p15, %rd42, %rd43;
+	@%p15 bra 	$L__BB8_20;
+	add.s64 	%rd47, %rd1, 16;
+	mov.b64 	%rd48, 1;
+	// begin inline asm
+	atom.add.sys.global.u64 %rd46, [%rd47], %rd48;
+	// end inline asm
+	st.b8 	[%rd19+74], 1;
+	atom.or.b32 	%r15, [%rd19+40], 2;
+	and.b32 	%r16, %r15, 2;
+	setp.ne.b32 	%p16, %r16, 0;
+	@%p16 bra 	$L__BB8_29;
+	ld.relaxed.sys.b64 	%rd14, [%rd19+24];
+	fence.sc.sys;
+	ld.acquire.sys.b64 	%rd53, [%rd14];
+$L__BB8_23:
+	st.b64 	[%rd19+16], %rd53;
+	fence.sc.sys;
+	atom.acquire.sys.cas.b64 	%rd15, [%rd14], %rd53, %rd19;
+	setp.eq.b64 	%p17, %rd15, %rd53;
+	mov.b64 	%rd53, %rd15;
+	@%p17 bra 	$L__BB8_29;
+	bra.uni 	$L__BB8_23;
+
+}
+.func _RNvNtCsdwh7N5MnlkE_16embassy_executor3raw11poll_exited(
+	.param .b64 _RNvNtCsdwh7N5MnlkE_16embassy_executor3raw11poll_exited_param_0
+)
+{
+
+
+	ret;
+
+}
+	// .globl	__pender
 .visible .func __pender(
 	.param .b64 __pender_param_0
 )
 {
 
 
-// %bb.0:
 	ret;
-                                        // -- End function
+
 }
-	// .globl	async_hostcall_single_kernel // -- Begin function async_hostcall_single_kernel
+	// .globl	async_hostcall_single_kernel
 .visible .entry async_hostcall_single_kernel(
 	.param .u64 .ptr .align 1 async_hostcall_single_kernel_param_0,
 	.param .u64 .ptr .align 1 async_hostcall_single_kernel_param_1
-)                                       // @async_hostcall_single_kernel
+)
 {
-	.local .align 4 .b8 	__local_depot1[4];
+	.local .align 4 .b8 	__local_depot11[4];
 	.reg .b64 	%SP;
 	.reg .b64 	%SPL;
-	.reg .pred 	%p<9>;
-	.reg .b32 	%r<9>;
-	.reg .b64 	%rd<24>;
+	.reg .pred 	%p<7>;
+	.reg .b32 	%r<6>;
+	.reg .b64 	%rd<16>;
 
-// %bb.0:
-	mov.b64 	%SPL, __local_depot1;
+	mov.b64 	%SPL, __local_depot11;
 	cvta.local.u64 	%SP, %SPL;
-	ld.param.b64 	%rd11, [async_hostcall_single_kernel_param_1];
-	cvta.to.global.u64 	%rd1, %rd11;
+	ld.param.b64 	%rd5, [async_hostcall_single_kernel_param_1];
+	cvta.to.global.u64 	%rd1, %rd5;
 	// begin inline asm
-	mov.u32 %r3, %tid.x;
+	mov.u32 %r1, %tid.x;
 	// end inline asm
-	setp.ne.b32 	%p2, %r3, 0;
-	@%p2 bra 	$L__BB1_11;
-// %bb.1:
+	setp.ne.b32 	%p1, %r1, 0;
+	@%p1 bra 	$L__BB11_9;
 	st.global.b32 	[%rd1], 0;
 	st.global.b32 	[%rd1+4], 0;
-	st.global.b64 	[_ZN19async_hostcall_test18EXECUTOR_STORAGE_117h621eb889c0ee648dE], 0;
-	st.global.b64 	[_ZN19async_hostcall_test18EXECUTOR_STORAGE_117h621eb889c0ee648dE+8], 0;
-	atom.acq_rel.global.cas.b32 	%r4, [_ZN19async_hostcall_test11SINGLE_TASK17he7e4937f8799905cE+40], 0, 3;
-	setp.eq.b32 	%p1, %r4, 0;
-	setp.ne.b32 	%p3, %r4, 0;
-	mov.b64 	%rd21, 0;
-	@%p3 bra 	$L__BB1_3;
-// %bb.2:
-	ld.param.b64 	%rd10, [async_hostcall_single_kernel_param_0];
-	mov.b64 	%rd14, _ZN16embassy_executor3raw20TaskStorage$LT$F$GT$4poll17hc68279d1e83c567eE;
-	st.global.b64 	[_ZN19async_hostcall_test11SINGLE_TASK17he7e4937f8799905cE+32], %rd14;
-	mov.b64 	%rd15, _ZN19async_hostcall_test11SINGLE_TASK17he7e4937f8799905cE;
-	{ // callseq 0, 0
+	st.global.b64 	[_RNvCsaU7OcvMiU4k_19async_hostcall_test18EXECUTOR_STORAGE_1], 0;
+	st.global.b64 	[_RNvCsaU7OcvMiU4k_19async_hostcall_test18EXECUTOR_STORAGE_1+8], 0;
+	atom.acq_rel.sys.global.cas.b32 	%r2, [_RNvCsaU7OcvMiU4k_19async_hostcall_test11SINGLE_TASK+40], 0, 3;
+	setp.ne.b32 	%p2, %r2, 0;
+	@%p2 bra 	$L__BB11_4;
+	ld.param.b64 	%rd4, [async_hostcall_single_kernel_param_0];
+	mov.b64 	%rd6, _RNvMs1_NtCsdwh7N5MnlkE_16embassy_executor3rawINtB5_11TaskStorageNtCsaU7OcvMiU4k_19async_hostcall_test19HostcallPrintFutureE4pollB12_;
+	st.global.b64 	[_RNvCsaU7OcvMiU4k_19async_hostcall_test11SINGLE_TASK+32], %rd6;
+	{ // callseq 4, 0
 	.param .b64 	param0;
-	st.param.b64 	[param0], %rd10;
-	call.uni _ZN16embassy_executor3raw4util19UninitCell$LT$T$GT$14write_in_place17h804fcc30eab3d33cE, (param0);
-	} // callseq 0
-	cvta.global.u64 	%rd21, %rd15;
-$L__BB1_3:
-	not.pred 	%p4, %p1;
-	@%p4 bra 	$L__BB1_6;
-// %bb.4:
-	mov.b64 	%rd16, _ZN19async_hostcall_test18EXECUTOR_STORAGE_117h621eb889c0ee648dE;
-	cvta.global.u64 	%rd17, %rd16;
-	st.relaxed.sys.b64 	[%rd21+24], %rd17;
+	st.param.b64 	[param0], %rd4;
+	call.uni _RINvMNtNtCsdwh7N5MnlkE_16embassy_executor3raw4utilINtB3_10UninitCellNtCsaU7OcvMiU4k_19async_hostcall_test19HostcallPrintFutureE14write_in_placeNCNvB16_28async_hostcall_single_kernel0EB16_, (param0);
+	} // callseq 4
+	mov.b64 	%rd7, _RNvCsaU7OcvMiU4k_19async_hostcall_test18EXECUTOR_STORAGE_1;
+	cvta.global.u64 	%rd8, %rd7;
+	st.relaxed.sys.global.b64 	[_RNvCsaU7OcvMiU4k_19async_hostcall_test11SINGLE_TASK+24], %rd8;
 	fence.sc.sys;
-	ld.acquire.sys.global.b64 	%rd22, [_ZN19async_hostcall_test18EXECUTOR_STORAGE_117h621eb889c0ee648dE];
-$L__BB1_5:                              // =>This Inner Loop Header: Depth=1
-	st.b64 	[%rd21+16], %rd22;
+	ld.acquire.sys.global.b64 	%rd14, [_RNvCsaU7OcvMiU4k_19async_hostcall_test18EXECUTOR_STORAGE_1];
+	mov.b64 	%rd9, _RNvCsaU7OcvMiU4k_19async_hostcall_test11SINGLE_TASK;
+$L__BB11_3:
+	st.global.b64 	[_RNvCsaU7OcvMiU4k_19async_hostcall_test11SINGLE_TASK+16], %rd14;
 	fence.sc.sys;
-	atom.acquire.global.cas.b64 	%rd5, [_ZN19async_hostcall_test18EXECUTOR_STORAGE_117h621eb889c0ee648dE], %rd22, %rd21;
-	setp.ne.b64 	%p5, %rd5, %rd22;
-	mov.b64 	%rd22, %rd5;
-	@%p5 bra 	$L__BB1_5;
-$L__BB1_6:                              // %.loopexit1
-	mov.b32 	%r8, 0;
-	add.u64 	%rd19, %SP, 0;
-	bra.uni 	$L__BB1_7;
-$L__BB1_9:                              // %.loopexit
-                                        //   in Loop: Header=BB1_7 Depth=1
-	add.s32 	%r7, %r8, 1;
-	st.b32 	[%SP], %r7;
-	cvta.to.local.u64 	%rd20, %rd19;
-	ld.local.b32 	%r8, [%rd20];
-	setp.lt.u32 	%p8, %r8, 100;
-	@%p8 bra 	$L__BB1_7;
-	bra.uni 	$L__BB1_10;
-$L__BB1_7:                              // =>This Loop Header: Depth=1
-                                        //     Child Loop BB1_8 Depth 2
-	atom.global.exch.b64 	%rd23, [_ZN19async_hostcall_test18EXECUTOR_STORAGE_117h621eb889c0ee648dE], 0;
-	setp.eq.b64 	%p6, %rd23, 0;
-	@%p6 bra 	$L__BB1_9;
-$L__BB1_8:                              // %.preheader
-                                        //   Parent Loop BB1_7 Depth=1
-                                        // =>  This Inner Loop Header: Depth=2
-	ld.b64 	%rd9, [%rd23+16];
-	atom.and.b32 	%r6, [%rd23+40], -3;
-	ld.b64 	%rd18, [%rd23+32];
-	{ // callseq 1, 0
+	cvta.global.u64 	%rd10, %rd9;
+	atom.acquire.sys.global.cas.b64 	%rd2, [_RNvCsaU7OcvMiU4k_19async_hostcall_test18EXECUTOR_STORAGE_1], %rd14, %rd10;
+	setp.ne.b64 	%p3, %rd2, %rd14;
+	mov.b64 	%rd14, %rd2;
+	@%p3 bra 	$L__BB11_3;
+$L__BB11_4:
+	mov.b32 	%r5, 0;
+	add.u64 	%rd12, %SP, 0;
+	bra.uni 	$L__BB11_5;
+$L__BB11_7:
+	add.s32 	%r4, %r5, 1;
+	st.b32 	[%SP], %r4;
+	cvta.to.local.u64 	%rd13, %rd12;
+	ld.local.b32 	%r5, [%rd13];
+	setp.lt.u32 	%p6, %r5, 100;
+	@%p6 bra 	$L__BB11_5;
+	bra.uni 	$L__BB11_8;
+$L__BB11_5:
+	atom.global.exch.b64 	%rd15, [_RNvCsaU7OcvMiU4k_19async_hostcall_test18EXECUTOR_STORAGE_1], 0;
+	setp.eq.b64 	%p4, %rd15, 0;
+	@%p4 bra 	$L__BB11_7;
+$L__BB11_6:
+	ld.b64 	%rd3, [%rd15+16];
+	atom.and.b32 	%r3, [%rd15+40], -3;
+	ld.b64 	%rd11, [%rd15+32];
+	{ // callseq 5, 0
 	.param .b64 	param0;
-	st.param.b64 	[param0], %rd23;
-	prototype_1 : .callprototype ()_ (.param .b64 _);
-	call %rd18, (param0), prototype_1;
-	} // callseq 1
-	setp.ne.b64 	%p7, %rd9, 0;
-	mov.b64 	%rd23, %rd9;
-	@%p7 bra 	$L__BB1_8;
-	bra.uni 	$L__BB1_9;
-$L__BB1_10:
-	st.global.b32 	[%rd1], %r8;
+	st.param.b64 	[param0], %rd15;
+	prototype_5 : .callprototype ()_ (.param .b64 _);
+	call %rd11, (param0), prototype_5;
+	} // callseq 5
+	setp.ne.b64 	%p5, %rd3, 0;
+	mov.b64 	%rd15, %rd3;
+	@%p5 bra 	$L__BB11_6;
+	bra.uni 	$L__BB11_7;
+$L__BB11_8:
+	st.global.b32 	[%rd1], %r5;
 	st.global.b32 	[%rd1+4], 1;
-$L__BB1_11:
+$L__BB11_9:
 	ret;
-                                        // -- End function
-}
-.func _ZN16embassy_executor3raw20TaskStorage$LT$F$GT$4poll17hc68279d1e83c567eE(
-	.param .b64 _ZN16embassy_executor3raw20TaskStorage$LT$F$GT$4poll17hc68279d1e83c567eE_param_0
-)                                       // -- Begin function _ZN16embassy_executor3raw20TaskStorage$LT$F$GT$4poll17hc68279d1e83c567eE
-                                        // @"_ZN16embassy_executor3raw20TaskStorage$LT$F$GT$4poll17hc68279d1e83c567eE"
-{
-	.reg .pred 	%p<21>;
-	.reg .b16 	%rs<13>;
-	.reg .b32 	%r<30>;
-	.reg .b64 	%rd<81>;
 
-// %bb.0:
-	ld.param.b64 	%rd37, [_ZN16embassy_executor3raw20TaskStorage$LT$F$GT$4poll17hc68279d1e83c567eE_param_0];
-	ld.b8 	%rs2, [%rd37+74];
-	setp.eq.b16 	%p1, %rs2, 0;
-	@%p1 bra 	$L__BB2_4;
-// %bb.1:
-	setp.eq.b16 	%p2, %rs2, 1;
-	@%p2 bra 	$L__BB2_25;
-	bra.uni 	$L__BB2_2;
-$L__BB2_25:
-	ld.b64 	%rd2, [%rd37+64];
-	ld.b16 	%rs3, [%rd37+72];
-	cvt.u32.u16 	%r11, %rs3;
-	mul.wide.u32 	%rd39, %r11, 2112;
-	add.s64 	%rd4, %rd2, %rd39;
-	add.s64 	%rd38, %rd4, 80;
-	// begin inline asm
-	ld.acquire.sys.global.u32 %r10, [%rd38];
-	// end inline asm
-	and.b32 	%r12, %r10, 1;
-	setp.ne.b32 	%p4, %r12, 0;
-	not.pred 	%p5, %p4;
-	@%p5 bra 	$L__BB2_22;
-	bra.uni 	$L__BB2_26;
-$L__BB2_22:
-	atom.or.b32 	%r14, [%rd37+40], 2;
-	and.b32 	%r15, %r14, 2;
-	setp.ne.b32 	%p7, %r15, 0;
-	@%p7 bra 	$L__BB2_30;
-// %bb.23:
-	ld.relaxed.sys.b64 	%rd32, [%rd37+24];
-	fence.sc.sys;
-	ld.acquire.sys.b64 	%rd80, [%rd32];
-$L__BB2_24:                             // =>This Inner Loop Header: Depth=1
-	st.b64 	[%rd37+16], %rd80;
-	fence.sc.sys;
-	atom.acquire.cas.b64 	%rd35, [%rd32], %rd80, %rd37;
-	setp.eq.b64 	%p8, %rd35, %rd80;
-	mov.b64 	%rd80, %rd35;
-	@%p8 bra 	$L__BB2_30;
-	bra.uni 	$L__BB2_24;
-$L__BB2_4:
-	ld.b64 	%rd1, [%rd37+64];
-$L__BB2_5:                              // =>This Inner Loop Header: Depth=1
-	// begin inline asm
-	ld.acquire.sys.global.u64 %rd52, [%rd1];
-	// end inline asm
-	cvt.u16.u64 	%rs1, %rd52;
-	setp.eq.b16 	%p9, %rs1, -1;
-	@%p9 bra 	$L__BB2_19;
-// %bb.6:                               //   in Loop: Header=BB2_5 Depth=1
-	and.b64 	%rd6, %rd52, 65535;
-	mad.lo.s64 	%rd7, %rd6, 2112, %rd1;
-	ld.volatile.b64 	%rd53, [%rd7+64];
-	// begin inline asm
-	atom.cas.sys.global.b64 %rd50, [%rd1], %rd52, %rd53;
-	// end inline asm
-	setp.ne.b64 	%p10, %rd50, %rd52;
-	@%p10 bra 	$L__BB2_5;
-// %bb.7:
-	st.b16 	[%rd37+72], %rs1;
-	// begin inline asm
-	activemask.b32 %r16;
-	// end inline asm
-	st.volatile.b32 	[%rd7+72], %r16;
-	st.volatile.b32 	[%rd7+76], 1;
-	add.s64 	%rd54, %rd7, 80;
-	mov.b32 	%r27, 0;
-	// begin inline asm
-	st.release.sys.global.u32 [%rd54], %r27;
-	// end inline asm
-	ld.b64 	%rd55, [%rd37+56];
-	and.b64 	%rd56, %rd55, 4294967295;
-	cvt.u32.u64 	%r1, %rd55;
-	st.volatile.b64 	[%rd7+96], %rd56;
-	setp.eq.b32 	%p11, %r1, 0;
-	@%p11 bra 	$L__BB2_14;
-// %bb.8:
-	min.u32 	%r2, %r1, 56;
-	ld.b64 	%rd9, [%rd37+48];
-	and.b32 	%r28, %r2, 7;
-	setp.lt.u32 	%p12, %r1, 8;
-	cvt.u32.u16 	%r26, %rs1;
-	@%p12 bra 	$L__BB2_11;
-// %bb.9:
-	and.b32 	%r27, %r2, 56;
-	add.s64 	%rd78, %rd9, 3;
-	mul.wide.u32 	%rd57, %r26, 2112;
-	add.s64 	%rd58, %rd1, %rd57;
-	add.s64 	%rd77, %rd58, 111;
-	mov.b32 	%r29, %r27;
-$L__BB2_10:                             // =>This Inner Loop Header: Depth=1
-	ld.b8 	%rs4, [%rd78+-3];
-	st.volatile.b8 	[%rd77+-7], %rs4;
-	ld.b8 	%rs5, [%rd78+-2];
-	st.volatile.b8 	[%rd77+-6], %rs5;
-	ld.b8 	%rs6, [%rd78+-1];
-	st.volatile.b8 	[%rd77+-5], %rs6;
-	ld.b8 	%rs7, [%rd78];
-	st.volatile.b8 	[%rd77+-4], %rs7;
-	ld.b8 	%rs8, [%rd78+1];
-	st.volatile.b8 	[%rd77+-3], %rs8;
-	ld.b8 	%rs9, [%rd78+2];
-	st.volatile.b8 	[%rd77+-2], %rs9;
-	ld.b8 	%rs10, [%rd78+3];
-	st.volatile.b8 	[%rd77+-1], %rs10;
-	ld.b8 	%rs11, [%rd78+4];
-	st.volatile.b8 	[%rd77], %rs11;
-	add.s32 	%r29, %r29, -8;
-	add.s64 	%rd78, %rd78, 8;
-	add.s64 	%rd77, %rd77, 8;
-	setp.eq.b32 	%p13, %r29, 0;
-	@%p13 bra 	$L__BB2_11;
-	bra.uni 	$L__BB2_10;
-$L__BB2_11:                             // %.loopexit5
-	setp.eq.b32 	%p14, %r28, 0;
-	@%p14 bra 	$L__BB2_14;
-// %bb.12:                              // %.preheader.preheader
-	cvt.u64.u32 	%rd59, %r27;
-	add.s64 	%rd60, %rd59, %rd1;
-	mul.wide.u32 	%rd61, %r26, 2112;
-	add.s64 	%rd62, %rd60, %rd61;
-	add.s64 	%rd76, %rd62, 104;
-	add.s64 	%rd75, %rd9, %rd59;
-$L__BB2_13:                             // %.preheader
-                                        // =>This Inner Loop Header: Depth=1
-	.pragma "nounroll";
-	ld.b8 	%rs12, [%rd75];
-	st.volatile.b8 	[%rd76], %rs12;
-	add.s64 	%rd76, %rd76, 1;
-	add.s64 	%rd75, %rd75, 1;
-	add.s32 	%r28, %r28, -1;
-	setp.ne.b32 	%p15, %r28, 0;
-	@%p15 bra 	$L__BB2_13;
-$L__BB2_14:                             // %.loopexit4
-	mov.b32 	%r21, 4;
-	// begin inline asm
-	st.release.sys.global.u32 [%rd54], %r21;
-	// end inline asm
-	add.s64 	%rd65, %rd1, 8;
-	or.b64 	%rd23, %rd6, 4294967296;
-$L__BB2_15:                             // =>This Inner Loop Header: Depth=1
-	// begin inline asm
-	ld.acquire.sys.global.u64 %rd68, [%rd65];
-	// end inline asm
-	st.volatile.b64 	[%rd7+64], %rd68;
-	and.b64 	%rd70, %rd68, -4294967296;
-	add.s64 	%rd69, %rd23, %rd70;
-	// begin inline asm
-	atom.cas.sys.global.b64 %rd66, [%rd65], %rd68, %rd69;
-	// end inline asm
-	setp.ne.b64 	%p16, %rd66, %rd68;
-	@%p16 bra 	$L__BB2_15;
-// %bb.16:
-	add.s64 	%rd72, %rd1, 16;
-	mov.b64 	%rd73, 1;
-	// begin inline asm
-	atom.add.sys.global.u64 %rd71, [%rd72], %rd73;
-	// end inline asm
-	st.b8 	[%rd37+74], 1;
-	atom.or.b32 	%r22, [%rd37+40], 2;
-	and.b32 	%r23, %r22, 2;
-	setp.ne.b32 	%p17, %r23, 0;
-	@%p17 bra 	$L__BB2_30;
-// %bb.17:
-	ld.relaxed.sys.b64 	%rd28, [%rd37+24];
-	fence.sc.sys;
-	ld.acquire.sys.b64 	%rd79, [%rd28];
-$L__BB2_18:                             // =>This Inner Loop Header: Depth=1
-	st.b64 	[%rd37+16], %rd79;
-	fence.sc.sys;
-	atom.acquire.cas.b64 	%rd31, [%rd28], %rd79, %rd37;
-	setp.eq.b64 	%p18, %rd31, %rd79;
-	mov.b64 	%rd79, %rd31;
-	@%p18 bra 	$L__BB2_30;
-	bra.uni 	$L__BB2_18;
-$L__BB2_2:
-	setp.eq.b16 	%p3, %rs2, 2;
-	@%p3 bra 	$L__BB2_29;
-// %bb.3:                               // %default.unreachable19
-	// begin inline asm
-	exit;
-	// end inline asm
-$L__BB2_19:
-	atom.or.b32 	%r24, [%rd37+40], 2;
-	and.b32 	%r25, %r24, 2;
-	setp.ne.b32 	%p19, %r25, 0;
-	@%p19 bra 	$L__BB2_30;
-// %bb.20:
-	ld.relaxed.sys.b64 	%rd12, [%rd37+24];
-	fence.sc.sys;
-	ld.acquire.sys.b64 	%rd74, [%rd12];
-$L__BB2_21:                             // =>This Inner Loop Header: Depth=1
-	st.b64 	[%rd37+16], %rd74;
-	fence.sc.sys;
-	atom.acquire.cas.b64 	%rd15, [%rd12], %rd74, %rd37;
-	setp.eq.b64 	%p20, %rd15, %rd74;
-	mov.b64 	%rd74, %rd15;
-	@%p20 bra 	$L__BB2_30;
-	bra.uni 	$L__BB2_21;
-$L__BB2_26:
-	cvt.u64.u16 	%rd3, %rs3;
-	or.b64 	%rd36, %rd3, 4294967296;
-$L__BB2_27:                             // =>This Inner Loop Header: Depth=1
-	// begin inline asm
-	ld.acquire.sys.global.u64 %rd44, [%rd2];
-	// end inline asm
-	st.volatile.b64 	[%rd4+64], %rd44;
-	and.b64 	%rd46, %rd44, -4294967296;
-	add.s64 	%rd45, %rd36, %rd46;
-	// begin inline asm
-	atom.cas.sys.global.b64 %rd42, [%rd2], %rd44, %rd45;
-	// end inline asm
-	setp.ne.b64 	%p6, %rd42, %rd44;
-	@%p6 bra 	$L__BB2_27;
-// %bb.28:
-	st.b8 	[%rd37+74], 2;
-$L__BB2_29:
-	mov.b64 	%rd47, _ZN16embassy_executor3raw11poll_exited17h98db27a08fdb03b3E;
-	st.b64 	[%rd37+32], %rd47;
-	atom.and.b32 	%r13, [%rd37+40], -2;
-$L__BB2_30:                             // %.loopexit
-	ret;
-                                        // -- End function
 }
-.func _ZN16embassy_executor3raw4util19UninitCell$LT$T$GT$14write_in_place17h804fcc30eab3d33cE(
-	.param .b64 _ZN16embassy_executor3raw4util19UninitCell$LT$T$GT$14write_in_place17h804fcc30eab3d33cE_param_0
-)                                       // -- Begin function _ZN16embassy_executor3raw4util19UninitCell$LT$T$GT$14write_in_place17h804fcc30eab3d33cE
-                                        // @"_ZN16embassy_executor3raw4util19UninitCell$LT$T$GT$14write_in_place17h804fcc30eab3d33cE"
-{
-	.reg .b64 	%rd<4>;
-
-// %bb.0:
-	ld.param.b64 	%rd1, [_ZN16embassy_executor3raw4util19UninitCell$LT$T$GT$14write_in_place17h804fcc30eab3d33cE_param_0];
-	mov.b64 	%rd2, anon_$_f15894a641323bb25775af0e658b4f4a_$_9;
-	cvta.global.u64 	%rd3, %rd2;
-	st.global.b64 	[_ZN19async_hostcall_test11SINGLE_TASK17he7e4937f8799905cE+48], %rd3;
-	st.global.b64 	[_ZN19async_hostcall_test11SINGLE_TASK17he7e4937f8799905cE+56], 21;
-	st.global.b64 	[_ZN19async_hostcall_test11SINGLE_TASK17he7e4937f8799905cE+64], %rd1;
-	st.global.b16 	[_ZN19async_hostcall_test11SINGLE_TASK17he7e4937f8799905cE+72], -1;
-	st.global.b8 	[_ZN19async_hostcall_test11SINGLE_TASK17he7e4937f8799905cE+74], 0;
-	ret;
-                                        // -- End function
-}
-.func _ZN16embassy_executor3raw11poll_exited17h98db27a08fdb03b3E(
-	.param .b64 _ZN16embassy_executor3raw11poll_exited17h98db27a08fdb03b3E_param_0
-)                                       // -- Begin function _ZN16embassy_executor3raw11poll_exited17h98db27a08fdb03b3E
-                                        // @_ZN16embassy_executor3raw11poll_exited17h98db27a08fdb03b3E
-{
-
-
-// %bb.0:
-	ret;
-                                        // -- End function
-}
-	// .globl	async_hostcall_two_kernel // -- Begin function async_hostcall_two_kernel
+	// .globl	async_hostcall_two_kernel
 .visible .entry async_hostcall_two_kernel(
 	.param .u64 .ptr .align 1 async_hostcall_two_kernel_param_0,
 	.param .u64 .ptr .align 1 async_hostcall_two_kernel_param_1
-)                                       // @async_hostcall_two_kernel
+)
 {
-	.local .align 4 .b8 	__local_depot5[4];
-	.reg .b64 	%SP;
-	.reg .b64 	%SPL;
-	.reg .pred 	%p<13>;
-	.reg .b32 	%r<10>;
-	.reg .b64 	%rd<36>;
-
-// %bb.0:
-	mov.b64 	%SPL, __local_depot5;
-	cvta.local.u64 	%SP, %SPL;
-	ld.param.b64 	%rd15, [async_hostcall_two_kernel_param_1];
-	cvta.to.global.u64 	%rd1, %rd15;
-	// begin inline asm
-	mov.u32 %r3, %tid.x;
-	// end inline asm
-	setp.ne.b32 	%p3, %r3, 0;
-	@%p3 bra 	$L__BB5_16;
-// %bb.1:
-	ld.param.b64 	%rd14, [async_hostcall_two_kernel_param_0];
-	st.global.b32 	[%rd1], 0;
-	st.global.b32 	[%rd1+4], 0;
-	st.global.b64 	[_ZN19async_hostcall_test18EXECUTOR_STORAGE_217h07a5635fa2dc89baE], 0;
-	st.global.b64 	[_ZN19async_hostcall_test18EXECUTOR_STORAGE_217h07a5635fa2dc89baE+8], 0;
-	atom.acq_rel.global.cas.b32 	%r4, [_ZN19async_hostcall_test6TASK_A17h8c071a330addc354E+40], 0, 3;
-	setp.eq.b32 	%p1, %r4, 0;
-	setp.ne.b32 	%p4, %r4, 0;
-	mov.b64 	%rd31, 0;
-	@%p4 bra 	$L__BB5_3;
-// %bb.2:
-	mov.b64 	%rd18, _ZN16embassy_executor3raw20TaskStorage$LT$F$GT$4poll17hc68279d1e83c567eE;
-	st.global.b64 	[_ZN19async_hostcall_test6TASK_A17h8c071a330addc354E+32], %rd18;
-	mov.b64 	%rd19, _ZN19async_hostcall_test6TASK_A17h8c071a330addc354E;
-	{ // callseq 2, 0
-	.param .b64 	param0;
-	st.param.b64 	[param0], %rd14;
-	call.uni _ZN16embassy_executor3raw4util19UninitCell$LT$T$GT$14write_in_place17h84a83f66da5d6c2fE, (param0);
-	} // callseq 2
-	cvta.global.u64 	%rd31, %rd19;
-$L__BB5_3:
-	not.pred 	%p5, %p1;
-	@%p5 bra 	$L__BB5_6;
-// %bb.4:
-	mov.b64 	%rd20, _ZN19async_hostcall_test18EXECUTOR_STORAGE_217h07a5635fa2dc89baE;
-	cvta.global.u64 	%rd21, %rd20;
-	st.relaxed.sys.b64 	[%rd31+24], %rd21;
-	fence.sc.sys;
-	ld.acquire.sys.global.b64 	%rd32, [_ZN19async_hostcall_test18EXECUTOR_STORAGE_217h07a5635fa2dc89baE];
-$L__BB5_5:                              // =>This Inner Loop Header: Depth=1
-	st.b64 	[%rd31+16], %rd32;
-	fence.sc.sys;
-	atom.acquire.global.cas.b64 	%rd5, [_ZN19async_hostcall_test18EXECUTOR_STORAGE_217h07a5635fa2dc89baE], %rd32, %rd31;
-	setp.ne.b64 	%p6, %rd5, %rd32;
-	mov.b64 	%rd32, %rd5;
-	@%p6 bra 	$L__BB5_5;
-$L__BB5_6:                              // %.loopexit2
-	atom.acq_rel.global.cas.b32 	%r5, [_ZN19async_hostcall_test6TASK_B17h01fc129f996ec686E+40], 0, 3;
-	setp.eq.b32 	%p2, %r5, 0;
-	setp.ne.b32 	%p7, %r5, 0;
-	mov.b64 	%rd33, 0;
-	@%p7 bra 	$L__BB5_8;
-// %bb.7:
-	mov.b64 	%rd24, _ZN16embassy_executor3raw20TaskStorage$LT$F$GT$4poll17hdba4dae397348858E;
-	st.global.b64 	[_ZN19async_hostcall_test6TASK_B17h01fc129f996ec686E+32], %rd24;
-	mov.b64 	%rd25, _ZN19async_hostcall_test6TASK_B17h01fc129f996ec686E;
-	{ // callseq 3, 0
-	.param .b64 	param0;
-	st.param.b64 	[param0], %rd14;
-	call.uni _ZN16embassy_executor3raw4util19UninitCell$LT$T$GT$14write_in_place17h60fe0929b5f7e7b1E, (param0);
-	} // callseq 3
-	cvta.global.u64 	%rd33, %rd25;
-$L__BB5_8:
-	not.pred 	%p8, %p2;
-	@%p8 bra 	$L__BB5_11;
-// %bb.9:
-	mov.b64 	%rd26, _ZN19async_hostcall_test18EXECUTOR_STORAGE_217h07a5635fa2dc89baE;
-	cvta.global.u64 	%rd27, %rd26;
-	st.relaxed.sys.b64 	[%rd33+24], %rd27;
-	fence.sc.sys;
-	ld.acquire.sys.global.b64 	%rd34, [_ZN19async_hostcall_test18EXECUTOR_STORAGE_217h07a5635fa2dc89baE];
-$L__BB5_10:                             // =>This Inner Loop Header: Depth=1
-	st.b64 	[%rd33+16], %rd34;
-	fence.sc.sys;
-	atom.acquire.global.cas.b64 	%rd9, [_ZN19async_hostcall_test18EXECUTOR_STORAGE_217h07a5635fa2dc89baE], %rd34, %rd33;
-	setp.ne.b64 	%p9, %rd9, %rd34;
-	mov.b64 	%rd34, %rd9;
-	@%p9 bra 	$L__BB5_10;
-$L__BB5_11:                             // %.loopexit1
-	mov.b32 	%r9, 0;
-	add.u64 	%rd29, %SP, 0;
-	bra.uni 	$L__BB5_12;
-$L__BB5_14:                             // %.loopexit
-                                        //   in Loop: Header=BB5_12 Depth=1
-	add.s32 	%r8, %r9, 1;
-	st.b32 	[%SP], %r8;
-	cvta.to.local.u64 	%rd30, %rd29;
-	ld.local.b32 	%r9, [%rd30];
-	setp.lt.u32 	%p12, %r9, 100;
-	@%p12 bra 	$L__BB5_12;
-	bra.uni 	$L__BB5_15;
-$L__BB5_12:                             // =>This Loop Header: Depth=1
-                                        //     Child Loop BB5_13 Depth 2
-	atom.global.exch.b64 	%rd35, [_ZN19async_hostcall_test18EXECUTOR_STORAGE_217h07a5635fa2dc89baE], 0;
-	setp.eq.b64 	%p10, %rd35, 0;
-	@%p10 bra 	$L__BB5_14;
-$L__BB5_13:                             // %.preheader
-                                        //   Parent Loop BB5_12 Depth=1
-                                        // =>  This Inner Loop Header: Depth=2
-	ld.b64 	%rd13, [%rd35+16];
-	atom.and.b32 	%r7, [%rd35+40], -3;
-	ld.b64 	%rd28, [%rd35+32];
-	{ // callseq 4, 0
-	.param .b64 	param0;
-	st.param.b64 	[param0], %rd35;
-	prototype_4 : .callprototype ()_ (.param .b64 _);
-	call %rd28, (param0), prototype_4;
-	} // callseq 4
-	setp.ne.b64 	%p11, %rd13, 0;
-	mov.b64 	%rd35, %rd13;
-	@%p11 bra 	$L__BB5_13;
-	bra.uni 	$L__BB5_14;
-$L__BB5_15:
-	st.global.b32 	[%rd1], %r9;
-	st.global.b32 	[%rd1+4], 1;
-$L__BB5_16:
-	ret;
-                                        // -- End function
-}
-.func _ZN16embassy_executor3raw4util19UninitCell$LT$T$GT$14write_in_place17h84a83f66da5d6c2fE(
-	.param .b64 _ZN16embassy_executor3raw4util19UninitCell$LT$T$GT$14write_in_place17h84a83f66da5d6c2fE_param_0
-)                                       // -- Begin function _ZN16embassy_executor3raw4util19UninitCell$LT$T$GT$14write_in_place17h84a83f66da5d6c2fE
-                                        // @"_ZN16embassy_executor3raw4util19UninitCell$LT$T$GT$14write_in_place17h84a83f66da5d6c2fE"
-{
-	.reg .b64 	%rd<4>;
-
-// %bb.0:
-	ld.param.b64 	%rd1, [_ZN16embassy_executor3raw4util19UninitCell$LT$T$GT$14write_in_place17h84a83f66da5d6c2fE_param_0];
-	mov.b64 	%rd2, anon_$_f15894a641323bb25775af0e658b4f4a_$_8;
-	cvta.global.u64 	%rd3, %rd2;
-	st.global.b64 	[_ZN19async_hostcall_test6TASK_A17h8c071a330addc354E+48], %rd3;
-	st.global.b64 	[_ZN19async_hostcall_test6TASK_A17h8c071a330addc354E+56], 22;
-	st.global.b64 	[_ZN19async_hostcall_test6TASK_A17h8c071a330addc354E+64], %rd1;
-	st.global.b16 	[_ZN19async_hostcall_test6TASK_A17h8c071a330addc354E+72], -1;
-	st.global.b8 	[_ZN19async_hostcall_test6TASK_A17h8c071a330addc354E+74], 0;
-	ret;
-                                        // -- End function
-}
-.func _ZN16embassy_executor3raw20TaskStorage$LT$F$GT$4poll17hdba4dae397348858E(
-	.param .b64 _ZN16embassy_executor3raw20TaskStorage$LT$F$GT$4poll17hdba4dae397348858E_param_0
-)                                       // -- Begin function _ZN16embassy_executor3raw20TaskStorage$LT$F$GT$4poll17hdba4dae397348858E
-                                        // @"_ZN16embassy_executor3raw20TaskStorage$LT$F$GT$4poll17hdba4dae397348858E"
-{
-	.reg .pred 	%p<21>;
-	.reg .b16 	%rs<13>;
-	.reg .b32 	%r<30>;
-	.reg .b64 	%rd<81>;
-
-// %bb.0:
-	ld.param.b64 	%rd37, [_ZN16embassy_executor3raw20TaskStorage$LT$F$GT$4poll17hdba4dae397348858E_param_0];
-	ld.b8 	%rs2, [%rd37+74];
-	setp.eq.b16 	%p1, %rs2, 0;
-	@%p1 bra 	$L__BB7_4;
-// %bb.1:
-	setp.eq.b16 	%p2, %rs2, 1;
-	@%p2 bra 	$L__BB7_25;
-	bra.uni 	$L__BB7_2;
-$L__BB7_25:
-	ld.b64 	%rd2, [%rd37+64];
-	ld.b16 	%rs3, [%rd37+72];
-	cvt.u32.u16 	%r11, %rs3;
-	mul.wide.u32 	%rd39, %r11, 2112;
-	add.s64 	%rd4, %rd2, %rd39;
-	add.s64 	%rd38, %rd4, 80;
-	// begin inline asm
-	ld.acquire.sys.global.u32 %r10, [%rd38];
-	// end inline asm
-	and.b32 	%r12, %r10, 1;
-	setp.ne.b32 	%p4, %r12, 0;
-	not.pred 	%p5, %p4;
-	@%p5 bra 	$L__BB7_22;
-	bra.uni 	$L__BB7_26;
-$L__BB7_22:
-	atom.or.b32 	%r14, [%rd37+40], 2;
-	and.b32 	%r15, %r14, 2;
-	setp.ne.b32 	%p7, %r15, 0;
-	@%p7 bra 	$L__BB7_30;
-// %bb.23:
-	ld.relaxed.sys.b64 	%rd32, [%rd37+24];
-	fence.sc.sys;
-	ld.acquire.sys.b64 	%rd80, [%rd32];
-$L__BB7_24:                             // =>This Inner Loop Header: Depth=1
-	st.b64 	[%rd37+16], %rd80;
-	fence.sc.sys;
-	atom.acquire.cas.b64 	%rd35, [%rd32], %rd80, %rd37;
-	setp.eq.b64 	%p8, %rd35, %rd80;
-	mov.b64 	%rd80, %rd35;
-	@%p8 bra 	$L__BB7_30;
-	bra.uni 	$L__BB7_24;
-$L__BB7_4:
-	ld.b64 	%rd1, [%rd37+64];
-$L__BB7_5:                              // =>This Inner Loop Header: Depth=1
-	// begin inline asm
-	ld.acquire.sys.global.u64 %rd52, [%rd1];
-	// end inline asm
-	cvt.u16.u64 	%rs1, %rd52;
-	setp.eq.b16 	%p9, %rs1, -1;
-	@%p9 bra 	$L__BB7_19;
-// %bb.6:                               //   in Loop: Header=BB7_5 Depth=1
-	and.b64 	%rd6, %rd52, 65535;
-	mad.lo.s64 	%rd7, %rd6, 2112, %rd1;
-	ld.volatile.b64 	%rd53, [%rd7+64];
-	// begin inline asm
-	atom.cas.sys.global.b64 %rd50, [%rd1], %rd52, %rd53;
-	// end inline asm
-	setp.ne.b64 	%p10, %rd50, %rd52;
-	@%p10 bra 	$L__BB7_5;
-// %bb.7:
-	st.b16 	[%rd37+72], %rs1;
-	// begin inline asm
-	activemask.b32 %r16;
-	// end inline asm
-	st.volatile.b32 	[%rd7+72], %r16;
-	st.volatile.b32 	[%rd7+76], 1;
-	add.s64 	%rd54, %rd7, 80;
-	mov.b32 	%r27, 0;
-	// begin inline asm
-	st.release.sys.global.u32 [%rd54], %r27;
-	// end inline asm
-	ld.b64 	%rd55, [%rd37+56];
-	and.b64 	%rd56, %rd55, 4294967295;
-	cvt.u32.u64 	%r1, %rd55;
-	st.volatile.b64 	[%rd7+96], %rd56;
-	setp.eq.b32 	%p11, %r1, 0;
-	@%p11 bra 	$L__BB7_14;
-// %bb.8:
-	min.u32 	%r2, %r1, 56;
-	ld.b64 	%rd9, [%rd37+48];
-	and.b32 	%r28, %r2, 7;
-	setp.lt.u32 	%p12, %r1, 8;
-	cvt.u32.u16 	%r26, %rs1;
-	@%p12 bra 	$L__BB7_11;
-// %bb.9:
-	and.b32 	%r27, %r2, 56;
-	add.s64 	%rd78, %rd9, 3;
-	mul.wide.u32 	%rd57, %r26, 2112;
-	add.s64 	%rd58, %rd1, %rd57;
-	add.s64 	%rd77, %rd58, 111;
-	mov.b32 	%r29, %r27;
-$L__BB7_10:                             // =>This Inner Loop Header: Depth=1
-	ld.b8 	%rs4, [%rd78+-3];
-	st.volatile.b8 	[%rd77+-7], %rs4;
-	ld.b8 	%rs5, [%rd78+-2];
-	st.volatile.b8 	[%rd77+-6], %rs5;
-	ld.b8 	%rs6, [%rd78+-1];
-	st.volatile.b8 	[%rd77+-5], %rs6;
-	ld.b8 	%rs7, [%rd78];
-	st.volatile.b8 	[%rd77+-4], %rs7;
-	ld.b8 	%rs8, [%rd78+1];
-	st.volatile.b8 	[%rd77+-3], %rs8;
-	ld.b8 	%rs9, [%rd78+2];
-	st.volatile.b8 	[%rd77+-2], %rs9;
-	ld.b8 	%rs10, [%rd78+3];
-	st.volatile.b8 	[%rd77+-1], %rs10;
-	ld.b8 	%rs11, [%rd78+4];
-	st.volatile.b8 	[%rd77], %rs11;
-	add.s32 	%r29, %r29, -8;
-	add.s64 	%rd78, %rd78, 8;
-	add.s64 	%rd77, %rd77, 8;
-	setp.eq.b32 	%p13, %r29, 0;
-	@%p13 bra 	$L__BB7_11;
-	bra.uni 	$L__BB7_10;
-$L__BB7_11:                             // %.loopexit5
-	setp.eq.b32 	%p14, %r28, 0;
-	@%p14 bra 	$L__BB7_14;
-// %bb.12:                              // %.preheader.preheader
-	cvt.u64.u32 	%rd59, %r27;
-	add.s64 	%rd60, %rd59, %rd1;
-	mul.wide.u32 	%rd61, %r26, 2112;
-	add.s64 	%rd62, %rd60, %rd61;
-	add.s64 	%rd76, %rd62, 104;
-	add.s64 	%rd75, %rd9, %rd59;
-$L__BB7_13:                             // %.preheader
-                                        // =>This Inner Loop Header: Depth=1
-	.pragma "nounroll";
-	ld.b8 	%rs12, [%rd75];
-	st.volatile.b8 	[%rd76], %rs12;
-	add.s64 	%rd76, %rd76, 1;
-	add.s64 	%rd75, %rd75, 1;
-	add.s32 	%r28, %r28, -1;
-	setp.ne.b32 	%p15, %r28, 0;
-	@%p15 bra 	$L__BB7_13;
-$L__BB7_14:                             // %.loopexit4
-	mov.b32 	%r21, 4;
-	// begin inline asm
-	st.release.sys.global.u32 [%rd54], %r21;
-	// end inline asm
-	add.s64 	%rd65, %rd1, 8;
-	or.b64 	%rd23, %rd6, 4294967296;
-$L__BB7_15:                             // =>This Inner Loop Header: Depth=1
-	// begin inline asm
-	ld.acquire.sys.global.u64 %rd68, [%rd65];
-	// end inline asm
-	st.volatile.b64 	[%rd7+64], %rd68;
-	and.b64 	%rd70, %rd68, -4294967296;
-	add.s64 	%rd69, %rd23, %rd70;
-	// begin inline asm
-	atom.cas.sys.global.b64 %rd66, [%rd65], %rd68, %rd69;
-	// end inline asm
-	setp.ne.b64 	%p16, %rd66, %rd68;
-	@%p16 bra 	$L__BB7_15;
-// %bb.16:
-	add.s64 	%rd72, %rd1, 16;
-	mov.b64 	%rd73, 1;
-	// begin inline asm
-	atom.add.sys.global.u64 %rd71, [%rd72], %rd73;
-	// end inline asm
-	st.b8 	[%rd37+74], 1;
-	atom.or.b32 	%r22, [%rd37+40], 2;
-	and.b32 	%r23, %r22, 2;
-	setp.ne.b32 	%p17, %r23, 0;
-	@%p17 bra 	$L__BB7_30;
-// %bb.17:
-	ld.relaxed.sys.b64 	%rd28, [%rd37+24];
-	fence.sc.sys;
-	ld.acquire.sys.b64 	%rd79, [%rd28];
-$L__BB7_18:                             // =>This Inner Loop Header: Depth=1
-	st.b64 	[%rd37+16], %rd79;
-	fence.sc.sys;
-	atom.acquire.cas.b64 	%rd31, [%rd28], %rd79, %rd37;
-	setp.eq.b64 	%p18, %rd31, %rd79;
-	mov.b64 	%rd79, %rd31;
-	@%p18 bra 	$L__BB7_30;
-	bra.uni 	$L__BB7_18;
-$L__BB7_2:
-	setp.eq.b16 	%p3, %rs2, 2;
-	@%p3 bra 	$L__BB7_29;
-// %bb.3:                               // %default.unreachable19
-	// begin inline asm
-	exit;
-	// end inline asm
-$L__BB7_19:
-	atom.or.b32 	%r24, [%rd37+40], 2;
-	and.b32 	%r25, %r24, 2;
-	setp.ne.b32 	%p19, %r25, 0;
-	@%p19 bra 	$L__BB7_30;
-// %bb.20:
-	ld.relaxed.sys.b64 	%rd12, [%rd37+24];
-	fence.sc.sys;
-	ld.acquire.sys.b64 	%rd74, [%rd12];
-$L__BB7_21:                             // =>This Inner Loop Header: Depth=1
-	st.b64 	[%rd37+16], %rd74;
-	fence.sc.sys;
-	atom.acquire.cas.b64 	%rd15, [%rd12], %rd74, %rd37;
-	setp.eq.b64 	%p20, %rd15, %rd74;
-	mov.b64 	%rd74, %rd15;
-	@%p20 bra 	$L__BB7_30;
-	bra.uni 	$L__BB7_21;
-$L__BB7_26:
-	cvt.u64.u16 	%rd3, %rs3;
-	or.b64 	%rd36, %rd3, 4294967296;
-$L__BB7_27:                             // =>This Inner Loop Header: Depth=1
-	// begin inline asm
-	ld.acquire.sys.global.u64 %rd44, [%rd2];
-	// end inline asm
-	st.volatile.b64 	[%rd4+64], %rd44;
-	and.b64 	%rd46, %rd44, -4294967296;
-	add.s64 	%rd45, %rd36, %rd46;
-	// begin inline asm
-	atom.cas.sys.global.b64 %rd42, [%rd2], %rd44, %rd45;
-	// end inline asm
-	setp.ne.b64 	%p6, %rd42, %rd44;
-	@%p6 bra 	$L__BB7_27;
-// %bb.28:
-	st.b8 	[%rd37+74], 2;
-$L__BB7_29:
-	mov.b64 	%rd47, _ZN16embassy_executor3raw11poll_exited17h98db27a08fdb03b3E;
-	st.b64 	[%rd37+32], %rd47;
-	atom.and.b32 	%r13, [%rd37+40], -2;
-$L__BB7_30:                             // %.loopexit
-	ret;
-                                        // -- End function
-}
-.func _ZN16embassy_executor3raw4util19UninitCell$LT$T$GT$14write_in_place17h60fe0929b5f7e7b1E(
-	.param .b64 _ZN16embassy_executor3raw4util19UninitCell$LT$T$GT$14write_in_place17h60fe0929b5f7e7b1E_param_0
-)                                       // -- Begin function _ZN16embassy_executor3raw4util19UninitCell$LT$T$GT$14write_in_place17h60fe0929b5f7e7b1E
-                                        // @"_ZN16embassy_executor3raw4util19UninitCell$LT$T$GT$14write_in_place17h60fe0929b5f7e7b1E"
-{
-	.reg .b64 	%rd<4>;
-
-// %bb.0:
-	ld.param.b64 	%rd1, [_ZN16embassy_executor3raw4util19UninitCell$LT$T$GT$14write_in_place17h60fe0929b5f7e7b1E_param_0];
-	mov.b64 	%rd2, anon_$_f15894a641323bb25775af0e658b4f4a_$_7;
-	cvta.global.u64 	%rd3, %rd2;
-	st.global.b64 	[_ZN19async_hostcall_test6TASK_B17h01fc129f996ec686E+48], %rd3;
-	st.global.b64 	[_ZN19async_hostcall_test6TASK_B17h01fc129f996ec686E+56], 22;
-	st.global.b64 	[_ZN19async_hostcall_test6TASK_B17h01fc129f996ec686E+64], %rd1;
-	st.global.b16 	[_ZN19async_hostcall_test6TASK_B17h01fc129f996ec686E+72], -1;
-	st.global.b8 	[_ZN19async_hostcall_test6TASK_B17h01fc129f996ec686E+74], 0;
-	ret;
-                                        // -- End function
-}
-	// .globl	futures_join_kernel     // -- Begin function futures_join_kernel
-.visible .entry futures_join_kernel(
-	.param .u64 .ptr .align 1 futures_join_kernel_param_0,
-	.param .u64 .ptr .align 1 futures_join_kernel_param_1
-)                                       // @futures_join_kernel
-{
-	.local .align 4 .b8 	__local_depot9[4];
+	.local .align 4 .b8 	__local_depot12[4];
 	.reg .b64 	%SP;
 	.reg .b64 	%SPL;
 	.reg .pred 	%p<9>;
-	.reg .b32 	%r<9>;
-	.reg .b64 	%rd<24>;
+	.reg .b32 	%r<7>;
+	.reg .b64 	%rd<23>;
 
-// %bb.0:
-	mov.b64 	%SPL, __local_depot9;
+	mov.b64 	%SPL, __local_depot12;
 	cvta.local.u64 	%SP, %SPL;
-	ld.param.b64 	%rd11, [futures_join_kernel_param_1];
-	cvta.to.global.u64 	%rd1, %rd11;
+	ld.param.b64 	%rd6, [async_hostcall_two_kernel_param_1];
+	cvta.to.global.u64 	%rd1, %rd6;
 	// begin inline asm
-	mov.u32 %r3, %tid.x;
+	mov.u32 %r1, %tid.x;
 	// end inline asm
-	setp.ne.b32 	%p2, %r3, 0;
-	@%p2 bra 	$L__BB9_11;
-// %bb.1:
+	setp.ne.b32 	%p1, %r1, 0;
+	@%p1 bra 	$L__BB12_12;
+	ld.param.b64 	%rd5, [async_hostcall_two_kernel_param_0];
 	st.global.b32 	[%rd1], 0;
 	st.global.b32 	[%rd1+4], 0;
-	st.global.b64 	[_ZN19async_hostcall_test18EXECUTOR_STORAGE_317h09c5e74de153a170E], 0;
-	st.global.b64 	[_ZN19async_hostcall_test18EXECUTOR_STORAGE_317h09c5e74de153a170E+8], 0;
-	atom.acq_rel.global.cas.b32 	%r4, [_ZN19async_hostcall_test9JOIN_TASK17h73e396a3cdf9bcb6E+40], 0, 3;
-	setp.eq.b32 	%p1, %r4, 0;
-	setp.ne.b32 	%p3, %r4, 0;
-	mov.b64 	%rd21, 0;
-	@%p3 bra 	$L__BB9_3;
-// %bb.2:
-	ld.param.b64 	%rd10, [futures_join_kernel_param_0];
-	mov.b64 	%rd14, _ZN16embassy_executor3raw20TaskStorage$LT$F$GT$4poll17h928a13fd38902728E;
-	st.global.b64 	[_ZN19async_hostcall_test9JOIN_TASK17h73e396a3cdf9bcb6E+32], %rd14;
-	mov.b64 	%rd15, _ZN19async_hostcall_test9JOIN_TASK17h73e396a3cdf9bcb6E;
-	{ // callseq 5, 0
-	.param .b64 	param0;
-	st.param.b64 	[param0], %rd10;
-	call.uni _ZN16embassy_executor3raw4util19UninitCell$LT$T$GT$14write_in_place17h7e0f23683fdb94a6E, (param0);
-	} // callseq 5
-	cvta.global.u64 	%rd21, %rd15;
-$L__BB9_3:
-	not.pred 	%p4, %p1;
-	@%p4 bra 	$L__BB9_6;
-// %bb.4:
-	mov.b64 	%rd16, _ZN19async_hostcall_test18EXECUTOR_STORAGE_317h09c5e74de153a170E;
-	cvta.global.u64 	%rd17, %rd16;
-	st.relaxed.sys.b64 	[%rd21+24], %rd17;
-	fence.sc.sys;
-	ld.acquire.sys.global.b64 	%rd22, [_ZN19async_hostcall_test18EXECUTOR_STORAGE_317h09c5e74de153a170E];
-$L__BB9_5:                              // =>This Inner Loop Header: Depth=1
-	st.b64 	[%rd21+16], %rd22;
-	fence.sc.sys;
-	atom.acquire.global.cas.b64 	%rd5, [_ZN19async_hostcall_test18EXECUTOR_STORAGE_317h09c5e74de153a170E], %rd22, %rd21;
-	setp.ne.b64 	%p5, %rd5, %rd22;
-	mov.b64 	%rd22, %rd5;
-	@%p5 bra 	$L__BB9_5;
-$L__BB9_6:                              // %.loopexit1
-	mov.b32 	%r8, 0;
-	add.u64 	%rd19, %SP, 0;
-	bra.uni 	$L__BB9_7;
-$L__BB9_9:                              // %.loopexit
-                                        //   in Loop: Header=BB9_7 Depth=1
-	add.s32 	%r7, %r8, 1;
-	st.b32 	[%SP], %r7;
-	cvta.to.local.u64 	%rd20, %rd19;
-	ld.local.b32 	%r8, [%rd20];
-	setp.lt.u32 	%p8, %r8, 100;
-	@%p8 bra 	$L__BB9_7;
-	bra.uni 	$L__BB9_10;
-$L__BB9_7:                              // =>This Loop Header: Depth=1
-                                        //     Child Loop BB9_8 Depth 2
-	atom.global.exch.b64 	%rd23, [_ZN19async_hostcall_test18EXECUTOR_STORAGE_317h09c5e74de153a170E], 0;
-	setp.eq.b64 	%p6, %rd23, 0;
-	@%p6 bra 	$L__BB9_9;
-$L__BB9_8:                              // %.preheader
-                                        //   Parent Loop BB9_7 Depth=1
-                                        // =>  This Inner Loop Header: Depth=2
-	ld.b64 	%rd9, [%rd23+16];
-	atom.and.b32 	%r6, [%rd23+40], -3;
-	ld.b64 	%rd18, [%rd23+32];
+	st.global.b64 	[_RNvCsaU7OcvMiU4k_19async_hostcall_test18EXECUTOR_STORAGE_2], 0;
+	st.global.b64 	[_RNvCsaU7OcvMiU4k_19async_hostcall_test18EXECUTOR_STORAGE_2+8], 0;
+	atom.acq_rel.sys.global.cas.b32 	%r2, [_RNvCsaU7OcvMiU4k_19async_hostcall_test6TASK_A+40], 0, 3;
+	setp.ne.b32 	%p2, %r2, 0;
+	@%p2 bra 	$L__BB12_4;
+	mov.b64 	%rd7, _RNvMs1_NtCsdwh7N5MnlkE_16embassy_executor3rawINtB5_11TaskStorageNtCsaU7OcvMiU4k_19async_hostcall_test19HostcallPrintFutureE4pollB12_;
+	st.global.b64 	[_RNvCsaU7OcvMiU4k_19async_hostcall_test6TASK_A+32], %rd7;
 	{ // callseq 6, 0
 	.param .b64 	param0;
-	st.param.b64 	[param0], %rd23;
-	prototype_6 : .callprototype ()_ (.param .b64 _);
-	call %rd18, (param0), prototype_6;
+	st.param.b64 	[param0], %rd5;
+	call.uni _RINvMNtNtCsdwh7N5MnlkE_16embassy_executor3raw4utilINtB3_10UninitCellNtCsaU7OcvMiU4k_19async_hostcall_test19HostcallPrintFutureE14write_in_placeNCNvB16_25async_hostcall_two_kernel0EB16_, (param0);
 	} // callseq 6
-	setp.ne.b64 	%p7, %rd9, 0;
-	mov.b64 	%rd23, %rd9;
-	@%p7 bra 	$L__BB9_8;
-	bra.uni 	$L__BB9_9;
-$L__BB9_10:
-	st.global.b32 	[%rd1], %r8;
-	st.global.b32 	[%rd1+4], 1;
-$L__BB9_11:
-	ret;
-                                        // -- End function
-}
-.func _ZN16embassy_executor3raw20TaskStorage$LT$F$GT$4poll17h928a13fd38902728E(
-	.param .b64 _ZN16embassy_executor3raw20TaskStorage$LT$F$GT$4poll17h928a13fd38902728E_param_0
-)                                       // -- Begin function _ZN16embassy_executor3raw20TaskStorage$LT$F$GT$4poll17h928a13fd38902728E
-                                        // @"_ZN16embassy_executor3raw20TaskStorage$LT$F$GT$4poll17h928a13fd38902728E"
-{
-	.reg .pred 	%p<66>;
-	.reg .b16 	%rs<71>;
-	.reg .b32 	%r<62>;
-	.reg .b64 	%rd<165>;
-
-// %bb.0:
-	ld.param.b64 	%rd73, [_ZN16embassy_executor3raw20TaskStorage$LT$F$GT$4poll17h928a13fd38902728E_param_0];
-	ld.b8 	%rs65, [%rd73+74];
-	setp.gt.u16 	%p4, %rs65, 2;
-	cvt.u64.u16 	%rd75, %rs65;
-	add.s64 	%rd76, %rd75, -2;
-	selp.b64 	%rd74, %rd76, 0, %p4;
-	mov.pred 	%p3, 0;
-	setp.eq.b64 	%p5, %rd74, 0;
-	@%p5 bra 	$L__BB10_4;
-// %bb.1:
-	setp.eq.b64 	%p6, %rd74, 1;
-	mov.pred 	%p1, %p3;
-	@%p6 bra 	$L__BB10_35;
-// %bb.2:
-	setp.eq.b64 	%p7, %rd74, 2;
-	@%p7 bra 	$L__BB10_77;
-	bra.uni 	$L__BB10_3;
-$L__BB10_77:
+	mov.b64 	%rd8, _RNvCsaU7OcvMiU4k_19async_hostcall_test18EXECUTOR_STORAGE_2;
+	cvta.global.u64 	%rd9, %rd8;
+	st.relaxed.sys.global.b64 	[_RNvCsaU7OcvMiU4k_19async_hostcall_test6TASK_A+24], %rd9;
+	fence.sc.sys;
+	ld.acquire.sys.global.b64 	%rd20, [_RNvCsaU7OcvMiU4k_19async_hostcall_test18EXECUTOR_STORAGE_2];
+	mov.b64 	%rd10, _RNvCsaU7OcvMiU4k_19async_hostcall_test6TASK_A;
+$L__BB12_3:
+	st.global.b64 	[_RNvCsaU7OcvMiU4k_19async_hostcall_test6TASK_A+16], %rd20;
+	fence.sc.sys;
+	cvta.global.u64 	%rd11, %rd10;
+	atom.acquire.sys.global.cas.b64 	%rd2, [_RNvCsaU7OcvMiU4k_19async_hostcall_test18EXECUTOR_STORAGE_2], %rd20, %rd11;
+	setp.ne.b64 	%p3, %rd2, %rd20;
+	mov.b64 	%rd20, %rd2;
+	@%p3 bra 	$L__BB12_3;
+$L__BB12_4:
+	atom.acq_rel.sys.global.cas.b32 	%r3, [_RNvCsaU7OcvMiU4k_19async_hostcall_test6TASK_B+40], 0, 3;
+	setp.ne.b32 	%p4, %r3, 0;
+	@%p4 bra 	$L__BB12_7;
+	mov.b64 	%rd12, _RNvMs1_NtCsdwh7N5MnlkE_16embassy_executor3rawINtB5_11TaskStorageNtCsaU7OcvMiU4k_19async_hostcall_test20HostcallPrintFutureBE4pollB12_;
+	st.global.b64 	[_RNvCsaU7OcvMiU4k_19async_hostcall_test6TASK_B+32], %rd12;
 	{ // callseq 7, 0
-	call.uni _ZN4core9panicking5panic17h0fa9c1a1b8644949E, ();
+	.param .b64 	param0;
+	st.param.b64 	[param0], %rd5;
+	call.uni _RINvMNtNtCsdwh7N5MnlkE_16embassy_executor3raw4utilINtB3_10UninitCellNtCsaU7OcvMiU4k_19async_hostcall_test20HostcallPrintFutureBE14write_in_placeNCNvB16_25async_hostcall_two_kernels_0EB16_, (param0);
 	} // callseq 7
-	// begin inline asm
-	exit;
-	// end inline asm
-$L__BB10_4:
-	setp.eq.b16 	%p8, %rs65, 0;
-	@%p8 bra 	$L__BB10_8;
-// %bb.5:
-	setp.eq.b16 	%p9, %rs65, 1;
-	@%p9 bra 	$L__BB10_29;
-	bra.uni 	$L__BB10_6;
-$L__BB10_29:
-	ld.b64 	%rd2, [%rd73+64];
-	ld.b16 	%rs16, [%rd73+72];
-	cvt.u32.u16 	%r22, %rs16;
-	mul.wide.u32 	%rd78, %r22, 2112;
-	add.s64 	%rd4, %rd2, %rd78;
-	add.s64 	%rd77, %rd4, 80;
-	// begin inline asm
-	ld.acquire.sys.global.u32 %r21, [%rd77];
-	// end inline asm
-	and.b32 	%r23, %r21, 1;
-	setp.ne.b32 	%p11, %r23, 0;
-	not.pred 	%p12, %p11;
-	@%p12 bra 	$L__BB10_26;
-	bra.uni 	$L__BB10_30;
-$L__BB10_26:
-	atom.or.b32 	%r25, [%rd73+40], 2;
-	and.b32 	%r26, %r25, 2;
-	setp.ne.b32 	%p15, %r26, 0;
-	mov.b16 	%rs66, 2;
-	mov.b16 	%rs65, 1;
-	@%p15 bra 	$L__BB10_33;
-// %bb.27:
-	ld.relaxed.sys.b64 	%rd32, [%rd73+24];
+	mov.b64 	%rd13, _RNvCsaU7OcvMiU4k_19async_hostcall_test18EXECUTOR_STORAGE_2;
+	cvta.global.u64 	%rd14, %rd13;
+	st.relaxed.sys.global.b64 	[_RNvCsaU7OcvMiU4k_19async_hostcall_test6TASK_B+24], %rd14;
 	fence.sc.sys;
-	ld.acquire.sys.b64 	%rd157, [%rd32];
-$L__BB10_28:                            // =>This Inner Loop Header: Depth=1
-	st.b64 	[%rd73+16], %rd157;
+	ld.acquire.sys.global.b64 	%rd21, [_RNvCsaU7OcvMiU4k_19async_hostcall_test18EXECUTOR_STORAGE_2];
+	mov.b64 	%rd15, _RNvCsaU7OcvMiU4k_19async_hostcall_test6TASK_B;
+$L__BB12_6:
+	st.global.b64 	[_RNvCsaU7OcvMiU4k_19async_hostcall_test6TASK_B+16], %rd21;
 	fence.sc.sys;
-	atom.acquire.cas.b64 	%rd35, [%rd32], %rd157, %rd73;
-	setp.eq.b64 	%p16, %rd35, %rd157;
-	mov.b64 	%rd157, %rd35;
-	@%p16 bra 	$L__BB10_33;
-	bra.uni 	$L__BB10_28;
-$L__BB10_8:
-	ld.b64 	%rd1, [%rd73+64];
-$L__BB10_9:                             // =>This Inner Loop Header: Depth=1
-	// begin inline asm
-	ld.acquire.sys.global.u64 %rd90, [%rd1];
-	// end inline asm
-	cvt.u16.u64 	%rs3, %rd90;
-	setp.eq.b16 	%p17, %rs3, -1;
-	@%p17 bra 	$L__BB10_23;
-// %bb.10:                              //   in Loop: Header=BB10_9 Depth=1
-	and.b64 	%rd6, %rd90, 65535;
-	mad.lo.s64 	%rd7, %rd6, 2112, %rd1;
-	ld.volatile.b64 	%rd91, [%rd7+64];
-	// begin inline asm
-	atom.cas.sys.global.b64 %rd88, [%rd1], %rd90, %rd91;
-	// end inline asm
-	setp.ne.b64 	%p18, %rd88, %rd90;
-	@%p18 bra 	$L__BB10_9;
-// %bb.11:
-	st.b16 	[%rd73+72], %rs3;
-	// begin inline asm
-	activemask.b32 %r27;
-	// end inline asm
-	st.volatile.b32 	[%rd7+72], %r27;
-	st.volatile.b32 	[%rd7+76], 1;
-	add.s64 	%rd92, %rd7, 80;
-	mov.b32 	%r56, 0;
-	// begin inline asm
-	st.release.sys.global.u32 [%rd92], %r56;
-	// end inline asm
-	ld.b64 	%rd93, [%rd73+56];
-	and.b64 	%rd94, %rd93, 4294967295;
-	cvt.u32.u64 	%r2, %rd93;
-	st.volatile.b64 	[%rd7+96], %rd94;
-	setp.eq.b32 	%p19, %r2, 0;
-	@%p19 bra 	$L__BB10_18;
-// %bb.12:
-	min.u32 	%r3, %r2, 56;
-	ld.b64 	%rd9, [%rd73+48];
-	and.b32 	%r57, %r3, 7;
-	setp.lt.u32 	%p20, %r2, 8;
-	cvt.u32.u16 	%r55, %rs3;
-	@%p20 bra 	$L__BB10_15;
-// %bb.13:
-	and.b32 	%r56, %r3, 56;
-	add.s64 	%rd155, %rd9, 3;
-	mul.wide.u32 	%rd95, %r55, 2112;
-	add.s64 	%rd96, %rd1, %rd95;
-	add.s64 	%rd154, %rd96, 111;
-	mov.b32 	%r58, %r56;
-$L__BB10_14:                            // =>This Inner Loop Header: Depth=1
-	ld.b8 	%rs22, [%rd155+-3];
-	st.volatile.b8 	[%rd154+-7], %rs22;
-	ld.b8 	%rs23, [%rd155+-2];
-	st.volatile.b8 	[%rd154+-6], %rs23;
-	ld.b8 	%rs24, [%rd155+-1];
-	st.volatile.b8 	[%rd154+-5], %rs24;
-	ld.b8 	%rs25, [%rd155];
-	st.volatile.b8 	[%rd154+-4], %rs25;
-	ld.b8 	%rs26, [%rd155+1];
-	st.volatile.b8 	[%rd154+-3], %rs26;
-	ld.b8 	%rs27, [%rd155+2];
-	st.volatile.b8 	[%rd154+-2], %rs27;
-	ld.b8 	%rs28, [%rd155+3];
-	st.volatile.b8 	[%rd154+-1], %rs28;
-	ld.b8 	%rs29, [%rd155+4];
-	st.volatile.b8 	[%rd154], %rs29;
-	add.s32 	%r58, %r58, -8;
-	add.s64 	%rd155, %rd155, 8;
-	add.s64 	%rd154, %rd154, 8;
-	setp.eq.b32 	%p21, %r58, 0;
-	@%p21 bra 	$L__BB10_15;
-	bra.uni 	$L__BB10_14;
-$L__BB10_15:                            // %.loopexit18
-	setp.eq.b32 	%p22, %r57, 0;
-	@%p22 bra 	$L__BB10_18;
-// %bb.16:                              // %.preheader16.preheader
-	cvt.u64.u32 	%rd97, %r56;
-	add.s64 	%rd98, %rd97, %rd1;
-	mul.wide.u32 	%rd99, %r55, 2112;
-	add.s64 	%rd100, %rd98, %rd99;
-	add.s64 	%rd153, %rd100, 104;
-	add.s64 	%rd152, %rd9, %rd97;
-$L__BB10_17:                            // %.preheader16
-                                        // =>This Inner Loop Header: Depth=1
-	.pragma "nounroll";
-	ld.b8 	%rs30, [%rd152];
-	st.volatile.b8 	[%rd153], %rs30;
-	add.s64 	%rd153, %rd153, 1;
-	add.s64 	%rd152, %rd152, 1;
-	add.s32 	%r57, %r57, -1;
-	setp.ne.b32 	%p23, %r57, 0;
-	@%p23 bra 	$L__BB10_17;
-$L__BB10_18:                            // %.loopexit17
-	mov.b32 	%r32, 4;
-	// begin inline asm
-	st.release.sys.global.u32 [%rd92], %r32;
-	// end inline asm
-	add.s64 	%rd103, %rd1, 8;
-	or.b64 	%rd23, %rd6, 4294967296;
-$L__BB10_19:                            // =>This Inner Loop Header: Depth=1
-	// begin inline asm
-	ld.acquire.sys.global.u64 %rd106, [%rd103];
-	// end inline asm
-	st.volatile.b64 	[%rd7+64], %rd106;
-	and.b64 	%rd108, %rd106, -4294967296;
-	add.s64 	%rd107, %rd23, %rd108;
-	// begin inline asm
-	atom.cas.sys.global.b64 %rd104, [%rd103], %rd106, %rd107;
-	// end inline asm
-	setp.ne.b64 	%p24, %rd104, %rd106;
-	@%p24 bra 	$L__BB10_19;
-// %bb.20:
-	add.s64 	%rd110, %rd1, 16;
-	mov.b64 	%rd111, 1;
-	// begin inline asm
-	atom.add.sys.global.u64 %rd109, [%rd110], %rd111;
-	// end inline asm
-	st.b8 	[%rd73+74], 1;
-	atom.or.b32 	%r33, [%rd73+40], 2;
-	and.b32 	%r34, %r33, 2;
-	setp.ne.b32 	%p25, %r34, 0;
-	mov.b16 	%rs66, 2;
-	mov.b16 	%rs65, 1;
-	@%p25 bra 	$L__BB10_33;
-// %bb.21:
-	ld.relaxed.sys.b64 	%rd28, [%rd73+24];
-	fence.sc.sys;
-	ld.acquire.sys.b64 	%rd156, [%rd28];
-$L__BB10_22:                            // =>This Inner Loop Header: Depth=1
-	st.b64 	[%rd73+16], %rd156;
-	fence.sc.sys;
-	atom.acquire.cas.b64 	%rd31, [%rd28], %rd156, %rd73;
-	setp.eq.b64 	%p26, %rd31, %rd156;
-	mov.b64 	%rd156, %rd31;
-	@%p26 bra 	$L__BB10_33;
-	bra.uni 	$L__BB10_22;
-$L__BB10_6:
-	mov.b16 	%rs66, 0;
-	setp.eq.b16 	%p10, %rs65, 2;
-	@%p10 bra 	$L__BB10_33;
-// %bb.7:
-	// begin inline asm
-	exit;
-	// end inline asm
-$L__BB10_23:
-	atom.or.b32 	%r35, [%rd73+40], 2;
-	and.b32 	%r36, %r35, 2;
-	setp.ne.b32 	%p27, %r36, 0;
-	mov.b16 	%rs66, 2;
-	mov.b16 	%rs65, 0;
-	@%p27 bra 	$L__BB10_33;
-// %bb.24:
-	ld.relaxed.sys.b64 	%rd12, [%rd73+24];
-	fence.sc.sys;
-	ld.acquire.sys.b64 	%rd151, [%rd12];
-$L__BB10_25:                            // =>This Inner Loop Header: Depth=1
-	st.b64 	[%rd73+16], %rd151;
-	fence.sc.sys;
-	atom.acquire.cas.b64 	%rd15, [%rd12], %rd151, %rd73;
-	setp.eq.b64 	%p28, %rd15, %rd151;
-	mov.b64 	%rd151, %rd15;
-	@%p28 bra 	$L__BB10_33;
-	bra.uni 	$L__BB10_25;
-$L__BB10_30:
-	cvt.u64.u16 	%rd3, %rs16;
-	or.b64 	%rd36, %rd3, 4294967296;
-$L__BB10_31:                            // =>This Inner Loop Header: Depth=1
-	// begin inline asm
-	ld.acquire.sys.global.u64 %rd83, [%rd2];
-	// end inline asm
-	st.volatile.b64 	[%rd4+64], %rd83;
-	and.b64 	%rd85, %rd83, -4294967296;
-	add.s64 	%rd84, %rd36, %rd85;
-	// begin inline asm
-	atom.cas.sys.global.b64 %rd81, [%rd2], %rd83, %rd84;
-	// end inline asm
-	setp.ne.b64 	%p13, %rd81, %rd83;
-	@%p13 bra 	$L__BB10_31;
-// %bb.32:
-	and.b32 	%r24, %r21, 2;
-	setp.eq.b32 	%p14, %r24, 0;
-	st.b8 	[%rd73+74], 2;
-	selp.b16 	%rs66, 1, 0, %p14;
-	mov.b16 	%rs65, 2;
-$L__BB10_33:                            // %.loopexit14
-	setp.eq.b16 	%p30, %rs66, 2;
-	mov.pred 	%p1, -1;
-	@%p30 bra 	$L__BB10_35;
-// %bb.34:
-	st.b8 	[%rd73+48], %rs66;
-	st.b8 	[%rd73+74], 3;
-	mov.b16 	%rs65, 3;
-	mov.pred 	%p1, %p3;
-$L__BB10_35:
-	ld.b8 	%rs68, [%rd73+106];
-	setp.gt.u16 	%p33, %rs68, 2;
-	cvt.u64.u16 	%rd113, %rs68;
-	add.s64 	%rd114, %rd113, -2;
-	selp.b64 	%rd112, %rd114, 0, %p33;
-	mov.pred 	%p32, 0;
-	setp.eq.b64 	%p34, %rd112, 0;
-	@%p34 bra 	$L__BB10_39;
-// %bb.36:
-	setp.eq.b64 	%p35, %rd112, 1;
-	mov.pred 	%p65, %p32;
-	@%p35 bra 	$L__BB10_70;
-// %bb.37:
-	setp.eq.b64 	%p36, %rd112, 2;
-	@%p36 bra 	$L__BB10_78;
-	bra.uni 	$L__BB10_38;
-$L__BB10_78:
+	cvta.global.u64 	%rd16, %rd15;
+	atom.acquire.sys.global.cas.b64 	%rd3, [_RNvCsaU7OcvMiU4k_19async_hostcall_test18EXECUTOR_STORAGE_2], %rd21, %rd16;
+	setp.ne.b64 	%p5, %rd3, %rd21;
+	mov.b64 	%rd21, %rd3;
+	@%p5 bra 	$L__BB12_6;
+$L__BB12_7:
+	mov.b32 	%r6, 0;
+	add.u64 	%rd18, %SP, 0;
+	bra.uni 	$L__BB12_8;
+$L__BB12_10:
+	add.s32 	%r5, %r6, 1;
+	st.b32 	[%SP], %r5;
+	cvta.to.local.u64 	%rd19, %rd18;
+	ld.local.b32 	%r6, [%rd19];
+	setp.lt.u32 	%p8, %r6, 100;
+	@%p8 bra 	$L__BB12_8;
+	bra.uni 	$L__BB12_11;
+$L__BB12_8:
+	atom.global.exch.b64 	%rd22, [_RNvCsaU7OcvMiU4k_19async_hostcall_test18EXECUTOR_STORAGE_2], 0;
+	setp.eq.b64 	%p6, %rd22, 0;
+	@%p6 bra 	$L__BB12_10;
+$L__BB12_9:
+	ld.b64 	%rd4, [%rd22+16];
+	atom.and.b32 	%r4, [%rd22+40], -3;
+	ld.b64 	%rd17, [%rd22+32];
 	{ // callseq 8, 0
-	call.uni _ZN4core9panicking5panic17h0fa9c1a1b8644949E, ();
+	.param .b64 	param0;
+	st.param.b64 	[param0], %rd22;
+	prototype_8 : .callprototype ()_ (.param .b64 _);
+	call %rd17, (param0), prototype_8;
 	} // callseq 8
-	// begin inline asm
-	exit;
-	// end inline asm
-$L__BB10_39:
-	setp.eq.b16 	%p37, %rs68, 0;
-	@%p37 bra 	$L__BB10_43;
-// %bb.40:
-	setp.eq.b16 	%p38, %rs68, 1;
-	@%p38 bra 	$L__BB10_64;
-	bra.uni 	$L__BB10_41;
-$L__BB10_64:
-	ld.b64 	%rd38, [%rd73+96];
-	ld.b16 	%rs41, [%rd73+104];
-	cvt.u32.u16 	%r38, %rs41;
-	mul.wide.u32 	%rd116, %r38, 2112;
-	add.s64 	%rd40, %rd38, %rd116;
-	add.s64 	%rd115, %rd40, 80;
-	// begin inline asm
-	ld.acquire.sys.global.u32 %r37, [%rd115];
-	// end inline asm
-	and.b32 	%r39, %r37, 1;
-	setp.ne.b32 	%p40, %r39, 0;
-	not.pred 	%p41, %p40;
-	@%p41 bra 	$L__BB10_61;
-	bra.uni 	$L__BB10_65;
-$L__BB10_61:
-	atom.or.b32 	%r41, [%rd73+40], 2;
-	and.b32 	%r42, %r41, 2;
-	setp.ne.b32 	%p44, %r42, 0;
-	mov.b16 	%rs69, 2;
-	mov.b16 	%rs68, 1;
-	@%p44 bra 	$L__BB10_68;
-// %bb.62:
-	ld.relaxed.sys.b64 	%rd68, [%rd73+24];
-	fence.sc.sys;
-	ld.acquire.sys.b64 	%rd164, [%rd68];
-$L__BB10_63:                            // =>This Inner Loop Header: Depth=1
-	st.b64 	[%rd73+16], %rd164;
-	fence.sc.sys;
-	atom.acquire.cas.b64 	%rd71, [%rd68], %rd164, %rd73;
-	setp.eq.b64 	%p45, %rd71, %rd164;
-	mov.b64 	%rd164, %rd71;
-	@%p45 bra 	$L__BB10_68;
-	bra.uni 	$L__BB10_63;
-$L__BB10_43:
-	ld.b64 	%rd37, [%rd73+96];
-$L__BB10_44:                            // =>This Inner Loop Header: Depth=1
-	// begin inline asm
-	ld.acquire.sys.global.u64 %rd128, [%rd37];
-	// end inline asm
-	cvt.u16.u64 	%rs10, %rd128;
-	setp.eq.b16 	%p46, %rs10, -1;
-	@%p46 bra 	$L__BB10_58;
-// %bb.45:                              //   in Loop: Header=BB10_44 Depth=1
-	and.b64 	%rd42, %rd128, 65535;
-	mad.lo.s64 	%rd43, %rd42, 2112, %rd37;
-	ld.volatile.b64 	%rd129, [%rd43+64];
-	// begin inline asm
-	atom.cas.sys.global.b64 %rd126, [%rd37], %rd128, %rd129;
-	// end inline asm
-	setp.ne.b64 	%p47, %rd126, %rd128;
-	@%p47 bra 	$L__BB10_44;
-// %bb.46:
-	st.b16 	[%rd73+104], %rs10;
-	// begin inline asm
-	activemask.b32 %r43;
-	// end inline asm
-	st.volatile.b32 	[%rd43+72], %r43;
-	st.volatile.b32 	[%rd43+76], 1;
-	add.s64 	%rd130, %rd43, 80;
-	mov.b32 	%r59, 0;
-	// begin inline asm
-	st.release.sys.global.u32 [%rd130], %r59;
-	// end inline asm
-	ld.b64 	%rd131, [%rd73+88];
-	and.b64 	%rd132, %rd131, 4294967295;
-	cvt.u32.u64 	%r12, %rd131;
-	st.volatile.b64 	[%rd43+96], %rd132;
-	setp.eq.b32 	%p48, %r12, 0;
-	@%p48 bra 	$L__BB10_53;
-// %bb.47:
-	min.u32 	%r13, %r12, 56;
-	ld.b64 	%rd45, [%rd73+80];
-	and.b32 	%r60, %r13, 7;
-	setp.lt.u32 	%p49, %r12, 8;
-	cvt.u32.u16 	%r54, %rs10;
-	@%p49 bra 	$L__BB10_50;
-// %bb.48:
-	and.b32 	%r59, %r13, 56;
-	add.s64 	%rd162, %rd45, 3;
-	mul.wide.u32 	%rd133, %r54, 2112;
-	add.s64 	%rd134, %rd37, %rd133;
-	add.s64 	%rd161, %rd134, 111;
-	mov.b32 	%r61, %r59;
-$L__BB10_49:                            // =>This Inner Loop Header: Depth=1
-	ld.b8 	%rs47, [%rd162+-3];
-	st.volatile.b8 	[%rd161+-7], %rs47;
-	ld.b8 	%rs48, [%rd162+-2];
-	st.volatile.b8 	[%rd161+-6], %rs48;
-	ld.b8 	%rs49, [%rd162+-1];
-	st.volatile.b8 	[%rd161+-5], %rs49;
-	ld.b8 	%rs50, [%rd162];
-	st.volatile.b8 	[%rd161+-4], %rs50;
-	ld.b8 	%rs51, [%rd162+1];
-	st.volatile.b8 	[%rd161+-3], %rs51;
-	ld.b8 	%rs52, [%rd162+2];
-	st.volatile.b8 	[%rd161+-2], %rs52;
-	ld.b8 	%rs53, [%rd162+3];
-	st.volatile.b8 	[%rd161+-1], %rs53;
-	ld.b8 	%rs54, [%rd162+4];
-	st.volatile.b8 	[%rd161], %rs54;
-	add.s32 	%r61, %r61, -8;
-	add.s64 	%rd162, %rd162, 8;
-	add.s64 	%rd161, %rd161, 8;
-	setp.eq.b32 	%p50, %r61, 0;
-	@%p50 bra 	$L__BB10_50;
-	bra.uni 	$L__BB10_49;
-$L__BB10_50:                            // %.loopexit12
-	setp.eq.b32 	%p51, %r60, 0;
-	@%p51 bra 	$L__BB10_53;
-// %bb.51:                              // %.preheader.preheader
-	cvt.u64.u32 	%rd135, %r59;
-	add.s64 	%rd136, %rd135, %rd37;
-	mul.wide.u32 	%rd137, %r54, 2112;
-	add.s64 	%rd138, %rd136, %rd137;
-	add.s64 	%rd160, %rd138, 104;
-	add.s64 	%rd159, %rd45, %rd135;
-$L__BB10_52:                            // %.preheader
-                                        // =>This Inner Loop Header: Depth=1
-	.pragma "nounroll";
-	ld.b8 	%rs55, [%rd159];
-	st.volatile.b8 	[%rd160], %rs55;
-	add.s64 	%rd160, %rd160, 1;
-	add.s64 	%rd159, %rd159, 1;
-	add.s32 	%r60, %r60, -1;
-	setp.ne.b32 	%p52, %r60, 0;
-	@%p52 bra 	$L__BB10_52;
-$L__BB10_53:                            // %.loopexit11
-	mov.b32 	%r48, 4;
-	// begin inline asm
-	st.release.sys.global.u32 [%rd130], %r48;
-	// end inline asm
-	add.s64 	%rd141, %rd37, 8;
-	or.b64 	%rd59, %rd42, 4294967296;
-$L__BB10_54:                            // =>This Inner Loop Header: Depth=1
-	// begin inline asm
-	ld.acquire.sys.global.u64 %rd144, [%rd141];
-	// end inline asm
-	st.volatile.b64 	[%rd43+64], %rd144;
-	and.b64 	%rd146, %rd144, -4294967296;
-	add.s64 	%rd145, %rd59, %rd146;
-	// begin inline asm
-	atom.cas.sys.global.b64 %rd142, [%rd141], %rd144, %rd145;
-	// end inline asm
-	setp.ne.b64 	%p53, %rd142, %rd144;
-	@%p53 bra 	$L__BB10_54;
-// %bb.55:
-	add.s64 	%rd148, %rd37, 16;
-	mov.b64 	%rd149, 1;
-	// begin inline asm
-	atom.add.sys.global.u64 %rd147, [%rd148], %rd149;
-	// end inline asm
-	st.b8 	[%rd73+106], 1;
-	atom.or.b32 	%r49, [%rd73+40], 2;
-	and.b32 	%r50, %r49, 2;
-	setp.ne.b32 	%p54, %r50, 0;
-	mov.b16 	%rs69, 2;
-	mov.b16 	%rs68, 1;
-	@%p54 bra 	$L__BB10_68;
-// %bb.56:
-	ld.relaxed.sys.b64 	%rd64, [%rd73+24];
-	fence.sc.sys;
-	ld.acquire.sys.b64 	%rd163, [%rd64];
-$L__BB10_57:                            // =>This Inner Loop Header: Depth=1
-	st.b64 	[%rd73+16], %rd163;
-	fence.sc.sys;
-	atom.acquire.cas.b64 	%rd67, [%rd64], %rd163, %rd73;
-	setp.eq.b64 	%p55, %rd67, %rd163;
-	mov.b64 	%rd163, %rd67;
-	@%p55 bra 	$L__BB10_68;
-	bra.uni 	$L__BB10_57;
-$L__BB10_41:
-	mov.b16 	%rs69, 0;
-	setp.eq.b16 	%p39, %rs68, 2;
-	@%p39 bra 	$L__BB10_68;
-// %bb.42:
-	// begin inline asm
-	exit;
-	// end inline asm
-$L__BB10_58:
-	atom.or.b32 	%r51, [%rd73+40], 2;
-	and.b32 	%r52, %r51, 2;
-	setp.ne.b32 	%p56, %r52, 0;
-	mov.b16 	%rs69, 2;
-	mov.b16 	%rs68, 0;
-	@%p56 bra 	$L__BB10_68;
-// %bb.59:
-	ld.relaxed.sys.b64 	%rd48, [%rd73+24];
-	fence.sc.sys;
-	ld.acquire.sys.b64 	%rd158, [%rd48];
-$L__BB10_60:                            // =>This Inner Loop Header: Depth=1
-	st.b64 	[%rd73+16], %rd158;
-	fence.sc.sys;
-	atom.acquire.cas.b64 	%rd51, [%rd48], %rd158, %rd73;
-	setp.eq.b64 	%p57, %rd51, %rd158;
-	mov.b64 	%rd158, %rd51;
-	@%p57 bra 	$L__BB10_68;
-	bra.uni 	$L__BB10_60;
-$L__BB10_65:
-	cvt.u64.u16 	%rd39, %rs41;
-	or.b64 	%rd72, %rd39, 4294967296;
-$L__BB10_66:                            // =>This Inner Loop Header: Depth=1
-	// begin inline asm
-	ld.acquire.sys.global.u64 %rd121, [%rd38];
-	// end inline asm
-	st.volatile.b64 	[%rd40+64], %rd121;
-	and.b64 	%rd123, %rd121, -4294967296;
-	add.s64 	%rd122, %rd72, %rd123;
-	// begin inline asm
-	atom.cas.sys.global.b64 %rd119, [%rd38], %rd121, %rd122;
-	// end inline asm
-	setp.ne.b64 	%p42, %rd119, %rd121;
-	@%p42 bra 	$L__BB10_66;
-// %bb.67:
-	and.b32 	%r40, %r37, 2;
-	setp.eq.b32 	%p43, %r40, 0;
-	st.b8 	[%rd73+106], 2;
-	selp.b16 	%rs69, 1, 0, %p43;
-	mov.b16 	%rs68, 2;
-$L__BB10_68:                            // %.loopexit
-	setp.eq.b16 	%p59, %rs69, 2;
-	mov.pred 	%p65, -1;
-	@%p59 bra 	$L__BB10_70;
-// %bb.69:
-	st.b8 	[%rd73+80], %rs69;
-	st.b8 	[%rd73+106], 3;
-	mov.b16 	%rs68, 3;
-	mov.pred 	%p65, %p32;
-$L__BB10_70:
-	or.pred 	%p61, %p1, %p65;
-	@%p61 bra 	$L__BB10_74;
-// %bb.71:
-	setp.ne.b16 	%p62, %rs65, 3;
-	@%p62 bra 	$L__BB10_75;
-// %bb.72:
-	st.b8 	[%rd73+74], 4;
-	setp.ne.b16 	%p63, %rs68, 3;
-	@%p63 bra 	$L__BB10_76;
-// %bb.73:
-	st.b8 	[%rd73+106], 4;
-	mov.b64 	%rd150, _ZN16embassy_executor3raw11poll_exited17h98db27a08fdb03b3E;
-	st.b64 	[%rd73+32], %rd150;
-	atom.and.b32 	%r53, [%rd73+40], -2;
-$L__BB10_74:
+	setp.ne.b64 	%p7, %rd4, 0;
+	mov.b64 	%rd22, %rd4;
+	@%p7 bra 	$L__BB12_9;
+	bra.uni 	$L__BB12_10;
+$L__BB12_11:
+	st.global.b32 	[%rd1], %r6;
+	st.global.b32 	[%rd1+4], 1;
+$L__BB12_12:
 	ret;
-$L__BB10_75:
+
+}
+	// .globl	futures_join_kernel
+.visible .entry futures_join_kernel(
+	.param .u64 .ptr .align 1 futures_join_kernel_param_0,
+	.param .u64 .ptr .align 1 futures_join_kernel_param_1
+)
+{
+	.local .align 4 .b8 	__local_depot13[4];
+	.reg .b64 	%SP;
+	.reg .b64 	%SPL;
+	.reg .pred 	%p<7>;
+	.reg .b32 	%r<6>;
+	.reg .b64 	%rd<16>;
+
+	mov.b64 	%SPL, __local_depot13;
+	cvta.local.u64 	%SP, %SPL;
+	ld.param.b64 	%rd5, [futures_join_kernel_param_1];
+	cvta.to.global.u64 	%rd1, %rd5;
+	// begin inline asm
+	mov.u32 %r1, %tid.x;
+	// end inline asm
+	setp.ne.b32 	%p1, %r1, 0;
+	@%p1 bra 	$L__BB13_9;
+	st.global.b32 	[%rd1], 0;
+	st.global.b32 	[%rd1+4], 0;
+	st.global.b64 	[_RNvCsaU7OcvMiU4k_19async_hostcall_test18EXECUTOR_STORAGE_3], 0;
+	st.global.b64 	[_RNvCsaU7OcvMiU4k_19async_hostcall_test18EXECUTOR_STORAGE_3+8], 0;
+	atom.acq_rel.sys.global.cas.b32 	%r2, [_RNvCsaU7OcvMiU4k_19async_hostcall_test9JOIN_TASK+40], 0, 3;
+	setp.ne.b32 	%p2, %r2, 0;
+	@%p2 bra 	$L__BB13_4;
+	ld.param.b64 	%rd4, [futures_join_kernel_param_0];
+	mov.b64 	%rd6, _RNvMs1_NtCsdwh7N5MnlkE_16embassy_executor3rawINtB5_11TaskStorageINtNtNtCs2jK5DEHBoFM_12futures_util6future4join4JoinNtCsaU7OcvMiU4k_19async_hostcall_test19HostcallPrintFutureNtB1S_20HostcallPrintFutureBEE4pollB1S_;
+	st.global.b64 	[_RNvCsaU7OcvMiU4k_19async_hostcall_test9JOIN_TASK+32], %rd6;
 	{ // callseq 9, 0
-	call.uni _ZN4core6option13unwrap_failed17h56953dcb4fc3a73bE, ();
+	.param .b64 	param0;
+	st.param.b64 	[param0], %rd4;
+	call.uni _RINvMNtNtCsdwh7N5MnlkE_16embassy_executor3raw4utilINtB3_10UninitCellINtNtNtCs2jK5DEHBoFM_12futures_util6future4join4JoinNtCsaU7OcvMiU4k_19async_hostcall_test19HostcallPrintFutureNtB1W_20HostcallPrintFutureBEE14write_in_placeNCNvB1W_19futures_join_kernel0EB1W_, (param0);
 	} // callseq 9
-	// begin inline asm
-	exit;
-	// end inline asm
-$L__BB10_76:
+	mov.b64 	%rd7, _RNvCsaU7OcvMiU4k_19async_hostcall_test18EXECUTOR_STORAGE_3;
+	cvta.global.u64 	%rd8, %rd7;
+	st.relaxed.sys.global.b64 	[_RNvCsaU7OcvMiU4k_19async_hostcall_test9JOIN_TASK+24], %rd8;
+	fence.sc.sys;
+	ld.acquire.sys.global.b64 	%rd14, [_RNvCsaU7OcvMiU4k_19async_hostcall_test18EXECUTOR_STORAGE_3];
+	mov.b64 	%rd9, _RNvCsaU7OcvMiU4k_19async_hostcall_test9JOIN_TASK;
+$L__BB13_3:
+	st.global.b64 	[_RNvCsaU7OcvMiU4k_19async_hostcall_test9JOIN_TASK+16], %rd14;
+	fence.sc.sys;
+	cvta.global.u64 	%rd10, %rd9;
+	atom.acquire.sys.global.cas.b64 	%rd2, [_RNvCsaU7OcvMiU4k_19async_hostcall_test18EXECUTOR_STORAGE_3], %rd14, %rd10;
+	setp.ne.b64 	%p3, %rd2, %rd14;
+	mov.b64 	%rd14, %rd2;
+	@%p3 bra 	$L__BB13_3;
+$L__BB13_4:
+	mov.b32 	%r5, 0;
+	add.u64 	%rd12, %SP, 0;
+	bra.uni 	$L__BB13_5;
+$L__BB13_7:
+	add.s32 	%r4, %r5, 1;
+	st.b32 	[%SP], %r4;
+	cvta.to.local.u64 	%rd13, %rd12;
+	ld.local.b32 	%r5, [%rd13];
+	setp.lt.u32 	%p6, %r5, 100;
+	@%p6 bra 	$L__BB13_5;
+	bra.uni 	$L__BB13_8;
+$L__BB13_5:
+	atom.global.exch.b64 	%rd15, [_RNvCsaU7OcvMiU4k_19async_hostcall_test18EXECUTOR_STORAGE_3], 0;
+	setp.eq.b64 	%p4, %rd15, 0;
+	@%p4 bra 	$L__BB13_7;
+$L__BB13_6:
+	ld.b64 	%rd3, [%rd15+16];
+	atom.and.b32 	%r3, [%rd15+40], -3;
+	ld.b64 	%rd11, [%rd15+32];
 	{ // callseq 10, 0
-	call.uni _ZN4core6option13unwrap_failed17h56953dcb4fc3a73bE, ();
+	.param .b64 	param0;
+	st.param.b64 	[param0], %rd15;
+	prototype_10 : .callprototype ()_ (.param .b64 _);
+	call %rd11, (param0), prototype_10;
 	} // callseq 10
-	// begin inline asm
-	exit;
-	// end inline asm
-$L__BB10_3:
-	// begin inline asm
-	exit;
-	// end inline asm
-$L__BB10_38:
-	// begin inline asm
-	exit;
-	// end inline asm
-                                        // -- End function
-}
-.func _ZN16embassy_executor3raw4util19UninitCell$LT$T$GT$14write_in_place17h7e0f23683fdb94a6E(
-	.param .b64 _ZN16embassy_executor3raw4util19UninitCell$LT$T$GT$14write_in_place17h7e0f23683fdb94a6E_param_0
-)                                       // -- Begin function _ZN16embassy_executor3raw4util19UninitCell$LT$T$GT$14write_in_place17h7e0f23683fdb94a6E
-                                        // @"_ZN16embassy_executor3raw4util19UninitCell$LT$T$GT$14write_in_place17h7e0f23683fdb94a6E"
-{
-	.reg .b64 	%rd<6>;
-
-// %bb.0:
-	ld.param.b64 	%rd1, [_ZN16embassy_executor3raw4util19UninitCell$LT$T$GT$14write_in_place17h7e0f23683fdb94a6E_param_0];
-	mov.b64 	%rd2, anon_$_f15894a641323bb25775af0e658b4f4a_$_5;
-	cvta.global.u64 	%rd3, %rd2;
-	st.global.b64 	[_ZN19async_hostcall_test9JOIN_TASK17h73e396a3cdf9bcb6E+48], %rd3;
-	st.global.b64 	[_ZN19async_hostcall_test9JOIN_TASK17h73e396a3cdf9bcb6E+56], 21;
-	st.global.b64 	[_ZN19async_hostcall_test9JOIN_TASK17h73e396a3cdf9bcb6E+64], %rd1;
-	st.global.b16 	[_ZN19async_hostcall_test9JOIN_TASK17h73e396a3cdf9bcb6E+72], -1;
-	st.global.b8 	[_ZN19async_hostcall_test9JOIN_TASK17h73e396a3cdf9bcb6E+74], 0;
-	mov.b64 	%rd4, anon_$_f15894a641323bb25775af0e658b4f4a_$_6;
-	cvta.global.u64 	%rd5, %rd4;
-	st.global.b64 	[_ZN19async_hostcall_test9JOIN_TASK17h73e396a3cdf9bcb6E+80], %rd5;
-	st.global.b64 	[_ZN19async_hostcall_test9JOIN_TASK17h73e396a3cdf9bcb6E+88], 21;
-	st.global.b64 	[_ZN19async_hostcall_test9JOIN_TASK17h73e396a3cdf9bcb6E+96], %rd1;
-	st.global.b16 	[_ZN19async_hostcall_test9JOIN_TASK17h73e396a3cdf9bcb6E+104], -1;
-	st.global.b8 	[_ZN19async_hostcall_test9JOIN_TASK17h73e396a3cdf9bcb6E+106], 0;
+	setp.ne.b64 	%p5, %rd3, 0;
+	mov.b64 	%rd15, %rd3;
+	@%p5 bra 	$L__BB13_6;
+	bra.uni 	$L__BB13_7;
+$L__BB13_8:
+	st.global.b32 	[%rd1], %r5;
+	st.global.b32 	[%rd1+4], 1;
+$L__BB13_9:
 	ret;
-                                        // -- End function
+
 }
-.func _ZN4core9panicking5panic17h0fa9c1a1b8644949E()
-.noreturn                               // -- Begin function _ZN4core9panicking5panic17h0fa9c1a1b8644949E
-                                        // @_ZN4core9panicking5panic17h0fa9c1a1b8644949E
-{
-
-
-// %bb.0:
-	{ // callseq 11, 0
-	call.uni _ZN4core9panicking9panic_fmt17h91912e5afa70f32dE, ();
-	} // callseq 11
-	// begin inline asm
-	exit;
-	// end inline asm
-                                        // -- End function
-}
-.func _ZN4core6option13unwrap_failed17h56953dcb4fc3a73bE()
-.noreturn                               // -- Begin function _ZN4core6option13unwrap_failed17h56953dcb4fc3a73bE
-                                        // @_ZN4core6option13unwrap_failed17h56953dcb4fc3a73bE
-{
-
-
-// %bb.0:
-	{ // callseq 12, 0
-	call.uni _ZN4core9panicking5panic17h0fa9c1a1b8644949E, ();
-	} // callseq 12
-	// begin inline asm
-	exit;
-	// end inline asm
-                                        // -- End function
-}
-.func _ZN4core9panicking9panic_fmt17h91912e5afa70f32dE()
-.noreturn                               // -- Begin function _ZN4core9panicking9panic_fmt17h91912e5afa70f32dE
-                                        // @_ZN4core9panicking9panic_fmt17h91912e5afa70f32dE
-{
-
-
-// %bb.0:
-$L__BB14_1:                             // =>This Inner Loop Header: Depth=1
-	bra.uni 	$L__BB14_1;
-                                        // -- End function
-}
-	// .globl	multi_block_async_kernel // -- Begin function multi_block_async_kernel
+	// .globl	multi_block_async_kernel
 .visible .entry multi_block_async_kernel(
 	.param .u64 .ptr .align 1 multi_block_async_kernel_param_0,
 	.param .u64 .ptr .align 1 multi_block_async_kernel_param_1
-)                                       // @multi_block_async_kernel
+)
 {
-	.local .align 4 .b8 	__local_depot15[24];
+	.local .align 4 .b8 	__local_depot14[24];
 	.reg .b64 	%SP;
 	.reg .b64 	%SPL;
 	.reg .pred 	%p<8>;
 	.reg .b16 	%rs<22>;
 	.reg .b32 	%r<11>;
-	.reg .b64 	%rd<36>;
+	.reg .b64 	%rd<30>;
 
-// %bb.0:
-	mov.b64 	%SPL, __local_depot15;
+	mov.b64 	%SPL, __local_depot14;
 	cvta.local.u64 	%SP, %SPL;
-	ld.param.b64 	%rd30, [multi_block_async_kernel_param_1];
-	cvta.to.global.u64 	%rd1, %rd30;
-	add.u64 	%rd19, %SP, 4;
+	ld.param.b64 	%rd24, [multi_block_async_kernel_param_1];
+	cvta.to.global.u64 	%rd1, %rd24;
+	add.u64 	%rd12, %SP, 4;
 	add.u64 	%rd2, %SPL, 4;
 	// begin inline asm
 	mov.u32 %r3, %tid.x;
@@ -1631,175 +1504,347 @@ $L__BB14_1:                             // =>This Inner Loop Header: Depth=1
 	// end inline asm
 	mad.lo.s32 	%r1, %r5, %r4, %r3;
 	setp.gt.u32 	%p1, %r1, 3;
-	@%p1 bra 	$L__BB15_11;
-// %bb.1:
-	ld.global.nc.b8 	%rs1, [anon_$_f15894a641323bb25775af0e658b4f4a_$_10+18];
+	@%p1 bra 	$L__BB14_11;
+	ld.global.nc.b8 	%rs1, [anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_10+18];
 	st.local.b8 	[%rd2+18], %rs1;
-	ld.global.nc.b8 	%rs2, [anon_$_f15894a641323bb25775af0e658b4f4a_$_10+17];
+	ld.global.nc.b8 	%rs2, [anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_10+17];
 	st.local.b8 	[%rd2+17], %rs2;
-	ld.global.nc.b8 	%rs3, [anon_$_f15894a641323bb25775af0e658b4f4a_$_10+16];
+	ld.global.nc.b8 	%rs3, [anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_10+16];
 	st.local.b8 	[%rd2+16], %rs3;
-	ld.global.nc.b8 	%rs4, [anon_$_f15894a641323bb25775af0e658b4f4a_$_10+15];
+	ld.global.nc.b8 	%rs4, [anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_10+15];
 	st.local.b8 	[%rd2+15], %rs4;
-	ld.global.nc.b8 	%rs5, [anon_$_f15894a641323bb25775af0e658b4f4a_$_10+14];
+	ld.global.nc.b8 	%rs5, [anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_10+14];
 	st.local.b8 	[%rd2+14], %rs5;
-	ld.global.nc.b8 	%rs6, [anon_$_f15894a641323bb25775af0e658b4f4a_$_10+13];
+	ld.global.nc.b8 	%rs6, [anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_10+13];
 	st.local.b8 	[%rd2+13], %rs6;
-	ld.global.nc.b8 	%rs7, [anon_$_f15894a641323bb25775af0e658b4f4a_$_10+12];
+	ld.global.nc.b8 	%rs7, [anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_10+12];
 	st.local.b8 	[%rd2+12], %rs7;
-	ld.global.nc.b8 	%rs8, [anon_$_f15894a641323bb25775af0e658b4f4a_$_10+11];
+	ld.global.nc.b8 	%rs8, [anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_10+11];
 	st.local.b8 	[%rd2+11], %rs8;
-	ld.global.nc.b8 	%rs9, [anon_$_f15894a641323bb25775af0e658b4f4a_$_10+10];
+	ld.global.nc.b8 	%rs9, [anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_10+10];
 	st.local.b8 	[%rd2+10], %rs9;
-	ld.global.nc.b8 	%rs10, [anon_$_f15894a641323bb25775af0e658b4f4a_$_10+9];
+	ld.global.nc.b8 	%rs10, [anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_10+9];
 	st.local.b8 	[%rd2+9], %rs10;
-	ld.global.nc.b8 	%rs11, [anon_$_f15894a641323bb25775af0e658b4f4a_$_10+8];
+	ld.global.nc.b8 	%rs11, [anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_10+8];
 	st.local.b8 	[%rd2+8], %rs11;
-	ld.global.nc.b8 	%rs12, [anon_$_f15894a641323bb25775af0e658b4f4a_$_10+7];
+	ld.global.nc.b8 	%rs12, [anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_10+7];
 	st.local.b8 	[%rd2+7], %rs12;
-	ld.global.nc.b8 	%rs13, [anon_$_f15894a641323bb25775af0e658b4f4a_$_10+6];
+	ld.global.nc.b8 	%rs13, [anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_10+6];
 	st.local.b8 	[%rd2+6], %rs13;
-	ld.global.nc.b8 	%rs14, [anon_$_f15894a641323bb25775af0e658b4f4a_$_10+5];
+	ld.global.nc.b8 	%rs14, [anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_10+5];
 	st.local.b8 	[%rd2+5], %rs14;
-	ld.global.nc.b8 	%rs15, [anon_$_f15894a641323bb25775af0e658b4f4a_$_10+4];
+	ld.global.nc.b8 	%rs15, [anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_10+4];
 	st.local.b8 	[%rd2+4], %rs15;
-	ld.global.nc.b8 	%rs16, [anon_$_f15894a641323bb25775af0e658b4f4a_$_10+3];
+	ld.global.nc.b8 	%rs16, [anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_10+3];
 	st.local.b8 	[%rd2+3], %rs16;
-	ld.global.nc.b8 	%rs17, [anon_$_f15894a641323bb25775af0e658b4f4a_$_10+2];
+	ld.global.nc.b8 	%rs17, [anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_10+2];
 	st.local.b8 	[%rd2+2], %rs17;
-	ld.global.nc.b8 	%rs18, [anon_$_f15894a641323bb25775af0e658b4f4a_$_10+1];
+	ld.global.nc.b8 	%rs18, [anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_10+1];
 	st.local.b8 	[%rd2+1], %rs18;
-	ld.global.nc.b8 	%rs19, [anon_$_f15894a641323bb25775af0e658b4f4a_$_10];
+	ld.global.nc.b8 	%rs19, [anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_10];
 	st.local.b8 	[%rd2], %rs19;
 	cvt.u16.u32 	%rs20, %r1;
 	or.b16 	%rs21, %rs20, 48;
 	st.local.b8 	[%rd2+12], %rs21;
-	mul.wide.u32 	%rd21, %r1, 16;
-	mov.b64 	%rd22, _ZN19async_hostcall_test18MULTI_EXEC_STORAGE17h16f720b9ced6a2b8E;
-	add.s64 	%rd4, %rd22, %rd21;
+	mul.wide.u32 	%rd13, %r1, 16;
+	mov.b64 	%rd14, _RNvCsaU7OcvMiU4k_19async_hostcall_test18MULTI_EXEC_STORAGE;
+	add.s64 	%rd4, %rd14, %rd13;
 	cvta.global.u64 	%rd5, %rd4;
 	st.global.b64 	[%rd4], 0;
 	st.global.b64 	[%rd4+8], 0;
-	mul.wide.u32 	%rd23, %r1, 80;
-	mov.b64 	%rd24, _ZN19async_hostcall_test11MULTI_TASKS17h427653e635aae588E;
-	add.s64 	%rd6, %rd24, %rd23;
-	cvta.global.u64 	%rd7, %rd6;
-	atom.acq_rel.global.cas.b32 	%r6, [%rd6+40], 0, 3;
+	mul.wide.u32 	%rd15, %r1, 80;
+	mov.b64 	%rd16, _RNvCsaU7OcvMiU4k_19async_hostcall_test11MULTI_TASKS;
+	add.s64 	%rd6, %rd16, %rd15;
+	cvta.global.u64 	%rd17, %rd6;
+	atom.acq_rel.sys.global.cas.b32 	%r6, [%rd6+40], 0, 3;
 	setp.ne.b32 	%p2, %r6, 0;
-	mov.b64 	%rd33, 0;
-	@%p2 bra 	$L__BB15_3;
-// %bb.2:
-	ld.param.b64 	%rd17, [multi_block_async_kernel_param_0];
-	add.s64 	%rd8, %rd7, 48;
-	mov.b64 	%rd25, _ZN16embassy_executor3raw20TaskStorage$LT$F$GT$4poll17hc68279d1e83c567eE;
-	st.global.b64 	[%rd6+32], %rd25;
-	{ // callseq 13, 0
+	mov.b64 	%rd18, 0;
+	cvta.to.global.u64 	%rd27, %rd18;
+	@%p2 bra 	$L__BB14_3;
+	ld.param.b64 	%rd11, [multi_block_async_kernel_param_0];
+	add.s64 	%rd7, %rd17, 48;
+	mov.b64 	%rd19, _RNvMs1_NtCsdwh7N5MnlkE_16embassy_executor3rawINtB5_11TaskStorageNtCsaU7OcvMiU4k_19async_hostcall_test19HostcallPrintFutureE4pollB12_;
+	st.global.b64 	[%rd6+32], %rd19;
+	{ // callseq 11, 0
 	.param .b64 	param0;
-	st.param.b64 	[param0], %rd8;
 	.param .b64 	param1;
-	st.param.b64 	[param1], %rd17;
 	.param .b64 	param2;
-	st.param.b64 	[param2], %rd19;
-	call.uni _ZN16embassy_executor3raw4util19UninitCell$LT$T$GT$14write_in_place17ha7224bb75357157cE, (param0, param1, param2);
-	} // callseq 13
-	mov.b64 	%rd33, %rd7;
-$L__BB15_3:
-	setp.eq.b64 	%p3, %rd33, 0;
-	@%p3 bra 	$L__BB15_6;
-// %bb.4:
-	st.relaxed.sys.b64 	[%rd33+24], %rd5;
+	st.param.b64 	[param2], %rd12;
+	st.param.b64 	[param1], %rd11;
+	st.param.b64 	[param0], %rd7;
+	call.uni _RINvMNtNtCsdwh7N5MnlkE_16embassy_executor3raw4utilINtB3_10UninitCellNtCsaU7OcvMiU4k_19async_hostcall_test19HostcallPrintFutureE14write_in_placeNCNvB16_24multi_block_async_kernel0EB16_, (param0, param1, param2);
+	} // callseq 11
+	mov.b64 	%rd27, %rd6;
+$L__BB14_3:
+	cvta.global.u64 	%rd8, %rd27;
+	cvta.to.global.u64 	%rd20, %rd18;
+	setp.eq.b64 	%p3, %rd27, %rd20;
+	@%p3 bra 	$L__BB14_6;
+	st.relaxed.sys.global.b64 	[%rd27+24], %rd5;
 	fence.sc.sys;
-	ld.acquire.sys.global.b64 	%rd34, [%rd4];
-$L__BB15_5:                             // =>This Inner Loop Header: Depth=1
-	st.b64 	[%rd33+16], %rd34;
+	ld.acquire.sys.global.b64 	%rd28, [%rd4];
+$L__BB14_5:
+	st.global.b64 	[%rd27+16], %rd28;
 	fence.sc.sys;
-	atom.acquire.global.cas.b64 	%rd12, [%rd4], %rd34, %rd33;
-	setp.ne.b64 	%p4, %rd12, %rd34;
-	mov.b64 	%rd34, %rd12;
-	@%p4 bra 	$L__BB15_5;
-$L__BB15_6:                             // %.loopexit4
+	atom.acquire.sys.global.cas.b64 	%rd9, [%rd4], %rd28, %rd8;
+	setp.ne.b64 	%p4, %rd9, %rd28;
+	mov.b64 	%rd28, %rd9;
+	@%p4 bra 	$L__BB14_5;
+$L__BB14_6:
 	cvt.u64.u32 	%rd3, %r1;
 	st.b32 	[%SP], 0;
-	add.u64 	%rd28, %SP, 0;
-	bra.uni 	$L__BB15_7;
-$L__BB15_9:                             // %.loopexit
-                                        //   in Loop: Header=BB15_7 Depth=1
+	add.u64 	%rd22, %SP, 0;
+	bra.uni 	$L__BB14_7;
+$L__BB14_9:
 	ld.b32 	%r8, [%SP];
 	add.s32 	%r9, %r8, 1;
 	st.b32 	[%SP], %r9;
-	cvta.to.local.u64 	%rd29, %rd28;
-	ld.local.b32 	%r2, [%rd29];
+	cvta.to.local.u64 	%rd23, %rd22;
+	ld.local.b32 	%r2, [%rd23];
 	setp.lt.u32 	%p7, %r2, 200;
+	@%p7 bra 	$L__BB14_7;
+	bra.uni 	$L__BB14_10;
+$L__BB14_7:
+	atom.global.exch.b64 	%rd29, [%rd4], 0;
+	setp.eq.b64 	%p5, %rd29, 0;
+	@%p5 bra 	$L__BB14_9;
+$L__BB14_8:
+	ld.b64 	%rd10, [%rd29+16];
+	atom.and.b32 	%r7, [%rd29+40], -3;
+	ld.b64 	%rd21, [%rd29+32];
+	{ // callseq 12, 0
+	.param .b64 	param0;
+	st.param.b64 	[param0], %rd29;
+	prototype_12 : .callprototype ()_ (.param .b64 _);
+	call %rd21, (param0), prototype_12;
+	} // callseq 12
+	setp.ne.b64 	%p6, %rd10, 0;
+	mov.b64 	%rd29, %rd10;
+	@%p6 bra 	$L__BB14_8;
+	bra.uni 	$L__BB14_9;
+$L__BB14_10:
+	shl.b64 	%rd25, %rd3, 2;
+	add.s64 	%rd26, %rd1, %rd25;
+	st.volatile.global.b32 	[%rd26+4], %r2;
+	// begin inline asm
+	atom.add.u32 %r10, [%rd24], 1;
+	// end inline asm
+$L__BB14_11:
+	ret;
+
+}
+	// .globl	warp_scale_async_kernel
+.visible .entry warp_scale_async_kernel(
+	.param .u64 .ptr .align 1 warp_scale_async_kernel_param_0,
+	.param .u64 .ptr .align 1 warp_scale_async_kernel_param_1
+)
+{
+	.local .align 4 .b8 	__local_depot15[20];
+	.reg .b64 	%SP;
+	.reg .b64 	%SPL;
+	.reg .pred 	%p<8>;
+	.reg .b16 	%rs<22>;
+	.reg .b32 	%r<8>;
+	.reg .b64 	%rd<30>;
+
+	mov.b64 	%SPL, __local_depot15;
+	cvta.local.u64 	%SP, %SPL;
+	ld.param.b64 	%rd24, [warp_scale_async_kernel_param_1];
+	cvta.to.global.u64 	%rd1, %rd24;
+	add.u64 	%rd12, %SP, 4;
+	add.u64 	%rd2, %SPL, 4;
+	// begin inline asm
+	mov.u32 %r2, %tid.x;
+	// end inline asm
+	setp.gt.u32 	%p1, %r2, 31;
+	@%p1 bra 	$L__BB15_11;
+	ld.global.nc.b8 	%rs1, [anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_11+12];
+	st.local.b8 	[%rd2+12], %rs1;
+	ld.global.nc.b8 	%rs2, [anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_11+11];
+	st.local.b8 	[%rd2+11], %rs2;
+	ld.global.nc.b8 	%rs3, [anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_11+10];
+	st.local.b8 	[%rd2+10], %rs3;
+	ld.global.nc.b8 	%rs4, [anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_11+9];
+	st.local.b8 	[%rd2+9], %rs4;
+	ld.global.nc.b8 	%rs5, [anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_11+8];
+	st.local.b8 	[%rd2+8], %rs5;
+	ld.global.nc.b8 	%rs6, [anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_11+7];
+	st.local.b8 	[%rd2+7], %rs6;
+	ld.global.nc.b8 	%rs7, [anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_11+6];
+	st.local.b8 	[%rd2+6], %rs7;
+	ld.global.nc.b8 	%rs8, [anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_11+5];
+	st.local.b8 	[%rd2+5], %rs8;
+	ld.global.nc.b8 	%rs9, [anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_11+4];
+	st.local.b8 	[%rd2+4], %rs9;
+	ld.global.nc.b8 	%rs10, [anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_11+3];
+	st.local.b8 	[%rd2+3], %rs10;
+	ld.global.nc.b8 	%rs11, [anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_11+2];
+	st.local.b8 	[%rd2+2], %rs11;
+	ld.global.nc.b8 	%rs12, [anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_11+1];
+	st.local.b8 	[%rd2+1], %rs12;
+	ld.global.nc.b8 	%rs13, [anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_11];
+	st.local.b8 	[%rd2], %rs13;
+	cvt.u16.u32 	%rs14, %r2;
+	and.b16 	%rs15, %rs14, 255;
+	mul.lo.s16 	%rs16, %rs15, 205;
+	shr.u16 	%rs17, %rs16, 11;
+	or.b16 	%rs18, %rs17, 48;
+	st.local.b8 	[%rd2+10], %rs18;
+	mul.lo.s16 	%rs19, %rs17, 10;
+	sub.s16 	%rs20, %rs14, %rs19;
+	or.b16 	%rs21, %rs20, 48;
+	st.local.b8 	[%rd2+11], %rs21;
+	mul.wide.u32 	%rd13, %r2, 16;
+	mov.b64 	%rd14, _RNvCsaU7OcvMiU4k_19async_hostcall_test17WARP_EXEC_STORAGE;
+	add.s64 	%rd4, %rd14, %rd13;
+	cvta.global.u64 	%rd5, %rd4;
+	st.global.b64 	[%rd4], 0;
+	st.global.b64 	[%rd4+8], 0;
+	mul.wide.u32 	%rd15, %r2, 80;
+	mov.b64 	%rd16, _RNvCsaU7OcvMiU4k_19async_hostcall_test10WARP_TASKS;
+	add.s64 	%rd6, %rd16, %rd15;
+	cvta.global.u64 	%rd17, %rd6;
+	atom.acq_rel.sys.global.cas.b32 	%r3, [%rd6+40], 0, 3;
+	setp.ne.b32 	%p2, %r3, 0;
+	mov.b64 	%rd18, 0;
+	cvta.to.global.u64 	%rd27, %rd18;
+	@%p2 bra 	$L__BB15_3;
+	ld.param.b64 	%rd11, [warp_scale_async_kernel_param_0];
+	add.s64 	%rd7, %rd17, 48;
+	mov.b64 	%rd19, _RNvMs1_NtCsdwh7N5MnlkE_16embassy_executor3rawINtB5_11TaskStorageNtCsaU7OcvMiU4k_19async_hostcall_test19HostcallPrintFutureE4pollB12_;
+	st.global.b64 	[%rd6+32], %rd19;
+	{ // callseq 13, 0
+	.param .b64 	param0;
+	.param .b64 	param1;
+	.param .b64 	param2;
+	st.param.b64 	[param2], %rd12;
+	st.param.b64 	[param1], %rd11;
+	st.param.b64 	[param0], %rd7;
+	call.uni _RINvMNtNtCsdwh7N5MnlkE_16embassy_executor3raw4utilINtB3_10UninitCellNtCsaU7OcvMiU4k_19async_hostcall_test19HostcallPrintFutureE14write_in_placeNCNvB16_23warp_scale_async_kernel0EB16_, (param0, param1, param2);
+	} // callseq 13
+	mov.b64 	%rd27, %rd6;
+$L__BB15_3:
+	cvta.global.u64 	%rd8, %rd27;
+	cvta.to.global.u64 	%rd20, %rd18;
+	setp.eq.b64 	%p3, %rd27, %rd20;
+	@%p3 bra 	$L__BB15_6;
+	st.relaxed.sys.global.b64 	[%rd27+24], %rd5;
+	fence.sc.sys;
+	ld.acquire.sys.global.b64 	%rd28, [%rd4];
+$L__BB15_5:
+	st.global.b64 	[%rd27+16], %rd28;
+	fence.sc.sys;
+	atom.acquire.sys.global.cas.b64 	%rd9, [%rd4], %rd28, %rd8;
+	setp.ne.b64 	%p4, %rd9, %rd28;
+	mov.b64 	%rd28, %rd9;
+	@%p4 bra 	$L__BB15_5;
+$L__BB15_6:
+	cvt.u64.u32 	%rd3, %r2;
+	st.b32 	[%SP], 0;
+	add.u64 	%rd22, %SP, 0;
+	bra.uni 	$L__BB15_7;
+$L__BB15_9:
+	ld.b32 	%r5, [%SP];
+	add.s32 	%r6, %r5, 1;
+	st.b32 	[%SP], %r6;
+	cvta.to.local.u64 	%rd23, %rd22;
+	ld.local.b32 	%r1, [%rd23];
+	setp.lt.u32 	%p7, %r1, 500;
 	@%p7 bra 	$L__BB15_7;
 	bra.uni 	$L__BB15_10;
-$L__BB15_7:                             // =>This Loop Header: Depth=1
-                                        //     Child Loop BB15_8 Depth 2
-	atom.global.exch.b64 	%rd35, [%rd4], 0;
-	setp.eq.b64 	%p5, %rd35, 0;
+$L__BB15_7:
+	atom.global.exch.b64 	%rd29, [%rd4], 0;
+	setp.eq.b64 	%p5, %rd29, 0;
 	@%p5 bra 	$L__BB15_9;
-$L__BB15_8:                             // %.preheader
-                                        //   Parent Loop BB15_7 Depth=1
-                                        // =>  This Inner Loop Header: Depth=2
-	ld.b64 	%rd16, [%rd35+16];
-	atom.and.b32 	%r7, [%rd35+40], -3;
-	ld.b64 	%rd27, [%rd35+32];
+$L__BB15_8:
+	ld.b64 	%rd10, [%rd29+16];
+	atom.and.b32 	%r4, [%rd29+40], -3;
+	ld.b64 	%rd21, [%rd29+32];
 	{ // callseq 14, 0
 	.param .b64 	param0;
-	st.param.b64 	[param0], %rd35;
+	st.param.b64 	[param0], %rd29;
 	prototype_14 : .callprototype ()_ (.param .b64 _);
-	call %rd27, (param0), prototype_14;
+	call %rd21, (param0), prototype_14;
 	} // callseq 14
-	setp.ne.b64 	%p6, %rd16, 0;
-	mov.b64 	%rd35, %rd16;
+	setp.ne.b64 	%p6, %rd10, 0;
+	mov.b64 	%rd29, %rd10;
 	@%p6 bra 	$L__BB15_8;
 	bra.uni 	$L__BB15_9;
 $L__BB15_10:
-	shl.b64 	%rd31, %rd3, 2;
-	add.s64 	%rd32, %rd1, %rd31;
-	st.volatile.global.b32 	[%rd32+4], %r2;
+	shl.b64 	%rd25, %rd3, 2;
+	add.s64 	%rd26, %rd1, %rd25;
+	st.volatile.global.b32 	[%rd26+4], %r1;
 	// begin inline asm
-	atom.add.u32 %r10, [%rd30], 1;
+	atom.add.u32 %r7, [%rd24], 1;
 	// end inline asm
 $L__BB15_11:
 	ret;
-                                        // -- End function
+
 }
-.func _ZN16embassy_executor3raw4util19UninitCell$LT$T$GT$14write_in_place17ha7224bb75357157cE(
-	.param .b64 _ZN16embassy_executor3raw4util19UninitCell$LT$T$GT$14write_in_place17ha7224bb75357157cE_param_0,
-	.param .b64 _ZN16embassy_executor3raw4util19UninitCell$LT$T$GT$14write_in_place17ha7224bb75357157cE_param_1,
-	.param .b64 _ZN16embassy_executor3raw4util19UninitCell$LT$T$GT$14write_in_place17ha7224bb75357157cE_param_2
-)                                       // -- Begin function _ZN16embassy_executor3raw4util19UninitCell$LT$T$GT$14write_in_place17ha7224bb75357157cE
-                                        // @"_ZN16embassy_executor3raw4util19UninitCell$LT$T$GT$14write_in_place17ha7224bb75357157cE"
+.func _RNvNtCs9yDKPPKA7vZ_4core6option13unwrap_failed()
+.noreturn
 {
-	.reg .b64 	%rd<4>;
+	.reg .b64 	%rd<5>;
 
-// %bb.0:
-	ld.param.b64 	%rd1, [_ZN16embassy_executor3raw4util19UninitCell$LT$T$GT$14write_in_place17ha7224bb75357157cE_param_0];
-	ld.param.b64 	%rd2, [_ZN16embassy_executor3raw4util19UninitCell$LT$T$GT$14write_in_place17ha7224bb75357157cE_param_2];
-	st.b64 	[%rd1], %rd2;
-	ld.param.b64 	%rd3, [_ZN16embassy_executor3raw4util19UninitCell$LT$T$GT$14write_in_place17ha7224bb75357157cE_param_1];
-	st.b64 	[%rd1+8], 19;
-	st.b64 	[%rd1+16], %rd3;
-	st.b16 	[%rd1+24], -1;
-	st.b8 	[%rd1+26], 0;
-	ret;
-                                        // -- End function
+	{ // callseq 15, 0
+	.param .b64 	param0;
+	.param .b64 	param1;
+	.param .b64 	param2;
+	mov.b64 	%rd1, anon_$_9e0608d1e6a17877eedf91d921bebdb5_$_7;
+	cvta.global.u64 	%rd2, %rd1;
+	st.param.b64 	[param2], %rd2;
+	mov.b64 	%rd3, anon_$_e09c4c056e1bca7941fa860b803178d0_$_7;
+	cvta.global.u64 	%rd4, %rd3;
+	st.param.b64 	[param0], %rd4;
+	st.param.b64 	[param1], 43;
+	call.uni _RNvNtCs9yDKPPKA7vZ_4core9panicking5panic, (param0, param1, param2);
+	} // callseq 15
+	// begin inline asm
+	exit;
+	// end inline asm
+	trap; exit;
+
 }
-	// .globl	_critical_section_1_0_acquire // -- Begin function _critical_section_1_0_acquire
-.visible .func _critical_section_1_0_acquire() // @_critical_section_1_0_acquire
-{
-
-
-// %bb.0:
-	ret;
-                                        // -- End function
-}
-	// .globl	_critical_section_1_0_release // -- Begin function _critical_section_1_0_release
-.visible .func _critical_section_1_0_release() // @_critical_section_1_0_release
+.func _RNvNtCs9yDKPPKA7vZ_4core9panicking9panic_fmt()
+.noreturn
 {
 
 
-// %bb.0:
+$L__BB17_1:
+	bra.uni 	$L__BB17_1;
+
+}
+.func _RNvNtCs9yDKPPKA7vZ_4core9panicking5panic(
+	.param .b64 _RNvNtCs9yDKPPKA7vZ_4core9panicking5panic_param_0,
+	.param .b64 _RNvNtCs9yDKPPKA7vZ_4core9panicking5panic_param_1,
+	.param .b64 _RNvNtCs9yDKPPKA7vZ_4core9panicking5panic_param_2
+)
+.noreturn
+{
+
+
+	{ // callseq 16, 0
+	call.uni _RNvNtCs9yDKPPKA7vZ_4core9panicking9panic_fmt, ();
+	} // callseq 16
+	// begin inline asm
+	exit;
+	// end inline asm
+	trap; exit;
+
+}
+	// .globl	_critical_section_1_0_acquire
+.visible .func _critical_section_1_0_acquire()
+{
+
+
 	ret;
-                                        // -- End function
+
+}
+	// .globl	_critical_section_1_0_release
+.visible .func _critical_section_1_0_release()
+{
+
+
+	ret;
+
 }

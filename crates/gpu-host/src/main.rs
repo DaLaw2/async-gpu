@@ -53,18 +53,18 @@ fn run_write_thread_idx(dev: Arc<CudaDevice>) -> Result<()> {
 
     let result: Vec<u32> = dev.dtoh_sync_copy(&output)?;
 
-    println!("write_thread_idx output ({} elements):", N);
+    println!("write_thread_idx output ({N} elements):");
     println!("  {:?}", &result[..N.min(16)]);
 
     for (i, &val) in result.iter().enumerate() {
         if val != i as u32 {
             return Err(GpuHostError::Verification {
                 test: "write_thread_idx",
-                detail: format!("index {}: expected {}, got {}", i, i, val),
+                detail: format!("index {i}: expected {i}, got {val}"),
             });
         }
     }
-    println!("  Verification PASSED: all {} elements correct", N);
+    println!("  Verification PASSED: all {N} elements correct");
     Ok(())
 }
 
@@ -96,7 +96,7 @@ fn run_vector_add(dev: Arc<CudaDevice>) -> Result<()> {
 
     let c_host: Vec<f32> = dev.dtoh_sync_copy(&c_dev)?;
 
-    println!("\nvector_add output (first 16 of {} elements):", N);
+    println!("\nvector_add output (first 16 of {N} elements):");
     println!("  {:?}", &c_host[..16]);
 
     let expected = N as f32;
@@ -104,14 +104,11 @@ fn run_vector_add(dev: Arc<CudaDevice>) -> Result<()> {
         if (val - expected).abs() > 1e-5 {
             return Err(GpuHostError::Verification {
                 test: "vector_add",
-                detail: format!("index {}: expected {}, got {}", i, expected, val),
+                detail: format!("index {i}: expected {expected}, got {val}"),
             });
         }
     }
-    println!(
-        "  Verification PASSED: all {} elements equal {}",
-        N, expected
-    );
+    println!("  Verification PASSED: all {N} elements equal {expected}");
     Ok(())
 }
 
@@ -150,7 +147,7 @@ fn run_asm_smoke_tests(dev: Arc<CudaDevice>) -> Result<()> {
             if v != 0xDEAD_BEEFu32 {
                 return Err(GpuHostError::Verification {
                     test: "test_asm_membar_sys",
-                    detail: format!("expected 0xDEADBEEF, got 0x{:08X}", v),
+                    detail: format!("expected 0xDEADBEEF, got 0x{v:08X}"),
                 });
             }
         }
@@ -224,7 +221,7 @@ fn run_asm_smoke_tests(dev: Arc<CudaDevice>) -> Result<()> {
         if old_val != 7 || new_val != 99 {
             return Err(GpuHostError::Verification {
                 test: "test_asm_cas_sys",
-                detail: format!("expected old=7 new=99, got old={} new={}", old_val, new_val),
+                detail: format!("expected old=7 new=99, got old={old_val} new={new_val}"),
             });
         }
         println!("  test_asm_cas_sys: PASSED (atom.cas.sys.global.b32 works, old=7→new=99)");
@@ -314,12 +311,12 @@ fn run_integration_sys_store(dev: Arc<CudaDevice>) -> Result<()> {
     for i in 0..TIMEOUT_ITERS {
         flag_val = flag_atomic.load(Ordering::Acquire);
         if flag_val == 1 {
-            println!("  Flag became 1 after {} poll iterations.", i);
+            println!("  Flag became 1 after {i} poll iterations.");
             break;
         }
         std::hint::spin_loop();
         if i % 10_000_000 == 0 && i > 0 {
-            println!("  ... still polling, iteration {}", i);
+            println!("  ... still polling, iteration {i}");
         }
     }
 
@@ -331,7 +328,7 @@ fn run_integration_sys_store(dev: Arc<CudaDevice>) -> Result<()> {
         }
         return Err(GpuHostError::Timeout {
             test: "integration_sys_store",
-            detail: format!("flag never became 1 after {} iters", TIMEOUT_ITERS),
+            detail: format!("flag never became 1 after {TIMEOUT_ITERS} iters"),
         });
     }
 
@@ -345,22 +342,13 @@ fn run_integration_sys_store(dev: Arc<CudaDevice>) -> Result<()> {
     if data_val != EXPECTED_VALUE {
         return Err(GpuHostError::Verification {
             test: "integration_sys_store",
-            detail: format!(
-                "expected data=0x{:08X}, got 0x{:08X}",
-                EXPECTED_VALUE, data_val
-            ),
+            detail: format!("expected data=0x{EXPECTED_VALUE:08X}, got 0x{data_val:08X}"),
         });
     }
 
     println!("  Integration test PASSED!");
-    println!(
-        "    GPU wrote data=0x{:08X} then set flag=1 via st.release.sys",
-        EXPECTED_VALUE
-    );
-    println!(
-        "    CPU saw flag=1 and read data=0x{:08X} correctly",
-        data_val
-    );
+    println!("    GPU wrote data=0x{EXPECTED_VALUE:08X} then set flag=1 via st.release.sys");
+    println!("    CPU saw flag=1 and read data=0x{data_val:08X} correctly");
     println!("    Protocol: GPU st.release.sys → CPU Ordering::Acquire poll works correctly");
     Ok(())
 }
@@ -445,18 +433,17 @@ fn run_u64_atomics_tests(dev: Arc<CudaDevice>) -> Result<()> {
         if old_val != initial {
             return Err(GpuHostError::Verification {
                 test: "test_u64_cas",
-                detail: format!("expected old=0x{:016X}, got 0x{:016X}", initial, old_val),
+                detail: format!("expected old=0x{initial:016X}, got 0x{old_val:016X}"),
             });
         }
         if new_val != desired {
             return Err(GpuHostError::Verification {
                 test: "test_u64_cas",
-                detail: format!("expected new=0x{:016X}, got 0x{:016X}", desired, new_val),
+                detail: format!("expected new=0x{desired:016X}, got 0x{new_val:016X}"),
             });
         }
         println!(
-            "  test_u64_cas: PASSED (atom.cas.sys.global.b64 works, 0x{:016X}→0x{:016X})",
-            initial, desired
+            "  test_u64_cas: PASSED (atom.cas.sys.global.b64 works, 0x{initial:016X}→0x{desired:016X})"
         );
     }
 
@@ -485,10 +472,10 @@ fn run_u64_atomics_tests(dev: Arc<CudaDevice>) -> Result<()> {
         if old_val != initial || new_val != expected_new {
             return Err(GpuHostError::Verification {
                 test: "test_u64_fetch_add",
-                detail: format!("old=0x{:016X} new=0x{:016X}", old_val, new_val),
+                detail: format!("old=0x{old_val:016X} new=0x{new_val:016X}"),
             });
         }
-        println!("  test_u64_fetch_add: PASSED (atom.add.sys.global.u64 works, 0x{:016X}+0x{:016X}=0x{:016X})", initial, addend, expected_new);
+        println!("  test_u64_fetch_add: PASSED (atom.add.sys.global.u64 works, 0x{initial:016X}+0x{addend:016X}=0x{expected_new:016X})");
     }
 
     // test_u64_exchange
@@ -515,12 +502,11 @@ fn run_u64_atomics_tests(dev: Arc<CudaDevice>) -> Result<()> {
         if old_val != initial || final_val != new_value {
             return Err(GpuHostError::Verification {
                 test: "test_u64_exchange",
-                detail: format!("old=0x{:016X} final=0x{:016X}", old_val, final_val),
+                detail: format!("old=0x{old_val:016X} final=0x{final_val:016X}"),
             });
         }
         println!(
-            "  test_u64_exchange: PASSED (atom.exch.sys.global.b64 works, 0x{:016X}→0x{:016X})",
-            initial, new_value
+            "  test_u64_exchange: PASSED (atom.exch.sys.global.b64 works, 0x{initial:016X}→0x{new_value:016X})"
         );
     }
 
@@ -558,7 +544,7 @@ fn run_warp_intrinsics_tests(dev: Arc<CudaDevice>) -> Result<()> {
         if result != 0x42 {
             return Err(GpuHostError::Verification {
                 test: "test_spin_load_u32",
-                detail: format!("expected 0x42, got 0x{:08X}", result),
+                detail: format!("expected 0x42, got 0x{result:08X}"),
             });
         }
         println!("  test_spin_load_u32: PASSED (ld.acquire.sys + nanosleep works, read 0x42)");
@@ -584,7 +570,7 @@ fn run_warp_intrinsics_tests(dev: Arc<CudaDevice>) -> Result<()> {
             if mask != 0xFFFF_FFFF {
                 return Err(GpuHostError::Verification {
                     test: "test_activemask",
-                    detail: format!("thread {} got mask=0x{:08X}, expected 0xFFFFFFFF", i, mask),
+                    detail: format!("thread {i} got mask=0x{mask:08X}, expected 0xFFFFFFFF"),
                 });
             }
         }
@@ -610,8 +596,7 @@ fn run_warp_intrinsics_tests(dev: Arc<CudaDevice>) -> Result<()> {
         let expected_mask: u32 = (1u32 << 20) - 1;
         let actual_mask = result[0];
         println!(
-            "  test_activemask (partial, 20 threads): mask=0x{:08X} (expected ~0x{:08X})",
-            actual_mask, expected_mask
+            "  test_activemask (partial, 20 threads): mask=0x{actual_mask:08X} (expected ~0x{expected_mask:08X})"
         );
         if actual_mask == expected_mask {
             println!("    Exact match: only 20 lanes active (hardware launched partial warp)");
@@ -640,7 +625,7 @@ fn run_warp_intrinsics_tests(dev: Arc<CudaDevice>) -> Result<()> {
             if lid != i as u32 {
                 return Err(GpuHostError::Verification {
                     test: "test_lane_id",
-                    detail: format!("thread {} got lane_id={}, expected {}", i, lid, i),
+                    detail: format!("thread {i} got lane_id={lid}, expected {i}"),
                 });
             }
         }
@@ -680,7 +665,7 @@ fn run_hostcall_print_hello(dev: Arc<CudaDevice>) -> Result<()> {
     let listener_handle = std::thread::spawn(move || {
         hc_buf_listener.listen(|msg| {
             let s = String::from_utf8_lossy(msg).to_string();
-            println!("  [HOST] Received from GPU: \"{}\"", s);
+            println!("  [HOST] Received from GPU: \"{s}\"");
             messages_clone.lock().unwrap().push(s);
         });
     });
@@ -716,7 +701,7 @@ fn run_hostcall_print_hello(dev: Arc<CudaDevice>) -> Result<()> {
     if result_val != 1 {
         return Err(GpuHostError::Verification {
             test: "hostcall_print_hello",
-            detail: format!("kernel reported failure (result={})", result_val),
+            detail: format!("kernel reported failure (result={result_val})"),
         });
     }
     if received.len() != 1 || !received[0].contains("Hello from GPU!") {
@@ -734,10 +719,7 @@ fn run_hostcall_print_hello(dev: Arc<CudaDevice>) -> Result<()> {
 
 /// Step 9: Multi-warp hostcall print test.
 fn run_hostcall_print_multi(dev: Arc<CudaDevice>, num_blocks: u32) -> Result<()> {
-    println!(
-        "\n--- Step 9: Hostcall print (multi-block, {} blocks) ---",
-        num_blocks
-    );
+    println!("\n--- Step 9: Hostcall print (multi-block, {num_blocks} blocks) ---");
 
     use std::sync::{Arc as StdArc, Mutex};
 
@@ -761,7 +743,7 @@ fn run_hostcall_print_multi(dev: Arc<CudaDevice>, num_blocks: u32) -> Result<()>
     let listener_handle = std::thread::spawn(move || {
         hc_buf_listener.listen(|msg| {
             let s = String::from_utf8_lossy(msg).to_string();
-            println!("  [HOST] GPU says: \"{}\"", s);
+            println!("  [HOST] GPU says: \"{s}\"");
             messages_clone.lock().unwrap().push(s);
         });
     });
@@ -778,10 +760,7 @@ fn run_hostcall_print_multi(dev: Arc<CudaDevice>, num_blocks: u32) -> Result<()>
         shared_mem_bytes: 0,
     };
 
-    println!(
-        "  Launching hostcall_print_multi ({} blocks × 32 threads)...",
-        num_blocks
-    );
+    println!("  Launching hostcall_print_multi ({num_blocks} blocks × 32 threads)...");
     unsafe {
         f.launch(cfg, (dev_ptr, count_dev_ptr))?;
     }
@@ -806,7 +785,7 @@ fn run_hostcall_print_multi(dev: Arc<CudaDevice>, num_blocks: u32) -> Result<()>
     if success_count != num_blocks {
         return Err(GpuHostError::Verification {
             test: "hostcall_print_multi",
-            detail: format!("expected {} successes, got {}", num_blocks, success_count),
+            detail: format!("expected {num_blocks} successes, got {success_count}"),
         });
     }
     if received.len() != num_blocks as usize {
@@ -817,10 +796,7 @@ fn run_hostcall_print_multi(dev: Arc<CudaDevice>, num_blocks: u32) -> Result<()>
     }
 
     println!("  hostcall_print_multi: PASSED!");
-    println!(
-        "    {} concurrent warps printed via hostcall successfully",
-        num_blocks
-    );
+    println!("    {num_blocks} concurrent warps printed via hostcall successfully");
     Ok(())
 }
 
@@ -888,18 +864,17 @@ fn run_embassy_countdown(dev: Arc<CudaDevice>) -> Result<()> {
     let poll_rounds = host_result[0];
     let success = host_result[1];
 
-    println!("  Poll rounds executed: {}", poll_rounds);
+    println!("  Poll rounds executed: {poll_rounds}");
 
     if success != 1 {
         return Err(GpuHostError::Verification {
             test: "embassy_countdown_kernel",
-            detail: format!("success marker not set (got {})", success),
+            detail: format!("success marker not set (got {success})"),
         });
     }
 
     println!(
-        "  embassy_countdown_kernel: PASSED (CountdownFuture completed after {} poll rounds)",
-        poll_rounds
+        "  embassy_countdown_kernel: PASSED (CountdownFuture completed after {poll_rounds} poll rounds)"
     );
     Ok(())
 }
@@ -930,18 +905,17 @@ fn run_embassy_two_task(dev: Arc<CudaDevice>) -> Result<()> {
     let poll_rounds = host_result[0];
     let success = host_result[1];
 
-    println!("  Poll rounds executed: {}", poll_rounds);
+    println!("  Poll rounds executed: {poll_rounds}");
 
     if success != 1 {
         return Err(GpuHostError::Verification {
             test: "embassy_two_task_kernel",
-            detail: format!("success marker not set (got {})", success),
+            detail: format!("success marker not set (got {success})"),
         });
     }
 
     println!(
-        "  embassy_two_task_kernel: PASSED (2 concurrent tasks completed after {} poll rounds)",
-        poll_rounds
+        "  embassy_two_task_kernel: PASSED (2 concurrent tasks completed after {poll_rounds} poll rounds)"
     );
     Ok(())
 }
@@ -975,7 +949,7 @@ fn run_sync_countdown(dev: Arc<CudaDevice>) -> Result<()> {
     if value != 42 || success != 1 {
         return Err(GpuHostError::Verification {
             test: "sync_countdown_kernel",
-            detail: format!("expected (42, 1), got ({}, {})", value, success),
+            detail: format!("expected (42, 1), got ({value}, {success})"),
         });
     }
 
@@ -1034,7 +1008,7 @@ fn run_hostcall_file_test(dev: Arc<CudaDevice>) -> Result<()> {
     let listener_handle = std::thread::spawn(move || {
         hc_buf_listener.listen(|msg| {
             let s = String::from_utf8_lossy(msg).to_string();
-            println!("  [HOST] Print from GPU: \"{}\"", s);
+            println!("  [HOST] Print from GPU: \"{s}\"");
         });
     });
 
@@ -1059,7 +1033,7 @@ fn run_hostcall_file_test(dev: Arc<CudaDevice>) -> Result<()> {
 
     dev.synchronize()?;
     let elapsed = start.elapsed();
-    println!("  Kernel completed in {:?}.", elapsed);
+    println!("  Kernel completed in {elapsed:?}.");
 
     std::thread::sleep(std::time::Duration::from_millis(100));
     hc_buf_ref.signal_shutdown();
@@ -1080,16 +1054,12 @@ fn run_hostcall_file_test(dev: Arc<CudaDevice>) -> Result<()> {
     if overall != 1 {
         return Err(GpuHostError::Verification {
             test: "hostcall_file_test",
-            detail: format!(
-                "overall={}, written={}, read={}",
-                overall, bytes_written, bytes_read
-            ),
+            detail: format!("overall={overall}, written={bytes_written}, read={bytes_read}"),
         });
     }
 
     println!(
-        "  hostcall_file_test: PASSED! (wrote {} bytes, read {} bytes, {:?})",
-        bytes_written, bytes_read, elapsed
+        "  hostcall_file_test: PASSED! (wrote {bytes_written} bytes, read {bytes_read} bytes, {elapsed:?})"
     );
     Ok(())
 }
@@ -1117,7 +1087,7 @@ fn run_async_hostcall_single(dev: Arc<CudaDevice>) -> Result<()> {
     let listener_handle = std::thread::spawn(move || {
         hc_buf_listener.listen(|msg| {
             let s = String::from_utf8_lossy(msg).to_string();
-            println!("  [HOST] Received from GPU: \"{}\"", s);
+            println!("  [HOST] Received from GPU: \"{s}\"");
             messages_clone.lock().unwrap().push(s);
         });
     });
@@ -1142,7 +1112,7 @@ fn run_async_hostcall_single(dev: Arc<CudaDevice>) -> Result<()> {
 
     dev.synchronize()?;
     let elapsed = start.elapsed();
-    println!("  Kernel completed in {:?}.", elapsed);
+    println!("  Kernel completed in {elapsed:?}.");
 
     std::thread::sleep(std::time::Duration::from_millis(100));
     hc_buf_ref.signal_shutdown();
@@ -1156,10 +1126,7 @@ fn run_async_hostcall_single(dev: Arc<CudaDevice>) -> Result<()> {
     if success != 1 {
         return Err(GpuHostError::Verification {
             test: "async_hostcall_single_kernel",
-            detail: format!(
-                "success marker not set (got {}), poll_rounds={}",
-                success, poll_rounds
-            ),
+            detail: format!("success marker not set (got {success}), poll_rounds={poll_rounds}"),
         });
     }
     if received.is_empty() || !received[0].contains("Async hello") {
@@ -1170,7 +1137,7 @@ fn run_async_hostcall_single(dev: Arc<CudaDevice>) -> Result<()> {
     }
 
     println!("  async_hostcall_single_kernel: PASSED!");
-    println!("    Poll rounds: {}", poll_rounds);
+    println!("    Poll rounds: {poll_rounds}");
     println!("    Message: \"{}\"", received[0]);
     println!("    HostcallFuture correctly yielded and resumed across poll rounds");
     Ok(())
@@ -1195,7 +1162,7 @@ fn run_async_hostcall_two(dev: Arc<CudaDevice>) -> Result<()> {
     let listener_handle = std::thread::spawn(move || {
         hc_buf_listener.listen(|msg| {
             let s = String::from_utf8_lossy(msg).to_string();
-            println!("  [HOST] Received from GPU: \"{}\"", s);
+            println!("  [HOST] Received from GPU: \"{s}\"");
             messages_clone.lock().unwrap().push(s);
         });
     });
@@ -1220,7 +1187,7 @@ fn run_async_hostcall_two(dev: Arc<CudaDevice>) -> Result<()> {
 
     dev.synchronize()?;
     let elapsed = start.elapsed();
-    println!("  Kernel completed in {:?}.", elapsed);
+    println!("  Kernel completed in {elapsed:?}.");
 
     std::thread::sleep(std::time::Duration::from_millis(100));
     hc_buf_ref.signal_shutdown();
@@ -1234,10 +1201,7 @@ fn run_async_hostcall_two(dev: Arc<CudaDevice>) -> Result<()> {
     if success != 1 {
         return Err(GpuHostError::Verification {
             test: "async_hostcall_two_kernel",
-            detail: format!(
-                "success marker not set (got {}), poll_rounds={}",
-                success, poll_rounds
-            ),
+            detail: format!("success marker not set (got {success}), poll_rounds={poll_rounds}"),
         });
     }
     if received.len() < 2 {
@@ -1252,7 +1216,7 @@ fn run_async_hostcall_two(dev: Arc<CudaDevice>) -> Result<()> {
     }
 
     println!("  async_hostcall_two_kernel: PASSED!");
-    println!("    Poll rounds: {}", poll_rounds);
+    println!("    Poll rounds: {poll_rounds}");
     println!("    Messages: {:?}", *received);
     println!("    Two HostcallFutures ran concurrently on one Embassy executor!");
     Ok(())
@@ -1281,7 +1245,7 @@ fn run_futures_join(dev: Arc<CudaDevice>) -> Result<()> {
     let listener_handle = std::thread::spawn(move || {
         hc_buf_listener.listen(|msg| {
             let s = String::from_utf8_lossy(msg).to_string();
-            println!("  [HOST] Received from GPU: \"{}\"", s);
+            println!("  [HOST] Received from GPU: \"{s}\"");
             messages_clone.lock().unwrap().push(s);
         });
     });
@@ -1306,7 +1270,7 @@ fn run_futures_join(dev: Arc<CudaDevice>) -> Result<()> {
 
     dev.synchronize()?;
     let elapsed = start.elapsed();
-    println!("  Kernel completed in {:?}.", elapsed);
+    println!("  Kernel completed in {elapsed:?}.");
 
     std::thread::sleep(std::time::Duration::from_millis(100));
     hc_buf_ref.signal_shutdown();
@@ -1320,10 +1284,7 @@ fn run_futures_join(dev: Arc<CudaDevice>) -> Result<()> {
     if success != 1 {
         return Err(GpuHostError::Verification {
             test: "futures_join_kernel",
-            detail: format!(
-                "success marker not set (got {}), poll_rounds={}",
-                success, poll_rounds
-            ),
+            detail: format!("success marker not set (got {success}), poll_rounds={poll_rounds}"),
         });
     }
     if received.len() < 2 {
@@ -1338,7 +1299,7 @@ fn run_futures_join(dev: Arc<CudaDevice>) -> Result<()> {
     }
 
     println!("  futures_join_kernel: PASSED!");
-    println!("    Poll rounds: {}", poll_rounds);
+    println!("    Poll rounds: {poll_rounds}");
     println!("    Messages: {:?}", *received);
     println!("    futures_util::future::join works on GPU! Third-party async crate confirmed.");
     Ok(())
@@ -1385,7 +1346,7 @@ fn run_hostcall_time_test(dev: Arc<CudaDevice>) -> Result<()> {
     let listener_handle = std::thread::spawn(move || {
         hc_buf_listener.listen(|msg| {
             let s = String::from_utf8_lossy(msg).to_string();
-            println!("  [HOST] Print from GPU: \"{}\"", s);
+            println!("  [HOST] Print from GPU: \"{s}\"");
         });
     });
 
@@ -1423,14 +1384,8 @@ fn run_hostcall_time_test(dev: Arc<CudaDevice>) -> Result<()> {
         cu.cuMemFreeHost(result_host_ptr as *mut std::ffi::c_void);
     }
 
-    println!(
-        "  GPU Instant delta: {} ns (time for 1000 add iterations)",
-        gpu_instant_delta
-    );
-    println!(
-        "  Host wall-clock: epoch_secs={}, nanos={}",
-        host_secs, host_nanos
-    );
+    println!("  GPU Instant delta: {gpu_instant_delta} ns (time for 1000 add iterations)");
+    println!("  Host wall-clock: epoch_secs={host_secs}, nanos={host_nanos}");
 
     if gpu_instant_delta == 0 {
         return Err(GpuHostError::Verification {
@@ -1441,7 +1396,7 @@ fn run_hostcall_time_test(dev: Arc<CudaDevice>) -> Result<()> {
     if host_secs < 1700000000 {
         return Err(GpuHostError::Verification {
             test: "hostcall_stdin_time_test",
-            detail: format!("host secs={} seems too low for epoch time", host_secs),
+            detail: format!("host secs={host_secs} seems too low for epoch time"),
         });
     }
 
@@ -1546,7 +1501,7 @@ fn run_std_println_test(dev: Arc<CudaDevice>) -> Result<()> {
     let listener_handle = std::thread::spawn(move || {
         hc_buf_listener.listen(|msg| {
             let s = String::from_utf8_lossy(msg).to_string();
-            println!("  [HOST] GPU stdout: \"{}\"", s);
+            println!("  [HOST] GPU stdout: \"{s}\"");
             messages_clone.lock().unwrap().push(s);
         });
     });
@@ -1586,7 +1541,7 @@ fn run_std_println_test(dev: Arc<CudaDevice>) -> Result<()> {
             listener_handle.join().unwrap();
             return Err(GpuHostError::Verification {
                 test: "std_println_kernel",
-                detail: format!("kernel reported failure (result={})", result_val),
+                detail: format!("kernel reported failure (result={result_val})"),
             });
         }
         println!("  std_println_kernel: PASSED (writeln! via std::io::stdout)");
@@ -1616,13 +1571,10 @@ fn run_std_println_test(dev: Arc<CudaDevice>) -> Result<()> {
             listener_handle.join().unwrap();
             return Err(GpuHostError::Verification {
                 test: "std_println_multi_kernel",
-                detail: format!("expected 3 writes, got {}", result_val),
+                detail: format!("expected 3 writes, got {result_val}"),
             });
         }
-        println!(
-            "  std_println_multi_kernel: PASSED ({} writeln! calls)",
-            result_val
-        );
+        println!("  std_println_multi_kernel: PASSED ({result_val} writeln! calls)");
     }
 
     // Test 3: writeln! with Vec data
@@ -1649,7 +1601,7 @@ fn run_std_println_test(dev: Arc<CudaDevice>) -> Result<()> {
             listener_handle.join().unwrap();
             return Err(GpuHostError::Verification {
                 test: "std_println_vec_kernel",
-                detail: format!("kernel reported failure (result={})", result_val),
+                detail: format!("kernel reported failure (result={result_val})"),
             });
         }
         println!("  std_println_vec_kernel: PASSED (Vec + writeln! via std)");
@@ -1709,10 +1661,7 @@ fn run_dynamic_alloc_test(dev: Arc<CudaDevice>) -> Result<()> {
                 detail: format!("expected {}, got {}", expected_sum, host_result[0]),
             });
         }
-        println!(
-            "  dynamic_vec (5 elements): PASSED (sum={}, bump allocator active)",
-            expected_sum
-        );
+        println!("  dynamic_vec (5 elements): PASSED (sum={expected_sum}, bump allocator active)");
     }
 
     // Test 1b: Larger Vec (100 elements) — forces multiple reallocations
@@ -1734,10 +1683,7 @@ fn run_dynamic_alloc_test(dev: Arc<CudaDevice>) -> Result<()> {
                 detail: format!("expected {}, got {}", expected_sum, host_result[0]),
             });
         }
-        println!(
-            "  dynamic_vec (100 elements): PASSED (sum={}, multiple reallocs)",
-            expected_sum
-        );
+        println!("  dynamic_vec (100 elements): PASSED (sum={expected_sum}, multiple reallocs)");
     }
 
     // Test 2: format! with runtime value
@@ -1759,8 +1705,7 @@ fn run_dynamic_alloc_test(dev: Arc<CudaDevice>) -> Result<()> {
             });
         }
         println!(
-            "  dynamic_format (value=12345): PASSED (len={}, allocator used for String)",
-            expected_len
+            "  dynamic_format (value=12345): PASSED (len={expected_len}, allocator used for String)"
         );
     }
 
@@ -1824,10 +1769,7 @@ fn run_dynamic_alloc_test(dev: Arc<CudaDevice>) -> Result<()> {
                 detail: format!("expected {}, got {}", expected_sum, host_result[0]),
             });
         }
-        println!(
-            "  dynamic_vec_capacity (5 elements): PASSED (sum={}, pre-allocated)",
-            expected_sum
-        );
+        println!("  dynamic_vec_capacity (5 elements): PASSED (sum={expected_sum}, pre-allocated)");
     }
 
     println!("  All dynamic allocation tests PASSED!");
@@ -1859,7 +1801,7 @@ fn run_std_stdin_test(dev: Arc<CudaDevice>) -> Result<()> {
         hc_buf_listener.listen_with_stdin(
             |msg| {
                 let s = String::from_utf8_lossy(msg).to_string();
-                println!("  [HOST] GPU stdout: \"{}\"", s);
+                println!("  [HOST] GPU stdout: \"{s}\"");
                 messages_clone.lock().unwrap().push(s);
             },
             stdin_data,
@@ -1886,7 +1828,7 @@ fn run_std_stdin_test(dev: Arc<CudaDevice>) -> Result<()> {
 
     dev.synchronize()?;
     let elapsed = start.elapsed();
-    println!("  Kernel completed in {:?}.", elapsed);
+    println!("  Kernel completed in {elapsed:?}.");
 
     std::thread::sleep(std::time::Duration::from_millis(100));
     hc_buf_ref.signal_shutdown();
@@ -1900,10 +1842,7 @@ fn run_std_stdin_test(dev: Arc<CudaDevice>) -> Result<()> {
     if success != 1 {
         return Err(GpuHostError::Verification {
             test: "std_stdin_kernel",
-            detail: format!(
-                "stdin read failed (success={}, bytes={})",
-                success, bytes_read
-            ),
+            detail: format!("stdin read failed (success={success}, bytes={bytes_read})"),
         });
     }
 
@@ -1918,15 +1857,12 @@ fn run_std_stdin_test(dev: Arc<CudaDevice>) -> Result<()> {
     if first_byte != b'H' as u32 {
         return Err(GpuHostError::Verification {
             test: "std_stdin_kernel",
-            detail: format!(
-                "first byte mismatch: expected 0x48 ('H'), got 0x{:02X}",
-                first_byte
-            ),
+            detail: format!("first byte mismatch: expected 0x48 ('H'), got 0x{first_byte:02X}"),
         });
     }
 
     println!("  std_stdin_kernel: PASSED!");
-    println!("    Bytes read: {}", bytes_read);
+    println!("    Bytes read: {bytes_read}");
     println!(
         "    First byte: '{}' (0x{:02X})",
         first_byte as u8 as char, first_byte
@@ -1956,7 +1892,7 @@ fn run_multi_warp_test(dev: Arc<CudaDevice>) -> Result<()> {
     let listener_handle = std::thread::spawn(move || {
         hc_buf_listener.listen(|msg| {
             let s = String::from_utf8_lossy(msg).to_string();
-            println!("  [HOST] Received from GPU: \"{}\"", s);
+            println!("  [HOST] Received from GPU: \"{s}\"");
             messages_clone.lock().unwrap().push(s);
         });
     });
@@ -1981,7 +1917,7 @@ fn run_multi_warp_test(dev: Arc<CudaDevice>) -> Result<()> {
 
     dev.synchronize()?;
     let elapsed = start.elapsed();
-    println!("  Kernel completed in {:?}.", elapsed);
+    println!("  Kernel completed in {elapsed:?}.");
 
     // Give the listener time to process remaining messages.
     std::thread::sleep(std::time::Duration::from_millis(500));
@@ -1997,23 +1933,20 @@ fn run_multi_warp_test(dev: Arc<CudaDevice>) -> Result<()> {
     if success != 1 {
         return Err(GpuHostError::Verification {
             test: "multi_warp_sync_kernel",
-            detail: format!("success marker not set (got {})", success),
+            detail: format!("success marker not set (got {success})"),
         });
     }
 
     if thread_count != 32 {
         return Err(GpuHostError::Verification {
             test: "multi_warp_sync_kernel",
-            detail: format!("expected thread_count=32, got {}", thread_count),
+            detail: format!("expected thread_count=32, got {thread_count}"),
         });
     }
 
     // Verify we received messages from all 32 threads.
     let msg_count = received.len();
-    println!(
-        "  multi_warp_sync_kernel: {} messages received from 32 threads",
-        msg_count
-    );
+    println!("  multi_warp_sync_kernel: {msg_count} messages received from 32 threads");
 
     // Count how many unique "Thread NN hello!" messages we got.
     let mut thread_seen = [false; 32];
@@ -2042,17 +1975,16 @@ fn run_multi_warp_test(dev: Arc<CudaDevice>) -> Result<()> {
         return Err(GpuHostError::Verification {
             test: "multi_warp_sync_kernel",
             detail: format!(
-                "expected messages from all 32 threads, got {} unique. Missing: {:?}",
-                unique_threads, missing
+                "expected messages from all 32 threads, got {unique_threads} unique. Missing: {missing:?}"
             ),
         });
     }
 
     println!("  multi_warp_sync_kernel: PASSED!");
     println!("    All 32 threads sent unique messages concurrently");
-    println!("    Thread count: {}", thread_count);
-    println!("    Messages received: {}", msg_count);
-    println!("    Unique threads verified: {}/32", unique_threads);
+    println!("    Thread count: {thread_count}");
+    println!("    Messages received: {msg_count}");
+    println!("    Unique threads verified: {unique_threads}/32");
     println!("    Multi-warp hostcall scaling demonstrated end-to-end");
     Ok(())
 }
@@ -2082,7 +2014,7 @@ fn run_multi_block_test(dev: Arc<CudaDevice>) -> Result<()> {
     let listener_handle = std::thread::spawn(move || {
         hc_buf_listener.listen(|msg| {
             let s = String::from_utf8_lossy(msg).to_string();
-            println!("  [HOST] Received from GPU: \"{}\"", s);
+            println!("  [HOST] Received from GPU: \"{s}\"");
             messages_clone.lock().unwrap().push(s);
         });
     });
@@ -2100,8 +2032,7 @@ fn run_multi_block_test(dev: Arc<CudaDevice>) -> Result<()> {
     };
 
     println!(
-        "  Launching multi_block_sync_kernel ({} blocks × {} threads = {} total)...",
-        num_blocks, threads_per_block, total_threads
+        "  Launching multi_block_sync_kernel ({num_blocks} blocks × {threads_per_block} threads = {total_threads} total)..."
     );
     let start = std::time::Instant::now();
     unsafe {
@@ -2110,7 +2041,7 @@ fn run_multi_block_test(dev: Arc<CudaDevice>) -> Result<()> {
 
     dev.synchronize()?;
     let elapsed = start.elapsed();
-    println!("  Kernel completed in {:?}.", elapsed);
+    println!("  Kernel completed in {elapsed:?}.");
 
     // Give the listener time to process remaining messages.
     std::thread::sleep(std::time::Duration::from_millis(500));
@@ -2126,25 +2057,21 @@ fn run_multi_block_test(dev: Arc<CudaDevice>) -> Result<()> {
     if success != 1 {
         return Err(GpuHostError::Verification {
             test: "multi_block_sync_kernel",
-            detail: format!("success marker not set (got {})", success),
+            detail: format!("success marker not set (got {success})"),
         });
     }
 
     if thread_count != total_threads as u32 {
         return Err(GpuHostError::Verification {
             test: "multi_block_sync_kernel",
-            detail: format!(
-                "expected thread_count={}, got {}",
-                total_threads, thread_count
-            ),
+            detail: format!("expected thread_count={total_threads}, got {thread_count}"),
         });
     }
 
     // Verify we received messages from all threads.
     let msg_count = received.len();
     println!(
-        "  multi_block_sync_kernel: {} messages received from {} threads",
-        msg_count, total_threads
+        "  multi_block_sync_kernel: {msg_count} messages received from {total_threads} threads"
     );
 
     // Count unique "Thread NNN hello!" messages (17 chars).
@@ -2176,22 +2103,15 @@ fn run_multi_block_test(dev: Arc<CudaDevice>) -> Result<()> {
         return Err(GpuHostError::Verification {
             test: "multi_block_sync_kernel",
             detail: format!(
-                "expected messages from all {} threads, got {} unique. Missing: {:?}",
-                total_threads, unique_threads, missing
+                "expected messages from all {total_threads} threads, got {unique_threads} unique. Missing: {missing:?}"
             ),
         });
     }
 
-    println!("  multi_block_sync_kernel: PASSED! ({:?})", elapsed);
-    println!(
-        "    All {} threads across {} blocks sent unique messages",
-        total_threads, num_blocks
-    );
-    println!("    Messages received: {}", msg_count);
-    println!(
-        "    Unique threads verified: {}/{}",
-        unique_threads, total_threads
-    );
+    println!("  multi_block_sync_kernel: PASSED! ({elapsed:?})");
+    println!("    All {total_threads} threads across {num_blocks} blocks sent unique messages");
+    println!("    Messages received: {msg_count}");
+    println!("    Unique threads verified: {unique_threads}/{total_threads}");
     Ok(())
 }
 
@@ -2238,8 +2158,7 @@ fn run_multi_block_512_test(dev: Arc<CudaDevice>) -> Result<()> {
     };
 
     println!(
-        "  Launching multi_block_sync_kernel ({} blocks × {} threads = {} total)...",
-        num_blocks, threads_per_block, total_threads
+        "  Launching multi_block_sync_kernel ({num_blocks} blocks × {threads_per_block} threads = {total_threads} total)..."
     );
     let start = std::time::Instant::now();
     unsafe {
@@ -2248,7 +2167,7 @@ fn run_multi_block_512_test(dev: Arc<CudaDevice>) -> Result<()> {
 
     dev.synchronize()?;
     let elapsed = start.elapsed();
-    println!("  Kernel completed in {:?}.", elapsed);
+    println!("  Kernel completed in {elapsed:?}.");
 
     // Give the listener more time for 512 messages.
     std::thread::sleep(std::time::Duration::from_millis(1000));
@@ -2264,17 +2183,14 @@ fn run_multi_block_512_test(dev: Arc<CudaDevice>) -> Result<()> {
     if success != 1 {
         return Err(GpuHostError::Verification {
             test: "multi_block_512",
-            detail: format!("success marker not set (got {})", success),
+            detail: format!("success marker not set (got {success})"),
         });
     }
 
     if thread_count != total_threads as u32 {
         return Err(GpuHostError::Verification {
             test: "multi_block_512",
-            detail: format!(
-                "expected thread_count={}, got {}",
-                total_threads, thread_count
-            ),
+            detail: format!("expected thread_count={total_threads}, got {thread_count}"),
         });
     }
 
@@ -2310,8 +2226,7 @@ fn run_multi_block_512_test(dev: Arc<CudaDevice>) -> Result<()> {
         return Err(GpuHostError::Verification {
             test: "multi_block_512",
             detail: format!(
-                "expected messages from all {} threads, got {} unique. Missing (first 20): {:?}",
-                total_threads, unique_threads, shown
+                "expected messages from all {total_threads} threads, got {unique_threads} unique. Missing (first 20): {shown:?}"
             ),
         });
     }
@@ -2319,19 +2234,12 @@ fn run_multi_block_512_test(dev: Arc<CudaDevice>) -> Result<()> {
     // Count duplicates.
     let duplicates = msg_count - unique_threads;
 
-    println!("  multi_block_512: PASSED! ({:?})", elapsed);
+    println!("  multi_block_512: PASSED! ({elapsed:?})");
+    println!("    All {total_threads} threads across {num_blocks} blocks sent unique messages");
     println!(
-        "    All {} threads across {} blocks sent unique messages",
-        total_threads, num_blocks
+        "    Messages received: {msg_count} ({unique_threads} unique, {duplicates} duplicates)"
     );
-    println!(
-        "    Messages received: {} ({} unique, {} duplicates)",
-        msg_count, unique_threads, duplicates
-    );
-    println!(
-        "    Unique threads verified: {}/{}",
-        unique_threads, total_threads
-    );
+    println!("    Unique threads verified: {unique_threads}/{total_threads}");
     Ok(())
 }
 
@@ -2355,7 +2263,7 @@ fn run_pipeline_test(dev: Arc<CudaDevice>) -> Result<()> {
     let listener_handle = std::thread::spawn(move || {
         hc_buf_listener.listen(|msg| {
             let s = String::from_utf8_lossy(msg).to_string();
-            println!("  [HOST] Received from GPU: \"{}\"", s);
+            println!("  [HOST] Received from GPU: \"{s}\"");
             messages_clone.lock().unwrap().push(s);
         });
     });
@@ -2380,7 +2288,7 @@ fn run_pipeline_test(dev: Arc<CudaDevice>) -> Result<()> {
 
     dev.synchronize()?;
     let elapsed = start.elapsed();
-    println!("  Kernel completed in {:?}.", elapsed);
+    println!("  Kernel completed in {elapsed:?}.");
 
     std::thread::sleep(std::time::Duration::from_millis(200));
     hc_buf_ref.signal_shutdown();
@@ -2394,10 +2302,7 @@ fn run_pipeline_test(dev: Arc<CudaDevice>) -> Result<()> {
     if success != 1 {
         return Err(GpuHostError::Verification {
             test: "pipeline_kernel",
-            detail: format!(
-                "success marker not set (got {}), poll_rounds={}",
-                success, poll_rounds
-            ),
+            detail: format!("success marker not set (got {success}), poll_rounds={poll_rounds}"),
         });
     }
 
@@ -2426,7 +2331,7 @@ fn run_pipeline_test(dev: Arc<CudaDevice>) -> Result<()> {
     }
 
     println!("  pipeline_kernel: PASSED!");
-    println!("    Poll rounds: {}", poll_rounds);
+    println!("    Poll rounds: {poll_rounds}");
     println!("    Steps completed: 4/4");
     for (i, msg) in received.iter().enumerate() {
         println!("    Step {}: \"{}\"", i + 1, msg);
@@ -2463,7 +2368,7 @@ fn run_showcase_test(dev: Arc<CudaDevice>) -> Result<()> {
         hc_buf_listener.listen_with_stdin(
             |msg| {
                 let s = String::from_utf8_lossy(msg).to_string();
-                println!("  [GPU] {}", s);
+                println!("  [GPU] {s}");
                 messages_clone.lock().unwrap().push(s);
             },
             stdin_data,
@@ -2490,7 +2395,7 @@ fn run_showcase_test(dev: Arc<CudaDevice>) -> Result<()> {
 
     dev.synchronize()?;
     let elapsed = start.elapsed();
-    println!("  Kernel completed in {:?}.", elapsed);
+    println!("  Kernel completed in {elapsed:?}.");
 
     std::thread::sleep(std::time::Duration::from_millis(200));
     hc_buf_ref.signal_shutdown();
@@ -2504,7 +2409,7 @@ fn run_showcase_test(dev: Arc<CudaDevice>) -> Result<()> {
     if success != 1 {
         return Err(GpuHostError::Verification {
             test: "showcase_kernel",
-            detail: format!("kernel reported failure (success={})", success),
+            detail: format!("kernel reported failure (success={success})"),
         });
     }
 
@@ -2512,7 +2417,7 @@ fn run_showcase_test(dev: Arc<CudaDevice>) -> Result<()> {
     if msg_count < 4 {
         return Err(GpuHostError::Verification {
             test: "showcase_kernel",
-            detail: format!("expected 4 stdout messages, got {}", msg_count),
+            detail: format!("expected 4 stdout messages, got {msg_count}"),
         });
     }
 
@@ -2542,11 +2447,8 @@ fn run_showcase_test(dev: Arc<CudaDevice>) -> Result<()> {
     );
     println!("      - Iterator methods: sum, min, max, filter, collect");
     println!("      - format!() with heap-allocated String");
-    println!(
-        "      - writeln!(stdout()) through PAL hostcall ({}x)",
-        msg_count
-    );
-    println!("    Total time: {:?}", elapsed);
+    println!("      - writeln!(stdout()) through PAL hostcall ({msg_count}x)");
+    println!("    Total time: {elapsed:?}");
     println!("    This is VectorWare-level Rust std on GPU!");
     Ok(())
 }
@@ -2575,7 +2477,7 @@ fn run_multi_block_async_test(dev: Arc<CudaDevice>) -> Result<()> {
     let listener_handle = std::thread::spawn(move || {
         hc_buf_listener.listen(|msg| {
             let s = String::from_utf8_lossy(msg).to_string();
-            println!("  [HOST] Async: {}", s);
+            println!("  [HOST] Async: {s}");
             messages_clone.lock().unwrap().push(s);
         });
     });
@@ -2592,10 +2494,7 @@ fn run_multi_block_async_test(dev: Arc<CudaDevice>) -> Result<()> {
         shared_mem_bytes: 0,
     };
 
-    println!(
-        "  Launching multi_block_async_kernel ({} blocks × 1 thread)...",
-        num_threads
-    );
+    println!("  Launching multi_block_async_kernel ({num_threads} blocks × 1 thread)...");
     let start = std::time::Instant::now();
     unsafe {
         f.launch(cfg, (dev_ptr, result_dev_ptr))?;
@@ -2618,17 +2517,17 @@ fn run_multi_block_async_test(dev: Arc<CudaDevice>) -> Result<()> {
 
     let received = messages.lock().unwrap();
 
-    println!("  Completed: {}/{} threads", completed, num_threads);
-    println!("  Poll rounds per thread: {:?}", poll_rounds);
+    println!("  Completed: {completed}/{num_threads} threads");
+    println!("  Poll rounds per thread: {poll_rounds:?}");
     println!("  Messages received: {}", received.len());
     for msg in received.iter() {
-        println!("    \"{}\"", msg);
+        println!("    \"{msg}\"");
     }
 
     if completed != num_threads as u32 {
         return Err(GpuHostError::Verification {
             test: "multi_block_async_kernel",
-            detail: format!("only {}/{} threads completed", completed, num_threads),
+            detail: format!("only {completed}/{num_threads} threads completed"),
         });
     }
 
@@ -2636,7 +2535,7 @@ fn run_multi_block_async_test(dev: Arc<CudaDevice>) -> Result<()> {
     let mut seen = [false; 4];
     for msg in received.iter() {
         for i in 0..4u8 {
-            if msg.contains(&format!("block {}", i)) {
+            if msg.contains(&format!("block {i}")) {
                 seen[i as usize] = true;
             }
         }
@@ -2645,15 +2544,12 @@ fn run_multi_block_async_test(dev: Arc<CudaDevice>) -> Result<()> {
     if !all_seen {
         return Err(GpuHostError::Verification {
             test: "multi_block_async_kernel",
-            detail: format!("missing messages from some blocks. Seen: {:?}", seen),
+            detail: format!("missing messages from some blocks. Seen: {seen:?}"),
         });
     }
 
-    println!("  multi_block_async_kernel: PASSED! ({:?})", elapsed);
-    println!(
-        "    {} blocks × 1 thread, each with its own Embassy executor",
-        num_threads
-    );
+    println!("  multi_block_async_kernel: PASSED! ({elapsed:?})");
+    println!("    {num_threads} blocks × 1 thread, each with its own Embassy executor");
     println!("    All threads completed async hostcall independently!");
     Ok(())
 }
@@ -2714,35 +2610,24 @@ fn run_error_propagation_test(dev: Arc<CudaDevice>) -> Result<()> {
     let err_not_found: u32 = 1; // ERR_NOT_FOUND
 
     println!(
-        "  Test 1 (open nonexistent): category={} (expected {}), fd={}",
-        err1_cat, err_not_found, err1_fd
+        "  Test 1 (open nonexistent): category={err1_cat} (expected {err_not_found}), fd={err1_fd}"
     );
-    println!(
-        "  Test 2 (close invalid fd): category={} (expected nonzero)",
-        err2_cat
-    );
-    println!(
-        "  Test 3 (read invalid fd):  category={} (expected nonzero)",
-        err3_cat
-    );
-    println!("  Tests passed: {}/3", passed);
+    println!("  Test 2 (close invalid fd): category={err2_cat} (expected nonzero)");
+    println!("  Test 3 (read invalid fd):  category={err3_cat} (expected nonzero)");
+    println!("  Tests passed: {passed}/3");
 
     if success != 1 {
         return Err(GpuHostError::Verification {
             test: "error_propagation_test",
             detail: format!(
-                "not all tests passed ({}/3). categories: open={}, close={}, read={}",
-                passed, err1_cat, err2_cat, err3_cat
+                "not all tests passed ({passed}/3). categories: open={err1_cat}, close={err2_cat}, read={err3_cat}"
             ),
         });
     }
 
-    println!("  error_propagation_test: PASSED! ({:?})", elapsed);
+    println!("  error_propagation_test: PASSED! ({elapsed:?})");
     println!("    Structured error codes propagate from host to GPU correctly!");
-    println!(
-        "    File-not-found → ERR_NOT_FOUND ({}), Invalid fd → error category",
-        err_not_found
-    );
+    println!("    File-not-found → ERR_NOT_FOUND ({err_not_found}), Invalid fd → error category");
     Ok(())
 }
 
@@ -2764,7 +2649,7 @@ fn run_println_direct_test(dev: Arc<CudaDevice>) -> Result<()> {
     let listener_handle = std::thread::spawn(move || {
         hc_buf_listener.listen(|msg| {
             let s = String::from_utf8_lossy(msg).to_string();
-            println!("  [GPU println] {}", s);
+            println!("  [GPU println] {s}");
             messages_clone.lock().unwrap().push(s);
         });
     });
@@ -2782,10 +2667,7 @@ fn run_println_direct_test(dev: Arc<CudaDevice>) -> Result<()> {
     };
 
     let input_val: u32 = 42;
-    println!(
-        "  Launching println_direct_test_kernel (println! with value={})...",
-        input_val
-    );
+    println!("  Launching println_direct_test_kernel (println! with value={input_val})...");
     let start = std::time::Instant::now();
     unsafe {
         f.launch(cfg, (dev_ptr, input_val, result_dev_ptr))?;
@@ -2807,7 +2689,7 @@ fn run_println_direct_test(dev: Arc<CudaDevice>) -> Result<()> {
     if success != 1 {
         return Err(GpuHostError::Verification {
             test: "println_direct_test_kernel",
-            detail: format!("kernel reported failure (success={})", success),
+            detail: format!("kernel reported failure (success={success})"),
         });
     }
 
@@ -2823,13 +2705,12 @@ fn run_println_direct_test(dev: Arc<CudaDevice>) -> Result<()> {
         return Err(GpuHostError::Verification {
             test: "println_direct_test_kernel",
             detail: format!(
-                "missing expected content (hello={}, value={}, multi={}). Full output: {:?}",
-                has_hello, has_value, has_multi, full_output
+                "missing expected content (hello={has_hello}, value={has_value}, multi={has_multi}). Full output: {full_output:?}"
             ),
         });
     }
 
-    println!("  println_direct_test_kernel: PASSED! ({:?})", elapsed);
+    println!("  println_direct_test_kernel: PASSED! ({elapsed:?})");
     println!("    println!() works directly on GPU — no writeln! workaround needed!");
     println!(
         "    {} println! calls completed, {} messages received",
@@ -2875,15 +2756,12 @@ fn run_slab_dealloc_test(dev: Arc<CudaDevice>) -> Result<()> {
     if success != 1 {
         return Err(GpuHostError::Verification {
             test: "slab_dealloc_test_kernel",
-            detail: format!("expected 20 successful cycles, got {}", cycles),
+            detail: format!("expected 20 successful cycles, got {cycles}"),
         });
     }
 
-    println!("  slab_dealloc_test_kernel: PASSED! ({:?})", elapsed);
-    println!(
-        "    Completed {} alloc/dealloc cycles (10 Vec + 10 String)",
-        cycles
-    );
+    println!("  slab_dealloc_test_kernel: PASSED! ({elapsed:?})");
+    println!("    Completed {cycles} alloc/dealloc cycles (10 Vec + 10 String)");
     println!("    Memory reuse confirmed — slab allocator deallocates correctly");
     Ok(())
 }
@@ -2937,17 +2815,13 @@ fn run_slab_concurrent_test(dev: Arc<CudaDevice>) -> Result<()> {
         return Err(GpuHostError::Verification {
             test: "slab_concurrent_test_kernel",
             detail: format!(
-                "expected all 32 threads to complete 5 cycles, got {}/{} threads OK. Failed: {:?}",
-                threads_ok, num_threads, failed_threads
+                "expected all 32 threads to complete 5 cycles, got {threads_ok}/{num_threads} threads OK. Failed: {failed_threads:?}"
             ),
         });
     }
 
-    println!("  slab_concurrent_test_kernel: PASSED! ({:?})", elapsed);
-    println!(
-        "    All {} threads completed 5 alloc/dealloc cycles each",
-        num_threads
-    );
+    println!("  slab_concurrent_test_kernel: PASSED! ({elapsed:?})");
+    println!("    All {num_threads} threads completed 5 alloc/dealloc cycles each");
     println!(
         "    Total successful cycles: {}/{}",
         total_ok,
@@ -3348,9 +3222,9 @@ fn run_warp_divergence_measurement(dev: Arc<CudaDevice>) -> Result<()> {
     };
     let cas_ratio = if b_cas > 0.0 { a_cas / b_cas } else { f64::NAN };
 
-    println!("    Throughput ratio (A/B): {:.2}x", throughput_ratio);
-    println!("    Latency ratio (A/B):   {:.2}x", latency_ratio);
-    println!("    CAS retry ratio (A/B): {:.2}x", cas_ratio);
+    println!("    Throughput ratio (A/B): {throughput_ratio:.2}x");
+    println!("    Latency ratio (A/B):   {latency_ratio:.2}x");
+    println!("    CAS retry ratio (A/B): {cas_ratio:.2}x");
 
     if throughput_ratio >= 0.8 {
         println!("\n  RESULT: Intra-warp divergence has MINIMAL impact (<20% throughput loss).");
@@ -3408,10 +3282,7 @@ fn run_warp_intrinsics_test(dev: Arc<CudaDevice>) -> Result<()> {
         if val == expected {
             pass_count += 1;
         } else {
-            println!(
-                "  FAIL: lane {} got 0x{:08X}, expected 0x{:08X}",
-                lane, val, expected
-            );
+            println!("  FAIL: lane {lane} got 0x{val:08X}, expected 0x{expected:08X}");
         }
     }
 
@@ -3419,10 +3290,7 @@ fn run_warp_intrinsics_test(dev: Arc<CudaDevice>) -> Result<()> {
         println!("  PASSED: all 32 lanes received 0xCAFE_BABE via shfl.sync.idx.b32");
         println!("  bar.warp.sync + shfl.sync.idx.b32 confirmed working on hardware.");
     } else {
-        println!(
-            "  FAILED: only {}/32 lanes received correct value",
-            pass_count
-        );
+        println!("  FAILED: only {pass_count}/32 lanes received correct value");
     }
 
     unsafe { free_mapped_mem(output_host)? };
@@ -3453,7 +3321,7 @@ fn run_warp_future_print_test(dev: Arc<CudaDevice>) -> Result<()> {
             let text = String::from_utf8_lossy(msg);
             let mut guard = msg_clone.lock().unwrap();
             *guard = text.to_string();
-            println!("  [HOST] WarpFuture says: \"{}\"", text);
+            println!("  [HOST] WarpFuture says: \"{text}\"");
         });
     });
 
@@ -3483,7 +3351,7 @@ fn run_warp_future_print_test(dev: Arc<CudaDevice>) -> Result<()> {
 
     let result_val = unsafe { std::ptr::read_volatile(result_host) };
 
-    println!("  Result: {} (1=success)", result_val);
+    println!("  Result: {result_val} (1=success)");
     println!("  Elapsed: {:.3}ms", elapsed.as_secs_f64() * 1000.0);
 
     let received_msg = msg_received.lock().unwrap();
@@ -3497,7 +3365,7 @@ fn run_warp_future_print_test(dev: Arc<CudaDevice>) -> Result<()> {
             *received_msg
         );
     } else {
-        println!("  WarpFuture PoC: FAILED (result={})", result_val);
+        println!("  WarpFuture PoC: FAILED (result={result_val})");
     }
 
     unsafe { free_mapped_mem(result_host)? };
@@ -3525,7 +3393,7 @@ fn run_warp_future_multi_print_test(dev: Arc<CudaDevice>) -> Result<()> {
     let listener_handle = std::thread::spawn(move || {
         hc_buf_listener.listen(move |msg| {
             let text = String::from_utf8_lossy(msg).to_string();
-            println!("  [HOST] WarpMulti says: \"{}\"", text);
+            println!("  [HOST] WarpMulti says: \"{text}\"");
             let mut guard = msg_clone.lock().unwrap();
             guard.push(text);
         });
@@ -3557,7 +3425,7 @@ fn run_warp_future_multi_print_test(dev: Arc<CudaDevice>) -> Result<()> {
     let result_val = unsafe { std::ptr::read_volatile(result_host) };
     let msgs = messages.lock().unwrap();
 
-    println!("  Result: {} (1=success)", result_val);
+    println!("  Result: {result_val} (1=success)");
     println!("  Elapsed: {:.3}ms", elapsed.as_secs_f64() * 1000.0);
     println!("  Messages received: {}", msgs.len());
 
@@ -3573,7 +3441,7 @@ fn run_warp_future_multi_print_test(dev: Arc<CudaDevice>) -> Result<()> {
         } else {
             println!("  Messages out of order or unexpected content:");
             for (i, m) in msgs.iter().enumerate() {
-                println!("    [{}]: \"{}\"", i, m);
+                println!("    [{i}]: \"{m}\"");
             }
         }
     } else {
@@ -3583,7 +3451,7 @@ fn run_warp_future_multi_print_test(dev: Arc<CudaDevice>) -> Result<()> {
             msgs.len()
         );
         for (i, m) in msgs.iter().enumerate() {
-            println!("    [{}]: \"{}\"", i, m);
+            println!("    [{i}]: \"{m}\"");
         }
     }
 
@@ -3609,7 +3477,7 @@ fn run_warp_macro_print_test(dev: Arc<CudaDevice>) -> Result<()> {
     let listener_handle = std::thread::spawn(move || {
         hc_buf_listener.listen(move |msg| {
             let text = String::from_utf8_lossy(msg).to_string();
-            println!("  [HOST] WarpMacro says: \"{}\"", text);
+            println!("  [HOST] WarpMacro says: \"{text}\"");
             let mut guard = msg_clone.lock().unwrap();
             guard.push(text);
         });
@@ -3641,7 +3509,7 @@ fn run_warp_macro_print_test(dev: Arc<CudaDevice>) -> Result<()> {
     let result_val = unsafe { std::ptr::read_volatile(result_host) };
     let msgs = messages.lock().unwrap();
 
-    println!("  Result: {} (1=success)", result_val);
+    println!("  Result: {result_val} (1=success)");
     println!("  Elapsed: {:.3}ms", elapsed.as_secs_f64() * 1000.0);
     println!("  Messages received: {}", msgs.len());
 
@@ -3655,7 +3523,7 @@ fn run_warp_macro_print_test(dev: Arc<CudaDevice>) -> Result<()> {
         } else {
             println!("  Messages unexpected:");
             for (i, m) in msgs.iter().enumerate() {
-                println!("    [{}]: \"{}\"", i, m);
+                println!("    [{i}]: \"{m}\"");
             }
         }
     } else {
@@ -3694,7 +3562,7 @@ fn run_hybrid_executor_test(dev: Arc<CudaDevice>) -> Result<()> {
     let listener_handle = std::thread::spawn(move || {
         hc_buf_listener.listen(move |msg| {
             let text = String::from_utf8_lossy(msg).to_string();
-            println!("  [HOST] Hybrid says: \"{}\"", text);
+            println!("  [HOST] Hybrid says: \"{text}\"");
             let mut guard = msg_clone.lock().unwrap();
             guard.push(text);
         });
@@ -3728,7 +3596,7 @@ fn run_hybrid_executor_test(dev: Arc<CudaDevice>) -> Result<()> {
     let status_val = unsafe { std::ptr::read_volatile(status_host) };
     let msgs = messages.lock().unwrap();
 
-    println!("  Status: {} (1=success)", status_val);
+    println!("  Status: {status_val} (1=success)");
     println!("  Elapsed: {:.3}ms", elapsed.as_secs_f64() * 1000.0);
     println!("  Messages received: {}", msgs.len());
 
@@ -3738,10 +3606,7 @@ fn run_hybrid_executor_test(dev: Arc<CudaDevice>) -> Result<()> {
         let actual = unsafe { std::ptr::read_volatile(results_host.add(i as usize)) };
         let expected = i * i + 1;
         if actual != expected {
-            println!(
-                "  FAIL: results[{}] = {} (expected {})",
-                i, actual, expected
-            );
+            println!("  FAIL: results[{i}] = {actual} (expected {expected})");
             compute_ok = false;
         }
     }
@@ -3795,7 +3660,7 @@ fn run_hybrid_stress_test(dev: Arc<CudaDevice>) -> Result<()> {
     let listener_handle = std::thread::spawn(move || {
         hc_buf_listener.listen(move |msg| {
             let text = String::from_utf8_lossy(msg).to_string();
-            println!("  [HOST] Stress says: \"{}\"", text);
+            println!("  [HOST] Stress says: \"{text}\"");
             let mut guard = msg_clone.lock().unwrap();
             guard.push(text);
         });
@@ -3828,7 +3693,7 @@ fn run_hybrid_stress_test(dev: Arc<CudaDevice>) -> Result<()> {
     let status_val = unsafe { std::ptr::read_volatile(status_host) };
     let msgs = messages.lock().unwrap();
 
-    println!("  Status: {} (1=success)", status_val);
+    println!("  Status: {status_val} (1=success)");
     println!("  Elapsed: {:.3}ms", elapsed.as_secs_f64() * 1000.0);
     println!("  Messages received: {}", msgs.len());
 
@@ -3841,7 +3706,7 @@ fn run_hybrid_stress_test(dev: Arc<CudaDevice>) -> Result<()> {
         let expected = n.wrapping_mul(n + 1) / 2;
         if actual != expected {
             if compute1_failures < 3 {
-                println!("  FAIL compute1[{}]: {} (expected {})", i, actual, expected);
+                println!("  FAIL compute1[{i}]: {actual} (expected {expected})");
             }
             compute1_failures += 1;
             compute1_ok = false;
@@ -3862,10 +3727,7 @@ fn run_hybrid_stress_test(dev: Arc<CudaDevice>) -> Result<()> {
         }
         if actual != val {
             if compute2_failures < 3 {
-                println!(
-                    "  FAIL compute2[{}]: 0x{:08X} (expected 0x{:08X})",
-                    i, actual, val
-                );
+                println!("  FAIL compute2[{i}]: 0x{actual:08X} (expected 0x{val:08X})");
             }
             compute2_failures += 1;
             compute2_ok = false;
@@ -3887,10 +3749,10 @@ fn run_hybrid_stress_test(dev: Arc<CudaDevice>) -> Result<()> {
     } else {
         println!("  Hybrid Stress Test: FAILED");
         if !compute1_ok {
-            println!("    COMPUTE1: {} failures", compute1_failures);
+            println!("    COMPUTE1: {compute1_failures} failures");
         }
         if !compute2_ok {
-            println!("    COMPUTE2: {} failures", compute2_failures);
+            println!("    COMPUTE2: {compute2_failures} failures");
         }
         if !msg_ok {
             println!("    Messages: {:?}", *msgs);
@@ -4021,7 +3883,7 @@ fn run_vector_search_test(dev: Arc<CudaDevice>) -> Result<()> {
         "  CPU reference top-3: {:?}",
         &cpu_scores[..3]
             .iter()
-            .map(|(id, s)| format!("id={} score={:.4}", id, s))
+            .map(|(id, s)| format!("id={id} score={s:.4}"))
             .collect::<Vec<_>>()
     );
 
@@ -4037,7 +3899,7 @@ fn run_vector_search_test(dev: Arc<CudaDevice>) -> Result<()> {
     let listener_handle = std::thread::spawn(move || {
         hc_buf_listener.listen(|msg| {
             let text = String::from_utf8_lossy(msg).to_string();
-            println!("  [HOST] GPU says: \"{}\"", text);
+            println!("  [HOST] GPU says: \"{text}\"");
         });
     });
 
@@ -4066,17 +3928,17 @@ fn run_vector_search_test(dev: Arc<CudaDevice>) -> Result<()> {
     listener_handle.join().unwrap();
 
     let status_val = unsafe { std::ptr::read_volatile(status_host) };
-    println!("  Status: {} (1=success)", status_val);
+    println!("  Status: {status_val} (1=success)");
     println!("  Elapsed: {:.3}ms", elapsed.as_secs_f64() * 1000.0);
 
     // Read and verify results
     let result_data = std::fs::read("results.bin").map_err(|e| GpuHostError::Verification {
         test: "vector_search_pipeline",
-        detail: format!("failed to read results.bin: {}", e),
+        detail: format!("failed to read results.bin: {e}"),
     })?;
 
     let result_k = u32::from_le_bytes(result_data[0..4].try_into().unwrap()) as usize;
-    println!("  Results: K={}", result_k);
+    println!("  Results: K={result_k}");
 
     let mut gpu_results: Vec<(u32, f32)> = Vec::new();
     for i in 0..result_k.min(K) {
@@ -4105,10 +3967,7 @@ fn run_vector_search_test(dev: Arc<CudaDevice>) -> Result<()> {
     if status_val == 1 && top1_ok {
         println!("  Vector Search Pipeline: PASSED!");
         println!("    GPU self-coordinated: open(db)→read→close→open(query)→read→close→compute→write(results)");
-        println!(
-            "    {} database vectors × {} dimensions, top-{} returned",
-            N, DIM, result_k
-        );
+        println!("    {N} database vectors × {DIM} dimensions, top-{result_k} returned");
         println!("    Full warp merge: all 32 lanes contribute via shfl.sync (100% DB coverage)");
         println!(
             "    Top-1: id={} score={:.4} (exact match!)",
@@ -4118,7 +3977,7 @@ fn run_vector_search_test(dev: Arc<CudaDevice>) -> Result<()> {
         println!("  Vector Search Pipeline: FAILED");
         return Err(GpuHostError::Verification {
             test: "vector_search_pipeline",
-            detail: format!("status={}, results={:?}", status_val, gpu_results),
+            detail: format!("status={status_val}, results={gpu_results:?}"),
         });
     }
 
@@ -4150,7 +4009,7 @@ fn run_batch_search_test(dev: Arc<CudaDevice>) -> Result<()> {
         db_vectors.push(vec);
     }
     std::fs::write("vecdb.bin", &db_data).unwrap();
-    println!("  Created vecdb.bin ({} vectors)", N);
+    println!("  Created vecdb.bin ({N} vectors)");
 
     // Create queries: use db[10], db[42], db[77], db[3], db[95]
     let query_indices = [10usize, 42, 77, 3, 95];
@@ -4163,10 +4022,7 @@ fn run_batch_search_test(dev: Arc<CudaDevice>) -> Result<()> {
         }
     }
     std::fs::write("queries.bin", &queries_data).unwrap();
-    println!(
-        "  Created queries.bin ({} queries: {:?})",
-        NUM_QUERIES, query_indices
-    );
+    println!("  Created queries.bin ({NUM_QUERIES} queries: {query_indices:?})");
 
     // Compute CPU reference scores for each query
     for (qn, &qi) in query_indices.iter().enumerate() {
@@ -4206,7 +4062,7 @@ fn run_batch_search_test(dev: Arc<CudaDevice>) -> Result<()> {
     let listener_handle = std::thread::spawn(move || {
         hc_buf_listener.listen(|msg| {
             let text = String::from_utf8_lossy(msg).to_string();
-            println!("  [HOST] GPU says: \"{}\"", text);
+            println!("  [HOST] GPU says: \"{text}\"");
         });
     });
 
@@ -4222,10 +4078,7 @@ fn run_batch_search_test(dev: Arc<CudaDevice>) -> Result<()> {
         shared_mem_bytes: 0,
     };
 
-    println!(
-        "  Launching batch_search_pipeline kernel ({} queries)...",
-        NUM_QUERIES
-    );
+    println!("  Launching batch_search_pipeline kernel ({NUM_QUERIES} queries)...");
     let start = std::time::Instant::now();
     unsafe {
         f.launch(cfg, (dev_ptr, sb_dev_ptr, status_dev))?;
@@ -4238,23 +4091,23 @@ fn run_batch_search_test(dev: Arc<CudaDevice>) -> Result<()> {
     listener_handle.join().unwrap();
 
     let status_val = unsafe { std::ptr::read_volatile(status_host) };
-    println!("  Status: {} (1=success)", status_val);
+    println!("  Status: {status_val} (1=success)");
     println!("  Elapsed: {:.3}ms", elapsed.as_secs_f64() * 1000.0);
 
     // Read and verify results
     let result_data =
         std::fs::read("batch_results.bin").map_err(|e| GpuHostError::Verification {
             test: "batch_search_pipeline",
-            detail: format!("failed to read batch_results.bin: {}", e),
+            detail: format!("failed to read batch_results.bin: {e}"),
         })?;
 
     let result_nq = u32::from_le_bytes(result_data[0..4].try_into().unwrap()) as usize;
     let result_k = u32::from_le_bytes(result_data[4..8].try_into().unwrap()) as usize;
-    println!("  Results: num_queries={}, K={}", result_nq, result_k);
+    println!("  Results: num_queries={result_nq}, K={result_k}");
 
     for qi in 0..result_nq.min(NUM_QUERIES) {
         let base = 8 + qi * result_k * 8;
-        print!("  Query {}: ", qi);
+        print!("  Query {qi}: ");
         let mut first_score = 0.0f32;
         for ri in 0..result_k.min(3) {
             let off = base + ri * 8;
@@ -4266,11 +4119,11 @@ fn run_batch_search_test(dev: Arc<CudaDevice>) -> Result<()> {
             if ri == 0 {
                 first_score = score;
             }
-            print!("[id={} s={:.4}] ", id, score);
+            print!("[id={id} s={score:.4}] ");
         }
         println!();
         if first_score <= 0.0 {
-            println!("  WARNING: query {} top-1 score <= 0", qi);
+            println!("  WARNING: query {qi} top-1 score <= 0");
         }
     }
 
@@ -4282,10 +4135,7 @@ fn run_batch_search_test(dev: Arc<CudaDevice>) -> Result<()> {
 
     if status_val == 1 && result_nq == NUM_QUERIES {
         println!("  Batch Search Pipeline: PASSED!");
-        println!(
-            "    {} queries processed in single kernel launch",
-            NUM_QUERIES
-        );
+        println!("    {NUM_QUERIES} queries processed in single kernel launch");
         println!("    DB read once, queries read once, results written once");
         println!(
             "    Amortized: {:.3}ms per query (total {:.3}ms)",
@@ -4296,7 +4146,7 @@ fn run_batch_search_test(dev: Arc<CudaDevice>) -> Result<()> {
         println!("  Batch Search Pipeline: FAILED");
         return Err(GpuHostError::Verification {
             test: "batch_search_pipeline",
-            detail: format!("status={}, nq={}", status_val, result_nq),
+            detail: format!("status={status_val}, nq={result_nq}"),
         });
     }
 
@@ -4322,7 +4172,7 @@ fn run_file_transform_test(dev: Arc<CudaDevice>) -> Result<()> {
     }
     std::fs::write("gpu_input.txt", &input_data).map_err(|e| GpuHostError::Verification {
         test: "file_transform_pipeline",
-        detail: format!("failed to create input file: {}", e),
+        detail: format!("failed to create input file: {e}"),
     })?;
     println!("  Created gpu_input.txt ({} bytes)", input_data.len());
 
@@ -4341,7 +4191,7 @@ fn run_file_transform_test(dev: Arc<CudaDevice>) -> Result<()> {
     let listener_handle = std::thread::spawn(move || {
         hc_buf_listener.listen(move |msg| {
             let text = String::from_utf8_lossy(msg).to_string();
-            println!("  [HOST] GPU says: \"{}\"", text);
+            println!("  [HOST] GPU says: \"{text}\"");
             let mut guard = msg_clone.lock().unwrap();
             guard.push(text);
         });
@@ -4374,13 +4224,13 @@ fn run_file_transform_test(dev: Arc<CudaDevice>) -> Result<()> {
     let status_val = unsafe { std::ptr::read_volatile(status_host) };
     let msgs = messages.lock().unwrap();
 
-    println!("  Status: {} (1=success)", status_val);
+    println!("  Status: {status_val} (1=success)");
     println!("  Elapsed: {:.3}ms", elapsed.as_secs_f64() * 1000.0);
 
     // Verify output file exists and contains case-toggled content
     let output_data = std::fs::read("gpu_output.txt").map_err(|e| GpuHostError::Verification {
         test: "file_transform_pipeline",
-        detail: format!("failed to read output file: {}", e),
+        detail: format!("failed to read output file: {e}"),
     })?;
 
     // Expected: toggle ASCII case on the input
@@ -4415,7 +4265,7 @@ fn run_file_transform_test(dev: Arc<CudaDevice>) -> Result<()> {
     } else {
         println!("  File Transform Pipeline: FAILED");
         if status_val != 1 {
-            println!("    Status: {}", status_val);
+            println!("    Status: {status_val}");
         }
         if !content_ok {
             println!(
@@ -4460,7 +4310,7 @@ fn run_panic_test(dev: Arc<CudaDevice>) -> Result<()> {
     let listener_handle = std::thread::spawn(move || {
         hc_buf_listener.listen(|msg| {
             let s = std::str::from_utf8(msg).unwrap_or("<invalid>");
-            println!("  [GPU PRINT] {}", s);
+            println!("  [GPU PRINT] {s}");
         });
     });
 
@@ -4495,14 +4345,8 @@ fn run_panic_test(dev: Arc<CudaDevice>) -> Result<()> {
 
     let marker = unsafe { std::ptr::read_volatile(result_host_ptr) };
 
-    println!(
-        "  Result marker: {} (expected 1 = reached panic point)",
-        marker
-    );
-    println!(
-        "  CUDA sync result: {:?} (LAUNCH_FAILED expected from trap)",
-        sync_result
-    );
+    println!("  Result marker: {marker} (expected 1 = reached panic point)");
+    println!("  CUDA sync result: {sync_result:?} (LAUNCH_FAILED expected from trap)");
 
     // The test passes if:
     // 1. The marker was set to 1 (code reached the panic point)
@@ -4510,7 +4354,7 @@ fn run_panic_test(dev: Arc<CudaDevice>) -> Result<()> {
     if marker == 1 {
         println!("  panic_test: PASSED (panic message sent via hostcall before trap)");
     } else {
-        println!("  panic_test: marker was {} (expected 1)", marker);
+        println!("  panic_test: marker was {marker} (expected 1)");
     }
 
     // IMPORTANT: trap instruction puts the CUDA context in an error state.
@@ -4616,6 +4460,9 @@ fn main() -> Result<()> {
     // Pipelined I/O + compute (async-pipeline.4)
     run_pipelined_compute_test(Arc::clone(&dev))?;
 
+    // Warp-scale Embassy test (async-pipeline.5)
+    run_warp_scale_async_test(Arc::clone(&dev))?;
+
     // GPU panic handler test (gpu-panic.2) — MUST BE LAST
     // since trap instruction calls process::exit(0)
     run_panic_test(Arc::clone(&dev))?;
@@ -4680,7 +4527,7 @@ fn run_bulk_io_test(dev: Arc<CudaDevice>) -> Result<()> {
     let listener_handle = std::thread::spawn(move || {
         hc_buf_listener.listen(|msg| {
             let s = String::from_utf8_lossy(msg).to_string();
-            println!("  [HOST] Print from GPU: \"{}\"", s);
+            println!("  [HOST] Print from GPU: \"{s}\"");
         });
     });
 
@@ -4705,7 +4552,7 @@ fn run_bulk_io_test(dev: Arc<CudaDevice>) -> Result<()> {
 
     dev.synchronize()?;
     let elapsed = start.elapsed();
-    println!("  Kernel completed in {:?}.", elapsed);
+    println!("  Kernel completed in {elapsed:?}.");
 
     std::thread::sleep(std::time::Duration::from_millis(100));
     hc_buf_ref.signal_shutdown();
@@ -4722,23 +4569,20 @@ fn run_bulk_io_test(dev: Arc<CudaDevice>) -> Result<()> {
     let _ = std::fs::remove_file("gpu_bulk_test.bin");
 
     println!(
-        "  Results: overall={}, written={}, read={}, match={}",
-        overall, bytes_written, bytes_read, content_match
+        "  Results: overall={overall}, written={bytes_written}, read={bytes_read}, match={content_match}"
     );
 
     if overall != 1 {
         return Err(GpuHostError::Verification {
             test: "bulk_io_test",
             detail: format!(
-                "overall={}, written={}, read={}, match={}",
-                overall, bytes_written, bytes_read, content_match
+                "overall={overall}, written={bytes_written}, read={bytes_read}, match={content_match}"
             ),
         });
     }
 
     println!(
-        "  bulk_io_test: PASSED! (wrote {} bytes, read {} bytes, {:?})",
-        bytes_written, bytes_read, elapsed
+        "  bulk_io_test: PASSED! (wrote {bytes_written} bytes, read {bytes_read} bytes, {elapsed:?})"
     );
     Ok(())
 }
@@ -4770,7 +4614,7 @@ fn run_sharded_hostcall_test(dev: Arc<CudaDevice>) -> Result<()> {
     let listener_handle = std::thread::spawn(move || {
         hc_buf_listener.listen(|msg| {
             let s = String::from_utf8_lossy(msg).to_string();
-            println!("  [HOST] GPU says (sharded): \"{}\"", s);
+            println!("  [HOST] GPU says (sharded): \"{s}\"");
             messages_clone.lock().unwrap().push(s);
         });
     });
@@ -4787,10 +4631,7 @@ fn run_sharded_hostcall_test(dev: Arc<CudaDevice>) -> Result<()> {
         shared_mem_bytes: 0,
     };
 
-    println!(
-        "  Launching hostcall_print_multi ({} blocks × 32 threads, sharded)...",
-        num_blocks
-    );
+    println!("  Launching hostcall_print_multi ({num_blocks} blocks × 32 threads, sharded)...");
     unsafe {
         f.launch(cfg, (dev_ptr, count_dev_ptr))?;
     }
@@ -4815,7 +4656,7 @@ fn run_sharded_hostcall_test(dev: Arc<CudaDevice>) -> Result<()> {
     if success_count != num_blocks {
         return Err(GpuHostError::Verification {
             test: "sharded_hostcall",
-            detail: format!("expected {} successes, got {}", num_blocks, success_count),
+            detail: format!("expected {num_blocks} successes, got {success_count}"),
         });
     }
     if received.len() != num_blocks as usize {
@@ -4826,10 +4667,7 @@ fn run_sharded_hostcall_test(dev: Arc<CudaDevice>) -> Result<()> {
     }
 
     println!("  sharded_hostcall: PASSED!");
-    println!(
-        "    {} blocks with per-block sharding, all printed successfully",
-        num_blocks
-    );
+    println!("    {num_blocks} blocks with per-block sharding, all printed successfully");
     Ok(())
 }
 
@@ -4929,10 +4767,7 @@ fn run_sharding_benchmark(dev: Arc<CudaDevice>) -> Result<()> {
         let packets_per_thread = 2u32;
         let total_packets = (total_threads * packets_per_thread).min(64) as u16;
 
-        println!(
-            "  --- {} blocks × {} threads = {} total ---",
-            num_blocks, block_dim, total_threads
-        );
+        println!("  --- {num_blocks} blocks × {block_dim} threads = {total_threads} total ---");
 
         // Baseline: unsharded (global pool)
         let hc_buf_global = std::sync::Arc::new(hostcall::HostcallBuffer::new(total_packets)?);
@@ -5058,7 +4893,7 @@ Yet another GPU mention for testing\n";
     let listener_handle = std::thread::spawn(move || {
         hc_buf_listener.listen(|msg| {
             let s = String::from_utf8_lossy(msg).to_string();
-            println!("  [GREP] {}", s);
+            println!("  [GREP] {s}");
             messages_clone.lock().unwrap().push(s);
         });
     });
@@ -5106,7 +4941,7 @@ Yet another GPU mention for testing\n";
     for tid in 0..num_threads as usize {
         let count = unsafe { std::ptr::read_volatile(results_host_ptr.add(tid)) } as u32;
         total_matches += count;
-        println!("    Thread {}: {} matches", tid, count);
+        println!("    Thread {tid}: {count} matches");
     }
 
     unsafe {
@@ -5129,8 +4964,7 @@ Yet another GPU mention for testing\n";
     if total_matches == 4 * num_threads {
         println!("  parallel_grep: PASSED!");
         println!(
-            "    {} threads independently searched a file, each finding 4 \"GPU\" matches.",
-            num_threads
+            "    {num_threads} threads independently searched a file, each finding 4 \"GPU\" matches."
         );
     } else {
         println!(
@@ -5178,7 +5012,7 @@ fn run_branching_pipeline_test(dev: Arc<CudaDevice>) -> Result<()> {
         let listener_handle = std::thread::spawn(move || {
             hc_buf_listener.listen(move |msg| {
                 let text = String::from_utf8_lossy(msg).to_string();
-                println!("  [HOST] GPU says: \"{}\"", text);
+                println!("  [HOST] GPU says: \"{text}\"");
                 let mut guard = msg_clone.lock().unwrap();
                 guard.push(text);
             });
@@ -5212,14 +5046,15 @@ fn run_branching_pipeline_test(dev: Arc<CudaDevice>) -> Result<()> {
             println!("  Run 1: PASSED (CREATE branch taken)");
         } else {
             println!("  Run 1: FAILED");
-            println!("    status={}, created_msg={}, file_exists={}, content_ok={}",
-                status, created_msg, file_exists, content_ok);
+            println!(
+                "    status={status}, created_msg={created_msg}, file_exists={file_exists}, content_ok={content_ok}"
+            );
             println!("    messages: {:?}", *msgs);
             let _ = std::fs::remove_file("branch_test.txt");
             return Err(GpuHostError::Verification {
                 test: "branching_pipeline_run1",
                 detail: "CREATE branch failed".to_string(),
-            }.into());
+            });
         }
     }
 
@@ -5243,7 +5078,7 @@ fn run_branching_pipeline_test(dev: Arc<CudaDevice>) -> Result<()> {
         let listener_handle = std::thread::spawn(move || {
             hc_buf_listener.listen(move |msg| {
                 let text = String::from_utf8_lossy(msg).to_string();
-                println!("  [HOST] GPU says: \"{}\"", text);
+                println!("  [HOST] GPU says: \"{text}\"");
                 let mut guard = msg_clone.lock().unwrap();
                 guard.push(text);
             });
@@ -5270,12 +5105,12 @@ fn run_branching_pipeline_test(dev: Arc<CudaDevice>) -> Result<()> {
             println!("  Run 2: PASSED (EXISTS branch taken)");
         } else {
             println!("  Run 2: FAILED");
-            println!("    status={}, exists_msg={}", status, exists_msg);
+            println!("    status={status}, exists_msg={exists_msg}");
             println!("    messages: {:?}", *msgs);
             return Err(GpuHostError::Verification {
                 test: "branching_pipeline_run2",
                 detail: "EXISTS branch failed".to_string(),
-            }.into());
+            });
         }
     }
 
@@ -5308,7 +5143,7 @@ fn run_pipelined_compute_test(dev: Arc<CudaDevice>) -> Result<()> {
     let listener_handle = std::thread::spawn(move || {
         hc_buf_listener.listen(move |msg| {
             let text = String::from_utf8_lossy(msg).to_string();
-            println!("  [HOST] GPU says: \"{}\"", text);
+            println!("  [HOST] GPU says: \"{text}\"");
             let mut guard = msg_clone.lock().unwrap();
             guard.push(text);
         });
@@ -5338,7 +5173,7 @@ fn run_pipelined_compute_test(dev: Arc<CudaDevice>) -> Result<()> {
     let status = unsafe { std::ptr::read_volatile(status_host) };
     let msgs = messages.lock().unwrap();
 
-    println!("  Status: {} (1=success)", status);
+    println!("  Status: {status} (1=success)");
     println!("  Elapsed: {:.3}ms", elapsed.as_secs_f64() * 1000.0);
 
     // Check messages: should have "start", "computing...", "done Niter"
@@ -5362,19 +5197,117 @@ fn run_pipelined_compute_test(dev: Arc<CudaDevice>) -> Result<()> {
 
     if status == 1 && has_start && has_computing && iters > 0 {
         println!("  Pipelined Compute: PASSED!");
-        println!("    {} FMA iterations completed while I/O was in-flight", iters);
+        println!("    {iters} FMA iterations completed while I/O was in-flight");
         println!("    Demonstrates: submit → compute_while_waiting → wait pattern");
         println!("    GPU threads did useful work during hostcall round-trip");
     } else {
         println!("  Pipelined Compute: FAILED");
-        println!("    status={}, start={}, computing={}, iters={}",
-            status, has_start, has_computing, iters);
+        println!(
+            "    status={status}, start={has_start}, computing={has_computing}, iters={iters}"
+        );
         println!("    messages: {:?}", *msgs);
         return Err(GpuHostError::Verification {
             test: "pipelined_compute",
             detail: "Pipelined I/O + compute failed".to_string(),
-        }.into());
+        });
     }
 
+    Ok(())
+}
+
+/// Test: Warp-scale Embassy async (async-pipeline.5).
+/// 1 block × 32 threads (one full warp), each thread runs its own Embassy
+/// executor with an independent hostcall print. Measures CAS contention
+/// when all 32 lanes compete for the same free/ready stacks.
+fn run_warp_scale_async_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Async Pipeline Test 5: Warp-scale Embassy (1 block × 32 threads) ---");
+
+    use std::sync::{Arc as StdArc, Mutex};
+
+    let hc_buf = hostcall::HostcallBuffer::new(64)?;
+    let dev_ptr = hc_buf.dev_ptr;
+
+    let messages: StdArc<Mutex<Vec<String>>> = StdArc::new(Mutex::new(Vec::new()));
+    let messages_clone = StdArc::clone(&messages);
+
+    let num_threads: usize = 32;
+    let (result_host_ptr, result_dev_ptr) =
+        unsafe { alloc_mapped_result_array(&dev, num_threads + 1)? };
+
+    let hc_buf_ref = StdArc::new(hc_buf);
+    let hc_buf_listener = StdArc::clone(&hc_buf_ref);
+    let listener_handle = std::thread::spawn(move || {
+        hc_buf_listener.listen(|msg| {
+            let s = String::from_utf8_lossy(msg).to_string();
+            println!("  [HOST] {s}");
+            messages_clone.lock().unwrap().push(s);
+        });
+    });
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(ASYNC_HOSTCALL_PTX);
+    let _ = dev.load_ptx(ptx, "warp_scale_async", &["warp_scale_async_kernel"]);
+    let f = dev
+        .get_func("warp_scale_async", "warp_scale_async_kernel")
+        .ok_or(GpuHostError::KernelNotFound("warp_scale_async_kernel"))?;
+
+    let cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (32, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    println!("  Launching warp_scale_async_kernel (1 block × 32 threads)...");
+    let start = std::time::Instant::now();
+    unsafe {
+        f.launch(cfg, (dev_ptr, result_dev_ptr))?;
+    }
+
+    dev.synchronize()?;
+    let elapsed = start.elapsed();
+
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    hc_buf_ref.signal_shutdown();
+    listener_handle.join().unwrap();
+
+    let completed = unsafe { std::ptr::read_volatile(result_host_ptr.add(0)) };
+    let mut poll_rounds = Vec::new();
+    for i in 0..num_threads {
+        let rounds = unsafe { std::ptr::read_volatile(result_host_ptr.add(1 + i)) };
+        poll_rounds.push(rounds);
+    }
+    unsafe { free_mapped_mem(result_host_ptr)? };
+
+    let received = messages.lock().unwrap();
+
+    println!("  Completed: {completed}/{num_threads} threads");
+    println!(
+        "  Poll rounds: min={}, max={}, avg={}",
+        poll_rounds.iter().min().unwrap_or(&0),
+        poll_rounds.iter().max().unwrap_or(&0),
+        if poll_rounds.is_empty() {
+            0
+        } else {
+            poll_rounds.iter().sum::<u32>() / poll_rounds.len() as u32
+        },
+    );
+    println!("  Messages received: {}", received.len());
+
+    if completed != num_threads as u32 {
+        return Err(GpuHostError::Verification {
+            test: "warp_scale_async_kernel",
+            detail: format!("only {completed}/{num_threads} threads completed"),
+        });
+    }
+
+    if received.len() < num_threads {
+        return Err(GpuHostError::Verification {
+            test: "warp_scale_async_kernel",
+            detail: format!("only {} messages, expected {}", received.len(), num_threads),
+        });
+    }
+
+    println!("  warp_scale_async_kernel: PASSED! ({elapsed:?})");
+    println!("    32 threads in one warp, each with own Embassy executor");
+    println!("    All threads completed independent async hostcall!");
     Ok(())
 }

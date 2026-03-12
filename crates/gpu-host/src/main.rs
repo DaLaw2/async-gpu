@@ -2900,8 +2900,11 @@ fn main() -> Result<()> {
     // Hostcall latency benchmark (benchmark.2) — run before PAL tests
     run_hostcall_latency_benchmark(Arc::clone(&dev))?;
 
-    // GPU panic handler test (gpu-panic.2) — run before PAL tests and last
-    // since trap instruction corrupts CUDA context
+    // Bulk data transfer test (large-payload.3)
+    run_bulk_io_test(Arc::clone(&dev))?;
+
+    // GPU panic handler test (gpu-panic.2) — MUST BE LAST
+    // since trap instruction calls process::exit(0)
     run_panic_test(Arc::clone(&dev))?;
 
     // PAL stdout routing test (std-pal.1)
@@ -2938,5 +2941,95 @@ fn main() -> Result<()> {
     run_multi_block_async_test(Arc::clone(&dev))?;
 
     println!("\nAll tests PASSED.");
+    Ok(())
+}
+
+/// Bulk data transfer test: write 4KB via sideband, read back, verify.
+fn run_bulk_io_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Bulk data transfer test (large-payload.3) ---");
+
+    use std::sync::Arc as StdArc;
+
+    let hc_buf = hostcall::HostcallBuffer::new(4)?;
+    let dev_ptr = hc_buf.dev_ptr;
+    let sb_dev_ptr = hc_buf.sideband_dev_ptr;
+
+    println!(
+        "  Hostcall buffer: {} bytes, {} packets",
+        hc_buf.size, hc_buf.num_packets
+    );
+    println!("  Sideband buffer: {} bytes", hc_buf.sideband_size);
+
+    let (result_host_ptr, result_dev_ptr) =
+        unsafe { alloc_mapped_result_array(&dev, 4)? };
+
+    let hc_buf_ref = StdArc::new(hc_buf);
+    let hc_buf_listener = StdArc::clone(&hc_buf_ref);
+    let listener_handle = std::thread::spawn(move || {
+        hc_buf_listener.listen(|msg| {
+            let s = String::from_utf8_lossy(msg).to_string();
+            println!("  [HOST] Print from GPU: \"{}\"", s);
+        });
+    });
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "kernel", &["bulk_io_test"]);
+    let f = dev
+        .get_func("kernel", "bulk_io_test")
+        .ok_or(GpuHostError::KernelNotFound("bulk_io_test"))?;
+
+    let cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (32, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    let start = std::time::Instant::now();
+
+    println!("  Launching bulk_io_test kernel...");
+    unsafe {
+        f.launch(
+            cfg,
+            (dev_ptr as u64, sb_dev_ptr as u64, result_dev_ptr as u64),
+        )?;
+    }
+
+    dev.synchronize()?;
+    let elapsed = start.elapsed();
+    println!("  Kernel completed in {:?}.", elapsed);
+
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    hc_buf_ref.signal_shutdown();
+    listener_handle.join().unwrap();
+
+    let overall = unsafe { std::ptr::read_volatile(result_host_ptr.add(0)) };
+    let bytes_written = unsafe { std::ptr::read_volatile(result_host_ptr.add(1)) };
+    let bytes_read = unsafe { std::ptr::read_volatile(result_host_ptr.add(2)) };
+    let content_match = unsafe { std::ptr::read_volatile(result_host_ptr.add(3)) };
+
+    unsafe { free_mapped_mem(result_host_ptr)? };
+
+    // Clean up test file
+    let _ = std::fs::remove_file("gpu_bulk_test.bin");
+
+    println!(
+        "  Results: overall={}, written={}, read={}, match={}",
+        overall, bytes_written, bytes_read, content_match
+    );
+
+    if overall != 1 {
+        return Err(GpuHostError::Verification {
+            test: "bulk_io_test",
+            detail: format!(
+                "overall={}, written={}, read={}, match={}",
+                overall, bytes_written, bytes_read, content_match
+            ),
+        });
+    }
+
+    println!(
+        "  bulk_io_test: PASSED! (wrote {} bytes, read {} bytes, {:?})",
+        bytes_written, bytes_read, elapsed
+    );
     Ok(())
 }

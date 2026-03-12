@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 69      # Monotonic counter, incremented after each completed phase
-completed_tasks = 68
+total_cycles = 73      # Monotonic counter, incremented after each completed phase
+completed_tasks = 72
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
 current_task_id = ""
-last_summary = "large-payload.1 done: sideband mapped buffer recommended for bulk transfers (no protocol change, no deadlock). Session batch complete: host-scaling(4), nightly-compat(2), large-payload.1. Next: README update then large-payload.2."
+last_summary = "large-payload DONE (design+impl+test). per-block-sharding.1 design done (shard array, per-block free/ready stacks). clean-example.1 design done (hello-gpu with build.rs). Next: implement both."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 15
@@ -1451,7 +1451,7 @@ success_criteria = [
 [[themes]]
 id = "large-payload"
 title = "Bulk data transfer beyond 56-byte packets"
-status = "active"
+status = "completed"
 spawned_by = "bs14"
 goal = "GPU can read/write 4KB+ data via hostcall"
 success_criteria = [
@@ -1606,7 +1606,7 @@ id = "large-payload.2"
 theme = "large-payload"
 title = "Design bulk transfer protocol extension"
 kind = "design"
-status = "pending"
+status = "done"
 depends_on = ["large-payload.1"]
 spawned_by = "bs14"
 research_questions = [
@@ -1620,7 +1620,7 @@ id = "large-payload.3"
 theme = "large-payload"
 title = "Implement bulk read/write"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["large-payload.2"]
 spawned_by = "bs14"
 research_questions = [
@@ -1683,3 +1683,111 @@ new_themes_spawned = []
 themes_parked = []
 themes_completed = ["gpu-panic", "host-scaling"]
 key_insight = "gpu-panic + host-scaling both completed successfully. No blockers. Execute remaining ready tasks: nightly-compat.1, large-payload.1, product.7."
+
+# ============================================================
+# Theme: per-block-sharding (user-requested critical)
+# ============================================================
+
+[[themes]]
+id = "per-block-sharding"
+title = "Per-block packet pool sharding to reduce CAS contention"
+status = "active"
+spawned_by = "user"
+goal = "Reduce CAS contention by giving each block its own packet pool partition"
+success_criteria = [
+    "Per-block sharding implemented in gpu-runtime and gpu-host",
+    "CAS retries reduced vs global pool at 128+ threads",
+    "No regression at low thread counts",
+]
+
+# ============================================================
+# Theme: clean-example (user-requested critical)
+# ============================================================
+
+[[themes]]
+id = "clean-example"
+title = "Clean, self-contained example for new users"
+status = "active"
+spawned_by = "user"
+goal = "Provide a minimal hello-world example that demonstrates the full stack"
+success_criteria = [
+    "Self-contained example with kernel + host in examples/ directory",
+    "Auto-builds kernel PTX via build.rs",
+    "README with clear instructions",
+    "Demonstrates: print, file I/O, async/await from GPU",
+]
+
+# --- Tasks: per-block-sharding ---
+
+[[tasks]]
+id = "per-block-sharding.1"
+theme = "per-block-sharding"
+title = "Design per-block packet pool partitioning"
+kind = "design"
+status = "done"
+depends_on = []
+spawned_by = "user"
+research_questions = [
+    "How to partition the free stack into per-block segments?",
+    "Should blocks have exclusive pools or a shared overflow pool?",
+    "How does the host know which block's ready-stack to check?",
+    "What changes to the buffer header layout are needed?",
+]
+
+[[tasks]]
+id = "per-block-sharding.2"
+theme = "per-block-sharding"
+title = "Implement per-block sharding"
+kind = "experiment"
+status = "pending"
+depends_on = ["per-block-sharding.1"]
+spawned_by = "user"
+research_questions = [
+    "Does per-block sharding reduce CAS retries at 128+ threads?",
+    "Is there throughput improvement at high thread counts?",
+    "Any regression at low thread counts (1-32)?",
+]
+
+[[tasks]]
+id = "per-block-sharding.3"
+theme = "per-block-sharding"
+title = "Benchmark per-block sharding vs global pool"
+kind = "experiment"
+status = "pending"
+depends_on = ["per-block-sharding.2"]
+spawned_by = "user"
+research_questions = [
+    "CAS retries/call comparison at 32/128/512 threads?",
+    "Throughput comparison at 32/128/512 threads?",
+    "Latency distribution (p50/p95/p99) comparison?",
+]
+
+# --- Tasks: clean-example ---
+
+[[tasks]]
+id = "clean-example.1"
+theme = "clean-example"
+title = "Design example structure with build.rs auto-PTX"
+kind = "design"
+status = "done"
+depends_on = []
+spawned_by = "user"
+research_questions = [
+    "What is the minimal example that showcases the full stack?",
+    "How should build.rs auto-compile the kernel PTX?",
+    "What directory layout works best for examples/?",
+]
+
+[[tasks]]
+id = "clean-example.2"
+theme = "clean-example"
+title = "Implement hello-gpu example"
+kind = "experiment"
+status = "pending"
+depends_on = ["clean-example.1"]
+spawned_by = "user"
+research_questions = [
+    "Does the example compile and run out of the box?",
+    "Does build.rs correctly invoke cargo for nvptx64 target?",
+    "Is the output clear and demonstrates key capabilities?",
+]

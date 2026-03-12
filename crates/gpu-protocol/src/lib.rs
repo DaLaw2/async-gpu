@@ -21,6 +21,8 @@ pub const SERVICE_ABORT: u32 = 0xFF;
 pub const SERVICE_STDIN: u32 = 8;
 pub const SERVICE_TIME: u32 = 9;
 pub const SERVICE_PANIC: u32 = 10;
+pub const SERVICE_BULK_WRITE: u32 = 11;
+pub const SERVICE_BULK_READ: u32 = 12;
 
 // ============================================================
 // Control bits (PacketHeader.control)
@@ -260,6 +262,42 @@ pub const fn panic_block_idx(meta: u64) -> u16 {
 pub const fn panic_msg_len(meta: u64) -> u16 {
     ((meta >> 32) & 0xFFFF) as u16
 }
+
+// ============================================================
+// BULK transfer (sideband buffer) layout
+// ============================================================
+//
+// The sideband buffer is a separate CUDA mapped allocation used for
+// transferring data larger than the 56-byte packet payload limit.
+//
+// Sideband Header (64 bytes):
+//   Offset 0:  alloc_offset (u64) — GPU bump allocator position
+//   Offset 8:  capacity (u64)     — total data region size in bytes
+//   Offset 16: reserved (48 bytes)
+//
+// Data Region:
+//   Starts at SIDEBAND_HEADER_SIZE from sideband base
+//   Contiguous byte array, `capacity` bytes
+//
+// SERVICE_BULK_WRITE payload (lane 0):
+//   Slot 0: fd (u64)
+//   Slot 1: sideband_offset (u64) — offset within data region
+//   Slot 2: length (u64)
+//   Response slot 0: bytes_written (u64), or u64::MAX on error
+//
+// SERVICE_BULK_READ payload (lane 0):
+//   Slot 0: fd (u64)
+//   Slot 1: sideband_offset (u64)
+//   Slot 2: max_length (u64)
+//   Response slot 0: bytes_read (u64), or u64::MAX on error
+
+pub const SIDEBAND_HEADER_SIZE: usize = 64;
+pub const SIDEBAND_OFF_ALLOC: usize = 0;    // u64: bump allocator offset
+pub const SIDEBAND_OFF_CAPACITY: usize = 8;  // u64: total data region size
+pub const SIDEBAND_DATA_OFFSET: usize = SIDEBAND_HEADER_SIZE;
+
+/// Default sideband data region size: 1 MB.
+pub const DEFAULT_SIDEBAND_SIZE: usize = 1024 * 1024;
 
 // ============================================================
 // GPU-side spin limit

@@ -125,6 +125,10 @@ pub struct HostcallBuffer {
     pub dev_ptr: sys::CUdeviceptr,
     pub size: usize,
     pub num_packets: u16,
+    /// Sideband buffer for bulk data transfer (>56 bytes).
+    pub sideband_host_ptr: *mut u8,
+    pub sideband_dev_ptr: sys::CUdeviceptr,
+    pub sideband_size: usize,
 }
 
 // SAFETY: The buffer is pinned memory shared between host and GPU.
@@ -134,22 +138,30 @@ unsafe impl Send for HostcallBuffer {}
 unsafe impl Sync for HostcallBuffer {}
 
 impl HostcallBuffer {
-    /// Allocate and initialize a hostcall buffer with `num_packets` packet slots.
+    /// Allocate and initialize a hostcall buffer with `num_packets` packet slots
+    /// and a default-sized sideband buffer (1MB) for bulk data transfer.
     ///
     /// Uses cuMemHostAlloc with DEVICEMAP|PORTABLE flags for GPU-CPU shared access.
     pub fn new(num_packets: u16) -> Result<Self, HostcallError> {
+        Self::new_with_sideband(num_packets, DEFAULT_SIDEBAND_SIZE)
+    }
+
+    /// Allocate a hostcall buffer with custom sideband size.
+    pub fn new_with_sideband(
+        num_packets: u16,
+        sideband_data_size: usize,
+    ) -> Result<Self, HostcallError> {
         let size = buffer_size(num_packets);
         let cu = unsafe { cuda_lib() };
-
-        // Allocate pinned, device-mapped memory
-        let mut host_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
         let flags = sys::CU_MEMHOSTALLOC_DEVICEMAP | sys::CU_MEMHOSTALLOC_PORTABLE;
+
+        // Allocate hostcall buffer (pinned, device-mapped)
+        let mut host_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
         let result = unsafe { cu.cuMemHostAlloc(&mut host_ptr, size, flags) };
         if result != sys::CUresult::CUDA_SUCCESS {
             return Err(HostcallError::CudaAlloc(result));
         }
 
-        // Get device-side pointer
         let mut dev_ptr: sys::CUdeviceptr = 0;
         let result =
             unsafe { cu.cuMemHostGetDevicePointer_v2(&mut dev_ptr, host_ptr, 0) };
@@ -158,9 +170,38 @@ impl HostcallBuffer {
             return Err(HostcallError::CudaGetDevPtr(result));
         }
 
-        // Zero-initialize the entire buffer
         unsafe {
             std::ptr::write_bytes(host_ptr as *mut u8, 0, size);
+        }
+
+        // Allocate sideband buffer for bulk data transfer
+        let sideband_total = SIDEBAND_HEADER_SIZE + sideband_data_size;
+        let mut sb_host_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
+        let result =
+            unsafe { cu.cuMemHostAlloc(&mut sb_host_ptr, sideband_total, flags) };
+        if result != sys::CUresult::CUDA_SUCCESS {
+            unsafe { cu.cuMemFreeHost(host_ptr as *mut std::ffi::c_void) };
+            return Err(HostcallError::CudaAlloc(result));
+        }
+
+        let mut sb_dev_ptr: sys::CUdeviceptr = 0;
+        let result =
+            unsafe { cu.cuMemHostGetDevicePointer_v2(&mut sb_dev_ptr, sb_host_ptr, 0) };
+        if result != sys::CUresult::CUDA_SUCCESS {
+            unsafe {
+                cu.cuMemFreeHost(sb_host_ptr);
+                cu.cuMemFreeHost(host_ptr as *mut std::ffi::c_void);
+            }
+            return Err(HostcallError::CudaGetDevPtr(result));
+        }
+
+        // Zero-initialize sideband and set capacity
+        unsafe {
+            std::ptr::write_bytes(sb_host_ptr as *mut u8, 0, sideband_total);
+            // Set capacity field in sideband header
+            let cap_ptr =
+                (sb_host_ptr as *mut u8).add(SIDEBAND_OFF_CAPACITY) as *mut u64;
+            std::ptr::write_volatile(cap_ptr, sideband_data_size as u64);
         }
 
         let buf = Self {
@@ -168,9 +209,11 @@ impl HostcallBuffer {
             dev_ptr,
             size,
             num_packets,
+            sideband_host_ptr: sb_host_ptr as *mut u8,
+            sideband_dev_ptr: sb_dev_ptr,
+            sideband_size: sideband_total,
         };
 
-        // Initialize the buffer structure
         buf.init();
 
         Ok(buf)
@@ -346,7 +389,8 @@ impl HostcallBuffer {
                             }
                             // Slow path — offload to I/O thread
                             SERVICE_OPEN | SERVICE_WRITE | SERVICE_READ
-                            | SERVICE_CLOSE | SERVICE_STDIN => {
+                            | SERVICE_CLOSE | SERVICE_STDIN
+                            | SERVICE_BULK_WRITE | SERVICE_BULK_READ => {
                                 let _ = io_tx.send(IoRequest {
                                     pkt_idx: idx,
                                     service,
@@ -394,6 +438,12 @@ impl HostcallBuffer {
                     SERVICE_CLOSE => self.handle_close(pkt, &mut fd_table),
                     SERVICE_STDIN => {
                         self.handle_stdin_from_source(pkt, &mut stdin)
+                    }
+                    SERVICE_BULK_WRITE => {
+                        self.handle_bulk_write(pkt, &mut fd_table)
+                    }
+                    SERVICE_BULK_READ => {
+                        self.handle_bulk_read(pkt, &mut fd_table)
                     }
                     _ => true,
                 }
@@ -715,6 +765,137 @@ impl HostcallBuffer {
         false
     }
 
+    /// Handle SERVICE_BULK_WRITE: write sideband data to an open file.
+    ///
+    /// Request payload (lane 0):
+    ///   Slot 0: fd (u64)
+    ///   Slot 1: sideband_offset (u64)
+    ///   Slot 2: length (u64)
+    /// Response payload (lane 0):
+    ///   Slot 0: bytes written on success, FILE_ERROR_SENTINEL on error
+    unsafe fn handle_bulk_write(
+        &self,
+        pkt: *mut u8,
+        fd_table: &mut HashMap<u64, File>,
+    ) -> bool {
+        let payload = pkt.add(PKT_OFF_PAYLOAD);
+
+        let fd = std::ptr::read_volatile(payload as *const u64);
+        let sb_offset = std::ptr::read_volatile(payload.add(8) as *const u64) as usize;
+        let length = std::ptr::read_volatile(payload.add(16) as *const u64) as usize;
+
+        // Bounds check against sideband capacity
+        let capacity = std::ptr::read_volatile(
+            self.sideband_host_ptr.add(SIDEBAND_OFF_CAPACITY) as *const u64,
+        ) as usize;
+        if sb_offset + length > capacity {
+            eprintln!(
+                "  [HOST] BULK WRITE ERROR: offset={} + len={} > capacity={}",
+                sb_offset, length, capacity
+            );
+            std::ptr::write_volatile(
+                payload as *mut u64,
+                encode_error(ERR_INVALID_INPUT, 0),
+            );
+            return true;
+        }
+
+        let file = match fd_table.get_mut(&fd) {
+            Some(f) => f,
+            None => {
+                eprintln!("  [HOST] BULK WRITE ERROR: invalid fd={}", fd);
+                std::ptr::write_volatile(
+                    payload as *mut u64,
+                    encode_error(ERR_INVALID_FD, 0),
+                );
+                return true;
+            }
+        };
+
+        let data_ptr = self.sideband_host_ptr.add(SIDEBAND_DATA_OFFSET + sb_offset);
+        let data = std::slice::from_raw_parts(data_ptr, length);
+
+        match file.write_all(data) {
+            Ok(()) => {
+                let _ = file.flush();
+                println!(
+                    "  [HOST] BULK WRITE: fd={} {} bytes written",
+                    fd, length
+                );
+                std::ptr::write_volatile(payload as *mut u64, length as u64);
+                false
+            }
+            Err(e) => {
+                eprintln!("  [HOST] BULK WRITE ERROR: fd={}: {}", fd, e);
+                write_error_response(payload, &e)
+            }
+        }
+    }
+
+    /// Handle SERVICE_BULK_READ: read file data into sideband buffer.
+    ///
+    /// Request payload (lane 0):
+    ///   Slot 0: fd (u64)
+    ///   Slot 1: sideband_offset (u64)
+    ///   Slot 2: max_length (u64)
+    /// Response payload (lane 0):
+    ///   Slot 0: bytes read on success, FILE_ERROR_SENTINEL on error
+    unsafe fn handle_bulk_read(
+        &self,
+        pkt: *mut u8,
+        fd_table: &mut HashMap<u64, File>,
+    ) -> bool {
+        let payload = pkt.add(PKT_OFF_PAYLOAD);
+
+        let fd = std::ptr::read_volatile(payload as *const u64);
+        let sb_offset = std::ptr::read_volatile(payload.add(8) as *const u64) as usize;
+        let max_length =
+            std::ptr::read_volatile(payload.add(16) as *const u64) as usize;
+
+        // Bounds check
+        let capacity = std::ptr::read_volatile(
+            self.sideband_host_ptr.add(SIDEBAND_OFF_CAPACITY) as *const u64,
+        ) as usize;
+        if sb_offset + max_length > capacity {
+            eprintln!(
+                "  [HOST] BULK READ ERROR: offset={} + len={} > capacity={}",
+                sb_offset, max_length, capacity
+            );
+            std::ptr::write_volatile(
+                payload as *mut u64,
+                encode_error(ERR_INVALID_INPUT, 0),
+            );
+            return true;
+        }
+
+        let file = match fd_table.get_mut(&fd) {
+            Some(f) => f,
+            None => {
+                eprintln!("  [HOST] BULK READ ERROR: invalid fd={}", fd);
+                std::ptr::write_volatile(
+                    payload as *mut u64,
+                    encode_error(ERR_INVALID_FD, 0),
+                );
+                return true;
+            }
+        };
+
+        let data_ptr = self.sideband_host_ptr.add(SIDEBAND_DATA_OFFSET + sb_offset);
+        let buf = std::slice::from_raw_parts_mut(data_ptr, max_length);
+
+        match file.read(buf) {
+            Ok(n) => {
+                println!("  [HOST] BULK READ: fd={} {} bytes read", fd, n);
+                std::ptr::write_volatile(payload as *mut u64, n as u64);
+                false
+            }
+            Err(e) => {
+                eprintln!("  [HOST] BULK READ ERROR: fd={}: {}", fd, e);
+                write_error_response(payload, &e)
+            }
+        }
+    }
+
     /// Listen with both a print callback and a canned stdin provider.
     ///
     /// Convenience wrapper around `listen_unified` with `CannedStdin`.
@@ -731,6 +912,9 @@ impl Drop for HostcallBuffer {
         unsafe {
             let cu = cuda_lib();
             cu.cuMemFreeHost(self.host_ptr as *mut std::ffi::c_void);
+            if !self.sideband_host_ptr.is_null() {
+                cu.cuMemFreeHost(self.sideband_host_ptr as *mut std::ffi::c_void);
+            }
         }
     }
 }

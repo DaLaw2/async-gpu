@@ -68,3 +68,12 @@ Record important technical decisions here as they emerge from research.
 - **Rationale**: (1) Host profiling (host-scaling.1) showed NOP processing takes ~2µs — host CPU is NOT the bottleneck. (2) Blocking I/O is the only service that stalls other packets. (3) Channel overhead (~100ns) is negligible vs FILE I/O cost (10-500µs). (4) No protocol changes needed — GPU doesn't know which host thread responded. (5) `StdinSource` trait eliminates 100+ lines of duplicated dispatch code.
 - **Alternatives**: Multi-threaded dispatch (ready stack doesn't partition well), async runtime/tokio (over-engineering for CPU-bound fast path), per-warp packet pools (requires GPU protocol changes).
 - **Sources**: host-scaling.1-c63, host-scaling.2-c64
+
+### ADR-7: Sideband buffer for bulk data transfer
+- **Date**: 2026-03-12
+- **Status**: accepted
+- **Context**: Hostcall packets have a 56-byte payload limit (7 slots × 8 bytes in lane 0). File I/O and future workloads need arbitrary-size data transfer between GPU and host. Three approaches considered: multi-packet chaining, sideband mapped buffer, enlarged packet slots.
+- **Decision**: Allocate a separate CUDA mapped buffer ("sideband") alongside the hostcall buffer. GPU uses a bump allocator (atomic fetch_add) to reserve regions. Two new services: `SERVICE_BULK_WRITE` (11) for GPU→host file writes and `SERVICE_BULK_READ` (12) for host→GPU file reads. Hostcall packet carries `(fd, sideband_offset, length)` — data lives in the sideband buffer. Default sideband size: 1MB. Bump allocator is reset in bulk (at kernel start or after all pending ops complete).
+- **Rationale**: (1) Zero changes to existing packet format — backward compatible. (2) No deadlock risk — one packet per request regardless of data size. (3) Existing CONTROL_FILLED/CONTROL_READY release-acquire fences provide all necessary GPU-host synchronization. (4) Bump allocator is simple and efficient for sequential I/O patterns. (5) Arbitrary data size up to sideband capacity.
+- **Alternatives**: Multi-packet chaining (complex reassembly, deadlock risk if pool < data packets needed), enlarged packet slots (wastes memory for the common case of small messages, requires format change).
+- **Sources**: large-payload.1-c69, large-payload.2-c70

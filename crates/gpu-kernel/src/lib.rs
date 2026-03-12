@@ -1076,3 +1076,112 @@ pub unsafe extern "ptx-kernel" fn panic_test_kernel(buf: *mut u8, result: *mut u
     // Deliberately panic — this should send a message via hostcall then trap
     panic!("test panic from GPU thread 0");
 }
+
+// ============================================================
+// Bulk data transfer test kernel (large-payload.3)
+// ============================================================
+
+/// Test kernel: write a 4KB message to a file via sideband bulk transfer,
+/// then read it back and verify the content matches.
+///
+/// `buf` = hostcall buffer
+/// `sideband` = sideband data buffer
+/// `result` = output array of u32[4]:
+///   [0] = overall success (1 if write+read+verify all pass)
+///   [1] = bytes written
+///   [2] = bytes read back
+///   [3] = content match (1 if all bytes match)
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn bulk_io_test(
+    buf: *mut u8,
+    sideband: *mut u8,
+    result: *mut u32,
+) {
+    use gpu_runtime::sideband::{gpu_bulk_read, gpu_bulk_write, sideband_reset};
+
+    let thread_x = nvptx::_thread_idx_x() as u32;
+    let block_x = nvptx::_block_idx_x() as u32;
+    let block_dim_x = nvptx::_block_dim_x() as u32;
+    let global_idx = block_x * block_dim_x + thread_x;
+    if global_idx != 0 {
+        return;
+    }
+
+    // Initialize panic handler + reset sideband allocator
+    gpu_runtime::panic::gpu_panic_init(buf);
+    sideband_reset(sideband);
+
+    // Initialize results to failure
+    core::ptr::write_volatile(result.add(0), 0);
+    core::ptr::write_volatile(result.add(1), 0);
+    core::ptr::write_volatile(result.add(2), 0);
+    core::ptr::write_volatile(result.add(3), 0);
+
+    // Generate a 4KB test pattern
+    const DATA_SIZE: usize = 4096;
+    let mut test_data: [u8; DATA_SIZE] = [0u8; DATA_SIZE];
+    let mut i: usize = 0;
+    while i < DATA_SIZE {
+        test_data[i] = (i & 0xFF) as u8;
+        i += 1;
+    }
+
+    // Step 1: Open file for writing
+    let path = b"gpu_bulk_test.bin";
+    let (fd, err) = gpu_hostcall_open(
+        buf,
+        path.as_ptr(),
+        path.len() as u32,
+        FILE_OPEN_WRITE_CREATE,
+    );
+    if err != 0 {
+        return;
+    }
+
+    // Step 2: Bulk write 4KB
+    let written = gpu_bulk_write(buf, sideband, fd, test_data.as_ptr(), DATA_SIZE);
+    core::ptr::write_volatile(result.add(1), written as u32);
+
+    // Close write file
+    gpu_hostcall_close(buf, fd);
+
+    if written != DATA_SIZE {
+        return;
+    }
+
+    // Reset sideband allocator for read phase
+    sideband_reset(sideband);
+
+    // Step 3: Reopen for reading
+    let (fd2, err) = gpu_hostcall_open(buf, path.as_ptr(), path.len() as u32, FILE_OPEN_READ);
+    if err != 0 {
+        return;
+    }
+
+    // Step 4: Bulk read 4KB
+    let mut read_buf: [u8; DATA_SIZE] = [0u8; DATA_SIZE];
+    let bytes_read = gpu_bulk_read(buf, sideband, fd2, read_buf.as_mut_ptr(), DATA_SIZE);
+    core::ptr::write_volatile(result.add(2), bytes_read as u32);
+
+    // Close read file
+    gpu_hostcall_close(buf, fd2);
+
+    if bytes_read != DATA_SIZE {
+        return;
+    }
+
+    // Step 5: Verify content matches
+    let mut match_ok: bool = true;
+    let mut j: usize = 0;
+    while j < DATA_SIZE {
+        if read_buf[j] != test_data[j] {
+            match_ok = false;
+        }
+        j += 1;
+    }
+
+    if match_ok {
+        core::ptr::write_volatile(result.add(3), 1);
+        core::ptr::write_volatile(result.add(0), 1); // Overall success
+    }
+}

@@ -1862,6 +1862,113 @@ fn run_pipeline_test(dev: Arc<CudaDevice>) -> Result<()> {
     Ok(())
 }
 
+/// Showcase demo: all features combined (product.4).
+fn run_showcase_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Product Test 4: Showcase Demo (Vec + format! + stdin + stdout on GPU) ---");
+
+    use std::sync::{Arc as StdArc, Mutex};
+
+    let hc_buf = hostcall::HostcallBuffer::new(4)?;
+    let dev_ptr = hc_buf.dev_ptr;
+
+    let messages: StdArc<Mutex<Vec<String>>> = StdArc::new(Mutex::new(Vec::new()));
+    let messages_clone = StdArc::clone(&messages);
+
+    let (result_host_ptr, result_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 2)? };
+
+    // Provide input data: [10, 25, 30, 7, 42, 15, 88, 3]
+    let input_data: Vec<u32> = vec![10, 25, 30, 7, 42, 15, 88, 3];
+    let input_dev: CudaSlice<u32> = dev.htod_copy(input_data.clone())?;
+    let input_len = input_data.len() as u32;
+
+    let hc_buf_ref = StdArc::new(hc_buf);
+    let hc_buf_listener = StdArc::clone(&hc_buf_ref);
+
+    // Provide canned stdin: a name
+    let stdin_data = b"Rustacean\n".to_vec();
+    let listener_handle = std::thread::spawn(move || {
+        hc_buf_listener.listen_with_stdin(
+            |msg| {
+                let s = String::from_utf8_lossy(msg).to_string();
+                println!("  [GPU] {}", s);
+                messages_clone.lock().unwrap().push(s);
+            },
+            stdin_data,
+        );
+    });
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(STD_BUILD_TEST_PTX);
+    let _ = dev.load_ptx(ptx, "std_test", &["showcase_kernel"]);
+    let f = dev.get_func("std_test", "showcase_kernel")
+        .ok_or(GpuHostError::KernelNotFound("showcase_kernel"))?;
+
+    let cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (1, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    println!("  Launching showcase_kernel (Vec + format! + stdin + stdout)...");
+    let start = std::time::Instant::now();
+    unsafe {
+        f.launch(cfg, (dev_ptr as u64, &input_dev, input_len, result_dev_ptr as u64))?;
+    }
+
+    dev.synchronize()?;
+    let elapsed = start.elapsed();
+    println!("  Kernel completed in {:?}.", elapsed);
+
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    hc_buf_ref.signal_shutdown();
+    listener_handle.join().unwrap();
+
+    let success = unsafe { std::ptr::read_volatile(result_host_ptr.add(0)) };
+    let msg_count = unsafe { std::ptr::read_volatile(result_host_ptr.add(1)) };
+    unsafe { free_mapped_mem(result_host_ptr)? };
+
+    let received = messages.lock().unwrap();
+    if success != 1 {
+        return Err(GpuHostError::Verification {
+            test: "showcase_kernel",
+            detail: format!("kernel reported failure (success={})", success),
+        });
+    }
+
+    // Verify we got at least the expected messages
+    if msg_count < 4 {
+        return Err(GpuHostError::Verification {
+            test: "showcase_kernel",
+            detail: format!("expected 4 stdout messages, got {}", msg_count),
+        });
+    }
+
+    // Verify content
+    let has_greeting = received.iter().any(|m| m.contains("Hello") && m.contains("Rustacean"));
+    let has_stats = received.iter().any(|m| m.contains("sum=220"));
+    let has_goodbye = received.iter().any(|m| m.contains("Goodbye"));
+
+    if !has_greeting || !has_stats || !has_goodbye {
+        return Err(GpuHostError::Verification {
+            test: "showcase_kernel",
+            detail: format!(
+                "missing expected content (greeting={}, stats={}, goodbye={}). Messages: {:?}",
+                has_greeting, has_stats, has_goodbye, *received
+            ),
+        });
+    }
+
+    println!("  showcase_kernel: PASSED!");
+    println!("    Features demonstrated:");
+    println!("      - stdin read (got name \"Rustacean\" from host)");
+    println!("      - Vec<u32> built from {} runtime kernel arguments", input_data.len());
+    println!("      - Iterator methods: sum, min, max, filter, collect");
+    println!("      - format!() with heap-allocated String");
+    println!("      - writeln!(stdout()) through PAL hostcall ({}x)", msg_count);
+    println!("    Total time: {:?}", elapsed);
+    println!("    This is VectorWare-level Rust std on GPU!");
+    Ok(())
+}
+
 fn main() -> Result<()> {
     println!("=== GPU Kernel Execution Test ===\n");
 
@@ -1915,6 +2022,9 @@ fn main() -> Result<()> {
 
     // 4-step async pipeline test (product.2)
     run_pipeline_test(Arc::clone(&dev))?;
+
+    // Showcase demo kernel (product.4)
+    run_showcase_test(Arc::clone(&dev))?;
 
     println!("\nAll tests PASSED.");
     Ok(())

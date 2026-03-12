@@ -668,3 +668,114 @@ pub extern "ptx-kernel" fn std_stdin_echo_kernel(
         }
     }
 }
+
+// ============================================================
+// product.4: Showcase demo kernel
+// ============================================================
+// Combines all features: Vec, String, format!, writeln!(stdout),
+// gpu_stdin_read, runtime kernel arguments — everything running
+// on GPU through Rust std with hostcall backend.
+
+/// Showcase demo: Rust std on GPU with hostcall I/O.
+///
+/// This kernel demonstrates the full stack:
+/// 1. Read user name from stdin (via hostcall)
+/// 2. Build a Vec from runtime kernel arguments
+/// 3. Compute statistics using std iterators
+/// 4. Format results using format!() (heap-allocated String)
+/// 5. Print everything to stdout via writeln!()
+///
+/// `buf` = hostcall buffer (mapped memory)
+/// `input` = pointer to array of u32 values (device memory)
+/// `input_len` = number of elements
+/// `result` = output array of u32[2]:
+///   [0] = 1 on success
+///   [1] = number of stdout messages written
+#[unsafe(no_mangle)]
+pub extern "ptx-kernel" fn showcase_kernel(
+    buf: *mut u8,
+    input: *const u32,
+    input_len: u32,
+    result: *mut u32,
+) {
+    use std::io::Write;
+
+    stdio_init(buf);
+
+    unsafe {
+        core::ptr::write_volatile(result.add(0), 0);
+        core::ptr::write_volatile(result.add(1), 0);
+    }
+
+    let mut msg_count: u32 = 0;
+
+    // Step 1: Read a name from stdin
+    let mut name_buf = [0u8; 56];
+    let name_len = gpu_stdin_read(name_buf.as_mut_ptr(), name_buf.len());
+    let name = if name_len > 0 {
+        // Trim trailing newline if present
+        let end = if name_len > 0 && name_buf[name_len - 1] == b'\n' {
+            name_len - 1
+        } else {
+            name_len
+        };
+        unsafe { core::str::from_utf8_unchecked(&name_buf[..end]) }
+    } else {
+        "GPU User"
+    };
+
+    // Step 2: Greet the user
+    if writeln!(std::io::stdout(), "Hello, {}! Welcome to Rust on GPU.", name).is_ok() {
+        msg_count += 1;
+    }
+
+    // Step 3: Build a Vec from runtime kernel arguments
+    let mut v: Vec<u32> = Vec::new();
+    let mut i: u32 = 0;
+    while i < input_len {
+        let val = unsafe { core::ptr::read_volatile(input.add(i as usize)) };
+        v.push(val);
+        i += 1;
+    }
+
+    // Step 4: Compute statistics using std iterators
+    let sum: u32 = v.iter().sum();
+    let count = v.len();
+    let min = v.iter().min().copied().unwrap_or(0);
+    let max = v.iter().max().copied().unwrap_or(0);
+
+    // Step 5: Format and print results
+    let stats = format!(
+        "Data: {} elements, sum={}, min={}, max={}",
+        count, sum, min, max
+    );
+    if writeln!(std::io::stdout(), "{}", stats).is_ok() {
+        msg_count += 1;
+    }
+
+    // Step 6: Build a filtered Vec and print it
+    let evens: Vec<u32> = v.iter().filter(|&&x| x % 2 == 0).copied().collect();
+    let odds: Vec<u32> = v.iter().filter(|&&x| x % 2 != 0).copied().collect();
+    if writeln!(
+        std::io::stdout(),
+        "Even count: {}, Odd count: {}",
+        evens.len(),
+        odds.len()
+    ).is_ok() {
+        msg_count += 1;
+    }
+
+    // Step 7: Final message
+    if writeln!(
+        std::io::stdout(),
+        "Goodbye, {}! GPU computation complete.",
+        name
+    ).is_ok() {
+        msg_count += 1;
+    }
+
+    unsafe {
+        core::ptr::write_volatile(result.add(0), 1);
+        core::ptr::write_volatile(result.add(1), msg_count);
+    }
+}

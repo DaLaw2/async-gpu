@@ -4,22 +4,22 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 95      # Monotonic counter, incremented after each completed phase
-completed_tasks = 94
+total_cycles = 96      # Monotonic counter, incremented after each completed phase
+completed_tasks = 95
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = ""
-last_summary = "ml-workload.2+3 done. Single-query vector search (20-state, 6.6ms) and batch search (5 queries, 7.8ms, 1.6ms/query amortized) both verified. I/O cost amortized across batch. Next: brainstorm at completed=94 (interval=3, last_bs=91)."
+current_task_id = "ml-workload.6"
+last_summary = "ml-workload.5 done: full warp merge via shfl.sync verified — 32 lanes' top-K merged, 100% DB coverage, results match CPU reference exactly. Next: ml-workload.6 README update."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 22
+brainstorm_seq = 23
 review_seq = 4
 
 # Brainstorm trigger control
-last_brainstorm_at_completed = 91
+last_brainstorm_at_completed = 94
 brainstorm_interval = 3
 
 # ============================================================
@@ -2214,3 +2214,39 @@ new_themes_spawned = ["ml-workload"]
 themes_parked = []
 themes_completed = []
 key_insight = "Per-lane work distribution (each lane handles full 128-dim vector). 1MB sideband fits ~1800 vectors. Split persistent kernel into batch (no TDR) + true persistent (stretch, requires TDR disable). Demo value is autonomy, not performance."
+
+[[tasks]]
+id = "ml-workload.5"
+theme = "ml-workload"
+title = "Full warp merge: collect all 32 lanes' top-K via shfl.sync for 100% DB coverage"
+kind = "experiment"
+status = "done"
+depends_on = ["ml-workload.2"]
+spawned_by = "bs23"
+research_questions = [
+    "Can shfl.sync efficiently merge 32 lanes' top-K arrays (320 candidates -> top-10)?",
+    "What is the performance cost of the merge vs the improvement in result quality?",
+]
+
+[[tasks]]
+id = "ml-workload.6"
+theme = "ml-workload"
+title = "README update: add vector search and batch search demos to showcase"
+kind = "design"
+status = "pending"
+depends_on = ["ml-workload.3"]
+spawned_by = "bs23"
+research_questions = [
+    "What is the clearest way to present the vector search demo in the README?",
+]
+
+[[brainstorms]]
+seq = 23
+at_cycle = 95
+trigger = "Interval (completed=94, last_bs=91, interval=3)"
+level = "quick"
+new_tasks_spawned = ["ml-workload.5", "ml-workload.6"]
+new_themes_spawned = []
+themes_parked = []
+themes_completed = []
+key_insight = "ml-workload.1/2/3 all done. Lane-0-only results (1/32 DB) is the main quality gap. Full warp merge via shfl.sync is highest impact next step. README update to showcase ML demos."

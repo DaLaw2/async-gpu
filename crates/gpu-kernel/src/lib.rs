@@ -3043,10 +3043,47 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for VecSearchFuture {
                     vec_idx += 32;
                 }
 
-                // Lane 0 saves top-K and writes results to sideband
-                // NOTE: Demo uses lane 0 subset (1/32 of DB). Full merge via shfl in future.
+                // Full warp merge: collect all 32 lanes' top-K via shfl.sync
+                // Each lane has local_topk[VS_K] in registers. Lane 0 collects
+                // all 320 candidates (32 lanes * 10 entries) and picks global top-10.
+                let mut global_topk = [TopKEntry { id: u32::MAX, score: -1.0f32 }; VS_K];
+                if lid == 0 {
+                    global_topk = local_topk; // start with lane 0's results
+                }
+
+                let mask = wcx.active_mask;
+                let mut k = 0u32;
+                while k < VS_K as u32 {
+                    let my_id = local_topk[k as usize].id;
+                    let my_score_bits: u32 = f32::to_bits(local_topk[k as usize].score);
+
+                    let mut s = 0u32;
+                    while s < 32 {
+                        let cand_id = gpu_atomics::shfl_sync_idx_u32(mask, my_id, s);
+                        let cand_score_bits = gpu_atomics::shfl_sync_idx_u32(mask, my_score_bits, s);
+                        let cand_score: f32 = f32::from_bits(cand_score_bits);
+
+                        // Lane 0 inserts candidate into global top-K
+                        if lid == 0 && s != 0 { // skip lane 0 (already included)
+                            if cand_score > global_topk[VS_K - 1].score {
+                                global_topk[VS_K - 1] = TopKEntry { id: cand_id, score: cand_score };
+                                let mut j = VS_K - 1;
+                                while j > 0 && global_topk[j].score > global_topk[j - 1].score {
+                                    let tmp = global_topk[j - 1];
+                                    global_topk[j - 1] = global_topk[j];
+                                    global_topk[j] = tmp;
+                                    j -= 1;
+                                }
+                            }
+                        }
+                        s += 1;
+                    }
+                    k += 1;
+                }
+
+                // Lane 0 writes global top-K results to sideband
                 if wcx.is_leader() {
-                    self.top_k = local_topk;
+                    self.top_k = global_topk;
 
                     let result_offset = gpu_runtime::sideband::sideband_alloc(
                         self.sideband, (4 + VS_K * 8) as u64,
@@ -3435,14 +3472,15 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for BatchSearchFuture {
 
             BS_COMPUTE => unsafe {
                 let lid = wcx.lane_id;
-                let n = broadcast_u32(wcx.active_mask, self.db_count);
-                let nq = broadcast_u32(wcx.active_mask, self.num_queries);
+                let mask = wcx.active_mask;
+                let n = broadcast_u32(mask, self.db_count);
+                let nq = broadcast_u32(mask, self.num_queries);
                 let sb_base = self.sideband as usize + gpu_protocol::SIDEBAND_DATA_OFFSET;
 
-                let db_off = broadcast_u32(wcx.active_mask, self.db_offset as u32) as usize;
+                let db_off = broadcast_u32(mask, self.db_offset as u32) as usize;
                 let db_vecs_base = sb_base + db_off + 8; // skip N:u32 + dim:u32
 
-                let q_off = broadcast_u32(wcx.active_mask, self.query_offset as u32) as usize;
+                let q_off = broadcast_u32(mask, self.query_offset as u32) as usize;
                 let queries_base = sb_base + q_off + 8; // skip num_q:u32 + dim:u32
 
                 // Allocate result buffer: [num_q:u32][K:u32] + num_q * K * 8
@@ -3458,7 +3496,7 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for BatchSearchFuture {
                     self.result_bytes = total_result_bytes;
                     off
                 } else { 0 };
-                let result_offset = broadcast_u32(wcx.active_mask, result_offset as u32) as usize;
+                let result_offset = broadcast_u32(mask, result_offset as u32) as usize;
                 let result_base = sb_base + result_offset;
 
                 // Write result header (lane 0 only)
@@ -3523,18 +3561,52 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for BatchSearchFuture {
                         vec_idx += 32;
                     }
 
-                    // Lane 0 writes this query's results
+                    // Full warp merge via shfl.sync
+                    let mut global_topk = [TopKEntry { id: u32::MAX, score: -1.0f32 }; VS_K];
+                    if lid == 0 {
+                        global_topk = local_topk;
+                    }
+
+                    let mut k = 0u32;
+                    while k < VS_K as u32 {
+                        let my_id = local_topk[k as usize].id;
+                        let my_score_bits: u32 = f32::to_bits(local_topk[k as usize].score);
+
+                        let mut s = 0u32;
+                        while s < 32 {
+                            let cand_id = gpu_atomics::shfl_sync_idx_u32(mask, my_id, s);
+                            let cand_score_bits = gpu_atomics::shfl_sync_idx_u32(mask, my_score_bits, s);
+                            let cand_score: f32 = f32::from_bits(cand_score_bits);
+
+                            if lid == 0 && s != 0 {
+                                if cand_score > global_topk[VS_K - 1].score {
+                                    global_topk[VS_K - 1] = TopKEntry { id: cand_id, score: cand_score };
+                                    let mut j = VS_K - 1;
+                                    while j > 0 && global_topk[j].score > global_topk[j - 1].score {
+                                        let tmp = global_topk[j - 1];
+                                        global_topk[j - 1] = global_topk[j];
+                                        global_topk[j] = tmp;
+                                        j -= 1;
+                                    }
+                                }
+                            }
+                            s += 1;
+                        }
+                        k += 1;
+                    }
+
+                    // Lane 0 writes this query's merged results
                     if wcx.is_leader() {
                         let entry_base = result_base + 8 + (qi as usize) * VS_K * 8;
                         let mut i = 0;
                         while i < VS_K {
                             core::ptr::write_volatile(
                                 (entry_base + i * 8) as *mut u32,
-                                local_topk[i].id,
+                                global_topk[i].id,
                             );
                             core::ptr::write_volatile(
                                 (entry_base + i * 8 + 4) as *mut f32,
-                                local_topk[i].score,
+                                global_topk[i].score,
                             );
                             i += 1;
                         }

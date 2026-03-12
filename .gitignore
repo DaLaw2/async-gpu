@@ -6,3 +6,5 @@ crates/*/target/
 .DS_Store
 Thumbs.db
 patched-std/
+query.bin
+vecdb.bin

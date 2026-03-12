@@ -3673,21 +3673,18 @@ fn run_vector_search_test(dev: Arc<CudaDevice>) -> Result<()> {
     let _ = std::fs::remove_file("results.bin");
     unsafe { free_mapped_mem(status_host)? };
 
-    // Verify: top-1 result should be vector 42 (or close to it)
-    // Lane 0 processes vectors 0, 32, 64, 96 — so it sees vector 32+10=42? No.
-    // Lane 0 processes: 0, 32, 64, 96. It won't see 42 directly.
-    // Lane 10 would see: 10, 42, 74. But we only save lane 0's results.
-    // Expected top-1 from lane 0's subset: whichever of {0,32,64,96} is most similar to db[42].
-    // This is a known limitation documented in the kernel code.
+    // Verify: top-1 result should be vector 42 with score ~1.0
+    // Full warp merge: all 32 lanes contribute, so we see all 100 vectors.
+    // Lane 10 processes vectors 10, 42, 74 — so id=42 should be in the results.
 
-    let top1_ok = !gpu_results.is_empty() && gpu_results[0].1 > 0.0;
+    let top1_ok = !gpu_results.is_empty() && gpu_results[0].0 == 42 && gpu_results[0].1 > 0.99;
 
     if status_val == 1 && top1_ok {
         println!("  Vector Search Pipeline: PASSED!");
         println!("    GPU self-coordinated: open(db)→read→close→open(query)→read→close→compute→write(results)");
         println!("    {} database vectors × {} dimensions, top-{} returned", N, DIM, result_k);
-        println!("    Zero CPU intervention between steps");
-        println!("    Note: Demo uses lane 0 subset (1/32 of DB). Full coverage in future iteration.");
+        println!("    Full warp merge: all 32 lanes contribute via shfl.sync (100% DB coverage)");
+        println!("    Top-1: id={} score={:.4} (exact match!)", gpu_results[0].0, gpu_results[0].1);
     } else {
         println!("  Vector Search Pipeline: FAILED");
         return Err(GpuHostError::Verification {

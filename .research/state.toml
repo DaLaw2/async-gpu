@@ -4,22 +4,22 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 79      # Monotonic counter, incremented after each completed phase
-completed_tasks = 78
+total_cycles = 82      # Monotonic counter, incremented after each completed phase
+completed_tasks = 81
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = ""
-last_summary = "warp-future.4 done: WarpFuture PoC verified on hardware. 32 lanes cooperatively sent PRINT via WarpFuture trait. 0.373ms round-trip (~3x faster than per-thread). PTX: 4x shfl.sync + 5x bar.warp.sync. warp-future.5 (proc macro) unblocked but user requested stop."
+current_task_id = "warp-future.5"
+last_summary = "warp-future.6 done (multi-hostcall 7-state PoC, 0.802ms, 3 msgs in order). api-cleanup.1 done (removed 5 duplicated protocol fns). api-cleanup.2 done (prelude curated). Next: warp-future.5 proc macro."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 16
+brainstorm_seq = 17
 review_seq = 3
 
 # Brainstorm trigger control
-last_brainstorm_at_completed = 75
+last_brainstorm_at_completed = 78
 brainstorm_interval = 3
 
 # ============================================================
@@ -1695,6 +1695,17 @@ themes_parked = []
 themes_completed = []
 key_insight = "WarpFuture feasible without rustc changes: shfl.sync for state broadcast, bar.warp.sync for convergence, simple spin-poll executor. But problem is unmeasured — no kernel runs per-thread async across full warp yet. Empirical validation needed before full investment. Proc macro has fundamental limitations (no arbitrary control flow). ADR-9 stays proposed."
 
+[[brainstorms]]
+seq = 17
+at_cycle = 79
+trigger = "user-requested: multi-hostcall WarpFuture + API cleanup + proc macro roadmap"
+level = "quick"
+new_tasks_spawned = ["warp-future.6", "api-cleanup.1", "api-cleanup.2"]
+new_themes_spawned = ["api-cleanup"]
+themes_parked = []
+themes_completed = []
+key_insight = "Roadmap: (1) warp-future.6 multi-hostcall PoC validates composition, (2) api-cleanup eliminates duplicated hostcall code in gpu-kernel, (3) warp-future.5 proc macro builds on both hand-written PoCs. Updated warp-future.5 deps to include .6."
+
 # ============================================================
 # Theme: per-block-sharding (user-requested critical)
 # ============================================================
@@ -1883,10 +1894,67 @@ theme = "warp-future"
 title = "Implement #[warp_async] proc macro for automatic state machine generation"
 kind = "experiment"
 status = "pending"
-depends_on = ["warp-future.4"]
+depends_on = ["warp-future.4", "warp-future.6"]
 spawned_by = "user"
 research_questions = [
     "Can a proc macro transform async-like syntax into WarpFuture state machine?",
     "How to handle warp_await! expansion with __syncwarp()?",
     "Does the generated code match hand-written WarpFuture quality?",
+]
+
+[[tasks]]
+id = "warp-future.6"
+theme = "warp-future"
+title = "Multi-hostcall WarpFuture: hand-written 3-call pipeline (open→write→close)"
+kind = "experiment"
+status = "done"
+depends_on = ["warp-future.4"]
+spawned_by = "bs17"
+research_questions = [
+    "Can a WarpFuture state machine compose multiple sequential hostcalls?",
+    "Does the multi-state machine maintain warp convergence across all transitions?",
+    "What is the register pressure of a 3-call state machine vs single-call?",
+    "Is the PTX output convergent across all state transitions?",
+]
+
+# ============================================================
+# Theme: api-cleanup (API consolidation and cleanup)
+# ============================================================
+
+[[themes]]
+id = "api-cleanup"
+title = "Consolidate hostcall API and clean up public surface"
+status = "completed"
+spawned_by = "bs17"
+goal = "Eliminate duplicated inline hostcall code in gpu-kernel, consolidate into gpu-runtime re-exports, and ensure a clean public API surface"
+success_criteria = "gpu-kernel uses only gpu-runtime public API for hostcalls (no inline asm copies); public API is minimal, documented, and ergonomic"
+
+# --- Tasks: api-cleanup ---
+
+[[tasks]]
+id = "api-cleanup.1"
+theme = "api-cleanup"
+title = "Eliminate gpu-kernel inline hostcall copies — use gpu-runtime re-exports"
+kind = "experiment"
+status = "done"
+depends_on = []
+spawned_by = "bs17"
+research_questions = [
+    "Which hostcall functions in gpu-kernel are duplicated from gpu-runtime?",
+    "Does replacing inline copies with gpu-runtime imports still compile to correct PTX?",
+    "Are there any cross-crate inlining issues with the consolidated API?",
+]
+
+[[tasks]]
+id = "api-cleanup.2"
+theme = "api-cleanup"
+title = "Clean up public API surface — minimize exports, add module structure"
+kind = "design"
+status = "done"
+depends_on = ["api-cleanup.1"]
+spawned_by = "bs17"
+research_questions = [
+    "What is the minimal public API surface for gpu-runtime?",
+    "Should warp_future be a separate crate or stay as a module?",
+    "What re-exports should the prelude contain?",
 ]

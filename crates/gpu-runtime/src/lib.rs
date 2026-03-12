@@ -805,31 +805,41 @@ pub mod warp_future {
 
 /// Prelude — import everything you need for a basic GPU kernel.
 ///
+/// The prelude exports high-level APIs for common tasks. For low-level
+/// access (atomics, protocol constants, packet layout), use the module
+/// paths directly: `gpu_runtime::hostcall::*`, `gpu_atomics::*`,
+/// `gpu_protocol::*`.
+///
 /// ```rust,ignore
 /// use gpu_runtime::prelude::*;
 /// ```
 pub mod prelude {
-    pub use gpu_atomics::{
-        activemask, lane_id, membar_sys, st_global_u32, sys_cas_u32, sys_cas_u64,
-        sys_exchange_u64, sys_fetch_add_u32, sys_fetch_add_u64, sys_load_acquire_u32,
-        sys_load_acquire_u64, sys_spin_load_acquire_u32, sys_spin_load_acquire_u64,
-        sys_store_release_u32, sys_store_release_u64,
-    };
-    pub use gpu_protocol::*;
-
+    // --- High-level hostcall API ---
     pub use crate::hostcall::{
-        gpu_hostcall_print, gpu_hostcall_release, gpu_hostcall_request, hc_pop_free, hc_push,
-        read_shard_info, pkt_offset, get_free_stack_ptr, get_ready_stack_ptr,
-        GPU_MAX_SPIN,
+        gpu_hostcall_print, gpu_hostcall_request, gpu_hostcall_release,
     };
-
     pub use crate::panic::gpu_panic_init;
-
     pub use crate::sideband::{
         gpu_bulk_read, gpu_bulk_write, sideband_alloc, sideband_reset,
     };
 
+    // --- WarpFuture API ---
     pub use crate::warp_future::{
         WarpPoll, WarpContext, WarpFuture, WarpExecutor, broadcast_u32,
     };
+
+    // --- Commonly needed protocol constants ---
+    pub use gpu_protocol::{
+        SERVICE_PRINT, SERVICE_WRITE, SERVICE_READ, SERVICE_OPEN, SERVICE_CLOSE,
+        SERVICE_STDIN, SERVICE_TIME, SERVICE_PANIC,
+        SERVICE_BULK_WRITE, SERVICE_BULK_READ,
+        CONTROL_READY, CONTROL_ERROR, CONTROL_FILLED,
+        PKT_OFF_PAYLOAD, PKT_OFF_CONTROL, PKT_OFF_SERVICE, PKT_OFF_ACTIVE_MASK,
+        NULL_INDEX, PACKET_SIZE, PRINT_MAX_MSG_LEN,
+        FILE_MAX_PATH_LEN, FILE_MAX_WRITE_LEN, FILE_MAX_READ_LEN,
+        FILE_ERROR_SENTINEL,
+    };
+
+    // --- Warp intrinsics ---
+    pub use gpu_atomics::{activemask, lane_id, syncwarp, shfl_sync_idx_u32};
 }

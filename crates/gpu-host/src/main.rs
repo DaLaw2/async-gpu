@@ -3130,6 +3130,89 @@ fn run_warp_future_print_test(dev: Arc<CudaDevice>) -> Result<()> {
     Ok(())
 }
 
+/// WarpFuture multi-hostcall test: 3 sequential PRINT calls in one WarpFuture (warp-future.6).
+///
+/// Validates that a WarpFuture state machine can compose multiple sequential
+/// hostcalls while maintaining warp convergence. Expects 3 messages received in order.
+fn run_warp_future_multi_print_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- WarpFuture Multi-Hostcall Test (warp-future.6) ---");
+
+    let hc_buf = hostcall::HostcallBuffer::new(4)?;
+    let dev_ptr = hc_buf.dev_ptr;
+
+    let (result_host, result_dev) = unsafe { alloc_mapped_result_array(&dev, 1)? };
+
+    let hc_buf_ref = std::sync::Arc::new(hc_buf);
+    let hc_buf_listener = std::sync::Arc::clone(&hc_buf_ref);
+
+    let messages = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let msg_clone = std::sync::Arc::clone(&messages);
+
+    let listener_handle = std::thread::spawn(move || {
+        hc_buf_listener.listen(move |msg| {
+            let text = String::from_utf8_lossy(msg).to_string();
+            println!("  [HOST] WarpMulti says: \"{}\"", text);
+            let mut guard = msg_clone.lock().unwrap();
+            guard.push(text);
+        });
+    });
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "kernel", &["warp_future_multi_print_test"]);
+    let f = dev
+        .get_func("kernel", "warp_future_multi_print_test")
+        .ok_or(GpuHostError::KernelNotFound("warp_future_multi_print_test"))?;
+
+    let cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (32, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    let start = std::time::Instant::now();
+    unsafe {
+        f.launch(cfg, (dev_ptr as u64, result_dev as u64))?;
+    }
+    dev.synchronize()?;
+    let elapsed = start.elapsed();
+
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    hc_buf_ref.signal_shutdown();
+    listener_handle.join().unwrap();
+
+    let result_val = unsafe { std::ptr::read_volatile(result_host) };
+    let msgs = messages.lock().unwrap();
+
+    println!("  Result: {} (1=success)", result_val);
+    println!("  Elapsed: {:.3}ms", elapsed.as_secs_f64() * 1000.0);
+    println!("  Messages received: {}", msgs.len());
+
+    if result_val == 1 && msgs.len() == 3 {
+        let ok1 = msgs[0].contains("1/3");
+        let ok2 = msgs[1].contains("2/3");
+        let ok3 = msgs[2].contains("3/3");
+        if ok1 && ok2 && ok3 {
+            println!("  WarpFuture Multi-Hostcall: PASSED!");
+            println!("    3 sequential hostcalls completed in order.");
+            println!("    7-state machine: INIT1→WAIT1→INIT2→WAIT2→INIT3→WAIT3→DONE");
+            println!("    Composition of WarpFuture hostcalls verified on hardware.");
+        } else {
+            println!("  Messages out of order or unexpected content:");
+            for (i, m) in msgs.iter().enumerate() {
+                println!("    [{}]: \"{}\"", i, m);
+            }
+        }
+    } else {
+        println!("  WarpFuture Multi-Hostcall: FAILED (result={}, msgs={})", result_val, msgs.len());
+        for (i, m) in msgs.iter().enumerate() {
+            println!("    [{}]: \"{}\"", i, m);
+        }
+    }
+
+    unsafe { free_mapped_mem(result_host)? };
+    Ok(())
+}
+
 /// GPU panic handler test: verify panic message is received via hostcall.
 ///
 /// The test kernel deliberately panics. We expect:
@@ -3261,6 +3344,9 @@ fn main() -> Result<()> {
 
     // WarpFuture PoC test (warp-future.4)
     run_warp_future_print_test(Arc::clone(&dev))?;
+
+    // WarpFuture multi-hostcall test (warp-future.6)
+    run_warp_future_multi_print_test(Arc::clone(&dev))?;
 
     // GPU panic handler test (gpu-panic.2) — MUST BE LAST
     // since trap instruction calls process::exit(0)

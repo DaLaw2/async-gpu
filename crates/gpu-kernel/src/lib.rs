@@ -240,115 +240,13 @@ pub unsafe extern "ptx-kernel" fn test_lane_id(output: *mut u32, len: u32) {
 }
 
 // ============================================================
-// Hostcall protocol (GPU side) — hostcall.4
+// Hostcall protocol — uses gpu-runtime's consolidated API (api-cleanup.1)
 // ============================================================
-
-/// Pop a packet from the free stack. Returns packet index or NULL_INDEX.
-#[inline(always)]
-unsafe fn hc_pop_free(buf: *mut u8) -> u16 {
-    let free_ptr = buf.add(BUF_OFF_FREE_STACK) as *mut u64;
-    loop {
-        let old_head = sys_load_acquire_u64(free_ptr as *const u64);
-        let idx = tagged_index(old_head);
-        if idx == NULL_INDEX {
-            return NULL_INDEX;
-        }
-        let pkt = buf.add(packet_offset(idx));
-        let next = core::ptr::read_volatile(pkt.add(PKT_OFF_NEXT) as *const u64);
-        if sys_cas_u64(free_ptr, old_head, next) == old_head {
-            return idx;
-        }
-    }
-}
-
-/// Push a packet onto a tagged-pointer stack (free or ready).
-#[inline(always)]
-unsafe fn hc_push(stack_ptr: *mut u64, buf: *mut u8, pkt_idx: u16) {
-    let pkt = buf.add(packet_offset(pkt_idx));
-    loop {
-        let old_head = sys_load_acquire_u64(stack_ptr as *const u64);
-        core::ptr::write_volatile(pkt.add(PKT_OFF_NEXT) as *mut u64, old_head);
-        let new_tag = tagged_tag(old_head).wrapping_add(1);
-        let new_tagged = make_tagged(new_tag, pkt_idx);
-        if sys_cas_u64(stack_ptr, old_head, new_tagged) == old_head {
-            break;
-        }
-    }
-}
-
-/// GPU-side hostcall: send a PRINT request with a short message.
-///
-/// Only lane 0 (thread 0) should call this. The message is copied into
-/// the packet payload (mapped memory). Max 56 bytes.
-///
-/// Returns true on success, false on pool exhaustion or timeout.
-#[inline(always)]
-unsafe fn gpu_hostcall_print(buf: *mut u8, msg: *const u8, msg_len: u32) -> bool {
-    // Step 1: Pop free packet
-    let pkt_idx = hc_pop_free(buf);
-    if pkt_idx == NULL_INDEX {
-        return false;
-    }
-
-    let pkt = buf.add(packet_offset(pkt_idx));
-
-    // Step 2: Fill packet header
-    let mask = activemask();
-    core::ptr::write_volatile(pkt.add(PKT_OFF_ACTIVE_MASK) as *mut u32, mask);
-    core::ptr::write_volatile(pkt.add(PKT_OFF_SERVICE) as *mut u32, SERVICE_PRINT);
-    // Clear READY/ERROR with a release store (ensures prior state is clean)
-    sys_store_release_u32(pkt.add(PKT_OFF_CONTROL) as *mut u32, 0);
-
-    // Step 3: Fill payload (lane 0 only)
-    // Slot 0 = message length, Slots 1-7 = message bytes (up to 56 bytes)
-    let payload = pkt.add(PKT_OFF_PAYLOAD);
-    core::ptr::write_volatile(payload as *mut u64, msg_len as u64);
-
-    let copy_len = if msg_len > PRINT_MAX_MSG_LEN as u32 {
-        PRINT_MAX_MSG_LEN as u32
-    } else {
-        msg_len
-    };
-    let dst = payload.add(8); // skip slot 0
-    let mut i: u32 = 0;
-    while i < copy_len {
-        core::ptr::write_volatile(dst.add(i as usize), *msg.add(i as usize));
-        i += 1;
-    }
-
-    // Step 4: Mark packet as filled (release store ensures all prior writes visible)
-    sys_store_release_u32(pkt.add(PKT_OFF_CONTROL) as *mut u32, CONTROL_FILLED);
-
-    // Step 5: Push to ready stack
-    let ready_ptr = buf.add(BUF_OFF_READY_STACK) as *mut u64;
-    hc_push(ready_ptr, buf, pkt_idx);
-
-    // Step 6: Ring doorbell
-    sys_fetch_add_u64(buf.add(BUF_OFF_DOORBELL) as *mut u64, 1);
-
-    // Step 7: Spin-wait for host response
-    let control_ptr = pkt.add(PKT_OFF_CONTROL) as *const u32;
-    let mut spins: u32 = 0;
-    let success;
-    loop {
-        let ctrl = sys_spin_load_acquire_u32(control_ptr);
-        if ctrl & CONTROL_READY != 0 {
-            success = true;
-            break;
-        }
-        spins += 1;
-        if spins >= GPU_MAX_SPIN {
-            success = false;
-            break;
-        }
-    }
-
-    // Step 8: Return packet to free stack
-    let free_ptr = buf.add(BUF_OFF_FREE_STACK) as *mut u64;
-    hc_push(free_ptr, buf, pkt_idx);
-
-    success
-}
+//
+// Core protocol functions (hc_pop_free, hc_push, gpu_hostcall_print,
+// gpu_hostcall_request, gpu_hostcall_release) are now provided by
+// gpu_runtime::hostcall. This eliminates duplicated code and gains
+// automatic sharding support.
 
 /// Hostcall kernel: print "Hello from GPU!" via the hostcall protocol.
 ///
@@ -369,7 +267,7 @@ pub unsafe extern "ptx-kernel" fn hostcall_print_hello(buf: *mut u8, result: *mu
 
     // Hardcoded message — the bytes live in GPU .const memory
     let msg: &[u8; 15] = b"Hello from GPU!";
-    let ok = gpu_hostcall_print(buf, msg.as_ptr(), 15);
+    let ok = gpu_runtime::hostcall::gpu_hostcall_print(buf, msg.as_ptr(), 15);
     sys_store_release_u32(result, if ok { 1 } else { 0 });
 }
 
@@ -418,7 +316,7 @@ pub unsafe extern "ptx-kernel" fn hostcall_print_multi(
     msg_buf[pos] = b'0' + n as u8;
     pos += 1;
 
-    let ok = gpu_hostcall_print(buf, msg_buf.as_ptr(), pos as u32);
+    let ok = gpu_runtime::hostcall::gpu_hostcall_print(buf, msg_buf.as_ptr(), pos as u32);
     if ok {
         gpu_atomics::sys_fetch_add_u32(success_count, 1);
     }
@@ -428,80 +326,11 @@ pub unsafe extern "ptx-kernel" fn hostcall_print_multi(
 // File I/O hostcall helpers (gpu-std.3)
 // ============================================================
 
-/// Generic hostcall: allocate packet, set service, fill payload via callback,
-/// push to ready stack, ring doorbell, spin-wait for response.
-/// Returns true on success. On success, the payload contains the host's response.
-#[inline(always)]
-unsafe fn gpu_hostcall_request(
-    buf: *mut u8,
-    service: u32,
-    fill_payload: impl FnOnce(*mut u8),
-) -> (*mut u8, bool) {
-    // Step 1: Pop free packet
-    let pkt_idx = hc_pop_free(buf);
-    if pkt_idx == NULL_INDEX {
-        return (core::ptr::null_mut(), false);
-    }
-
-    let pkt = buf.add(packet_offset(pkt_idx));
-
-    // Step 2: Fill packet header
-    let mask = activemask();
-    core::ptr::write_volatile(pkt.add(PKT_OFF_ACTIVE_MASK) as *mut u32, mask);
-    core::ptr::write_volatile(pkt.add(PKT_OFF_SERVICE) as *mut u32, service);
-    sys_store_release_u32(pkt.add(PKT_OFF_CONTROL) as *mut u32, 0);
-
-    // Step 3: Fill payload
-    fill_payload(pkt.add(PKT_OFF_PAYLOAD));
-
-    // Step 4: Mark packet as filled (release store ensures all prior writes visible)
-    sys_store_release_u32(pkt.add(PKT_OFF_CONTROL) as *mut u32, CONTROL_FILLED);
-
-    // Step 5: Push to ready stack
-    let ready_ptr = buf.add(BUF_OFF_READY_STACK) as *mut u64;
-    hc_push(ready_ptr, buf, pkt_idx);
-
-    // Step 6: Ring doorbell
-    sys_fetch_add_u64(buf.add(BUF_OFF_DOORBELL) as *mut u64, 1);
-
-    // Step 7: Spin-wait for host response
-    let control_ptr = pkt.add(PKT_OFF_CONTROL) as *const u32;
-    let mut spins: u32 = 0;
-    let success;
-    loop {
-        let ctrl = sys_spin_load_acquire_u32(control_ptr);
-        if ctrl & CONTROL_READY != 0 {
-            success = (ctrl & CONTROL_ERROR) == 0;
-            break;
-        }
-        spins += 1;
-        if spins >= GPU_MAX_SPIN {
-            // Timeout — return packet to free stack
-            let free_ptr = buf.add(BUF_OFF_FREE_STACK) as *mut u64;
-            hc_push(free_ptr, buf, pkt_idx);
-            return (core::ptr::null_mut(), false);
-        }
-    }
-
-    // Do NOT return packet yet — caller needs to read response payload
-    (pkt, success)
-}
-
-/// Return a packet to the free stack after reading response.
-#[inline(always)]
-unsafe fn gpu_hostcall_release(buf: *mut u8, pkt: *mut u8) {
-    // Calculate packet index from pointer offset
-    let offset = (pkt as usize) - (buf as usize) - BUFFER_HEADER_SIZE;
-    let pkt_idx = (offset / PACKET_SIZE) as u16;
-    let free_ptr = buf.add(BUF_OFF_FREE_STACK) as *mut u64;
-    hc_push(free_ptr, buf, pkt_idx);
-}
-
 /// GPU-side hostcall: open a file.
 /// Returns `(fd, 0)` on success, `(0, error_category)` on failure.
 #[inline(always)]
 unsafe fn gpu_hostcall_open(buf: *mut u8, path: *const u8, path_len: u32, flags: u32) -> (u64, u16) {
-    let (pkt, success) = gpu_hostcall_request(buf, SERVICE_OPEN, |payload| {
+    let (pkt, success) = gpu_runtime::hostcall::gpu_hostcall_request(buf, SERVICE_OPEN, |payload| {
         // Slot 0: low 32 bits = path_len, high 32 bits = flags
         let slot0_val = (path_len as u64) | ((flags as u64) << 32);
         core::ptr::write_volatile(payload as *mut u64, slot0_val);
@@ -526,7 +355,7 @@ unsafe fn gpu_hostcall_open(buf: *mut u8, path: *const u8, path_len: u32, flags:
     }
 
     let slot0 = core::ptr::read_volatile(pkt.add(PKT_OFF_PAYLOAD) as *const u64);
-    gpu_hostcall_release(buf, pkt);
+    gpu_runtime::hostcall::gpu_hostcall_release(buf, pkt);
 
     if !success {
         // Host returned CONTROL_ERROR — slot0 contains encoded error
@@ -540,7 +369,7 @@ unsafe fn gpu_hostcall_open(buf: *mut u8, path: *const u8, path_len: u32, flags:
 /// Returns `(bytes_written, 0)` on success, `(0, error_category)` on failure.
 #[inline(always)]
 unsafe fn gpu_hostcall_write(buf: *mut u8, fd: u64, data: *const u8, data_len: u32) -> (u64, u16) {
-    let (pkt, success) = gpu_hostcall_request(buf, SERVICE_WRITE, |payload| {
+    let (pkt, success) = gpu_runtime::hostcall::gpu_hostcall_request(buf, SERVICE_WRITE, |payload| {
         // Slot 0: fd
         core::ptr::write_volatile(payload as *mut u64, fd);
         // Slot 1: data length
@@ -564,7 +393,7 @@ unsafe fn gpu_hostcall_write(buf: *mut u8, fd: u64, data: *const u8, data_len: u
     }
 
     let slot0 = core::ptr::read_volatile(pkt.add(PKT_OFF_PAYLOAD) as *const u64);
-    gpu_hostcall_release(buf, pkt);
+    gpu_runtime::hostcall::gpu_hostcall_release(buf, pkt);
 
     if !success {
         (0, error_category(slot0))
@@ -577,7 +406,7 @@ unsafe fn gpu_hostcall_write(buf: *mut u8, fd: u64, data: *const u8, data_len: u
 /// Returns `(0, 0)` on success, `(0, error_category)` on failure.
 #[inline(always)]
 unsafe fn gpu_hostcall_close(buf: *mut u8, fd: u64) -> (u64, u16) {
-    let (pkt, success) = gpu_hostcall_request(buf, SERVICE_CLOSE, |payload| {
+    let (pkt, success) = gpu_runtime::hostcall::gpu_hostcall_request(buf, SERVICE_CLOSE, |payload| {
         // Slot 0: fd
         core::ptr::write_volatile(payload as *mut u64, fd);
     });
@@ -587,7 +416,7 @@ unsafe fn gpu_hostcall_close(buf: *mut u8, fd: u64) -> (u64, u16) {
     }
 
     let slot0 = core::ptr::read_volatile(pkt.add(PKT_OFF_PAYLOAD) as *const u64);
-    gpu_hostcall_release(buf, pkt);
+    gpu_runtime::hostcall::gpu_hostcall_release(buf, pkt);
 
     if !success {
         (0, error_category(slot0))
@@ -600,7 +429,7 @@ unsafe fn gpu_hostcall_close(buf: *mut u8, fd: u64) -> (u64, u16) {
 /// Returns `(bytes_read, 0)` on success (data copied to out_buf), `(0, error_category)` on failure.
 #[inline(always)]
 unsafe fn gpu_hostcall_read(buf: *mut u8, fd: u64, out_buf: *mut u8, max_len: u32) -> (u64, u16) {
-    let (pkt, success) = gpu_hostcall_request(buf, SERVICE_READ, |payload| {
+    let (pkt, success) = gpu_runtime::hostcall::gpu_hostcall_request(buf, SERVICE_READ, |payload| {
         // Slot 0: fd
         core::ptr::write_volatile(payload as *mut u64, fd);
         // Slot 1: max bytes to read
@@ -614,7 +443,7 @@ unsafe fn gpu_hostcall_read(buf: *mut u8, fd: u64, out_buf: *mut u8, max_len: u3
     let slot0 = core::ptr::read_volatile(pkt.add(PKT_OFF_PAYLOAD) as *const u64);
 
     if !success {
-        gpu_hostcall_release(buf, pkt);
+        gpu_runtime::hostcall::gpu_hostcall_release(buf, pkt);
         return (0, error_category(slot0));
     }
 
@@ -630,7 +459,7 @@ unsafe fn gpu_hostcall_read(buf: *mut u8, fd: u64, out_buf: *mut u8, max_len: u3
         *out_buf.add(i as usize) = core::ptr::read_volatile(src.add(i as usize));
         i += 1;
     }
-    gpu_hostcall_release(buf, pkt);
+    gpu_runtime::hostcall::gpu_hostcall_release(buf, pkt);
     (slot0, 0)
 }
 
@@ -755,7 +584,7 @@ unsafe fn gpu_instant_nanos() -> u64 {
 /// Returns `(bytes_read, 0)` on success (data copied to out_buf), `(0, error_category)` on failure.
 #[inline(always)]
 unsafe fn gpu_hostcall_stdin_read(buf: *mut u8, out_buf: *mut u8, max_len: u32) -> (u64, u16) {
-    let (pkt, success) = gpu_hostcall_request(buf, SERVICE_STDIN, |payload| {
+    let (pkt, success) = gpu_runtime::hostcall::gpu_hostcall_request(buf, SERVICE_STDIN, |payload| {
         // Slot 0: max bytes to read
         core::ptr::write_volatile(payload as *mut u64, max_len as u64);
     });
@@ -767,7 +596,7 @@ unsafe fn gpu_hostcall_stdin_read(buf: *mut u8, out_buf: *mut u8, max_len: u32) 
     let slot0 = core::ptr::read_volatile(pkt.add(PKT_OFF_PAYLOAD) as *const u64);
 
     if !success {
-        gpu_hostcall_release(buf, pkt);
+        gpu_runtime::hostcall::gpu_hostcall_release(buf, pkt);
         return (0, error_category(slot0));
     }
 
@@ -783,7 +612,7 @@ unsafe fn gpu_hostcall_stdin_read(buf: *mut u8, out_buf: *mut u8, max_len: u32) 
         *out_buf.add(i as usize) = core::ptr::read_volatile(src.add(i as usize));
         i += 1;
     }
-    gpu_hostcall_release(buf, pkt);
+    gpu_runtime::hostcall::gpu_hostcall_release(buf, pkt);
     (slot0, 0)
 }
 
@@ -791,20 +620,20 @@ unsafe fn gpu_hostcall_stdin_read(buf: *mut u8, out_buf: *mut u8, max_len: u32) 
 /// Returns (seconds_since_epoch, nanoseconds) on success, (0, 0) on failure.
 #[inline(always)]
 unsafe fn gpu_hostcall_time(buf: *mut u8) -> (u64, u64) {
-    let (pkt, success) = gpu_hostcall_request(buf, SERVICE_TIME, |_payload| {
+    let (pkt, success) = gpu_runtime::hostcall::gpu_hostcall_request(buf, SERVICE_TIME, |_payload| {
         // No request payload needed
     });
 
     if pkt.is_null() || !success {
         if !pkt.is_null() {
-            gpu_hostcall_release(buf, pkt);
+            gpu_runtime::hostcall::gpu_hostcall_release(buf, pkt);
         }
         return (0, 0);
     }
 
     let secs = core::ptr::read_volatile(pkt.add(PKT_OFF_PAYLOAD) as *const u64);
     let nanos = core::ptr::read_volatile(pkt.add(PKT_OFF_PAYLOAD).add(8) as *const u64);
-    gpu_hostcall_release(buf, pkt);
+    gpu_runtime::hostcall::gpu_hostcall_release(buf, pkt);
     (secs, nanos)
 }
 
@@ -1008,7 +837,7 @@ pub unsafe extern "ptx-kernel" fn hostcall_latency_bench(
 
         // Push to ready stack
         let ready_ptr = buf.add(BUF_OFF_READY_STACK) as *mut u64;
-        hc_push(ready_ptr, buf, pkt_idx);
+        gpu_runtime::hostcall::hc_push(ready_ptr, buf, pkt_idx);
 
         // Ring doorbell
         sys_fetch_add_u64(buf.add(BUF_OFF_DOORBELL) as *mut u64, 1);
@@ -1029,7 +858,7 @@ pub unsafe extern "ptx-kernel" fn hostcall_latency_bench(
 
         // Return packet to free stack
         let free_ptr = buf.add(BUF_OFF_FREE_STACK) as *mut u64;
-        hc_push(free_ptr, buf, pkt_idx);
+        gpu_runtime::hostcall::hc_push(free_ptr, buf, pkt_idx);
 
         completed += 1;
         iter += 1;
@@ -1400,6 +1229,265 @@ pub unsafe extern "ptx-kernel" fn warp_future_print_test(
     gpu_runtime::panic::gpu_panic_init(buf);
 
     let mut future = WarpPrintFuture::new(buf);
+    let ok = gpu_runtime::warp_future::WarpExecutor::run(&mut future);
+
+    // Lane 0 writes the result
+    if gpu_atomics::lane_id() == 0 {
+        core::ptr::write_volatile(result, if ok { 1 } else { 0 });
+    }
+}
+
+// ============================================================
+// WarpFuture multi-hostcall PoC: 3 sequential PRINT calls (warp-future.6)
+// ============================================================
+
+/// State discriminant values for WarpMultiPrintFuture.
+/// 7-state machine: INIT1→WAIT1→INIT2→WAIT2→INIT3→WAIT3→DONE
+const WMP_INIT1: u32 = 0;
+const WMP_WAIT1: u32 = 1;
+const WMP_INIT2: u32 = 2;
+const WMP_WAIT2: u32 = 3;
+const WMP_INIT3: u32 = 4;
+const WMP_WAIT3: u32 = 5;
+const WMP_DONE:  u32 = 6;
+
+/// Hand-written WarpFuture: 3 sequential PRINT hostcalls.
+///
+/// Validates that a WarpFuture state machine can compose multiple hostcalls
+/// while maintaining warp convergence across all state transitions.
+/// Lane 0 manages packets; all 32 lanes write payload cooperatively.
+///
+/// Messages sent:
+///   1: "WarpMulti[1/3]: HELLO_FROM_32_LANES!!"
+///   2: "WarpMulti[2/3]: SECOND_CALL_WORKING!"
+///   3: "WarpMulti[3/3]: PIPELINE_COMPLETE!!"
+struct WarpMultiPrintFuture {
+    buf: *mut u8,
+    state: u32,
+    pkt_idx: u16,
+    calls_completed: u32,
+}
+
+impl WarpMultiPrintFuture {
+    #[inline(always)]
+    fn new(buf: *mut u8) -> Self {
+        Self {
+            buf,
+            state: WMP_INIT1,
+            pkt_idx: gpu_protocol::NULL_INDEX,
+            calls_completed: 0,
+        }
+    }
+}
+
+/// Shared init logic for each of the 3 PRINT hostcalls.
+/// Returns the packet pointer (all lanes can use it) and WarpPoll::Pending.
+///
+/// # Safety
+/// Must be called by all active lanes of a warp simultaneously.
+#[inline(always)]
+unsafe fn warp_multi_init_hostcall(
+    buf: *mut u8,
+    wcx: &mut gpu_runtime::warp_future::WarpContext,
+    pkt_idx: &mut u16,
+    next_state: u32,
+    state: &mut u32,
+    call_num: u32,
+) -> gpu_runtime::warp_future::WarpPoll<bool> {
+    use gpu_runtime::warp_future::{WarpPoll, broadcast_u32};
+
+    // Lane 0: pop a free packet
+    let mut idx_raw: u32 = gpu_protocol::NULL_INDEX as u32;
+    if wcx.is_leader() {
+        idx_raw = gpu_runtime::hostcall::hc_pop_free(buf) as u32;
+    }
+
+    let idx = broadcast_u32(wcx.active_mask, idx_raw) as u16;
+    if idx == gpu_protocol::NULL_INDEX {
+        return WarpPoll::Pending; // backpressure
+    }
+    *pkt_idx = idx;
+
+    let pkt_off = gpu_runtime::hostcall::pkt_offset(buf as *const u8, idx);
+    let pkt = buf.add(pkt_off);
+    let payload = pkt.add(gpu_protocol::PKT_OFF_PAYLOAD);
+
+    // Select message based on call number
+    let (prefix, suffix): (&[u8], &[u8]) = match call_num {
+        0 => (b"WarpMulti[1/3]: ", b"HELLO_FROM_32_LANES!!"),
+        1 => (b"WarpMulti[2/3]: ", b"SECOND_CALL_WORKING!"),
+        _ => (b"WarpMulti[3/3]: ", b"PIPELINE_COMPLETE!!"),
+    };
+    let msg_len = prefix.len() as u32 + suffix.len() as u32;
+
+    // Lane 0: write message length
+    if wcx.is_leader() {
+        core::ptr::write_volatile(payload as *mut u64, msg_len as u64);
+    }
+
+    // All lanes cooperatively write the message bytes
+    let msg_base = payload.add(8);
+    let lid = wcx.lane_id;
+
+    // Write prefix bytes (lanes with lid < prefix.len)
+    if lid < prefix.len() as u32 {
+        core::ptr::write_volatile(
+            msg_base.add(lid as usize),
+            prefix[lid as usize],
+        );
+    }
+
+    // Write suffix bytes (lanes with lid < suffix.len)
+    if lid < suffix.len() as u32 {
+        core::ptr::write_volatile(
+            msg_base.add(prefix.len() + lid as usize),
+            suffix[lid as usize],
+        );
+    }
+
+    // Ensure all payload writes are visible
+    gpu_atomics::syncwarp(wcx.active_mask);
+
+    // Lane 0: fill header, mark FILLED, push to ready, ring doorbell
+    if wcx.is_leader() {
+        core::ptr::write_volatile(
+            pkt.add(gpu_protocol::PKT_OFF_ACTIVE_MASK) as *mut u32,
+            wcx.active_mask,
+        );
+        core::ptr::write_volatile(
+            pkt.add(gpu_protocol::PKT_OFF_SERVICE) as *mut u32,
+            gpu_protocol::SERVICE_PRINT,
+        );
+        sys_store_release_u32(
+            pkt.add(gpu_protocol::PKT_OFF_CONTROL) as *mut u32,
+            0,
+        );
+        sys_store_release_u32(
+            pkt.add(gpu_protocol::PKT_OFF_CONTROL) as *mut u32,
+            gpu_protocol::CONTROL_FILLED,
+        );
+
+        let (num_shards, shard_off, _) =
+            gpu_runtime::hostcall::read_shard_info(buf as *const u8);
+        let ready_ptr = gpu_runtime::hostcall::get_ready_stack_ptr(
+            buf, num_shards, shard_off,
+        );
+        gpu_runtime::hostcall::hc_push(ready_ptr, buf, idx);
+        sys_fetch_add_u64(
+            buf.add(gpu_protocol::BUF_OFF_DOORBELL) as *mut u64,
+            1,
+        );
+
+        *state = next_state;
+    }
+
+    gpu_atomics::syncwarp(wcx.active_mask);
+    WarpPoll::Pending
+}
+
+/// Shared wait logic: spin-wait for host response, release packet.
+///
+/// # Safety
+/// Must be called by all active lanes of a warp simultaneously.
+#[inline(always)]
+unsafe fn warp_multi_wait_hostcall(
+    buf: *mut u8,
+    wcx: &mut gpu_runtime::warp_future::WarpContext,
+    pkt_idx: u16,
+    next_state: u32,
+    state: &mut u32,
+    calls_completed: &mut u32,
+) -> gpu_runtime::warp_future::WarpPoll<bool> {
+    use gpu_runtime::warp_future::{WarpPoll, broadcast_u32};
+
+    let idx = broadcast_u32(wcx.active_mask, pkt_idx as u32) as u16;
+    let pkt_off = gpu_runtime::hostcall::pkt_offset(buf as *const u8, idx);
+    let pkt = buf.add(pkt_off);
+    let ctrl = sys_spin_load_acquire_u32(
+        pkt.add(gpu_protocol::PKT_OFF_CONTROL) as *const u32,
+    );
+
+    if ctrl & gpu_protocol::CONTROL_READY != 0 {
+        if wcx.is_leader() {
+            gpu_runtime::hostcall::gpu_hostcall_release(buf, pkt);
+            *calls_completed += 1;
+            *state = next_state;
+        }
+        gpu_atomics::syncwarp(wcx.active_mask);
+
+        if next_state == WMP_DONE {
+            return WarpPoll::Ready(true);
+        }
+        return WarpPoll::Pending; // Transition to next INIT state
+    }
+
+    WarpPoll::Pending
+}
+
+unsafe impl gpu_runtime::warp_future::WarpFuture for WarpMultiPrintFuture {
+    type Output = bool;
+
+    fn poll_warp(
+        &mut self,
+        wcx: &mut gpu_runtime::warp_future::WarpContext,
+    ) -> gpu_runtime::warp_future::WarpPoll<bool> {
+        use gpu_runtime::warp_future::{WarpPoll, broadcast_u32};
+
+        // Broadcast state from lane 0 to all lanes
+        let state = unsafe { broadcast_u32(wcx.active_mask, self.state) };
+
+        match state {
+            WMP_INIT1 => unsafe {
+                warp_multi_init_hostcall(
+                    self.buf, wcx, &mut self.pkt_idx, WMP_WAIT1, &mut self.state, 0,
+                )
+            },
+            WMP_WAIT1 => unsafe {
+                warp_multi_wait_hostcall(
+                    self.buf, wcx, self.pkt_idx, WMP_INIT2, &mut self.state,
+                    &mut self.calls_completed,
+                )
+            },
+            WMP_INIT2 => unsafe {
+                warp_multi_init_hostcall(
+                    self.buf, wcx, &mut self.pkt_idx, WMP_WAIT2, &mut self.state, 1,
+                )
+            },
+            WMP_WAIT2 => unsafe {
+                warp_multi_wait_hostcall(
+                    self.buf, wcx, self.pkt_idx, WMP_INIT3, &mut self.state,
+                    &mut self.calls_completed,
+                )
+            },
+            WMP_INIT3 => unsafe {
+                warp_multi_init_hostcall(
+                    self.buf, wcx, &mut self.pkt_idx, WMP_WAIT3, &mut self.state, 2,
+                )
+            },
+            WMP_WAIT3 => unsafe {
+                warp_multi_wait_hostcall(
+                    self.buf, wcx, self.pkt_idx, WMP_DONE, &mut self.state,
+                    &mut self.calls_completed,
+                )
+            },
+            WMP_DONE => WarpPoll::Ready(true),
+            _ => WarpPoll::Pending,
+        }
+    }
+}
+
+/// WarpFuture multi-hostcall kernel: 3 sequential PRINT hostcalls in one WarpFuture.
+///
+/// `buf` = hostcall buffer
+/// `result` = output u32 (set to 1 if all 3 calls succeeded)
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn warp_future_multi_print_test(
+    buf: *mut u8,
+    result: *mut u32,
+) {
+    gpu_runtime::panic::gpu_panic_init(buf);
+
+    let mut future = WarpMultiPrintFuture::new(buf);
     let ok = gpu_runtime::warp_future::WarpExecutor::run(&mut future);
 
     // Lane 0 writes the result

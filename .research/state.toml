@@ -4,19 +4,19 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 103     # Monotonic counter, incremented after each completed phase
-completed_tasks = 102
+total_cycles = 105     # Monotonic counter, incremented after each completed phase
+completed_tasks = 104
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.execute"
+current_step = "do.select"
 current_task_id = ""
-last_summary = "All product-ready criteria met. 28 themes, 102+ tasks, 50 hardware tests. CI (clippy/fmt/doc-tests/build), docs (rustdoc+doc-tests), examples (hello-gpu verified). .gitignore cleaned up. Ready for next brainstorm or user direction."
+last_summary = "async-pipeline.1+2 done. warp helpers moved to gpu-runtime. #[warp_async] generalized to 7 services (open/close/read/write/bulk_read/bulk_write/print) with let bindings. Full review rv5 PASS after 6 fixes (buffer overflow clamps, duplicate var detection, return type handling). Next: .3/.4/.5 (examples + Embassy scale test)."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 26
-review_seq = 4
+brainstorm_seq = 27
+review_seq = 5
 
 # Brainstorm trigger control
 last_brainstorm_at_completed = 102
@@ -2388,3 +2388,102 @@ new_themes_spawned = ["docs"]
 themes_parked = []
 themes_completed = ["ci-quality"]
 key_insight = "All product-ready criteria met. Documentation is the highest-impact remaining work: rustdoc for public crates. Networking and upstream themes remain parked."
+
+# ============================================================
+# async-pipeline theme — GPU-Native Async Pipeline EPIC
+# ============================================================
+
+[[themes]]
+id = "async-pipeline"
+title = "GPU-Native Async Pipeline — generalize warp_async macro to all hostcall services"
+status = "active"
+spawned_by = "bs27"
+goal = "Close the GPU-Native Async Pipeline EPIC: generalized #[warp_async] proc macro supporting all hostcall services, plus documentation/examples for branching and pipelining patterns."
+success_criteria = [
+    "#[warp_async] supports warp_open!, warp_close!, warp_bulk_read!, warp_bulk_write!, warp_write!, warp_read!, warp_print!",
+    "let bindings track return values (fd, bytes_read) across states",
+    "Hand-written branching example compiles and runs on GPU",
+    "Hand-written pipelining example compiles and runs on GPU",
+]
+
+[[tasks]]
+id = "async-pipeline.1"
+theme = "async-pipeline"
+title = "Move warp_hostcall_submit and warp_hostcall_wait_u64 from gpu-kernel to gpu-runtime"
+kind = "experiment"
+status = "done"
+depends_on = []
+spawned_by = "bs27"
+research_questions = [
+    "Where are warp_hostcall_submit and warp_hostcall_wait_u64 defined in gpu-kernel?",
+    "What dependencies do they have (gpu-protocol, gpu-atomics, inline PTX)?",
+    "Can they be moved to gpu-runtime as public #[inline(always)] functions?",
+]
+
+[[tasks]]
+id = "async-pipeline.2"
+theme = "async-pipeline"
+title = "Generalize #[warp_async] proc macro to support all hostcall services"
+kind = "experiment"
+status = "done"
+depends_on = ["async-pipeline.1"]
+spawned_by = "bs27"
+research_questions = [
+    "How to parse warp_open!, warp_close!, warp_read!, warp_write!, warp_bulk_read!, warp_bulk_write! macro calls?",
+    "How to track let bindings and infer field types from macro name?",
+    "How to generate per-service payload fill/read logic?",
+    "How to handle return types: u64 for fd/bytes, (u64,u64) for time?",
+]
+
+[[tasks]]
+id = "async-pipeline.3"
+theme = "async-pipeline"
+title = "Write hand-written branching pipeline example (conditional state transitions)"
+kind = "experiment"
+status = "pending"
+depends_on = ["async-pipeline.1"]
+spawned_by = "bs27"
+research_questions = [
+    "How to implement conditional state transitions in WarpFuture?",
+    "What is the best example pattern: file-exists check or error handling?",
+    "Does conditional state transition work correctly with shfl.sync broadcast?",
+]
+
+[[tasks]]
+id = "async-pipeline.4"
+theme = "async-pipeline"
+title = "Write hand-written pipelined I/O + compute example"
+kind = "experiment"
+status = "pending"
+depends_on = ["async-pipeline.1"]
+spawned_by = "bs27"
+research_questions = [
+    "How to overlap hostcall I/O with compute in WarpFuture states?",
+    "What are the sideband coherence constraints for pipelined operations?",
+    "What latency improvement does pipelining achieve vs sequential?",
+]
+
+[[tasks]]
+id = "async-pipeline.5"
+theme = "async-pipeline"
+title = "Test Embassy per-thread divergent I/O at warp scale (32 threads)"
+kind = "investigation"
+status = "pending"
+depends_on = []
+spawned_by = "bs27"
+research_questions = [
+    "How does per-thread CAS contention scale with 32 threads in one warp?",
+    "What is the throughput of Embassy per-thread futures at warp scale?",
+    "Does per-block sharding sufficiently mitigate intra-warp contention?",
+]
+
+[[brainstorms]]
+seq = 27
+at_cycle = 103
+trigger = "GPU-Native Async Pipeline EPIC — 4 remaining gaps analysis"
+level = "standard"
+new_tasks_spawned = ["async-pipeline.1", "async-pipeline.2", "async-pipeline.3", "async-pipeline.4", "async-pipeline.5"]
+new_themes_spawned = ["async-pipeline"]
+themes_parked = []
+themes_completed = []
+key_insight = "Gap 1 (macro generalization) is the CRITICAL PATH — it IS the product. Gaps 2+3 (branching/pipelining) solved by documentation+examples. Gap 4 (per-thread yield) is an anti-goal — use Embassy. 5 tasks: move helpers → generalize macro → branching example → pipelining example → Embassy scale test."

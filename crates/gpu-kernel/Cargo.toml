@@ -11,6 +11,7 @@ crate-type = ["cdylib"]
 [dependencies]
 gpu-atomics = { path = "../gpu-atomics" }
 gpu-protocol = { path = "../gpu-protocol" }
+gpu-runtime = { path = "../gpu-runtime" }
 
 [profile.release]
 panic = "abort"

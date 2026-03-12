@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 60      # Monotonic counter, incremented after each completed phase
-completed_tasks = 59
+total_cycles = 62      # Monotonic counter, incremented after each completed phase
+completed_tasks = 61
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.select"
-current_task_id = ""
-last_summary = "bs14 deep brainstorm done. Phase 3 planned: gpu-panic (P0), host-scaling (P0), nightly-compat (P1), large-payload (P1). 4 new themes, 12 new tasks. Warp-coop permanently parked (ADR-4 incompatible). Next: gpu-panic.1 then host-scaling.1."
+current_step = "do.execute"
+current_task_id = "host-scaling.1"
+last_summary = "gpu-panic theme DONE: panic handler sends message via SERVICE_PANIC hostcall before trap. ADR-5 recorded. Test verified: block=0 thread=0 message with source location. Next: host-scaling.1 (profile listener bottleneck)."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 14
@@ -1415,7 +1415,7 @@ key_insight = "Project 95% product-ready. Two gaps: README has stale claims + no
 [[themes]]
 id = "gpu-panic"
 title = "GPU panic handler with hostcall reporting"
-status = "active"
+status = "completed"
 spawned_by = "bs14"
 goal = "GPU panic messages displayed on host instead of loop {}"
 success_criteria = [
@@ -1467,7 +1467,7 @@ id = "gpu-panic.1"
 theme = "gpu-panic"
 title = "GPU panic handler design"
 kind = "design"
-status = "pending"
+status = "done"
 depends_on = []
 spawned_by = "bs14"
 research_questions = [
@@ -1482,7 +1482,7 @@ id = "gpu-panic.2"
 theme = "gpu-panic"
 title = "Implement GPU panic handler"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["gpu-panic.1"]
 spawned_by = "bs14"
 research_questions = [

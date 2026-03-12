@@ -3,7 +3,6 @@
 #![feature(stdarch_nvptx)]
 #![feature(asm_experimental_arch)]
 use core::arch::nvptx;
-use core::panic::PanicInfo;
 use gpu_atomics::{
     membar_sys, sys_store_release_u32, sys_load_acquire_u32, sys_cas_u32, st_global_u32,
     sys_cas_u64, sys_fetch_add_u64, sys_exchange_u64,
@@ -11,10 +10,8 @@ use gpu_atomics::{
 };
 use gpu_protocol::*;
 
-#[panic_handler]
-fn panic(_info: &PanicInfo) -> ! {
-    loop {}
-}
+// Install the gpu-runtime panic handler (sends panic message via hostcall)
+gpu_runtime::panic_handler!();
 
 // ============================================================
 // Step 1: Inline PTX asm test — uses gpu-atomics crate
@@ -1045,4 +1042,37 @@ pub unsafe extern "ptx-kernel" fn hostcall_latency_bench(
     core::ptr::write_volatile(results.add(base), t_end - t_start);
     core::ptr::write_volatile(results.add(base + 1), total_retries);
     core::ptr::write_volatile(results.add(base + 2), completed);
+}
+
+// ============================================================
+// GPU panic test kernel (gpu-panic.2)
+// ============================================================
+
+/// Test kernel: deliberately panic to verify panic message delivery via hostcall.
+///
+/// Thread 0 initializes the panic handler and then panics with a test message.
+/// Other threads simply return.
+///
+/// `buf` = hostcall buffer
+/// `result` = output u32 (set to 1 before panic — if host sees this AND the
+///            panic message, the test passes)
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn panic_test_kernel(buf: *mut u8, result: *mut u32) {
+    let thread_x = nvptx::_thread_idx_x() as u32;
+    let block_x = nvptx::_block_idx_x() as u32;
+    let block_dim_x = nvptx::_block_dim_x() as u32;
+    let global_idx = block_x * block_dim_x + thread_x;
+
+    // Initialize panic handler with hostcall buffer
+    gpu_runtime::panic::gpu_panic_init(buf);
+
+    if global_idx != 0 {
+        return;
+    }
+
+    // Set marker to indicate we reached this point
+    core::ptr::write_volatile(result, 1);
+
+    // Deliberately panic — this should send a message via hostcall then trap
+    panic!("test panic from GPU thread 0");
 }

@@ -50,3 +50,12 @@ Record important technical decisions here as they emerge from research.
 - **Rationale**: (1) VectorWare confirms per-thread executor works. (2) Fat LTO resolves ALL Embassy cross-crate calls — no fork, no vendoring. (3) Embassy's type erasure (TaskPool<F, N>) solves heterogeneous future storage. (4) Poll-all is simpler and matches Embassy's actual arch-spin behavior; self-waking added overhead and made nanosleep dead code. (5) Per-lane packets are the only feasible async model (lanes reach hostcall at different times, can't cooperatively fill). (6) Pending-based back-pressure is more resilient than hard errors for pool exhaustion.
 - **Alternatives**: Per-warp executor (complex sync, rejected), custom-executor-first (duplicates Embassy work, rejected per rv3), warp-cooperative async hostcall (requires barrier, deferred to Phase 4), self-waking model (overhead with no benefit, rejected per rv3).
 - **Sources**: async-runtime.1-c1, async-runtime.1.1-c12, async-runtime.1.2-c16, async-runtime.2-c16, rv3-async-runtime.2, async-runtime.2.1-c19
+
+### ADR-5: GPU panic handler via SERVICE_PANIC hostcall
+- **Date**: 2026-03-12
+- **Status**: accepted
+- **Context**: GPU panic handler currently does `loop {}`, causing hard hangs with no diagnostic output. Need panic messages to reach the host for debugging.
+- **Decision**: Add `SERVICE_PANIC = 10` opcode. Panic handler formats message into PanicBuf (56 bytes max), packs threadIdx.x + blockIdx.x into metadata slot, sends via hostcall, then executes `trap; exit;`. Global static `HOSTCALL_BUF` pointer initialized by each kernel at entry. Best-effort delivery (skip to trap on pool exhaustion or timeout).
+- **Rationale**: (1) Reuses existing hostcall protocol — no new transport mechanism. (2) 56-byte message is sufficient for most panic messages. (3) `trap` instruction cleanly terminates the thread on SM70+. (4) Global static is the only way to pass buffer pointer to `#[panic_handler]` (fixed signature). (5) Best-effort avoids double-panic.
+- **Alternatives**: Device-side printf (CUDA-specific, no custom formatting), shared memory flag (limited info, no message text), custom exception handler (no PTX support).
+- **Sources**: gpu-panic.1-c61

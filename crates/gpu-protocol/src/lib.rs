@@ -20,6 +20,7 @@ pub const SERVICE_FREE: u32 = 7;
 pub const SERVICE_ABORT: u32 = 0xFF;
 pub const SERVICE_STDIN: u32 = 8;
 pub const SERVICE_TIME: u32 = 9;
+pub const SERVICE_PANIC: u32 = 10;
 
 // ============================================================
 // Control bits (PacketHeader.control)
@@ -218,6 +219,46 @@ pub const fn error_category(slot0: u64) -> u16 {
 #[inline(always)]
 pub const fn error_raw_errno(slot0: u64) -> u16 {
     ((slot0 >> 16) & 0xFFFF) as u16
+}
+
+// ============================================================
+// PANIC service payload layout (lane 0)
+// ============================================================
+//
+// Request:
+//   Slot 0: metadata (u64)
+//     - Bits 15..0:  threadIdx.x (u16)
+//     - Bits 31..16: blockIdx.x (u16)
+//     - Bits 47..32: message length (u16)
+//     - Bits 63..48: reserved (zero)
+//   Slots 1-7: panic message bytes (up to 56 bytes, truncated)
+// Response:
+//   (CONTROL_READY set — GPU thread will trap regardless)
+
+pub const PANIC_MAX_MSG_LEN: usize = 56; // 7 slots × 8 bytes
+
+/// Encode panic metadata into slot 0.
+#[inline(always)]
+pub const fn encode_panic_metadata(thread_idx: u16, block_idx: u16, msg_len: u16) -> u64 {
+    (thread_idx as u64) | ((block_idx as u64) << 16) | ((msg_len as u64) << 32)
+}
+
+/// Decode threadIdx.x from panic metadata slot 0.
+#[inline(always)]
+pub const fn panic_thread_idx(meta: u64) -> u16 {
+    (meta & 0xFFFF) as u16
+}
+
+/// Decode blockIdx.x from panic metadata slot 0.
+#[inline(always)]
+pub const fn panic_block_idx(meta: u64) -> u16 {
+    ((meta >> 16) & 0xFFFF) as u16
+}
+
+/// Decode message length from panic metadata slot 0.
+#[inline(always)]
+pub const fn panic_msg_len(meta: u64) -> u16 {
+    ((meta >> 32) & 0xFFFF) as u16
 }
 
 // ============================================================

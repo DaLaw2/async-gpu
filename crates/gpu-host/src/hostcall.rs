@@ -277,6 +277,9 @@ impl HostcallBuffer {
                         SERVICE_TIME => {
                             self.handle_time(pkt)
                         }
+                        SERVICE_PANIC => {
+                            self.handle_panic(pkt)
+                        }
                         _ => {
                             // Unknown service — set error bit
                             true
@@ -551,6 +554,38 @@ impl HostcallBuffer {
         false
     }
 
+    /// Handle SERVICE_PANIC: receive and display a GPU panic message.
+    ///
+    /// Request payload (lane 0):
+    ///   Slot 0: metadata (threadIdx.x, blockIdx.x, msg_len packed)
+    ///   Slots 1-7: panic message bytes (up to 56 bytes)
+    /// Response: CONTROL_READY (no error — GPU will trap regardless)
+    unsafe fn handle_panic(&self, pkt: *mut u8) -> bool {
+        let payload = pkt.add(PKT_OFF_PAYLOAD);
+
+        // Decode metadata from slot 0
+        let meta = std::ptr::read_volatile(payload as *const u64);
+        let thread_idx = panic_thread_idx(meta);
+        let block_idx = panic_block_idx(meta);
+        let msg_len = panic_msg_len(meta) as usize;
+        let msg_len = msg_len.min(PANIC_MAX_MSG_LEN);
+
+        // Read message bytes from slots 1-7
+        let msg_ptr = payload.add(8);
+        let mut msg_buf = [0u8; PANIC_MAX_MSG_LEN];
+        for i in 0..msg_len {
+            msg_buf[i] = std::ptr::read_volatile(msg_ptr.add(i));
+        }
+
+        let msg = std::str::from_utf8(&msg_buf[..msg_len]).unwrap_or("<invalid UTF-8>");
+        eprintln!(
+            "\x1b[1;31m[GPU PANIC]\x1b[0m block={} thread={}: {}",
+            block_idx, thread_idx, msg
+        );
+
+        false // No error — GPU thread will trap after receiving response
+    }
+
     /// Handle SERVICE_CLOSE: close an open file.
     ///
     /// Request payload (lane 0):
@@ -673,6 +708,9 @@ impl HostcallBuffer {
                         }
                         SERVICE_TIME => {
                             self.handle_time(pkt)
+                        }
+                        SERVICE_PANIC => {
+                            self.handle_panic(pkt)
                         }
                         SERVICE_OPEN => {
                             self.handle_open(pkt, &mut fd_table, &mut next_fd)

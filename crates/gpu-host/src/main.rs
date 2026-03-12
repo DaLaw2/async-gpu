@@ -4610,6 +4610,12 @@ fn main() -> Result<()> {
     // File transform pipeline (async-pipeline.1+2)
     run_file_transform_test(Arc::clone(&dev))?;
 
+    // Branching pipeline (async-pipeline.3)
+    run_branching_pipeline_test(Arc::clone(&dev))?;
+
+    // Pipelined I/O + compute (async-pipeline.4)
+    run_pipelined_compute_test(Arc::clone(&dev))?;
+
     // GPU panic handler test (gpu-panic.2) — MUST BE LAST
     // since trap instruction calls process::exit(0)
     run_panic_test(Arc::clone(&dev))?;
@@ -5132,6 +5138,242 @@ Yet another GPU mention for testing\n";
             4 * num_threads,
             total_matches
         );
+    }
+
+    Ok(())
+}
+
+/// async-pipeline.3: Branching pipeline — conditional state transition test.
+///
+/// Run 1: File does not exist → GPU creates it, prints "branch: file created"
+/// Run 2: File exists → GPU opens+closes it, prints "branch: file exists"
+fn run_branching_pipeline_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Branching Pipeline (async-pipeline.3) ---");
+
+    // Ensure file does NOT exist for first run
+    let _ = std::fs::remove_file("branch_test.txt");
+
+    let cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (32, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    // --- Run 1: file does not exist → CREATE branch ---
+    {
+        let ptx = cudarc::nvrtc::Ptx::from_src(KERNEL_PTX);
+        let _ = dev.load_ptx(ptx, "kernel_bp1", &["branching_pipeline"]);
+        let f = dev
+            .get_func("kernel_bp1", "branching_pipeline")
+            .ok_or(GpuHostError::KernelNotFound("branching_pipeline"))?;
+        let hc_buf = hostcall::HostcallBuffer::new(4)?;
+        let dev_ptr = hc_buf.dev_ptr;
+        let (status_host, status_dev) = unsafe { alloc_mapped_result_array(&dev, 1)? };
+
+        let hc_buf_ref = std::sync::Arc::new(hc_buf);
+        let hc_buf_listener = std::sync::Arc::clone(&hc_buf_ref);
+        let messages = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let msg_clone = std::sync::Arc::clone(&messages);
+
+        let listener_handle = std::thread::spawn(move || {
+            hc_buf_listener.listen(move |msg| {
+                let text = String::from_utf8_lossy(msg).to_string();
+                println!("  [HOST] GPU says: \"{}\"", text);
+                let mut guard = msg_clone.lock().unwrap();
+                guard.push(text);
+            });
+        });
+
+        println!("  Run 1: file does not exist (CREATE branch)");
+        unsafe { f.launch(cfg, (dev_ptr, status_dev))? };
+        dev.synchronize()?;
+
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        hc_buf_ref.signal_shutdown();
+        listener_handle.join().unwrap();
+
+        let status = unsafe { std::ptr::read_volatile(status_host) };
+        let msgs = messages.lock().unwrap();
+        let created_msg = msgs.iter().any(|m| m.contains("file created"));
+
+        // Verify file was created with correct content
+        let file_exists = std::path::Path::new("branch_test.txt").exists();
+        let content_ok = if file_exists {
+            std::fs::read("branch_test.txt")
+                .map(|data| data == b"hello from GPU\n")
+                .unwrap_or(false)
+        } else {
+            false
+        };
+
+        unsafe { free_mapped_mem(status_host)? };
+
+        if status == 1 && created_msg && file_exists && content_ok {
+            println!("  Run 1: PASSED (CREATE branch taken)");
+        } else {
+            println!("  Run 1: FAILED");
+            println!("    status={}, created_msg={}, file_exists={}, content_ok={}",
+                status, created_msg, file_exists, content_ok);
+            println!("    messages: {:?}", *msgs);
+            let _ = std::fs::remove_file("branch_test.txt");
+            return Err(GpuHostError::Verification {
+                test: "branching_pipeline_run1",
+                detail: "CREATE branch failed".to_string(),
+            }.into());
+        }
+    }
+
+    // --- Run 2: file exists → EXISTS branch ---
+    {
+        let ptx = cudarc::nvrtc::Ptx::from_src(KERNEL_PTX);
+        let _ = dev.load_ptx(ptx, "kernel_bp2", &["branching_pipeline"]);
+        let f = dev
+            .get_func("kernel_bp2", "branching_pipeline")
+            .ok_or(GpuHostError::KernelNotFound("branching_pipeline"))?;
+
+        let hc_buf = hostcall::HostcallBuffer::new(4)?;
+        let dev_ptr = hc_buf.dev_ptr;
+        let (status_host, status_dev) = unsafe { alloc_mapped_result_array(&dev, 1)? };
+
+        let hc_buf_ref = std::sync::Arc::new(hc_buf);
+        let hc_buf_listener = std::sync::Arc::clone(&hc_buf_ref);
+        let messages = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let msg_clone = std::sync::Arc::clone(&messages);
+
+        let listener_handle = std::thread::spawn(move || {
+            hc_buf_listener.listen(move |msg| {
+                let text = String::from_utf8_lossy(msg).to_string();
+                println!("  [HOST] GPU says: \"{}\"", text);
+                let mut guard = msg_clone.lock().unwrap();
+                guard.push(text);
+            });
+        });
+
+        println!("  Run 2: file exists (EXISTS branch)");
+        unsafe { f.launch(cfg, (dev_ptr, status_dev))? };
+        dev.synchronize()?;
+
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        hc_buf_ref.signal_shutdown();
+        listener_handle.join().unwrap();
+
+        let status = unsafe { std::ptr::read_volatile(status_host) };
+        let msgs = messages.lock().unwrap();
+        let exists_msg = msgs.iter().any(|m| m.contains("file exists"));
+
+        unsafe { free_mapped_mem(status_host)? };
+
+        // Clean up
+        let _ = std::fs::remove_file("branch_test.txt");
+
+        if status == 1 && exists_msg {
+            println!("  Run 2: PASSED (EXISTS branch taken)");
+        } else {
+            println!("  Run 2: FAILED");
+            println!("    status={}, exists_msg={}", status, exists_msg);
+            println!("    messages: {:?}", *msgs);
+            return Err(GpuHostError::Verification {
+                test: "branching_pipeline_run2",
+                detail: "EXISTS branch failed".to_string(),
+            }.into());
+        }
+    }
+
+    println!("  Branching Pipeline: PASSED!");
+    println!("    Conditional state transition verified on GPU hardware");
+    println!("    Run 1: CREATE branch (file not found → create + write + close + print)");
+    println!("    Run 2: EXISTS branch (file found → close + print)");
+    println!("    All 32 lanes take same branch via shfl.sync broadcast");
+
+    Ok(())
+}
+
+/// async-pipeline.4: Pipelined I/O + compute test.
+///
+/// The GPU submits a PRINT hostcall, then does FMA computation while the I/O
+/// is being processed. Reports how many compute iterations were completed
+/// during the I/O round-trip, demonstrating overlap.
+fn run_pipelined_compute_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Pipelined I/O + Compute (async-pipeline.4) ---");
+
+    let hc_buf = hostcall::HostcallBuffer::new(4)?;
+    let dev_ptr = hc_buf.dev_ptr;
+    let (status_host, status_dev) = unsafe { alloc_mapped_result_array(&dev, 1)? };
+
+    let hc_buf_ref = std::sync::Arc::new(hc_buf);
+    let hc_buf_listener = std::sync::Arc::clone(&hc_buf_ref);
+    let messages = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let msg_clone = std::sync::Arc::clone(&messages);
+
+    let listener_handle = std::thread::spawn(move || {
+        hc_buf_listener.listen(move |msg| {
+            let text = String::from_utf8_lossy(msg).to_string();
+            println!("  [HOST] GPU says: \"{}\"", text);
+            let mut guard = msg_clone.lock().unwrap();
+            guard.push(text);
+        });
+    });
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "kernel_pp", &["pipelined_compute"]);
+    let f = dev
+        .get_func("kernel_pp", "pipelined_compute")
+        .ok_or(GpuHostError::KernelNotFound("pipelined_compute"))?;
+
+    let cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (32, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    let start = std::time::Instant::now();
+    unsafe { f.launch(cfg, (dev_ptr, status_dev))? };
+    dev.synchronize()?;
+    let elapsed = start.elapsed();
+
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    hc_buf_ref.signal_shutdown();
+    listener_handle.join().unwrap();
+
+    let status = unsafe { std::ptr::read_volatile(status_host) };
+    let msgs = messages.lock().unwrap();
+
+    println!("  Status: {} (1=success)", status);
+    println!("  Elapsed: {:.3}ms", elapsed.as_secs_f64() * 1000.0);
+
+    // Check messages: should have "start", "computing...", "done Niter"
+    let has_start = msgs.iter().any(|m| m.contains("pipelined: start"));
+    let has_computing = msgs.iter().any(|m| m.contains("pipelined: computing"));
+    let done_msg = msgs.iter().find(|m| m.contains("pipelined: done"));
+
+    // Extract iteration count from "done Niter"
+    let iters: u32 = done_msg
+        .and_then(|m| {
+            let prefix = "done ";
+            m.find(prefix).and_then(|pos| {
+                let rest = &m[pos + prefix.len()..];
+                let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+                digits.parse().ok()
+            })
+        })
+        .unwrap_or(0);
+
+    unsafe { free_mapped_mem(status_host)? };
+
+    if status == 1 && has_start && has_computing && iters > 0 {
+        println!("  Pipelined Compute: PASSED!");
+        println!("    {} FMA iterations completed while I/O was in-flight", iters);
+        println!("    Demonstrates: submit → compute_while_waiting → wait pattern");
+        println!("    GPU threads did useful work during hostcall round-trip");
+    } else {
+        println!("  Pipelined Compute: FAILED");
+        println!("    status={}, start={}, computing={}, iters={}",
+            status, has_start, has_computing, iters);
+        println!("    messages: {:?}", *msgs);
+        return Err(GpuHostError::Verification {
+            test: "pipelined_compute",
+            detail: "Pipelined I/O + compute failed".to_string(),
+        }.into());
     }
 
     Ok(())

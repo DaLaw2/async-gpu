@@ -34,25 +34,25 @@ jobs:
             lint-${{ runner.os }}-
 
       - name: cargo fmt --check (gpu-host)
-        run: cargo fmt --manifest-path crates/gpu-host/Cargo.toml -- --check
+        run: cargo +stable fmt --manifest-path crates/gpu-host/Cargo.toml -- --check
 
       - name: cargo fmt --check (gpu-protocol)
-        run: cargo fmt --manifest-path crates/gpu-protocol/Cargo.toml -- --check
+        run: cargo +stable fmt --manifest-path crates/gpu-protocol/Cargo.toml -- --check
 
       - name: cargo fmt --check (warp-macro)
-        run: cargo fmt --manifest-path crates/warp-macro/Cargo.toml -- --check
+        run: cargo +stable fmt --manifest-path crates/warp-macro/Cargo.toml -- --check
 
       - name: cargo clippy (gpu-host)
-        run: cargo clippy --manifest-path crates/gpu-host/Cargo.toml -- -D warnings
+        run: cargo +stable clippy --manifest-path crates/gpu-host/Cargo.toml -- -D warnings
 
       - name: cargo clippy (gpu-protocol)
-        run: cargo clippy --manifest-path crates/gpu-protocol/Cargo.toml -- -D warnings
+        run: cargo +stable clippy --manifest-path crates/gpu-protocol/Cargo.toml -- -D warnings
 
       - name: cargo clippy (warp-macro)
-        run: cargo clippy --manifest-path crates/warp-macro/Cargo.toml -- -D warnings
+        run: cargo +stable clippy --manifest-path crates/warp-macro/Cargo.toml -- -D warnings
 
       - name: doc-tests (gpu-protocol)
-        run: cargo test --manifest-path crates/gpu-protocol/Cargo.toml --doc
+        run: cargo +stable test --manifest-path crates/gpu-protocol/Cargo.toml --doc
 
   build-ptx:
     name: Compile GPU kernels to PTX
@@ -119,7 +119,7 @@ jobs:
             host-${{ runner.os }}-
 
       - name: Check gpu-host compiles
-        run: cargo check --manifest-path crates/gpu-host/Cargo.toml
+        run: cargo +stable check --manifest-path crates/gpu-host/Cargo.toml
 
       - name: Check hello-gpu example host compiles
-        run: cargo check --manifest-path examples/hello-gpu/host/Cargo.toml
+        run: cargo +stable check --manifest-path examples/hello-gpu/host/Cargo.toml

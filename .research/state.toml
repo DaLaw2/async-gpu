@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 105     # Monotonic counter, incremented after each completed phase
-completed_tasks = 104
+total_cycles = 107     # Monotonic counter, incremented after each completed phase
+completed_tasks = 106
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.select"
-current_task_id = ""
-last_summary = "async-pipeline.1+2 done. warp helpers moved to gpu-runtime. #[warp_async] generalized to 7 services (open/close/read/write/bulk_read/bulk_write/print) with let bindings. Full review rv5 PASS after 6 fixes (buffer overflow clamps, duplicate var detection, return type handling). Next: .3/.4/.5 (examples + Embassy scale test)."
+current_step = "do.execute"
+current_task_id = "async-pipeline.5"
+last_summary = "async-pipeline.1-4 done. .3: branching pipeline (14-state, conditional state via CONTROL_ERROR bit). .4: pipelined I/O+compute (~17k FMA iterations during hostcall round-trip). CI fix: +stable for lint/check jobs (rust-toolchain.toml overrides). Next: .5 Embassy 32-thread warp-scale test."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 27
@@ -2440,7 +2440,7 @@ id = "async-pipeline.3"
 theme = "async-pipeline"
 title = "Write hand-written branching pipeline example (conditional state transitions)"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["async-pipeline.1"]
 spawned_by = "bs27"
 research_questions = [
@@ -2454,7 +2454,7 @@ id = "async-pipeline.4"
 theme = "async-pipeline"
 title = "Write hand-written pipelined I/O + compute example"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["async-pipeline.1"]
 spawned_by = "bs27"
 research_questions = [

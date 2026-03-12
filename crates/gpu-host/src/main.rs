@@ -3384,6 +3384,128 @@ fn run_hybrid_executor_test(dev: Arc<CudaDevice>) -> Result<()> {
     Ok(())
 }
 
+/// Hybrid stress test: variable-duration per-thread work + multiple switching points (hybrid-executor.2)
+///
+/// 9-state machine with 3 I/O phases and 2 compute phases.
+/// COMPUTE1: sum 1..=(lane_id*100+1) — ~3100x duration variance across lanes
+/// COMPUTE2: XOR-fold with lane-dependent iteration count
+/// Verifies syncwarp handles extreme lane divergence timing.
+fn run_hybrid_stress_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Hybrid Stress Test (hybrid-executor.2) ---");
+
+    let hc_buf = hostcall::HostcallBuffer::new(4)?;
+    let dev_ptr = hc_buf.dev_ptr;
+
+    // 64 results (32 per compute phase) + 1 status = 65 u32
+    let (results_host, results_dev) = unsafe { alloc_mapped_result_array(&dev, 65)? };
+    let status_dev = results_dev + (64 * std::mem::size_of::<u32>()) as u64;
+
+    let hc_buf_ref = std::sync::Arc::new(hc_buf);
+    let hc_buf_listener = std::sync::Arc::clone(&hc_buf_ref);
+
+    let messages = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let msg_clone = std::sync::Arc::clone(&messages);
+
+    let listener_handle = std::thread::spawn(move || {
+        hc_buf_listener.listen(move |msg| {
+            let text = String::from_utf8_lossy(msg).to_string();
+            println!("  [HOST] Stress says: \"{}\"", text);
+            let mut guard = msg_clone.lock().unwrap();
+            guard.push(text);
+        });
+    });
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "kernel", &["hybrid_stress_test"]);
+    let f = dev
+        .get_func("kernel", "hybrid_stress_test")
+        .ok_or(GpuHostError::KernelNotFound("hybrid_stress_test"))?;
+
+    let cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (32, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    let start = std::time::Instant::now();
+    unsafe {
+        f.launch(cfg, (dev_ptr as u64, results_dev as u64, status_dev as u64))?;
+    }
+    dev.synchronize()?;
+    let elapsed = start.elapsed();
+
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    hc_buf_ref.signal_shutdown();
+    listener_handle.join().unwrap();
+
+    let status_host = unsafe { results_host.add(64) };
+    let status_val = unsafe { std::ptr::read_volatile(status_host) };
+    let msgs = messages.lock().unwrap();
+
+    println!("  Status: {} (1=success)", status_val);
+    println!("  Elapsed: {:.3}ms", elapsed.as_secs_f64() * 1000.0);
+    println!("  Messages received: {}", msgs.len());
+
+    // Verify COMPUTE1: results[i] = sum(1..=(i*100+1)) = (i*100+1)*(i*100+2)/2
+    let mut compute1_ok = true;
+    let mut compute1_failures = 0u32;
+    for i in 0u32..32 {
+        let actual = unsafe { std::ptr::read_volatile(results_host.add(i as usize)) };
+        let n = i * 100 + 1;
+        let expected = n.wrapping_mul(n + 1) / 2;
+        if actual != expected {
+            if compute1_failures < 3 {
+                println!("  FAIL compute1[{}]: {} (expected {})", i, actual, expected);
+            }
+            compute1_failures += 1;
+            compute1_ok = false;
+        }
+    }
+
+    // Verify COMPUTE2: XOR-fold results — compute expected values on host
+    let mut compute2_ok = true;
+    let mut compute2_failures = 0u32;
+    for i in 0u32..32 {
+        let actual = unsafe { std::ptr::read_volatile(results_host.add(32 + i as usize)) };
+        let iters = (i + 1) * 50;
+        let mut val: u32 = 0xDEAD_0000 | i;
+        for _ in 0..iters {
+            val ^= val << 13;
+            val ^= val >> 17;
+            val ^= val << 5;
+        }
+        if actual != val {
+            if compute2_failures < 3 {
+                println!("  FAIL compute2[{}]: 0x{:08X} (expected 0x{:08X})", i, actual, val);
+            }
+            compute2_failures += 1;
+            compute2_ok = false;
+        }
+    }
+
+    // Verify messages: expect "stress: phase1", "stress: phase2", "stress: phase3"
+    let msg_ok = msgs.len() == 3
+        && msgs[0].contains("stress: phase1")
+        && msgs[1].contains("stress: phase2")
+        && msgs[2].contains("stress: phase3");
+
+    if status_val == 1 && compute1_ok && compute2_ok && msg_ok {
+        println!("  Hybrid Stress Test: PASSED!");
+        println!("    9-state machine: 3 I/O phases + 2 compute phases");
+        println!("    COMPUTE1: sum(1..=n) verified for all 32 lanes (1..3101 iterations)");
+        println!("    COMPUTE2: XOR-fold verified for all 32 lanes (50..1600 iterations)");
+        println!("    syncwarp correctly handles ~3100x lane duration variance");
+    } else {
+        println!("  Hybrid Stress Test: FAILED");
+        if !compute1_ok { println!("    COMPUTE1: {} failures", compute1_failures); }
+        if !compute2_ok { println!("    COMPUTE2: {} failures", compute2_failures); }
+        if !msg_ok { println!("    Messages: {:?}", *msgs); }
+    }
+
+    unsafe { free_mapped_mem(results_host)? };
+    Ok(())
+}
+
 /// GPU panic handler test: verify panic message is received via hostcall.
 ///
 /// The test kernel deliberately panics. We expect:
@@ -3530,6 +3652,9 @@ fn main() -> Result<()> {
 
     // Hybrid executor test (hybrid-executor.1)
     run_hybrid_executor_test(Arc::clone(&dev))?;
+
+    // Hybrid stress test (hybrid-executor.2)
+    run_hybrid_stress_test(Arc::clone(&dev))?;
 
     // GPU panic handler test (gpu-panic.2) — MUST BE LAST
     // since trap instruction calls process::exit(0)

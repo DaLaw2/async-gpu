@@ -9,7 +9,7 @@ An experimental reproduction of [VectorWare](https://www.vectorware.com/)'s tech
 
 This project explores whether Rust's `std` library and async/await can run on GPU hardware using the `nvptx64-nvidia-cuda` target. Rather than writing raw CUDA kernels, the idea is to let GPU threads use familiar Rust abstractions — `File::open()`, `println!()`, `async/await` — with I/O routed to the host CPU through a shared-memory hostcall protocol.
 
-The project is structured as an autonomous research loop with 24 completed research themes and 85 verified experiments.
+The project is structured as an autonomous research loop with 25 completed research themes and 88 verified experiments.
 
 ## Architecture
 
@@ -116,9 +116,11 @@ All async kernels use stack spilling (local memory) for Embassy executor state. 
 
 8. **Per-block Sharding**: Hostcall free-stack sharded by `block_idx % num_shards`. Reduces CAS retries from ~53/call (global) to ~0.5/call (sharded) at 128 threads — a 99% reduction in contention.
 
+9. **Hybrid Executor (ADR-10)**: WarpFuture state machines can contain per-thread compute blocks where each lane works independently. `syncwarp()` at entry/exit ensures reconvergence. Per-thread blocks must not yield (no hostcall) — this invariant is enforced by documentation and code review. Validated with 3100x lane duration variance.
+
 ## Current Status
 
-24 research themes completed, 1 active, 3 parked (85/87 tasks done):
+25 research themes completed, 0 active, 3 parked (88/89 tasks done):
 
 - **Core**: toolchain, hostcall, gpu-std, async-runtime, integration
 - **Infrastructure**: atomics, std-pal, allocator, error-handling, oncelock
@@ -126,8 +128,8 @@ All async kernels use stack spilling (local memory) for Embassy executor state. 
 - **Phase 2**: host-listener, ci (GitHub Actions), api (gpu-runtime facade + example)
 - **Phase 3**: gpu-panic (panic handler), host-scaling (I/O thread), nightly-compat (1.91 -> 1.96)
 - **Data**: large-payload (bulk data transfer via sideband buffer), clean-example
-- **Active**: hybrid-executor (mix WarpFuture + per-thread Future in same kernel)
-- **Parked**: warp-coop (incompatible with ADR-4), networking, upstream
+- **Hybrid**: hybrid-executor (WarpFuture + per-thread compute blocks, ADR-10)
+- **Parked**: warp-coop (superseded by WarpFuture), networking, upstream
 
 ## Strengths
 

@@ -4,22 +4,22 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 87      # Monotonic counter, incremented after each completed phase
-completed_tasks = 86
+total_cycles = 89      # Monotonic counter, incremented after each completed phase
+completed_tasks = 88
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
-current_mode = "think"
-current_step = "think.triage"
+current_mode = "do"
+current_step = "do.execute"
 current_task_id = ""
-last_summary = "hybrid-executor.1 done: WarpFuture PRINT → per-thread compute (lane_id²+1) → WarpFuture PRINT, 32 lanes verified in ~1ms. syncwarp reconvergence works. Next: brainstorm for hybrid-executor.2+."
+last_summary = "hybrid-executor theme COMPLETE. .1: basic PoC, .2: stress test (3100x variance), .3: ADR-10 safety contract. All success criteria met. 0 active themes remaining."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 18
+brainstorm_seq = 19
 review_seq = 4
 
 # Brainstorm trigger control
-last_brainstorm_at_completed = 82
+last_brainstorm_at_completed = 86
 brainstorm_interval = 3
 
 # ============================================================
@@ -1977,7 +1977,7 @@ research_questions = [
 [[themes]]
 id = "hybrid-executor"
 title = "Hybrid executor: mix WarpFuture and per-thread Future in same kernel"
-status = "active"
+status = "completed"
 spawned_by = "user"
 goal = "Enable mixing WarpFuture (homogeneous linear I/O, 1 CAS/warp) and per-thread Future (divergent dynamic control flow) in the same GPU kernel, with safe switching points"
 success_criteria = [
@@ -2004,3 +2004,43 @@ research_questions = [
     "What is the measured overhead of WarpFuture↔per-thread switching?",
     "What happens when lanes compute different durations in per-thread block?",
 ]
+
+[[tasks]]
+id = "hybrid-executor.2"
+theme = "hybrid-executor"
+title = "Variable-duration + multi-switch stress test"
+kind = "experiment"
+status = "done"
+depends_on = ["hybrid-executor.1"]
+spawned_by = "bs19"
+research_questions = [
+    "Does syncwarp() correctly synchronize lanes with 100x duration variance?",
+    "Does the state machine remain clean with 10+ states (multiple I/O + compute phases)?",
+    "Any PTX codegen issues with complex per-thread blocks (loops, branches)?",
+]
+
+[[tasks]]
+id = "hybrid-executor.3"
+theme = "hybrid-executor"
+title = "Safety API design note (ADR): no yield in per-thread block"
+kind = "design"
+status = "done"
+depends_on = ["hybrid-executor.2"]
+spawned_by = "bs19"
+research_questions = [
+    "What happens if someone accidentally yields in a per-thread block?",
+    "Can we detect this at compile time (type state, macro)?",
+    "Is runtime detection feasible (check active_mask after per-thread block)?",
+    "What is the recommended enforcement approach?",
+]
+
+[[brainstorms]]
+seq = 19
+at_cycle = 87
+trigger = "interval (86-82=4 >= 3) + hybrid-executor task planning"
+level = "standard"
+new_tasks_spawned = ["hybrid-executor.2", "hybrid-executor.3"]
+new_themes_spawned = []
+themes_parked = []
+themes_completed = []
+key_insight = "hybrid-executor needs only 2 more tasks: stress test with variable-duration lanes + multi-switch, then safety API design note. per_thread_block! macro deferred. No new themes needed — project near product ready."

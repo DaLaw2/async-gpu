@@ -2077,3 +2077,184 @@ pub unsafe extern "ptx-kernel" fn hybrid_executor_test(
         core::ptr::write_volatile(status, if ok { 1 } else { 0 });
     }
 }
+
+// ============================================================
+// hybrid-executor.2: Variable-duration + multi-switch stress test
+// ============================================================
+//
+// 3 I/O phases + 2 compute blocks, testing:
+// - Variable-duration per-thread work (lane_id-dependent iteration count)
+// - Multiple switching points in one state machine
+// - 11-state machine: INIT1→WAIT1→COMPUTE1→INIT2→WAIT2→COMPUTE2→INIT3→WAIT3→DONE
+//
+// COMPUTE1: sum 1..=(lane_id*100+1), ~100x duration variance across lanes
+// COMPUTE2: XOR-fold lane_id-dependent seed, different duration per lane
+
+const HYB2_INIT1: u32 = 0;
+const HYB2_WAIT1: u32 = 1;
+const HYB2_COMPUTE1: u32 = 2;
+const HYB2_INIT2: u32 = 3;
+const HYB2_WAIT2: u32 = 4;
+const HYB2_COMPUTE2: u32 = 5;
+const HYB2_INIT3: u32 = 6;
+const HYB2_WAIT3: u32 = 7;
+const HYB2_DONE: u32 = 8;
+
+struct HybridStressFuture {
+    buf: *mut u8,
+    results: *mut u32,
+    state: u32,
+    pkt_idx: u16,
+}
+
+impl HybridStressFuture {
+    #[inline(always)]
+    fn new(buf: *mut u8, results: *mut u32) -> Self {
+        Self {
+            buf,
+            results,
+            state: HYB2_INIT1,
+            pkt_idx: gpu_protocol::NULL_INDEX,
+        }
+    }
+}
+
+unsafe impl gpu_runtime::warp_future::WarpFuture for HybridStressFuture {
+    type Output = bool;
+
+    fn poll_warp(
+        &mut self,
+        wcx: &mut gpu_runtime::warp_future::WarpContext,
+    ) -> gpu_runtime::warp_future::WarpPoll<bool> {
+        use gpu_runtime::warp_future::{WarpPoll, broadcast_u32};
+
+        let state = unsafe { broadcast_u32(wcx.active_mask, self.state) };
+
+        match state {
+            // === Phase 1: WarpFuture PRINT "stress: phase1" ===
+            HYB2_INIT1 => unsafe {
+                hybrid_warp_print_init(
+                    self.buf, wcx, b"stress: phase1",
+                    HYB2_WAIT1, &mut self.state, &mut self.pkt_idx,
+                )
+            },
+            HYB2_WAIT1 => unsafe {
+                if hybrid_warp_wait(
+                    self.buf, wcx, self.pkt_idx,
+                    HYB2_COMPUTE1, &mut self.state,
+                ).is_some() {
+                    WarpPoll::Pending
+                } else {
+                    WarpPoll::Pending
+                }
+            },
+
+            // === COMPUTE1: Variable-duration sum ===
+            // Each lane sums 1..=(lane_id*100+1)
+            // Lane 0: 1 iteration, Lane 31: 3101 iterations (~3100x variance)
+            HYB2_COMPUTE1 => unsafe {
+                let lid = wcx.lane_id;
+                let iters = lid * 100 + 1;
+                let mut sum: u32 = 0;
+                let mut i: u32 = 1;
+                while i <= iters {
+                    sum = sum.wrapping_add(i);
+                    i += 1;
+                }
+                // Write result: results[lane_id]
+                core::ptr::write_volatile(self.results.add(lid as usize), sum);
+
+                gpu_atomics::syncwarp(wcx.active_mask);
+                if wcx.is_leader() {
+                    self.state = HYB2_INIT2;
+                }
+                gpu_atomics::syncwarp(wcx.active_mask);
+                WarpPoll::Pending
+            },
+
+            // === Phase 2: WarpFuture PRINT "stress: phase2" ===
+            HYB2_INIT2 => unsafe {
+                hybrid_warp_print_init(
+                    self.buf, wcx, b"stress: phase2",
+                    HYB2_WAIT2, &mut self.state, &mut self.pkt_idx,
+                )
+            },
+            HYB2_WAIT2 => unsafe {
+                if hybrid_warp_wait(
+                    self.buf, wcx, self.pkt_idx,
+                    HYB2_COMPUTE2, &mut self.state,
+                ).is_some() {
+                    WarpPoll::Pending
+                } else {
+                    WarpPoll::Pending
+                }
+            },
+
+            // === COMPUTE2: XOR-fold with lane-dependent iteration count ===
+            // Each lane XOR-folds a different seed for (lane_id+1)*50 iterations
+            HYB2_COMPUTE2 => unsafe {
+                let lid = wcx.lane_id;
+                let iters = (lid + 1) * 50;
+                let mut val: u32 = 0xDEAD_0000 | lid;
+                let mut i: u32 = 0;
+                while i < iters {
+                    val ^= val << 13;
+                    val ^= val >> 17;
+                    val ^= val << 5;
+                    i += 1;
+                }
+                // Write result: results[32 + lane_id]
+                core::ptr::write_volatile(self.results.add(32 + lid as usize), val);
+
+                gpu_atomics::syncwarp(wcx.active_mask);
+                if wcx.is_leader() {
+                    self.state = HYB2_INIT3;
+                }
+                gpu_atomics::syncwarp(wcx.active_mask);
+                WarpPoll::Pending
+            },
+
+            // === Phase 3: WarpFuture PRINT "stress: phase3" ===
+            HYB2_INIT3 => unsafe {
+                hybrid_warp_print_init(
+                    self.buf, wcx, b"stress: phase3",
+                    HYB2_WAIT3, &mut self.state, &mut self.pkt_idx,
+                )
+            },
+            HYB2_WAIT3 => unsafe {
+                if hybrid_warp_wait(
+                    self.buf, wcx, self.pkt_idx,
+                    HYB2_DONE, &mut self.state,
+                ).is_some() {
+                    WarpPoll::Ready(true)
+                } else {
+                    WarpPoll::Pending
+                }
+            },
+
+            HYB2_DONE => WarpPoll::Ready(true),
+            _ => WarpPoll::Pending,
+        }
+    }
+}
+
+/// hybrid-executor.2 kernel: stress test with variable-duration per-thread compute + multi-switch
+///
+/// `buf` = hostcall buffer
+/// `results` = output u32[64] array (32 per compute phase)
+/// `status` = output u32 (1 = success)
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn hybrid_stress_test(
+    buf: *mut u8,
+    results: *mut u32,
+    status: *mut u32,
+) {
+    gpu_runtime::panic::gpu_panic_init(buf);
+
+    let mut future = HybridStressFuture::new(buf, results);
+    let ok = gpu_runtime::warp_future::WarpExecutor::run(&mut future);
+
+    if gpu_atomics::lane_id() == 0 {
+        core::ptr::write_volatile(status, if ok { 1 } else { 0 });
+    }
+}

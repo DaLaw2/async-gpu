@@ -86,3 +86,24 @@ Record important technical decisions here as they emerge from research.
 - **Rationale**: (1) Warp-level Future is the only design that preserves both SIMT throughput and async ergonomics. (2) Hostcalls are a natural fit — warp collectively submits request via payload slots, collectively waits for response. (3) Phase 1 requires no compiler changes, allowing rapid prototyping. (4) The "no per-lane divergence" constraint aligns with GPU's SIMD philosophy — differences are in data, not control flow.
 - **Alternatives**: (a) Accept warp divergence and rely on compiler/hardware to handle it (unacceptable: 1/32 throughput). (b) Only use per-block parallelism without warp-level async (limits concurrency). (c) Require rustc changes from the start (too slow, unvalidated design).
 - **Sources**: User discussion 2026-03-12, VectorWare blog analysis
+
+### ADR-10: Hybrid executor — per-thread compute blocks in WarpFuture
+- **Date**: 2026-03-12
+- **Status**: accepted
+- **Context**: WarpFuture (ADR-9) requires all lanes to follow the same control flow. However, real GPU workloads often need per-lane divergent computation between I/O phases (e.g., read data → process per-thread → write results). Need a way to safely mix warp-cooperative I/O (WarpFuture) with per-thread computation in the same state machine.
+- **Decision**: Allow per-thread compute blocks as states in a WarpFuture state machine. The invariant is: **per-thread blocks MUST NOT yield (return WarpPoll::Pending on a hostcall)**. They must be pure computation with no I/O. The pattern is:
+  1. All lanes enter the COMPUTE state together (state is broadcast from lane 0)
+  2. Each lane computes independently (may have different iteration counts, branches)
+  3. `syncwarp(active_mask)` reconverges all lanes
+  4. Lane 0 advances the state
+  5. `syncwarp(active_mask)` ensures all lanes see the new state
+  6. Return `WarpPoll::Pending` to transition to next state
+- **Safety enforcement**: Documentation + code review. No compile-time enforcement in the current design.
+  - **Why not a macro?** The pattern is 5-6 lines and self-explanatory. A `per_thread_block!` macro would save ~3 lines but add cognitive overhead. Deferred to the `#[warp_async]` proc macro work if a DSL emerges.
+  - **Why not type state?** Would require splitting WarpFuture into `WarpFuture<Cooperative>` and `WarpFuture<PerThread>` modes. Heavy type machinery for a simple invariant.
+  - **Why not runtime detection?** `activemask()` check after `syncwarp()` could detect if lanes dropped out (diverged due to yield). However, this only detects the bug post-hoc — the damage (warp deadlock) has already occurred. Not useful for prevention.
+- **What happens if the invariant is violated**: If a lane yields (hostcall → WarpPoll::Pending) inside a per-thread block while other lanes continue computing, the yielding lane re-enters the WarpExecutor poll loop. On the next poll, `broadcast_u32` reads state from lane 0 — but lane 0 may be in a different state than the yielding lane expected. This causes undefined behavior: the yielding lane may execute the wrong state's code, corrupt data, or deadlock at the next `syncwarp()` where it expects lanes that are no longer convergent.
+- **Validated by**: hybrid-executor.1 (basic PoC, 6 states) and hybrid-executor.2 (stress test: 9 states, 3100x lane duration variance, XOR-fold with branches). Both passed with all results correct.
+- **Rationale**: (1) The pattern is simple and composes linearly — adding more I/O↔compute switching points is mechanical. (2) syncwarp() is a hardware barrier that handles arbitrary lane timing differences. (3) The switching overhead is negligible (~5-10 ns per syncwarp). (4) Documentation-based enforcement is appropriate at this maturity level — no external users yet.
+- **Alternatives**: (a) Separate kernels for I/O and compute phases (context switch overhead, doesn't compose). (b) Always use per-thread futures (32x CAS overhead for I/O). (c) Compile-time enforcement via type system (premature, deferred).
+- **Sources**: hybrid-executor.1-c87, hybrid-executor.2-c88, bs19

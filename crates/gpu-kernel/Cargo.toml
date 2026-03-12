@@ -16,4 +16,4 @@ gpu-runtime = { path = "../gpu-runtime" }
 [profile.release]
 panic = "abort"
 opt-level = 3
-lto = false
+lto = "fat"

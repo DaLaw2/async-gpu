@@ -4,22 +4,22 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 66      # Monotonic counter, incremented after each completed phase
-completed_tasks = 65
+total_cycles = 68      # Monotonic counter, incremented after each completed phase
+completed_tasks = 67
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
-current_mode = "think"
-current_step = "think.triage"
-current_task_id = ""
-last_summary = "host-scaling theme DONE: unified listener + I/O thread (ADR-6). NOP benchmark comparable at 32+ threads, 1-thread shows ~2x latency (setup overhead). All 14 test suites pass. Next: brainstorm (trigger: 65-57=8 tasks since last bs)."
+current_mode = "do"
+current_step = "do.execute"
+current_task_id = "large-payload.1"
+last_summary = "nightly-compat.1+2 done: updated nightly-2025-08-25→2026-03-11 (1.91→1.96). PTX sm_30 bug FIXED. Requires lto=fat. asm_experimental_arch stabilized. CAS retries 6x lower at 32 threads. All tests pass. Next: large-payload.1."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 14
+brainstorm_seq = 15
 review_seq = 3
 
 # Brainstorm trigger control
-last_brainstorm_at_completed = 57
+last_brainstorm_at_completed = 65
 brainstorm_interval = 3
 
 # ============================================================
@@ -1439,7 +1439,7 @@ success_criteria = [
 [[themes]]
 id = "nightly-compat"
 title = "Toolchain compatibility and future-proofing"
-status = "active"
+status = "completed"
 spawned_by = "bs14"
 goal = "Document nightly compatibility, remove PTX header workaround if possible"
 success_criteria = [
@@ -1560,7 +1560,7 @@ id = "nightly-compat.1"
 theme = "nightly-compat"
 title = "Test latest nightly compatibility"
 kind = "investigation"
-status = "pending"
+status = "done"
 depends_on = []
 spawned_by = "bs14"
 research_questions = [
@@ -1575,7 +1575,7 @@ id = "nightly-compat.2"
 theme = "nightly-compat"
 title = "Update toolchain if compatible"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["nightly-compat.1"]
 spawned_by = "bs14"
 research_questions = [
@@ -1670,3 +1670,16 @@ new_themes_spawned = ["gpu-panic", "host-scaling", "nightly-compat", "large-payl
 themes_parked = []
 themes_completed = []
 key_insight = "Project product-ready but I/O-throughput-limited. Phase 3: debugging first (gpu-panic P0), then scale host listener (profile before optimize), then bulk data + nightly compat. Warp-coop permanently parked (ADR-4 incompatible). Measure before optimizing."
+
+# --- Brainstorm record for bs15 ---
+
+[[brainstorms]]
+seq = 15
+at_cycle = 66
+trigger = "interval (65-57=8 tasks since bs14)"
+level = "quick"
+new_tasks_spawned = []
+new_themes_spawned = []
+themes_parked = []
+themes_completed = ["gpu-panic", "host-scaling"]
+key_insight = "gpu-panic + host-scaling both completed successfully. No blockers. Execute remaining ready tasks: nightly-compat.1, large-payload.1, product.7."

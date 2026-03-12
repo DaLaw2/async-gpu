@@ -26,7 +26,6 @@
 
 #![no_std]
 #![feature(stdarch_nvptx)]
-#![feature(asm_experimental_arch)]
 
 // Re-export sub-crates
 pub use gpu_protocol;

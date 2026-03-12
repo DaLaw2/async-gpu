@@ -4,22 +4,22 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 75      # Monotonic counter, incremented after each completed phase
-completed_tasks = 74
+total_cycles = 76      # Monotonic counter, incremented after each completed phase
+completed_tasks = 75
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.execute"
+current_step = "do.save"
 current_task_id = ""
-last_summary = "per-block-sharding.2 DONE: sharding implemented in gpu-protocol/gpu-runtime/gpu-host, 4-block sharded test PASSES. clean-example.2 also done. Next: per-block-sharding.3 benchmark, then brainstorm."
+last_summary = "warp-future.1 done: deep brainstorm (bs16) confirmed WarpFuture feasible without rustc changes. Key: shfl.sync for state broadcast, bar.warp.sync for convergence. Problem is unmeasured — empirical validation needed. User requested stop after this task."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 15
+brainstorm_seq = 16
 review_seq = 3
 
 # Brainstorm trigger control
-last_brainstorm_at_completed = 65
+last_brainstorm_at_completed = 75
 brainstorm_interval = 3
 
 # ============================================================
@@ -1684,6 +1684,17 @@ themes_parked = []
 themes_completed = ["gpu-panic", "host-scaling"]
 key_insight = "gpu-panic + host-scaling both completed successfully. No blockers. Execute remaining ready tasks: nightly-compat.1, large-payload.1, product.7."
 
+[[brainstorms]]
+seq = 16
+at_cycle = 76
+trigger = "warp-future Epic: user-requested feasibility analysis"
+level = "deep"
+new_tasks_spawned = []
+new_themes_spawned = []
+themes_parked = []
+themes_completed = []
+key_insight = "WarpFuture feasible without rustc changes: shfl.sync for state broadcast, bar.warp.sync for convergence, simple spin-poll executor. But problem is unmeasured — no kernel runs per-thread async across full warp yet. Empirical validation needed before full investment. Proc macro has fundamental limitations (no arbitrary control flow). ADR-9 stays proposed."
+
 # ============================================================
 # Theme: per-block-sharding (user-requested critical)
 # ============================================================
@@ -1790,4 +1801,78 @@ research_questions = [
     "Does the example compile and run out of the box?",
     "Does build.rs correctly invoke cargo for nvptx64 target?",
     "Is the output clear and demonstrates key capabilities?",
+]
+
+# ============================================================
+# Theme: warp-future (Epic — SIMT-convergent async on GPU)
+# ============================================================
+
+[[themes]]
+id = "warp-future"
+title = "Warp-level Future — one Future drives 32 lanes in SIMT lockstep"
+status = "active"
+spawned_by = "user"
+goal = "Design and implement WarpFuture trait where async state machines maintain warp convergence, avoiding 1/32 throughput degradation from per-thread Future divergence"
+success_criteria = "WarpFuture proc macro generates convergent state machine; warp-cooperative hostcall round-trip verified on hardware; no warp divergence in PTX output"
+
+# --- Tasks: warp-future ---
+
+[[tasks]]
+id = "warp-future.1"
+theme = "warp-future"
+title = "Feasibility analysis: WarpFuture trait + proc macro approach"
+kind = "investigation"
+status = "done"
+depends_on = []
+spawned_by = "user"
+research_questions = [
+    "Can Rust async state machines be made warp-convergent without rustc changes?",
+    "What does the WarpFuture trait signature look like concretely?",
+    "How does __syncwarp() interact with async yield points?",
+    "What are the constraints on sub-futures for warp convergence?",
+    "How does the WarpExecutor differ from per-thread Embassy executor?",
+]
+
+[[tasks]]
+id = "warp-future.2"
+theme = "warp-future"
+title = "Design WarpFuture trait + WarpContext + WarpExecutor architecture"
+kind = "design"
+status = "pending"
+depends_on = ["warp-future.1"]
+spawned_by = "user"
+research_questions = [
+    "Full WarpFuture trait definition with poll_warp semantics?",
+    "WarpContext: how does waking work for warp-level tasks?",
+    "WarpExecutor: thread 0 drives, how do other lanes follow?",
+    "How do warp-level hostcalls integrate (payload slot per lane)?",
+    "ADR for WarpFuture architecture decisions?",
+]
+
+[[tasks]]
+id = "warp-future.3"
+theme = "warp-future"
+title = "Implement minimal WarpFuture: manual state machine + executor"
+kind = "experiment"
+status = "pending"
+depends_on = ["warp-future.2"]
+spawned_by = "user"
+research_questions = [
+    "Can a hand-written WarpFuture state machine compile to convergent PTX?",
+    "Does WarpExecutor correctly drive 32 lanes through yield/resume?",
+    "Is there measurable throughput improvement vs per-thread Future?",
+]
+
+[[tasks]]
+id = "warp-future.4"
+theme = "warp-future"
+title = "Implement #[warp_async] proc macro for automatic state machine generation"
+kind = "experiment"
+status = "pending"
+depends_on = ["warp-future.3"]
+spawned_by = "user"
+research_questions = [
+    "Can a proc macro transform async-like syntax into WarpFuture state machine?",
+    "How to handle warp_await! expansion with __syncwarp()?",
+    "Does the generated code match hand-written WarpFuture quality?",
 ]

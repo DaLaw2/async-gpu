@@ -10,16 +10,16 @@ status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.route"
+current_step = "do.select"
 current_task_id = ""
-last_summary = "All 4 gpu-compute tasks DONE (c123-c126). MMA+shared memory+tiled GEMM+softmax all verified. gpu-compute theme complete — all building blocks for GPU-autonomous inference proven."
+last_summary = "bs33 done. gpu-compute theme completed. New gpu-pipeline theme: 3 tasks for integration (fragment mapping, multi-tile GEMM, end-to-end pipeline). Decision gate after completion."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 32
+brainstorm_seq = 33
 review_seq = 5
 
 # Brainstorm trigger control
-last_brainstorm_at_completed = 123
+last_brainstorm_at_completed = 125
 brainstorm_interval = 3
 
 # ============================================================
@@ -2844,7 +2844,7 @@ research_questions = [
 [[themes]]
 id = "gpu-compute"
 title = "GPU autonomous compute foundations"
-status = "active"
+status = "completed"
 spawned_by = "bs29"
 epic = "gpu-autonomous"
 goal = "Investigate what is needed for GPU to autonomously execute arbitrarily complex computation"
@@ -2997,4 +2997,78 @@ spawned_by = "bs31"
 research_questions = [
     "Can softmax with shared memory reduction work in Rust GPU code?",
     "Can RoPE and LayerNorm be implemented as pure Rust GPU functions?",
+]
+
+# ============================================================
+# Brainstorm bs33
+# ============================================================
+
+[[brainstorms]]
+seq = 33
+at_cycle = 126
+trigger = "gpu-compute theme complete, no more ready tasks"
+level = "standard"
+new_tasks_spawned = ["gpu-pipeline.1", "gpu-pipeline.2", "gpu-pipeline.3"]
+new_themes_spawned = ["gpu-pipeline"]
+themes_parked = []
+themes_completed = ["gpu-compute"]
+key_insight = "All building blocks proven. Next: focused integration theme (gpu-pipeline) to compose MMA+shared+hostcall into autonomous pipeline. Decision gate afterward for user to decide full inference vs epic completion."
+
+# ============================================================
+# Theme: gpu-pipeline (serves gpu-autonomous epic)
+# ============================================================
+
+[[themes]]
+id = "gpu-pipeline"
+title = "GPU autonomous compute pipeline integration"
+status = "active"
+spawned_by = "bs33"
+epic = "gpu-autonomous"
+goal = "Compose proven primitives (MMA, shared memory, hostcall) into a working autonomous pipeline"
+success_criteria = [
+    "MMA works with non-uniform matrices (correct fragment-to-matrix mapping)",
+    "Multi-tile K-accumulation GEMM loop produces correct results",
+    "End-to-end pipeline: hostcall loads data → GEMM → softmax → hostcall writes results",
+]
+
+[[tasks]]
+id = "gpu-pipeline.1"
+theme = "gpu-pipeline"
+title = "Fragment-to-matrix index mapping for MMA (non-uniform matrices)"
+kind = "experiment"
+status = "pending"
+depends_on = []
+spawned_by = "bs33"
+research_questions = [
+    "What is the per-thread fragment-to-matrix element mapping for mma.sync.aligned.m16n8k16?",
+    "Can we implement correct MMA with non-uniform A and B matrices?",
+    "Does ldmatrix.sync.aligned work from Rust inline PTX as an alternative?",
+]
+
+[[tasks]]
+id = "gpu-pipeline.2"
+theme = "gpu-pipeline"
+title = "Multi-tile K-accumulation GEMM loop"
+kind = "experiment"
+status = "pending"
+depends_on = ["gpu-pipeline.1"]
+spawned_by = "bs33"
+research_questions = [
+    "Can we accumulate across multiple K-dimension tiles in a loop?",
+    "What is the register pressure for multi-tile GEMM?",
+    "Does the accumulator (C += partial) work correctly across iterations?",
+]
+
+[[tasks]]
+id = "gpu-pipeline.3"
+theme = "gpu-pipeline"
+title = "End-to-end autonomous compute pipeline (load → GEMM → softmax → save)"
+kind = "experiment"
+status = "pending"
+depends_on = ["gpu-pipeline.2"]
+spawned_by = "bs33"
+research_questions = [
+    "Can a single kernel autonomously load matrix data, compute GEMM+softmax, and save results?",
+    "Does the WarpFuture + compute function composition work end-to-end?",
+    "What is the total latency for an autonomous GEMM+softmax pipeline?",
 ]

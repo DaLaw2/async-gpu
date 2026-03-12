@@ -556,3 +556,100 @@ pub unsafe extern "ptx-kernel" fn futures_join_kernel(buf: *mut u8, result: *mut
     *result = poll_rounds;
     *result.add(1) = 1;
 }
+
+// ============================================================
+// Test kernel 4: Multi-block async (multiblock.3)
+// ============================================================
+//
+// 4 blocks × 1 thread each. Each thread runs its own Embassy executor
+// with an async hostcall print. Tests that multiple independent executors
+// can run concurrently across blocks.
+
+const MULTI_BLOCK_ASYNC_THREADS: usize = 4;
+
+static MULTI_EXEC_STORAGE: [ExecutorStorage; MULTI_BLOCK_ASYNC_THREADS] = [
+    ExecutorStorage { inner: MaybeUninit::uninit() },
+    ExecutorStorage { inner: MaybeUninit::uninit() },
+    ExecutorStorage { inner: MaybeUninit::uninit() },
+    ExecutorStorage { inner: MaybeUninit::uninit() },
+];
+
+static MULTI_TASKS: [TaskStorage<HostcallPrintFuture>; MULTI_BLOCK_ASYNC_THREADS] = [
+    TaskStorage::new(),
+    TaskStorage::new(),
+    TaskStorage::new(),
+    TaskStorage::new(),
+];
+
+/// Multi-block async hostcall test.
+///
+/// 4 blocks × 1 thread each. Each thread:
+/// 1. Initializes its own Embassy executor (from static storage array)
+/// 2. Spawns an async HostcallPrintFuture with a unique message
+/// 3. Polls until completion
+///
+/// `buf` = hostcall buffer
+/// `result` = output array of u32[MULTI_BLOCK_ASYNC_THREADS + 1]:
+///   [0] = number of threads that completed successfully
+///   [1..N] = per-thread poll rounds
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn multi_block_async_kernel(buf: *mut u8, result: *mut u32) {
+    let tid: u32;
+    core::arch::asm!("mov.u32 {idx}, %tid.x;", idx = out(reg32) tid, options(nostack, readonly));
+    let bid: u32;
+    core::arch::asm!("mov.u32 {idx}, %ctaid.x;", idx = out(reg32) bid, options(nostack, readonly));
+    let block_dim: u32;
+    core::arch::asm!("mov.u32 {idx}, %ntid.x;", idx = out(reg32) block_dim, options(nostack, readonly));
+
+    let global_tid = bid * block_dim + tid;
+
+    // Only the first MULTI_BLOCK_ASYNC_THREADS threads participate
+    if global_tid >= MULTI_BLOCK_ASYNC_THREADS as u32 {
+        return;
+    }
+
+    let idx = global_tid as usize;
+
+    // Build a unique message: "Async block X done!"
+    let mut msg = *b"Async block X done!";
+    msg[12] = b'0' + global_tid as u8;
+
+    // Initialize executor from static storage array
+    let storage_ptr = &MULTI_EXEC_STORAGE[idx].inner
+        as *const MaybeUninit<Executor> as *mut MaybeUninit<Executor>;
+    (*storage_ptr).write(Executor::new(core::ptr::null_mut()));
+    let executor: &'static Executor = (*storage_ptr).assume_init_ref();
+
+    // Spawn async hostcall print task
+    let task_storage = &MULTI_TASKS[idx];
+    let msg_static: &'static [u8] = core::slice::from_raw_parts(msg.as_ptr(), msg.len());
+    let token = task_storage.spawn(|| HostcallPrintFuture::new(buf, msg_static));
+    let spawner = executor.spawner();
+    let _ = spawner.spawn(token);
+
+    // Poll until completion or max rounds
+    let mut poll_rounds: u32 = 0;
+    let max_rounds: u32 = 200;
+    loop {
+        executor.poll();
+        poll_rounds += 1;
+
+        let current = core::ptr::read_volatile(&poll_rounds);
+        if current >= max_rounds {
+            break;
+        }
+    }
+
+    // Write per-thread poll rounds
+    core::ptr::write_volatile(result.add(1 + idx), poll_rounds);
+
+    // Atomically increment success counter (result[0])
+    let counter_ptr = result as *mut u32;
+    let _old: u32;
+    core::arch::asm!(
+        "atom.add.u32 {result}, [{addr}], 1;",
+        result = out(reg32) _old,
+        addr = in(reg64) counter_ptr,
+        options(nostack),
+    );
+}

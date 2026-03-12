@@ -4,22 +4,24 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 46      # Monotonic counter, incremented after each completed phase
-completed_tasks = 46
+total_cycles = 47      # Monotonic counter, incremented after each completed phase
+completed_tasks = 47
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"        # think | do | check
 current_step = "do.execute"
 current_task_id = ""
-last_summary = "oncelock.2+3 done (println works, no cascading breakage), error-handling.2 done (structured error codes propagate host→GPU). 3 themes completed this session: oncelock, error-handling, allocator. Next: multiblock.3, then brainstorm (interval triggered)."
+current_mode = "do"
+current_step = "do.route"
+last_summary = "multiblock.3 done: 4-block async Embassy test passes. ALL 12 active themes now completed (47 tasks). Only benchmark theme remains (parked). Research mission fully accomplished."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 10
+brainstorm_seq = 11
 review_seq = 3
 
 # Brainstorm trigger control
-last_brainstorm_at_completed = 36
+last_brainstorm_at_completed = 46
 brainstorm_interval = 3
 
 # ============================================================
@@ -868,7 +870,7 @@ success_criteria = [
 [[themes]]
 id = "multiblock"
 title = "Multi-block GPU execution and scaling"
-status = "active"
+status = "completed"
 spawned_by = "bs10"
 goal = "Prove the hostcall protocol works with multiple blocks and hundreds of threads"
 success_criteria = [
@@ -998,7 +1000,7 @@ id = "multiblock.3"
 theme = "multiblock"
 title = "Multi-block async with Embassy executors"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["multiblock.1", "allocator.2"]
 spawned_by = "bs10"
 research_questions = [
@@ -1099,3 +1101,14 @@ new_themes_spawned = ["allocator", "multiblock", "oncelock", "error-handling", "
 themes_parked = ["benchmark"]
 themes_completed = ["std-pal", "product"]
 key_insight = "Research mission complete — all VectorWare features reproduced. Next phase: production depth (allocator P0, multiblock P0) before breadth (AMDGPU). OnceLock fix is high-risk — investigate before committing."
+
+[[brainstorms]]
+seq = 11
+at_cycle = 46
+trigger = "interval"
+level = "quick"
+new_tasks_spawned = []
+new_themes_spawned = []
+themes_parked = []
+themes_completed = ["allocator", "oncelock", "error-handling"]
+key_insight = "11/12 themes completed. Only multiblock.3 (multi-block async) remains. OnceLock bypass was low-risk (simple cfg gate). Error propagation required cross-platform fix (use ErrorKind not raw errno). Execute multiblock.3 to finish all active themes."

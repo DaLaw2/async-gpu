@@ -2221,11 +2221,114 @@ fn run_showcase_test(dev: Arc<CudaDevice>) -> Result<()> {
 
 /// Test: println!() works directly on GPU (oncelock.2).
 /// This was previously broken — now _print() bypasses OnceLock on CUDA.
+/// Test: multi-block async with Embassy executors (multiblock.3).
+/// 4 blocks × 1 thread each, each running its own Embassy executor.
+fn run_multi_block_async_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Multiblock Test 3: Multi-block async (4 blocks × 1 thread) ---");
+
+    use std::sync::{Arc as StdArc, Mutex};
+
+    let hc_buf = hostcall::HostcallBuffer::new(8)?;
+    let dev_ptr = hc_buf.dev_ptr;
+
+    let messages: StdArc<Mutex<Vec<String>>> = StdArc::new(Mutex::new(Vec::new()));
+    let messages_clone = StdArc::clone(&messages);
+
+    let num_threads: usize = 4;
+    let (result_host_ptr, result_dev_ptr) = unsafe {
+        alloc_mapped_result_array(&dev, num_threads + 1)?
+    };
+
+    let hc_buf_ref = StdArc::new(hc_buf);
+    let hc_buf_listener = StdArc::clone(&hc_buf_ref);
+    let listener_handle = std::thread::spawn(move || {
+        hc_buf_listener.listen(|msg| {
+            let s = String::from_utf8_lossy(msg).to_string();
+            println!("  [HOST] Async: {}", s);
+            messages_clone.lock().unwrap().push(s);
+        });
+    });
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(ASYNC_HOSTCALL_PTX);
+    let _ = dev.load_ptx(ptx, "multi_block_async", &["multi_block_async_kernel"]);
+    let f = dev.get_func("multi_block_async", "multi_block_async_kernel")
+        .ok_or(GpuHostError::KernelNotFound("multi_block_async_kernel"))?;
+
+    let cfg = LaunchConfig {
+        grid_dim: (num_threads as u32, 1, 1),
+        block_dim: (1, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    println!("  Launching multi_block_async_kernel ({} blocks × 1 thread)...", num_threads);
+    let start = std::time::Instant::now();
+    unsafe {
+        f.launch(cfg, (dev_ptr as u64, result_dev_ptr as u64))?;
+    }
+
+    dev.synchronize()?;
+    let elapsed = start.elapsed();
+
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    hc_buf_ref.signal_shutdown();
+    listener_handle.join().unwrap();
+
+    let completed = unsafe { std::ptr::read_volatile(result_host_ptr.add(0)) };
+    let mut poll_rounds = Vec::new();
+    for i in 0..num_threads {
+        let rounds = unsafe { std::ptr::read_volatile(result_host_ptr.add(1 + i)) };
+        poll_rounds.push(rounds);
+    }
+    unsafe { free_mapped_mem(result_host_ptr)? };
+
+    let received = messages.lock().unwrap();
+
+    println!("  Completed: {}/{} threads", completed, num_threads);
+    println!("  Poll rounds per thread: {:?}", poll_rounds);
+    println!("  Messages received: {}", received.len());
+    for msg in received.iter() {
+        println!("    \"{}\"", msg);
+    }
+
+    if completed != num_threads as u32 {
+        return Err(GpuHostError::Verification {
+            test: "multi_block_async_kernel",
+            detail: format!(
+                "only {}/{} threads completed", completed, num_threads
+            ),
+        });
+    }
+
+    // Verify we got messages from all 4 blocks
+    let mut seen = [false; 4];
+    for msg in received.iter() {
+        for i in 0..4u8 {
+            if msg.contains(&format!("block {}", i)) {
+                seen[i as usize] = true;
+            }
+        }
+    }
+    let all_seen = seen.iter().all(|&s| s);
+    if !all_seen {
+        return Err(GpuHostError::Verification {
+            test: "multi_block_async_kernel",
+            detail: format!(
+                "missing messages from some blocks. Seen: {:?}", seen
+            ),
+        });
+    }
+
+    println!("  multi_block_async_kernel: PASSED! ({:?})", elapsed);
+    println!("    {} blocks × 1 thread, each with its own Embassy executor", num_threads);
+    println!("    All threads completed async hostcall independently!");
+    Ok(())
+}
+
 /// Test: error propagation through hostcall (error-handling.2).
 /// GPU tries to open nonexistent file, close invalid fd, read invalid fd.
 /// Verifies structured error codes propagate from host to GPU.
 fn run_error_propagation_test(dev: Arc<CudaDevice>) -> Result<()> {
-    println!("\n--- Error Handling Test: error propagation (hostcall → GPU) ---");
+    println!("\n--- Error Handling Test: error propagation (hostcall \u{2192} GPU) ---");
 
     let hc_buf = hostcall::HostcallBuffer::new(4)?;
     let dev_ptr = hc_buf.dev_ptr;
@@ -2558,6 +2661,8 @@ fn main() -> Result<()> {
     run_println_direct_test(Arc::clone(&dev))?;
 
     run_error_propagation_test(Arc::clone(&dev))?;
+
+    run_multi_block_async_test(Arc::clone(&dev))?;
 
     println!("\nAll tests PASSED.");
     Ok(())

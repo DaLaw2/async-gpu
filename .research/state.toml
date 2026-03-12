@@ -4,22 +4,22 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 100     # Monotonic counter, incremented after each completed phase
-completed_tasks = 99
+total_cycles = 102     # Monotonic counter, incremented after each completed phase
+completed_tasks = 101
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = ""
-last_summary = "ci-quality theme complete: clippy 0 warnings, cargo fmt clean, GitHub Actions CI with lint+build-ptx+build-host. Cycle 100 reached. Next: brainstorm."
+current_task_id = "docs.3"
+last_summary = "docs.1+2 done: full rustdoc on gpu-protocol (all constants, functions, types documented) and gpu-host (HostcallError, GpuHostError, HostcallBuffer). Next: docs.3 doc-tests."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 24
+brainstorm_seq = 25
 review_seq = 4
 
 # Brainstorm trigger control
-last_brainstorm_at_completed = 96
+last_brainstorm_at_completed = 99
 brainstorm_interval = 3
 
 # ============================================================
@@ -2320,3 +2320,71 @@ new_themes_spawned = ["ci-quality"]
 themes_parked = []
 themes_completed = ["ml-workload"]
 key_insight = "All research themes done. Product-ready gaps: CI pipeline, clippy clean, fmt check. New ci-quality theme to close these gaps."
+
+# ============================================================
+# Theme: docs
+# ============================================================
+
+[[themes]]
+id = "docs"
+title = "API documentation and rustdoc for public crates"
+status = "active"
+spawned_by = "bs25"
+goal = "Add rustdoc documentation to public API surfaces of gpu-protocol, gpu-host, gpu-runtime, and warp-macro crates"
+success_criteria = [
+    "All public types and functions have doc comments",
+    "cargo doc builds without warnings for host-side crates",
+    "Key concepts (hostcall protocol, WarpFuture, sideband) are documented",
+]
+
+# --- Tasks: docs ---
+
+[[tasks]]
+id = "docs.1"
+theme = "docs"
+title = "Rustdoc for gpu-protocol public API"
+kind = "design"
+status = "done"
+depends_on = []
+spawned_by = "bs25"
+research_questions = [
+    "What public items in gpu-protocol lack documentation?",
+    "What is the clearest way to document the protocol constants and layout?",
+]
+
+[[tasks]]
+id = "docs.2"
+theme = "docs"
+title = "Rustdoc for gpu-host public API"
+kind = "design"
+status = "done"
+depends_on = []
+spawned_by = "bs25"
+research_questions = [
+    "What public items in gpu-host lack documentation?",
+    "How to document HostcallBuffer lifecycle and listener usage?",
+]
+
+[[tasks]]
+id = "docs.3"
+theme = "docs"
+title = "Add doc-tests or examples to key APIs"
+kind = "experiment"
+status = "pending"
+depends_on = ["docs.1", "docs.2"]
+spawned_by = "bs25"
+research_questions = [
+    "Which APIs benefit most from inline examples?",
+    "Can doc-tests run without GPU hardware?",
+]
+
+[[brainstorms]]
+seq = 25
+at_cycle = 100
+trigger = "All themes completed, next direction needed"
+level = "quick"
+new_tasks_spawned = ["docs.1", "docs.2", "docs.3"]
+new_themes_spawned = ["docs"]
+themes_parked = []
+themes_completed = ["ci-quality"]
+key_insight = "All product-ready criteria met. Documentation is the highest-impact remaining work: rustdoc for public crates. Networking and upstream themes remain parked."

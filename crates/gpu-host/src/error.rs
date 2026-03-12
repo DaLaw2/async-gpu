@@ -3,16 +3,26 @@
 use cudarc::driver::sys::CUresult;
 use std::fmt;
 
+/// Top-level error type for gpu-host operations.
 #[derive(Debug)]
 pub enum GpuHostError {
+    /// CUDA device initialization failed.
     CudaInit(cudarc::driver::DriverError),
+    /// CUDA memory allocation failed.
     CudaAlloc(CUresult),
+    /// Failed to obtain device pointer for host memory.
     CudaGetDevPtr(CUresult),
+    /// Failed to free CUDA host memory.
     CudaFreeMem(CUresult),
+    /// cudarc driver error.
     Cudarc(cudarc::driver::DriverError),
+    /// GPU kernel function not found in loaded PTX module.
     KernelNotFound(&'static str),
+    /// Test verification failed (expected value mismatch).
     Verification { test: &'static str, detail: String },
+    /// Operation timed out waiting for GPU response.
     Timeout { test: &'static str, detail: String },
+    /// Hostcall buffer allocation error.
     Hostcall(crate::hostcall::HostcallError),
 }
 
@@ -60,4 +70,5 @@ impl From<crate::hostcall::HostcallError> for GpuHostError {
     }
 }
 
+/// Convenience type alias for `Result<T, GpuHostError>`.
 pub type Result<T> = std::result::Result<T, GpuHostError>;

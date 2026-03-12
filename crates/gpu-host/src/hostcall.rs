@@ -100,9 +100,12 @@ unsafe fn write_error_response(payload: *mut u8, e: &std::io::Error) -> bool {
     true
 }
 
+/// Errors that can occur during hostcall buffer allocation.
 #[derive(Debug)]
 pub enum HostcallError {
+    /// `cuMemHostAlloc` failed — could not allocate pinned GPU-visible memory.
     CudaAlloc(sys::CUresult),
+    /// `cuMemHostGetDevicePointer_v2` failed — could not obtain device-side pointer.
     CudaGetDevPtr(sys::CUresult),
 }
 

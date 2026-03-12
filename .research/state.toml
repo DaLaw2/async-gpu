@@ -9,13 +9,13 @@ completed_tasks = 88
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
-current_mode = "think"
-current_step = "think.triage"
-current_task_id = ""
-last_summary = "All themes complete (25/25). 88/89 tasks done (1 parked). Project product-ready. bs20 quick: no new themes needed, 3 parked themes are future work."
+current_mode = "do"
+current_step = "do.execute"
+current_task_id = "async-pipeline.1"
+last_summary = "bs21 deep: async-pipeline theme created. 3 tasks: warp hostcall wrappers → file transform demo → README overhaul. No proc macro expansion — hand-written WarpFuture."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 20
+brainstorm_seq = 21
 review_seq = 4
 
 # Brainstorm trigger control
@@ -2055,3 +2055,74 @@ new_themes_spawned = []
 themes_parked = []
 themes_completed = ["hybrid-executor"]
 key_insight = "All 25 themes complete, 88/89 tasks done. Product-ready checklist satisfied: performance benchmarked, host listener stable with I/O thread, CI via GitHub Actions, clean gpu-runtime API, hello-gpu example, README with real data. 3 parked themes (warp-coop, networking, upstream) are future directions, not blockers."
+
+# ============================================================
+# Theme: async-pipeline (GPU-Native Async Pipeline epic)
+# ============================================================
+
+[[themes]]
+id = "async-pipeline"
+title = "GPU-autonomous multi-step async pipeline demo"
+status = "active"
+spawned_by = "bs21"
+goal = "Demonstrate GPU self-coordinating a multi-step data pipeline (open → read → transform → write → close) via hand-written WarpFuture, all in one kernel launch with no CPU intervention between steps. Overhaul README to showcase the vision."
+success_criteria = [
+    "Warp-level hostcall wrappers for OPEN/CLOSE/BULK_READ/BULK_WRITE in gpu-runtime",
+    "End-to-end demo: GPU opens file, reads data, transforms per-thread, writes output, closes — one kernel",
+    "README clearly communicates the project vision and value proposition",
+    "Demo is runnable and produces correct output",
+]
+
+# --- Tasks: async-pipeline ---
+
+[[tasks]]
+id = "async-pipeline.1"
+theme = "async-pipeline"
+title = "Warp-level hostcall wrappers (open/close/bulk_read/bulk_write)"
+kind = "experiment"
+status = "active"
+depends_on = []
+spawned_by = "bs21"
+research_questions = [
+    "Can warp-cooperative hostcall wrappers follow the same pattern as warp_print?",
+    "How should return values (fd, bytes_read) be broadcast to all lanes?",
+    "Do existing per-thread hostcall functions need modification for warp use?",
+]
+
+[[tasks]]
+id = "async-pipeline.2"
+theme = "async-pipeline"
+title = "File transform demo: hand-written WarpFuture pipeline"
+kind = "experiment"
+status = "pending"
+depends_on = ["async-pipeline.1"]
+spawned_by = "bs21"
+research_questions = [
+    "Can a single WarpFuture state machine coordinate 7+ I/O operations + compute?",
+    "What is the end-to-end latency of a GPU-autonomous file transform pipeline?",
+    "Does the demo clearly demonstrate GPU autonomy vs CPU-directed execution?",
+]
+
+[[tasks]]
+id = "async-pipeline.3"
+theme = "async-pipeline"
+title = "README overhaul: showcase the vision and make demo runnable"
+kind = "design"
+status = "pending"
+depends_on = ["async-pipeline.2"]
+spawned_by = "bs21"
+research_questions = [
+    "What is the most compelling way to present the project's value proposition?",
+    "How should the demo be structured so a user can run it immediately?",
+]
+
+[[brainstorms]]
+seq = 21
+at_cycle = 89
+trigger = "User-defined GPU-Native Async Pipeline epic"
+level = "deep"
+new_tasks_spawned = ["async-pipeline.1", "async-pipeline.2", "async-pipeline.3"]
+new_themes_spawned = ["async-pipeline"]
+themes_parked = []
+themes_completed = []
+key_insight = "Don't expand proc macro — hand-write the demo WarpFuture. 3 tasks: warp hostcall wrappers → file transform demo → README overhaul. Skeptic is right about proc macro limits but wrong that hybrid-executor.1 is sufficient — real data pipeline demo needed."

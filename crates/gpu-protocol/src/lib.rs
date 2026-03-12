@@ -58,13 +58,13 @@ pub const PACKET_SIZE: usize = 2112;
 // Buffer header field offsets (from buffer base pointer)
 // ============================================================
 
-pub const BUF_OFF_FREE_STACK: usize = 0;    // u64
-pub const BUF_OFF_READY_STACK: usize = 8;   // u64
-pub const BUF_OFF_DOORBELL: usize = 16;     // u64
-pub const BUF_OFF_SHUTDOWN: usize = 24;     // u32
-pub const BUF_OFF_NUM_PACKETS: usize = 28;  // u32
-pub const BUF_OFF_WARP_SIZE: usize = 32;    // u32
-pub const BUF_OFF_NUM_SHARDS: usize = 36;   // u32 — 0 = legacy (no sharding)
+pub const BUF_OFF_FREE_STACK: usize = 0; // u64
+pub const BUF_OFF_READY_STACK: usize = 8; // u64
+pub const BUF_OFF_DOORBELL: usize = 16; // u64
+pub const BUF_OFF_SHUTDOWN: usize = 24; // u32
+pub const BUF_OFF_NUM_PACKETS: usize = 28; // u32
+pub const BUF_OFF_WARP_SIZE: usize = 32; // u32
+pub const BUF_OFF_NUM_SHARDS: usize = 36; // u32 — 0 = legacy (no sharding)
 pub const BUF_OFF_PKTS_PER_SHARD: usize = 40; // u32
 pub const BUF_OFF_SHARD_ARRAY_OFF: usize = 44; // u32
 
@@ -76,8 +76,8 @@ pub const BUF_OFF_SHARD_ARRAY_OFF: usize = 44; // u32
 //   Offset 0: shard_free_stack  (u64) — tagged pointer
 //   Offset 8: shard_ready_stack (u64) — tagged pointer
 pub const SHARD_ENTRY_SIZE: usize = 16;
-pub const SHARD_OFF_FREE_STACK: usize = 0;   // u64 within shard entry
-pub const SHARD_OFF_READY_STACK: usize = 8;  // u64 within shard entry
+pub const SHARD_OFF_FREE_STACK: usize = 0; // u64 within shard entry
+pub const SHARD_OFF_READY_STACK: usize = 8; // u64 within shard entry
 
 /// Byte offset of shard entry `s` from buffer base, given `shard_array_offset`.
 #[inline(always)]
@@ -88,24 +88,30 @@ pub const fn shard_entry_offset(shard_array_offset: usize, shard_idx: u32) -> us
 /// Byte offset of packet `index` in a sharded buffer.
 /// `shard_array_offset` + `num_shards * SHARD_ENTRY_SIZE` = packet pool base.
 #[inline(always)]
-pub const fn packet_offset_sharded(index: u16, shard_array_offset: usize, num_shards: u32) -> usize {
+pub const fn packet_offset_sharded(
+    index: u16,
+    shard_array_offset: usize,
+    num_shards: u32,
+) -> usize {
     shard_array_offset + (num_shards as usize) * SHARD_ENTRY_SIZE + (index as usize) * PACKET_SIZE
 }
 
 /// Total buffer size for a sharded buffer.
 #[inline(always)]
 pub const fn buffer_size_sharded(num_packets: u16, num_shards: u32) -> usize {
-    BUFFER_HEADER_SIZE + (num_shards as usize) * SHARD_ENTRY_SIZE + (num_packets as usize) * PACKET_SIZE
+    BUFFER_HEADER_SIZE
+        + (num_shards as usize) * SHARD_ENTRY_SIZE
+        + (num_packets as usize) * PACKET_SIZE
 }
 
 // ============================================================
 // Packet field offsets (from packet base pointer)
 // ============================================================
 
-pub const PKT_OFF_NEXT: usize = 0;          // u64
-pub const PKT_OFF_ACTIVE_MASK: usize = 8;   // u32
-pub const PKT_OFF_SERVICE: usize = 12;      // u32
-pub const PKT_OFF_CONTROL: usize = 16;      // u32
+pub const PKT_OFF_NEXT: usize = 0; // u64
+pub const PKT_OFF_ACTIVE_MASK: usize = 8; // u32
+pub const PKT_OFF_SERVICE: usize = 12; // u32
+pub const PKT_OFF_CONTROL: usize = 16; // u32
 pub const PKT_OFF_PAYLOAD: usize = PACKET_HEADER_SIZE; // 32
 
 // ============================================================
@@ -198,9 +204,9 @@ pub const PRINT_MAX_MSG_LEN: usize = 56; // 7 slots × 8 bytes
 // SERVICE_CLOSE response:
 //   Slot 0: 0 on success, u64::MAX on error
 
-pub const FILE_MAX_PATH_LEN: usize = 56;  // 7 slots × 8 bytes (same as PRINT)
+pub const FILE_MAX_PATH_LEN: usize = 56; // 7 slots × 8 bytes (same as PRINT)
 pub const FILE_MAX_WRITE_LEN: usize = 48; // 6 slots × 8 bytes (slots 2-7)
-pub const FILE_MAX_READ_LEN: usize = 56;  // 7 slots × 8 bytes (slots 1-7)
+pub const FILE_MAX_READ_LEN: usize = 56; // 7 slots × 8 bytes (slots 1-7)
 pub const FILE_ERROR_SENTINEL: u64 = u64::MAX;
 
 // Open flags (stored in high 32 bits of slot 0)
@@ -325,8 +331,8 @@ pub const fn panic_msg_len(meta: u64) -> u16 {
 //   Response slot 0: bytes_read (u64), or u64::MAX on error
 
 pub const SIDEBAND_HEADER_SIZE: usize = 64;
-pub const SIDEBAND_OFF_ALLOC: usize = 0;    // u64: bump allocator offset
-pub const SIDEBAND_OFF_CAPACITY: usize = 8;  // u64: total data region size
+pub const SIDEBAND_OFF_ALLOC: usize = 0; // u64: bump allocator offset
+pub const SIDEBAND_OFF_CAPACITY: usize = 8; // u64: total data region size
 pub const SIDEBAND_DATA_OFFSET: usize = SIDEBAND_HEADER_SIZE;
 
 /// Default sideband data region size: 1 MB.

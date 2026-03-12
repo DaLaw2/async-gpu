@@ -33,9 +33,9 @@
 //! bytes sequentially. Maximum message length is 56 bytes (PRINT_MAX_MSG_LEN).
 
 use proc_macro::TokenStream;
-use quote::{quote, format_ident};
-use syn::{parse_macro_input, ItemFn, Stmt, Expr, ExprMacro, ReturnType};
+use quote::{format_ident, quote};
 use syn::parse::{Parse, ParseStream};
+use syn::{parse_macro_input, Expr, ExprMacro, ItemFn, ReturnType, Stmt};
 
 /// Parsed arguments from `warp_print!(buf_expr, msg_expr)`.
 struct WarpPrintArgs {
@@ -48,7 +48,10 @@ impl Parse for WarpPrintArgs {
         let buf_ident: syn::Ident = input.parse()?;
         let _comma: syn::Token![,] = input.parse()?;
         let msg_expr: syn::Expr = input.parse()?;
-        Ok(WarpPrintArgs { buf_ident, msg_expr })
+        Ok(WarpPrintArgs {
+            buf_ident,
+            msg_expr,
+        })
     }
 }
 
@@ -59,7 +62,10 @@ struct WarpPrintCall {
 
 /// Parse the function body and extract `warp_print!()` calls.
 /// Returns Err with a compile error if non-warp_print statements are found.
-fn extract_warp_prints(stmts: &[Stmt], buf_name: &str) -> Result<Vec<WarpPrintCall>, proc_macro2::TokenStream> {
+fn extract_warp_prints(
+    stmts: &[Stmt],
+    buf_name: &str,
+) -> Result<Vec<WarpPrintCall>, proc_macro2::TokenStream> {
     let mut calls = Vec::new();
     for stmt in stmts {
         match stmt {
@@ -68,7 +74,10 @@ fn extract_warp_prints(stmts: &[Stmt], buf_name: &str) -> Result<Vec<WarpPrintCa
                 if let Some(call) = try_extract_from_macro(&stmt_mac.mac, buf_name)? {
                     calls.push(call);
                 } else {
-                    let mac_name = stmt_mac.mac.path.get_ident()
+                    let mac_name = stmt_mac
+                        .mac
+                        .path
+                        .get_ident()
                         .map(|id| id.to_string())
                         .unwrap_or_else(|| "unknown".to_string());
                     return Err(syn::Error::new_spanned(
@@ -77,7 +86,8 @@ fn extract_warp_prints(stmts: &[Stmt], buf_name: &str) -> Result<Vec<WarpPrintCa
                             "#[warp_async] only supports warp_print!() calls, found `{}!`",
                             mac_name,
                         ),
-                    ).to_compile_error());
+                    )
+                    .to_compile_error());
                 }
             }
             // warp_print!(buf, msg) — expression without semicolon
@@ -85,7 +95,9 @@ fn extract_warp_prints(stmts: &[Stmt], buf_name: &str) -> Result<Vec<WarpPrintCa
                 if let Some(call) = try_extract_from_macro(mac, buf_name)? {
                     calls.push(call);
                 } else {
-                    let mac_name = mac.path.get_ident()
+                    let mac_name = mac
+                        .path
+                        .get_ident()
                         .map(|id| id.to_string())
                         .unwrap_or_else(|| "unknown".to_string());
                     return Err(syn::Error::new_spanned(
@@ -94,7 +106,8 @@ fn extract_warp_prints(stmts: &[Stmt], buf_name: &str) -> Result<Vec<WarpPrintCa
                             "#[warp_async] only supports warp_print!() calls, found `{}!`",
                             mac_name,
                         ),
-                    ).to_compile_error());
+                    )
+                    .to_compile_error());
                 }
             }
             // Any other statement type is not supported
@@ -103,7 +116,8 @@ fn extract_warp_prints(stmts: &[Stmt], buf_name: &str) -> Result<Vec<WarpPrintCa
                     quote::quote! { #other },
                     "#[warp_async] function body must contain only warp_print!() calls. \
                      Variable bindings, expressions, and other statements are not supported.",
-                ).to_compile_error());
+                )
+                .to_compile_error());
             }
         }
     }
@@ -111,7 +125,10 @@ fn extract_warp_prints(stmts: &[Stmt], buf_name: &str) -> Result<Vec<WarpPrintCa
 }
 
 /// Try to parse `warp_print!(buf, msg)` from a `Macro` node.
-fn try_extract_from_macro(mac: &syn::Macro, expected_buf: &str) -> Result<Option<WarpPrintCall>, proc_macro2::TokenStream> {
+fn try_extract_from_macro(
+    mac: &syn::Macro,
+    expected_buf: &str,
+) -> Result<Option<WarpPrintCall>, proc_macro2::TokenStream> {
     if !mac.path.is_ident("warp_print") {
         return Ok(None);
     }
@@ -120,7 +137,8 @@ fn try_extract_from_macro(mac: &syn::Macro, expected_buf: &str) -> Result<Option
         syn::Error::new_spanned(
             &mac.tokens,
             format!("warp_print! expects (buf, msg_bytes): {}", e),
-        ).to_compile_error()
+        )
+        .to_compile_error()
     })?;
 
     // Validate that the buf argument matches the function's buf parameter
@@ -131,11 +149,14 @@ fn try_extract_from_macro(mac: &syn::Macro, expected_buf: &str) -> Result<Option
                 "warp_print! first argument must be `{}`, found `{}`",
                 expected_buf, args.buf_ident,
             ),
-        ).to_compile_error());
+        )
+        .to_compile_error());
     }
 
     let msg = &args.msg_expr;
-    Ok(Some(WarpPrintCall { msg_expr: quote::quote! { #msg } }))
+    Ok(Some(WarpPrintCall {
+        msg_expr: quote::quote! { #msg },
+    }))
 }
 
 /// Convert snake_case to PascalCase.
@@ -194,12 +215,9 @@ pub fn warp_async(attr: TokenStream, item: TokenStream) -> TokenStream {
             }
         }
         _ => {
-            return syn::Error::new_spanned(
-                first_param,
-                "First parameter must be `buf: *mut u8`",
-            )
-            .to_compile_error()
-            .into();
+            return syn::Error::new_spanned(first_param, "First parameter must be `buf: *mut u8`")
+                .to_compile_error()
+                .into();
         }
     };
 

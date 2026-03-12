@@ -17,7 +17,6 @@
 ///   rustup +nightly component add llvm-tools
 ///
 /// Until then, the --emit=asm + echo-linker workaround produces equivalent PTX.
-
 fn main() {
     // Tell Cargo to re-run this build script if the PTX file changes.
     println!("cargo:rerun-if-changed=kernel.ptx");

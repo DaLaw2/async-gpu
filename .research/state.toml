@@ -4,22 +4,22 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 97      # Monotonic counter, incremented after each completed phase
-completed_tasks = 96
+total_cycles = 100     # Monotonic counter, incremented after each completed phase
+completed_tasks = 99
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
 current_task_id = ""
-last_summary = "ml-workload.5+6 done: full warp merge verified, README updated with vector search + batch search demos. ml-workload theme complete. Next: brainstorm for next direction."
+last_summary = "ci-quality theme complete: clippy 0 warnings, cargo fmt clean, GitHub Actions CI with lint+build-ptx+build-host. Cycle 100 reached. Next: brainstorm."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 23
+brainstorm_seq = 24
 review_seq = 4
 
 # Brainstorm trigger control
-last_brainstorm_at_completed = 94
+last_brainstorm_at_completed = 96
 brainstorm_interval = 3
 
 # ============================================================
@@ -2134,7 +2134,7 @@ key_insight = "Don't expand proc macro — hand-write the demo WarpFuture. 3 tas
 [[themes]]
 id = "ml-workload"
 title = "Real ML workload on GPU-autonomous async pipeline"
-status = "active"
+status = "completed"
 spawned_by = "user"
 goal = "Demonstrate that GPU-autonomous async pipeline can coordinate real ML computation (vector similarity search), not just I/O demos. Stretch: persistent kernel as a continuously-running GPU service."
 success_criteria = [
@@ -2195,7 +2195,7 @@ id = "ml-workload.4"
 theme = "ml-workload"
 title = "(Stretch) True persistent kernel: GPU as continuously-running service"
 kind = "experiment"
-status = "pending"
+status = "parked"
 depends_on = ["ml-workload.3"]
 spawned_by = "bs22"
 research_questions = [
@@ -2250,3 +2250,73 @@ new_themes_spawned = []
 themes_parked = []
 themes_completed = []
 key_insight = "ml-workload.1/2/3 all done. Lane-0-only results (1/32 DB) is the main quality gap. Full warp merge via shfl.sync is highest impact next step. README update to showcase ML demos."
+
+# ============================================================
+# Theme: ci-quality
+# ============================================================
+
+[[themes]]
+id = "ci-quality"
+title = "CI pipeline and code quality enforcement"
+status = "completed"
+spawned_by = "bs24"
+goal = "Set up GitHub Actions CI for both host and kernel builds, add clippy/fmt checks, ensure all tests pass in CI"
+success_criteria = [
+    "GitHub Actions workflow builds gpu-kernel (nvptx64) and gpu-host (native)",
+    "Clippy warnings are clean across all crates",
+    "cargo fmt check passes",
+    "Test suite runs in CI (at least compilation; GPU tests need hardware)",
+]
+
+# --- Tasks: ci-quality ---
+
+[[tasks]]
+id = "ci-quality.1"
+theme = "ci-quality"
+title = "Fix clippy warnings across all crates"
+kind = "experiment"
+status = "done"
+depends_on = []
+spawned_by = "bs24"
+research_questions = [
+    "What clippy warnings exist in the codebase?",
+    "Can all warnings be fixed without breaking functionality?",
+]
+
+[[tasks]]
+id = "ci-quality.2"
+theme = "ci-quality"
+title = "cargo fmt check and fix formatting"
+kind = "experiment"
+status = "done"
+depends_on = []
+spawned_by = "bs24"
+research_questions = [
+    "Does the codebase pass cargo fmt --check?",
+    "Any format divergences to resolve?",
+]
+
+[[tasks]]
+id = "ci-quality.3"
+theme = "ci-quality"
+title = "GitHub Actions CI workflow for build + lint"
+kind = "design"
+status = "done"
+depends_on = ["ci-quality.1", "ci-quality.2"]
+spawned_by = "bs24"
+research_questions = [
+    "What workflow setup builds nvptx64 kernel + native host?",
+    "How to install CUDA toolkit and Rust nightly in CI?",
+    "Can we cache builds effectively?",
+]
+
+[[brainstorms]]
+seq = 24
+at_cycle = 97
+trigger = "All active themes completed, need new direction"
+level = "quick"
+new_tasks_spawned = ["ci-quality.1", "ci-quality.2", "ci-quality.3"]
+new_themes_spawned = ["ci-quality"]
+themes_parked = []
+themes_completed = ["ml-workload"]
+key_insight = "All research themes done. Product-ready gaps: CI pipeline, clippy clean, fmt check. New ci-quality theme to close these gaps."

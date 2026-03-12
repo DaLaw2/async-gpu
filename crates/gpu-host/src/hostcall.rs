@@ -163,10 +163,7 @@ impl HostcallBuffer {
     ///
     /// Each shard gets `pkts_per_shard` packets. Total packets = num_shards * pkts_per_shard.
     /// Each CUDA block uses shard `blockIdx.x % num_shards`.
-    pub fn new_sharded(
-        num_shards: u32,
-        pkts_per_shard: u32,
-    ) -> Result<Self, HostcallError> {
+    pub fn new_sharded(num_shards: u32, pkts_per_shard: u32) -> Result<Self, HostcallError> {
         Self::new_sharded_with_sideband(num_shards, pkts_per_shard, DEFAULT_SIDEBAND_SIZE)
     }
 
@@ -178,7 +175,12 @@ impl HostcallBuffer {
     ) -> Result<Self, HostcallError> {
         let total_packets = num_shards * pkts_per_shard;
         assert!(total_packets <= 0xFFFE, "too many packets (max 65534)");
-        Self::alloc_internal(total_packets as u16, num_shards, pkts_per_shard, sideband_data_size)
+        Self::alloc_internal(
+            total_packets as u16,
+            num_shards,
+            pkts_per_shard,
+            sideband_data_size,
+        )
     }
 
     /// Internal allocation — handles both legacy and sharded modes.
@@ -204,8 +206,7 @@ impl HostcallBuffer {
         }
 
         let mut dev_ptr: sys::CUdeviceptr = 0;
-        let result =
-            unsafe { cu.cuMemHostGetDevicePointer_v2(&mut dev_ptr, host_ptr, 0) };
+        let result = unsafe { cu.cuMemHostGetDevicePointer_v2(&mut dev_ptr, host_ptr, 0) };
         if result != sys::CUresult::CUDA_SUCCESS {
             unsafe { cu.cuMemFreeHost(host_ptr) };
             return Err(HostcallError::CudaGetDevPtr(result));
@@ -218,20 +219,18 @@ impl HostcallBuffer {
         // Allocate sideband buffer for bulk data transfer
         let sideband_total = SIDEBAND_HEADER_SIZE + sideband_data_size;
         let mut sb_host_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
-        let result =
-            unsafe { cu.cuMemHostAlloc(&mut sb_host_ptr, sideband_total, flags) };
+        let result = unsafe { cu.cuMemHostAlloc(&mut sb_host_ptr, sideband_total, flags) };
         if result != sys::CUresult::CUDA_SUCCESS {
-            unsafe { cu.cuMemFreeHost(host_ptr as *mut std::ffi::c_void) };
+            unsafe { cu.cuMemFreeHost(host_ptr) };
             return Err(HostcallError::CudaAlloc(result));
         }
 
         let mut sb_dev_ptr: sys::CUdeviceptr = 0;
-        let result =
-            unsafe { cu.cuMemHostGetDevicePointer_v2(&mut sb_dev_ptr, sb_host_ptr, 0) };
+        let result = unsafe { cu.cuMemHostGetDevicePointer_v2(&mut sb_dev_ptr, sb_host_ptr, 0) };
         if result != sys::CUresult::CUDA_SUCCESS {
             unsafe {
                 cu.cuMemFreeHost(sb_host_ptr);
-                cu.cuMemFreeHost(host_ptr as *mut std::ffi::c_void);
+                cu.cuMemFreeHost(host_ptr);
             }
             return Err(HostcallError::CudaGetDevPtr(result));
         }
@@ -239,8 +238,7 @@ impl HostcallBuffer {
         // Zero-initialize sideband and set capacity
         unsafe {
             std::ptr::write_bytes(sb_host_ptr as *mut u8, 0, sideband_total);
-            let cap_ptr =
-                (sb_host_ptr as *mut u8).add(SIDEBAND_OFF_CAPACITY) as *mut u64;
+            let cap_ptr = (sb_host_ptr as *mut u8).add(SIDEBAND_OFF_CAPACITY) as *mut u64;
             std::ptr::write_volatile(cap_ptr, sideband_data_size as u64);
         }
 
@@ -281,10 +279,7 @@ impl HostcallBuffer {
             std::ptr::write_volatile(warp_size_field, WARP_SIZE);
             std::ptr::write_volatile(num_shards_field, self.num_shards);
             std::ptr::write_volatile(pkts_per_shard_field, self.pkts_per_shard);
-            std::ptr::write_volatile(
-                shard_array_off_field,
-                BUFFER_HEADER_SIZE as u32,
-            );
+            std::ptr::write_volatile(shard_array_off_field, BUFFER_HEADER_SIZE as u32);
 
             if self.num_shards == 0 {
                 // Legacy mode: single global free/ready stack
@@ -299,10 +294,7 @@ impl HostcallBuffer {
                     } else {
                         null_tagged()
                     };
-                    std::ptr::write_volatile(
-                        pkt.add(PKT_OFF_NEXT) as *mut u64,
-                        next_tagged,
-                    );
+                    std::ptr::write_volatile(pkt.add(PKT_OFF_NEXT) as *mut u64, next_tagged);
                     std::ptr::write_volatile(pkt.add(PKT_OFF_CONTROL) as *mut u32, 0);
                 }
 
@@ -312,19 +304,12 @@ impl HostcallBuffer {
                 let shard_array_off = BUFFER_HEADER_SIZE;
 
                 // Global stacks empty (not used in sharded mode)
-                std::ptr::write_volatile(
-                    base.add(BUF_OFF_FREE_STACK) as *mut u64,
-                    null_tagged(),
-                );
-                std::ptr::write_volatile(
-                    base.add(BUF_OFF_READY_STACK) as *mut u64,
-                    null_tagged(),
-                );
+                std::ptr::write_volatile(base.add(BUF_OFF_FREE_STACK) as *mut u64, null_tagged());
+                std::ptr::write_volatile(base.add(BUF_OFF_READY_STACK) as *mut u64, null_tagged());
 
                 for s in 0..self.num_shards {
                     let base_pkt = s * self.pkts_per_shard;
-                    let entry_off =
-                        shard_entry_offset(shard_array_off, s);
+                    let entry_off = shard_entry_offset(shard_array_off, s);
 
                     // Chain packets within this shard
                     for i in 0..self.pkts_per_shard {
@@ -339,14 +324,8 @@ impl HostcallBuffer {
                         } else {
                             null_tagged()
                         };
-                        std::ptr::write_volatile(
-                            pkt.add(PKT_OFF_NEXT) as *mut u64,
-                            next_tagged,
-                        );
-                        std::ptr::write_volatile(
-                            pkt.add(PKT_OFF_CONTROL) as *mut u32,
-                            0,
-                        );
+                        std::ptr::write_volatile(pkt.add(PKT_OFF_NEXT) as *mut u64, next_tagged);
+                        std::ptr::write_volatile(pkt.add(PKT_OFF_CONTROL) as *mut u32, 0);
                     }
 
                     // Set shard free_stack head
@@ -432,8 +411,7 @@ impl HostcallBuffer {
             // Adaptive polling: spin fast for SPIN_PHASE_LIMIT iterations,
             // then switch to sleeping SLEEP_DURATION between polls.
             const SPIN_PHASE_LIMIT: u32 = 1_000; // ~10µs at ~100ns/spin
-            const SLEEP_DURATION: std::time::Duration =
-                std::time::Duration::from_micros(100);
+            const SLEEP_DURATION: std::time::Duration = std::time::Duration::from_micros(100);
 
             loop {
                 if self.shutdown().load(Ordering::Acquire) != 0 {
@@ -455,14 +433,19 @@ impl HostcallBuffer {
                 idle_spins = 0;
 
                 // Drain all ready stacks (1 global or N shard stacks)
-                let stacks_to_scan = if self.num_shards == 0 { 1 } else { self.num_shards };
+                let stacks_to_scan = if self.num_shards == 0 {
+                    1
+                } else {
+                    self.num_shards
+                };
                 for s in 0..stacks_to_scan {
                     let ready_head = if self.num_shards == 0 {
                         self.ready_stack().swap(null_tagged(), Ordering::AcqRel)
                     } else {
                         let entry_off = shard_entry_offset(BUFFER_HEADER_SIZE, s);
                         let shard_ready = unsafe {
-                            &*(self.host_ptr.add(entry_off + SHARD_OFF_READY_STACK) as *const AtomicU64)
+                            &*(self.host_ptr.add(entry_off + SHARD_OFF_READY_STACK)
+                                as *const AtomicU64)
                         };
                         shard_ready.swap(null_tagged(), Ordering::AcqRel)
                     };
@@ -476,21 +459,17 @@ impl HostcallBuffer {
                         let pkt = self.packet_ptr(idx);
 
                         unsafe {
-                            let next = std::ptr::read_volatile(
-                                pkt.add(PKT_OFF_NEXT) as *const u64,
-                            );
+                            let next = std::ptr::read_volatile(pkt.add(PKT_OFF_NEXT) as *const u64);
 
-                            let control =
-                                &*(pkt.add(PKT_OFF_CONTROL) as *const AtomicU32);
+                            let control = &*(pkt.add(PKT_OFF_CONTROL) as *const AtomicU32);
                             let ctrl = control.load(Ordering::Acquire);
                             if ctrl & CONTROL_FILLED == 0 {
                                 current = next;
                                 continue;
                             }
 
-                            let service = std::ptr::read_volatile(
-                                pkt.add(PKT_OFF_SERVICE) as *const u32,
-                            );
+                            let service =
+                                std::ptr::read_volatile(pkt.add(PKT_OFF_SERVICE) as *const u32);
 
                             match service {
                                 // Fast path — handle inline, set CONTROL_READY immediately
@@ -515,19 +494,15 @@ impl HostcallBuffer {
                                     control.store(CONTROL_READY, Ordering::Release);
                                 }
                                 // Slow path — offload to I/O thread
-                                SERVICE_OPEN | SERVICE_WRITE | SERVICE_READ
-                                | SERVICE_CLOSE | SERVICE_STDIN
-                                | SERVICE_BULK_WRITE | SERVICE_BULK_READ => {
+                                SERVICE_OPEN | SERVICE_WRITE | SERVICE_READ | SERVICE_CLOSE
+                                | SERVICE_STDIN | SERVICE_BULK_WRITE | SERVICE_BULK_READ => {
                                     let _ = io_tx.send(IoRequest {
                                         pkt_idx: idx,
                                         service,
                                     });
                                 }
                                 _ => {
-                                    control.store(
-                                        CONTROL_READY | CONTROL_ERROR,
-                                        Ordering::Release,
-                                    );
+                                    control.store(CONTROL_READY | CONTROL_ERROR, Ordering::Release);
                                 }
                             }
 
@@ -546,11 +521,7 @@ impl HostcallBuffer {
     /// I/O thread loop — processes blocking FILE and STDIN operations.
     ///
     /// Runs until the channel sender is dropped (listener shutdown).
-    fn io_thread_loop<S: StdinSource>(
-        &self,
-        rx: mpsc::Receiver<IoRequest>,
-        mut stdin: S,
-    ) {
+    fn io_thread_loop<S: StdinSource>(&self, rx: mpsc::Receiver<IoRequest>, mut stdin: S) {
         let mut fd_table: HashMap<u64, File> = HashMap::new();
         let mut next_fd: u64 = 1; // fd 0 is reserved
 
@@ -558,28 +529,18 @@ impl HostcallBuffer {
             let pkt = self.packet_ptr(req.pkt_idx);
             let has_error = unsafe {
                 match req.service {
-                    SERVICE_OPEN => {
-                        self.handle_open(pkt, &mut fd_table, &mut next_fd)
-                    }
+                    SERVICE_OPEN => self.handle_open(pkt, &mut fd_table, &mut next_fd),
                     SERVICE_WRITE => self.handle_write(pkt, &mut fd_table),
                     SERVICE_READ => self.handle_read(pkt, &mut fd_table),
                     SERVICE_CLOSE => self.handle_close(pkt, &mut fd_table),
-                    SERVICE_STDIN => {
-                        self.handle_stdin_from_source(pkt, &mut stdin)
-                    }
-                    SERVICE_BULK_WRITE => {
-                        self.handle_bulk_write(pkt, &mut fd_table)
-                    }
-                    SERVICE_BULK_READ => {
-                        self.handle_bulk_read(pkt, &mut fd_table)
-                    }
+                    SERVICE_STDIN => self.handle_stdin_from_source(pkt, &mut stdin),
+                    SERVICE_BULK_WRITE => self.handle_bulk_write(pkt, &mut fd_table),
+                    SERVICE_BULK_READ => self.handle_bulk_read(pkt, &mut fd_table),
                     _ => true,
                 }
             };
 
-            let control = unsafe {
-                &*(pkt.add(PKT_OFF_CONTROL) as *const AtomicU32)
-            };
+            let control = unsafe { &*(pkt.add(PKT_OFF_CONTROL) as *const AtomicU32) };
             let flags = if has_error {
                 CONTROL_READY | CONTROL_ERROR
             } else {
@@ -682,7 +643,10 @@ impl HostcallBuffer {
                 *next_fd += 1;
                 fd_table.insert(fd, file);
                 std::ptr::write_volatile(payload as *mut u64, fd);
-                println!("  [HOST] FILE OPEN: \"{}\" flags={} -> fd={}", path_str, flags, fd);
+                println!(
+                    "  [HOST] FILE OPEN: \"{}\" flags={} -> fd={}",
+                    path_str, flags, fd
+                );
                 false
             }
             Err(e) => {
@@ -700,11 +664,7 @@ impl HostcallBuffer {
     ///   Slots 2-7: data bytes (up to 48 bytes)
     /// Response payload (lane 0):
     ///   Slot 0: bytes written on success, FILE_ERROR_SENTINEL on error
-    unsafe fn handle_write(
-        &self,
-        pkt: *mut u8,
-        fd_table: &mut HashMap<u64, File>,
-    ) -> bool {
+    unsafe fn handle_write(&self, pkt: *mut u8, fd_table: &mut HashMap<u64, File>) -> bool {
         let payload = pkt.add(PKT_OFF_PAYLOAD);
 
         let fd = std::ptr::read_volatile(payload as *const u64);
@@ -750,11 +710,7 @@ impl HostcallBuffer {
     /// Response payload (lane 0):
     ///   Slot 0: bytes read on success, FILE_ERROR_SENTINEL on error
     ///   Slots 1-7: data bytes (up to 56 bytes)
-    unsafe fn handle_read(
-        &self,
-        pkt: *mut u8,
-        fd_table: &mut HashMap<u64, File>,
-    ) -> bool {
+    unsafe fn handle_read(&self, pkt: *mut u8, fd_table: &mut HashMap<u64, File>) -> bool {
         let payload = pkt.add(PKT_OFF_PAYLOAD);
 
         let fd = std::ptr::read_volatile(payload as *const u64);
@@ -852,11 +808,7 @@ impl HostcallBuffer {
     ///   Slot 0: fd (u64)
     /// Response payload (lane 0):
     ///   Slot 0: 0 on success, FILE_ERROR_SENTINEL on error
-    unsafe fn handle_close(
-        &self,
-        pkt: *mut u8,
-        fd_table: &mut HashMap<u64, File>,
-    ) -> bool {
+    unsafe fn handle_close(&self, pkt: *mut u8, fd_table: &mut HashMap<u64, File>) -> bool {
         let payload = pkt.add(PKT_OFF_PAYLOAD);
 
         let fd = std::ptr::read_volatile(payload as *const u64);
@@ -882,11 +834,7 @@ impl HostcallBuffer {
     /// Response payload (lane 0):
     ///   Slot 0: bytes read (u64)
     ///   Slots 1-7: data bytes (up to 56 bytes)
-    unsafe fn handle_stdin_from_source<S: StdinSource>(
-        &self,
-        pkt: *mut u8,
-        stdin: &mut S,
-    ) -> bool {
+    unsafe fn handle_stdin_from_source<S: StdinSource>(&self, pkt: *mut u8, stdin: &mut S) -> bool {
         let payload = pkt.add(PKT_OFF_PAYLOAD);
         let max_len = std::ptr::read_volatile(payload as *const u64) as usize;
         let max_len = max_len.min(STDIN_MAX_READ_LEN);
@@ -911,11 +859,7 @@ impl HostcallBuffer {
     ///   Slot 2: length (u64)
     /// Response payload (lane 0):
     ///   Slot 0: bytes written on success, FILE_ERROR_SENTINEL on error
-    unsafe fn handle_bulk_write(
-        &self,
-        pkt: *mut u8,
-        fd_table: &mut HashMap<u64, File>,
-    ) -> bool {
+    unsafe fn handle_bulk_write(&self, pkt: *mut u8, fd_table: &mut HashMap<u64, File>) -> bool {
         let payload = pkt.add(PKT_OFF_PAYLOAD);
 
         let fd = std::ptr::read_volatile(payload as *const u64);
@@ -924,17 +868,14 @@ impl HostcallBuffer {
 
         // Bounds check against sideband capacity
         let capacity = std::ptr::read_volatile(
-            self.sideband_host_ptr.add(SIDEBAND_OFF_CAPACITY) as *const u64,
+            self.sideband_host_ptr.add(SIDEBAND_OFF_CAPACITY) as *const u64
         ) as usize;
         if sb_offset + length > capacity {
             eprintln!(
                 "  [HOST] BULK WRITE ERROR: offset={} + len={} > capacity={}",
                 sb_offset, length, capacity
             );
-            std::ptr::write_volatile(
-                payload as *mut u64,
-                encode_error(ERR_INVALID_INPUT, 0),
-            );
+            std::ptr::write_volatile(payload as *mut u64, encode_error(ERR_INVALID_INPUT, 0));
             return true;
         }
 
@@ -942,10 +883,7 @@ impl HostcallBuffer {
             Some(f) => f,
             None => {
                 eprintln!("  [HOST] BULK WRITE ERROR: invalid fd={}", fd);
-                std::ptr::write_volatile(
-                    payload as *mut u64,
-                    encode_error(ERR_INVALID_FD, 0),
-                );
+                std::ptr::write_volatile(payload as *mut u64, encode_error(ERR_INVALID_FD, 0));
                 return true;
             }
         };
@@ -956,10 +894,7 @@ impl HostcallBuffer {
         match file.write_all(data) {
             Ok(()) => {
                 let _ = file.flush();
-                println!(
-                    "  [HOST] BULK WRITE: fd={} {} bytes written",
-                    fd, length
-                );
+                println!("  [HOST] BULK WRITE: fd={} {} bytes written", fd, length);
                 std::ptr::write_volatile(payload as *mut u64, length as u64);
                 false
             }
@@ -978,31 +913,23 @@ impl HostcallBuffer {
     ///   Slot 2: max_length (u64)
     /// Response payload (lane 0):
     ///   Slot 0: bytes read on success, FILE_ERROR_SENTINEL on error
-    unsafe fn handle_bulk_read(
-        &self,
-        pkt: *mut u8,
-        fd_table: &mut HashMap<u64, File>,
-    ) -> bool {
+    unsafe fn handle_bulk_read(&self, pkt: *mut u8, fd_table: &mut HashMap<u64, File>) -> bool {
         let payload = pkt.add(PKT_OFF_PAYLOAD);
 
         let fd = std::ptr::read_volatile(payload as *const u64);
         let sb_offset = std::ptr::read_volatile(payload.add(8) as *const u64) as usize;
-        let max_length =
-            std::ptr::read_volatile(payload.add(16) as *const u64) as usize;
+        let max_length = std::ptr::read_volatile(payload.add(16) as *const u64) as usize;
 
         // Bounds check
         let capacity = std::ptr::read_volatile(
-            self.sideband_host_ptr.add(SIDEBAND_OFF_CAPACITY) as *const u64,
+            self.sideband_host_ptr.add(SIDEBAND_OFF_CAPACITY) as *const u64
         ) as usize;
         if sb_offset + max_length > capacity {
             eprintln!(
                 "  [HOST] BULK READ ERROR: offset={} + len={} > capacity={}",
                 sb_offset, max_length, capacity
             );
-            std::ptr::write_volatile(
-                payload as *mut u64,
-                encode_error(ERR_INVALID_INPUT, 0),
-            );
+            std::ptr::write_volatile(payload as *mut u64, encode_error(ERR_INVALID_INPUT, 0));
             return true;
         }
 
@@ -1010,10 +937,7 @@ impl HostcallBuffer {
             Some(f) => f,
             None => {
                 eprintln!("  [HOST] BULK READ ERROR: invalid fd={}", fd);
-                std::ptr::write_volatile(
-                    payload as *mut u64,
-                    encode_error(ERR_INVALID_FD, 0),
-                );
+                std::ptr::write_volatile(payload as *mut u64, encode_error(ERR_INVALID_FD, 0));
                 return true;
             }
         };

@@ -25,12 +25,37 @@
 //! ```
 
 #![no_std]
-#![feature(stdarch_nvptx)]
-#![feature(asm_experimental_arch)]
+#![allow(clippy::missing_safety_doc)]
+#![cfg_attr(target_arch = "nvptx64", feature(stdarch_nvptx))]
+#![cfg_attr(target_arch = "nvptx64", feature(asm_experimental_arch))]
+
+// GPU intrinsic wrappers — stubs on non-nvptx targets for doc builds.
+#[cfg(target_arch = "nvptx64")]
+mod nvptx_shim {
+    #[inline(always)]
+    pub fn block_idx_x() -> u32 {
+        unsafe { core::arch::nvptx::_block_idx_x() }
+    }
+    #[inline(always)]
+    pub fn thread_idx_x() -> u32 {
+        unsafe { core::arch::nvptx::_thread_idx_x() }
+    }
+}
+#[cfg(not(target_arch = "nvptx64"))]
+mod nvptx_shim {
+    #[inline(always)]
+    pub fn block_idx_x() -> u32 {
+        0
+    }
+    #[inline(always)]
+    pub fn thread_idx_x() -> u32 {
+        0
+    }
+}
 
 // Re-export sub-crates
-pub use gpu_protocol;
 pub use gpu_atomics;
+pub use gpu_protocol;
 
 // Ensure critical-section is linked (needed for Embassy executor)
 extern crate gpu_critical_section;
@@ -58,8 +83,10 @@ pub mod hostcall {
         if num_shards == 0 {
             return (0, BUFFER_HEADER_SIZE as u32, 0);
         }
-        let pkts_per_shard = core::ptr::read_volatile(buf.add(BUF_OFF_PKTS_PER_SHARD) as *const u32);
-        let shard_array_off = core::ptr::read_volatile(buf.add(BUF_OFF_SHARD_ARRAY_OFF) as *const u32);
+        let pkts_per_shard =
+            core::ptr::read_volatile(buf.add(BUF_OFF_PKTS_PER_SHARD) as *const u32);
+        let shard_array_off =
+            core::ptr::read_volatile(buf.add(BUF_OFF_SHARD_ARRAY_OFF) as *const u32);
         (num_shards, shard_array_off, pkts_per_shard)
     }
 
@@ -76,11 +103,15 @@ pub mod hostcall {
 
     /// Get the free stack pointer for the current block's shard (or global if unsharded).
     #[inline(always)]
-    pub unsafe fn get_free_stack_ptr(buf: *mut u8, num_shards: u32, shard_array_off: u32) -> *mut u64 {
+    pub unsafe fn get_free_stack_ptr(
+        buf: *mut u8,
+        num_shards: u32,
+        shard_array_off: u32,
+    ) -> *mut u64 {
         if num_shards == 0 {
             buf.add(BUF_OFF_FREE_STACK) as *mut u64
         } else {
-            let shard_idx = core::arch::nvptx::_block_idx_x() as u32 % num_shards;
+            let shard_idx = crate::nvptx_shim::block_idx_x() % num_shards;
             let entry_off = shard_entry_offset(shard_array_off as usize, shard_idx);
             buf.add(entry_off + SHARD_OFF_FREE_STACK) as *mut u64
         }
@@ -88,11 +119,15 @@ pub mod hostcall {
 
     /// Get the ready stack pointer for the current block's shard (or global if unsharded).
     #[inline(always)]
-    pub unsafe fn get_ready_stack_ptr(buf: *mut u8, num_shards: u32, shard_array_off: u32) -> *mut u64 {
+    pub unsafe fn get_ready_stack_ptr(
+        buf: *mut u8,
+        num_shards: u32,
+        shard_array_off: u32,
+    ) -> *mut u64 {
         if num_shards == 0 {
             buf.add(BUF_OFF_READY_STACK) as *mut u64
         } else {
-            let shard_idx = core::arch::nvptx::_block_idx_x() as u32 % num_shards;
+            let shard_idx = crate::nvptx_shim::block_idx_x() % num_shards;
             let entry_off = shard_entry_offset(shard_array_off as usize, shard_idx);
             buf.add(entry_off + SHARD_OFF_READY_STACK) as *mut u64
         }
@@ -112,7 +147,12 @@ pub mod hostcall {
 
     /// Pop a packet from a specific free stack pointer.
     #[inline(always)]
-    unsafe fn hc_pop_free_from(buf: *mut u8, free_ptr: *mut u64, num_shards: u32, shard_array_off: u32) -> u16 {
+    unsafe fn hc_pop_free_from(
+        buf: *mut u8,
+        free_ptr: *mut u64,
+        num_shards: u32,
+        shard_array_off: u32,
+    ) -> u16 {
         loop {
             let old_head = sys_load_acquire_u64(free_ptr as *const u64);
             let idx = tagged_index(old_head);
@@ -141,7 +181,13 @@ pub mod hostcall {
 
     /// Push with pre-computed sharding info.
     #[inline(always)]
-    unsafe fn hc_push_with(stack_ptr: *mut u64, buf: *mut u8, pkt_idx: u16, num_shards: u32, shard_array_off: u32) {
+    unsafe fn hc_push_with(
+        stack_ptr: *mut u64,
+        buf: *mut u8,
+        pkt_idx: u16,
+        num_shards: u32,
+        shard_array_off: u32,
+    ) {
         let pkt_off = if num_shards == 0 {
             packet_offset(pkt_idx)
         } else {
@@ -286,8 +332,8 @@ pub mod hostcall {
         }
 
         // Write thread/block metadata at payload+64 (lane 1 area, unused by PRINT message)
-        let block_idx = core::arch::nvptx::_block_idx_x() as u32;
-        let thread_idx = core::arch::nvptx::_thread_idx_x() as u32;
+        let block_idx = crate::nvptx_shim::block_idx_x();
+        let thread_idx = crate::nvptx_shim::thread_idx_x();
         core::ptr::write_volatile(payload.add(64) as *mut u32, block_idx);
         core::ptr::write_volatile(payload.add(68) as *mut u32, thread_idx);
 
@@ -335,9 +381,7 @@ pub mod sideband {
     #[inline(always)]
     pub unsafe fn sideband_alloc(sideband: *mut u8, size: u64) -> u64 {
         let alloc_ptr = sideband.add(SIDEBAND_OFF_ALLOC) as *mut u64;
-        let capacity = core::ptr::read_volatile(
-            sideband.add(SIDEBAND_OFF_CAPACITY) as *const u64,
-        );
+        let capacity = core::ptr::read_volatile(sideband.add(SIDEBAND_OFF_CAPACITY) as *const u64);
         let old_offset = sys_fetch_add_u64(alloc_ptr, size);
         if old_offset + size > capacity {
             return u64::MAX;
@@ -382,19 +426,16 @@ pub mod sideband {
         }
 
         // Send hostcall with sideband metadata
-        let (pkt, success) =
-            gpu_hostcall_request(buf, SERVICE_BULK_WRITE, |payload| {
-                core::ptr::write_volatile(payload as *mut u64, fd);
-                core::ptr::write_volatile(payload.add(8) as *mut u64, offset);
-                core::ptr::write_volatile(payload.add(16) as *mut u64, len as u64);
-            });
+        let (pkt, success) = gpu_hostcall_request(buf, SERVICE_BULK_WRITE, |payload| {
+            core::ptr::write_volatile(payload as *mut u64, fd);
+            core::ptr::write_volatile(payload.add(8) as *mut u64, offset);
+            core::ptr::write_volatile(payload.add(16) as *mut u64, len as u64);
+        });
         if pkt.is_null() || !success {
             return 0;
         }
 
-        let written = core::ptr::read_volatile(
-            pkt.add(PKT_OFF_PAYLOAD) as *const u64,
-        );
+        let written = core::ptr::read_volatile(pkt.add(PKT_OFF_PAYLOAD) as *const u64);
         gpu_hostcall_release(buf, pkt);
         if written == FILE_ERROR_SENTINEL {
             0
@@ -424,19 +465,16 @@ pub mod sideband {
         }
 
         // Send hostcall requesting read
-        let (pkt, success) =
-            gpu_hostcall_request(buf, SERVICE_BULK_READ, |payload| {
-                core::ptr::write_volatile(payload as *mut u64, fd);
-                core::ptr::write_volatile(payload.add(8) as *mut u64, offset);
-                core::ptr::write_volatile(payload.add(16) as *mut u64, max_len as u64);
-            });
+        let (pkt, success) = gpu_hostcall_request(buf, SERVICE_BULK_READ, |payload| {
+            core::ptr::write_volatile(payload as *mut u64, fd);
+            core::ptr::write_volatile(payload.add(8) as *mut u64, offset);
+            core::ptr::write_volatile(payload.add(16) as *mut u64, max_len as u64);
+        });
         if pkt.is_null() || !success {
             return 0;
         }
 
-        let bytes_read = core::ptr::read_volatile(
-            pkt.add(PKT_OFF_PAYLOAD) as *const u64,
-        );
+        let bytes_read = core::ptr::read_volatile(pkt.add(PKT_OFF_PAYLOAD) as *const u64);
         gpu_hostcall_release(buf, pkt);
 
         if bytes_read == FILE_ERROR_SENTINEL || bytes_read == 0 {
@@ -496,6 +534,12 @@ pub mod panic {
         pub pos: usize,
     }
 
+    impl Default for PanicBuf {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
     impl PanicBuf {
         #[inline(always)]
         pub const fn new() -> Self {
@@ -547,8 +591,9 @@ pub mod panic {
             ready_ptr = buf.add(BUF_OFF_READY_STACK) as *mut u64;
             shard_array_off = BUFFER_HEADER_SIZE as u32;
         } else {
-            shard_array_off = core::ptr::read_volatile(buf.add(BUF_OFF_SHARD_ARRAY_OFF) as *const u32);
-            let shard_idx = core::arch::nvptx::_block_idx_x() as u32 % num_shards;
+            shard_array_off =
+                core::ptr::read_volatile(buf.add(BUF_OFF_SHARD_ARRAY_OFF) as *const u32);
+            let shard_idx = crate::nvptx_shim::block_idx_x() % num_shards;
             let entry_off = shard_entry_offset(shard_array_off as usize, shard_idx);
             free_ptr = buf.add(entry_off + SHARD_OFF_FREE_STACK) as *mut u64;
             ready_ptr = buf.add(entry_off + SHARD_OFF_READY_STACK) as *mut u64;
@@ -556,7 +601,12 @@ pub mod panic {
 
         /// Inline helper — compute packet byte offset supporting both layouts.
         #[inline(always)]
-        unsafe fn panic_pkt_off(_buf: *const u8, idx: u16, num_shards: u32, shard_array_off: u32) -> usize {
+        unsafe fn panic_pkt_off(
+            _buf: *const u8,
+            idx: u16,
+            num_shards: u32,
+            shard_array_off: u32,
+        ) -> usize {
             if num_shards == 0 {
                 packet_offset(idx)
             } else {
@@ -590,8 +640,8 @@ pub mod panic {
 
         // Fill payload: metadata in slot 0, message in slots 1-7
         let payload = pkt.add(PKT_OFF_PAYLOAD);
-        let thread_x = core::arch::nvptx::_thread_idx_x() as u16;
-        let block_x = core::arch::nvptx::_block_idx_x() as u16;
+        let thread_x = crate::nvptx_shim::thread_idx_x() as u16;
+        let block_x = crate::nvptx_shim::block_idx_x() as u16;
         let msg_len = if msg.len() > PANIC_MAX_MSG_LEN {
             PANIC_MAX_MSG_LEN as u16
         } else {
@@ -674,7 +724,10 @@ macro_rules! panic_handler {
                     $crate::panic::send_panic_hostcall(buf, msg);
                 }
                 // Terminate this GPU thread
+                #[cfg(target_arch = "nvptx64")]
                 core::arch::asm!("trap;", options(noreturn));
+                #[cfg(not(target_arch = "nvptx64"))]
+                panic!("GPU trap");
             }
         }
     };
@@ -705,8 +758,8 @@ macro_rules! panic_handler {
 /// ```
 pub mod warp_future {
     use gpu_atomics::{
-        syncwarp, shfl_sync_idx_u32, lane_id, activemask,
-        sys_store_release_u32, sys_fetch_add_u64, sys_spin_load_acquire_u32,
+        activemask, lane_id, shfl_sync_idx_u32, syncwarp, sys_fetch_add_u64,
+        sys_spin_load_acquire_u32, sys_store_release_u32,
     };
     use gpu_protocol::*;
 
@@ -794,9 +847,13 @@ pub mod warp_future {
                         polls += 1;
                         if polls >= MAX_POLLS {
                             // Timeout — trap to avoid infinite loop
+                            #[cfg(target_arch = "nvptx64")]
                             core::arch::asm!("trap;", options(noreturn));
+                            #[cfg(not(target_arch = "nvptx64"))]
+                            panic!("WarpExecutor timeout");
                         }
                         // Yield warp scheduler slot
+                        #[cfg(target_arch = "nvptx64")]
                         core::arch::asm!("nanosleep.u32 64;", options(nostack));
                     }
                 }
@@ -859,20 +916,10 @@ pub mod warp_future {
         syncwarp(wcx.active_mask);
 
         if wcx.is_leader() {
-            core::ptr::write_volatile(
-                pkt.add(PKT_OFF_ACTIVE_MASK) as *mut u32,
-                wcx.active_mask,
-            );
-            core::ptr::write_volatile(
-                pkt.add(PKT_OFF_SERVICE) as *mut u32,
-                service,
-            );
-            sys_store_release_u32(
-                pkt.add(PKT_OFF_CONTROL) as *mut u32,
-                CONTROL_FILLED,
-            );
-            let (num_shards, shard_off, _) =
-                crate::hostcall::read_shard_info(buf as *const u8);
+            core::ptr::write_volatile(pkt.add(PKT_OFF_ACTIVE_MASK) as *mut u32, wcx.active_mask);
+            core::ptr::write_volatile(pkt.add(PKT_OFF_SERVICE) as *mut u32, service);
+            sys_store_release_u32(pkt.add(PKT_OFF_CONTROL) as *mut u32, CONTROL_FILLED);
+            let (num_shards, shard_off, _) = crate::hostcall::read_shard_info(buf as *const u8);
             let ready_ptr = crate::hostcall::get_ready_stack_ptr(buf, num_shards, shard_off);
             crate::hostcall::hc_push(ready_ptr, buf, idx);
             sys_fetch_add_u64(buf.add(BUF_OFF_DOORBELL) as *mut u64, 1);
@@ -908,16 +955,12 @@ pub mod warp_future {
         let idx = broadcast_u32(wcx.active_mask, pkt_idx as u32) as u16;
         let pkt_off = crate::hostcall::pkt_offset(buf as *const u8, idx);
         let pkt = buf.add(pkt_off);
-        let ctrl = sys_spin_load_acquire_u32(
-            pkt.add(PKT_OFF_CONTROL) as *const u32,
-        );
+        let ctrl = sys_spin_load_acquire_u32(pkt.add(PKT_OFF_CONTROL) as *const u32);
 
         if ctrl & CONTROL_READY != 0 {
             let mut val: u64 = 0;
             if wcx.is_leader() {
-                val = core::ptr::read_volatile(
-                    pkt.add(PKT_OFF_PAYLOAD) as *const u64,
-                );
+                val = core::ptr::read_volatile(pkt.add(PKT_OFF_PAYLOAD) as *const u64);
                 crate::hostcall::gpu_hostcall_release(buf, pkt);
                 *state_cell = next_state;
             }
@@ -944,36 +987,29 @@ pub mod warp_future {
 /// ```
 pub mod prelude {
     // --- High-level hostcall API ---
-    pub use crate::hostcall::{
-        gpu_hostcall_print, gpu_hostcall_request, gpu_hostcall_release,
-    };
+    pub use crate::hostcall::{gpu_hostcall_print, gpu_hostcall_release, gpu_hostcall_request};
     pub use crate::panic::gpu_panic_init;
-    pub use crate::sideband::{
-        gpu_bulk_read, gpu_bulk_write, sideband_alloc, sideband_reset,
-    };
+    pub use crate::sideband::{gpu_bulk_read, gpu_bulk_write, sideband_alloc, sideband_reset};
 
     // --- WarpFuture API ---
     pub use crate::warp_future::{
-        WarpPoll, WarpContext, WarpFuture, WarpExecutor, broadcast_u32,
-        warp_hostcall_submit, warp_hostcall_wait_u64,
+        broadcast_u32, warp_hostcall_submit, warp_hostcall_wait_u64, WarpContext, WarpExecutor,
+        WarpFuture, WarpPoll,
     };
 
     // --- Commonly needed protocol constants ---
     pub use gpu_protocol::{
-        SERVICE_PRINT, SERVICE_WRITE, SERVICE_READ, SERVICE_OPEN, SERVICE_CLOSE,
-        SERVICE_STDIN, SERVICE_TIME, SERVICE_PANIC,
-        SERVICE_BULK_WRITE, SERVICE_BULK_READ,
-        CONTROL_READY, CONTROL_ERROR, CONTROL_FILLED,
-        PKT_OFF_PAYLOAD, PKT_OFF_CONTROL, PKT_OFF_SERVICE, PKT_OFF_ACTIVE_MASK,
-        NULL_INDEX, PACKET_SIZE, PRINT_MAX_MSG_LEN,
-        FILE_MAX_PATH_LEN, FILE_MAX_WRITE_LEN, FILE_MAX_READ_LEN,
-        FILE_ERROR_SENTINEL,
-        FILE_OPEN_READ, FILE_OPEN_WRITE_CREATE, FILE_OPEN_APPEND,
+        CONTROL_ERROR, CONTROL_FILLED, CONTROL_READY, FILE_ERROR_SENTINEL, FILE_MAX_PATH_LEN,
+        FILE_MAX_READ_LEN, FILE_MAX_WRITE_LEN, FILE_OPEN_APPEND, FILE_OPEN_READ,
+        FILE_OPEN_WRITE_CREATE, NULL_INDEX, PACKET_SIZE, PKT_OFF_ACTIVE_MASK, PKT_OFF_CONTROL,
+        PKT_OFF_PAYLOAD, PKT_OFF_SERVICE, PRINT_MAX_MSG_LEN, SERVICE_BULK_READ, SERVICE_BULK_WRITE,
+        SERVICE_CLOSE, SERVICE_OPEN, SERVICE_PANIC, SERVICE_PRINT, SERVICE_READ, SERVICE_STDIN,
+        SERVICE_TIME, SERVICE_WRITE,
     };
 
     // --- Warp intrinsics ---
-    pub use gpu_atomics::{activemask, lane_id, syncwarp, shfl_sync_idx_u32};
+    pub use gpu_atomics::{activemask, lane_id, shfl_sync_idx_u32, syncwarp};
 
     // --- Commonly needed atomics ---
-    pub use gpu_atomics::{sys_store_release_u32, sys_load_acquire_u32};
+    pub use gpu_atomics::{sys_load_acquire_u32, sys_store_release_u32};
 }

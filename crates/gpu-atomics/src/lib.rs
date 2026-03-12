@@ -15,10 +15,26 @@
 //! 3. No bounds checking or lifetime tracking.
 
 #![no_std]
-#![feature(asm_experimental_arch)]
+#![allow(clippy::missing_safety_doc)]
+#![cfg_attr(target_arch = "nvptx64", feature(asm_experimental_arch))]
 // Note: link_llvm_intrinsics feature removed — NVVM intrinsics
 // (llvm.nvvm.atomic.add.gen.i.sys) fail with "Cannot select" on
 // nightly 2025-08-25 LLVM. All operations now use inline PTX asm.
+//
+// On non-nvptx64 targets (e.g., x86_64), stub implementations are provided
+// so that `cargo doc` and dependent crate compilation works. The stubs panic
+// at runtime — they exist only for documentation and type-checking.
+
+/// Stub body for non-GPU targets (panics at runtime).
+#[cfg(not(target_arch = "nvptx64"))]
+macro_rules! gpu_stub {
+    () => {
+        panic!("gpu-atomics: called on non-GPU target")
+    };
+    ($t:ty) => {{
+        panic!("gpu-atomics: called on non-GPU target")
+    }};
+}
 
 // ============================================================
 // System-scope fence
@@ -37,7 +53,10 @@
 /// release semantics with `.sys` scope atomics.
 #[inline(always)]
 pub unsafe fn membar_sys() {
+    #[cfg(target_arch = "nvptx64")]
     core::arch::asm!("membar.sys;", options(nostack));
+    #[cfg(not(target_arch = "nvptx64"))]
+    gpu_stub!();
 }
 
 // ============================================================
@@ -57,12 +76,18 @@ pub unsafe fn membar_sys() {
 /// GPU memory accessible from both GPU and CPU.
 #[inline(always)]
 pub unsafe fn sys_store_release_u32(ptr: *mut u32, val: u32) {
+    #[cfg(target_arch = "nvptx64")]
     core::arch::asm!(
         "st.release.sys.global.u32 [{ptr}], {val};",
         ptr = in(reg64) ptr,
         val = in(reg32) val,
         options(nostack),
     );
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (ptr, val);
+        gpu_stub!();
+    }
 }
 
 /// System-scope release store of a u64.
@@ -70,12 +95,18 @@ pub unsafe fn sys_store_release_u32(ptr: *mut u32, val: u32) {
 /// Emits `st.release.sys.global.u64 [ptr], val;`
 #[inline(always)]
 pub unsafe fn sys_store_release_u64(ptr: *mut u64, val: u64) {
+    #[cfg(target_arch = "nvptx64")]
     core::arch::asm!(
         "st.release.sys.global.u64 [{ptr}], {val};",
         ptr = in(reg64) ptr,
         val = in(reg64) val,
         options(nostack),
     );
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (ptr, val);
+        gpu_stub!();
+    }
 }
 
 // ============================================================
@@ -101,14 +132,22 @@ pub unsafe fn sys_store_release_u64(ptr: *mut u64, val: u64) {
 /// function not marked `#[inline(always)]` or use a volatile fence.
 #[inline(always)]
 pub unsafe fn sys_load_acquire_u32(ptr: *const u32) -> u32 {
-    let result: u32;
-    core::arch::asm!(
-        "ld.acquire.sys.global.u32 {result}, [{ptr}];",
-        result = out(reg32) result,
-        ptr = in(reg64) ptr,
-        options(nostack, readonly),
-    );
-    result
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let result: u32;
+        core::arch::asm!(
+            "ld.acquire.sys.global.u32 {result}, [{ptr}];",
+            result = out(reg32) result,
+            ptr = in(reg64) ptr,
+            options(nostack, readonly),
+        );
+        result
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = ptr;
+        gpu_stub!()
+    }
 }
 
 /// System-scope acquire load of a u64.
@@ -116,14 +155,22 @@ pub unsafe fn sys_load_acquire_u32(ptr: *const u32) -> u32 {
 /// Emits `ld.acquire.sys.global.u64 result, [ptr];`
 #[inline(always)]
 pub unsafe fn sys_load_acquire_u64(ptr: *const u64) -> u64 {
-    let result: u64;
-    core::arch::asm!(
-        "ld.acquire.sys.global.u64 {result}, [{ptr}];",
-        result = out(reg64) result,
-        ptr = in(reg64) ptr,
-        options(nostack, readonly),
-    );
-    result
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let result: u64;
+        core::arch::asm!(
+            "ld.acquire.sys.global.u64 {result}, [{ptr}];",
+            result = out(reg64) result,
+            ptr = in(reg64) ptr,
+            options(nostack, readonly),
+        );
+        result
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = ptr;
+        gpu_stub!()
+    }
 }
 
 // ============================================================
@@ -143,16 +190,24 @@ pub unsafe fn sys_load_acquire_u64(ptr: *const u64) -> u64 {
 /// GPU memory accessible from both GPU and CPU.
 #[inline(always)]
 pub unsafe fn sys_cas_u32(ptr: *mut u32, expected: u32, desired: u32) -> u32 {
-    let result: u32;
-    core::arch::asm!(
-        "atom.cas.sys.global.b32 {result}, [{ptr}], {expected}, {desired};",
-        result = out(reg32) result,
-        ptr = in(reg64) ptr,
-        expected = in(reg32) expected,
-        desired = in(reg32) desired,
-        options(nostack),
-    );
-    result
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let result: u32;
+        core::arch::asm!(
+            "atom.cas.sys.global.b32 {result}, [{ptr}], {expected}, {desired};",
+            result = out(reg32) result,
+            ptr = in(reg64) ptr,
+            expected = in(reg32) expected,
+            desired = in(reg32) desired,
+            options(nostack),
+        );
+        result
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (ptr, expected, desired);
+        gpu_stub!()
+    }
 }
 
 // ============================================================
@@ -169,15 +224,23 @@ pub unsafe fn sys_cas_u32(ptr: *mut u32, expected: u32, desired: u32) -> u32 {
 /// For ordering guarantees, surround with `membar_sys()`.
 #[inline(always)]
 pub unsafe fn sys_fetch_add_u32(ptr: *mut u32, val: u32) -> u32 {
-    let result: u32;
-    core::arch::asm!(
-        "atom.add.sys.global.u32 {result}, [{ptr}], {val};",
-        result = out(reg32) result,
-        ptr = in(reg64) ptr,
-        val = in(reg32) val,
-        options(nostack),
-    );
-    result
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let result: u32;
+        core::arch::asm!(
+            "atom.add.sys.global.u32 {result}, [{ptr}], {val};",
+            result = out(reg32) result,
+            ptr = in(reg64) ptr,
+            val = in(reg32) val,
+            options(nostack),
+        );
+        result
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (ptr, val);
+        gpu_stub!()
+    }
 }
 
 // ============================================================
@@ -196,16 +259,24 @@ pub unsafe fn sys_fetch_add_u32(ptr: *mut u32, val: u32) -> u32 {
 /// global GPU memory accessible from both GPU and CPU.
 #[inline(always)]
 pub unsafe fn sys_cas_u64(ptr: *mut u64, expected: u64, desired: u64) -> u64 {
-    let result: u64;
-    core::arch::asm!(
-        "atom.cas.sys.global.b64 {result}, [{ptr}], {expected}, {desired};",
-        result = out(reg64) result,
-        ptr = in(reg64) ptr,
-        expected = in(reg64) expected,
-        desired = in(reg64) desired,
-        options(nostack),
-    );
-    result
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let result: u64;
+        core::arch::asm!(
+            "atom.cas.sys.global.b64 {result}, [{ptr}], {expected}, {desired};",
+            result = out(reg64) result,
+            ptr = in(reg64) ptr,
+            expected = in(reg64) expected,
+            desired = in(reg64) desired,
+            options(nostack),
+        );
+        result
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (ptr, expected, desired);
+        gpu_stub!()
+    }
 }
 
 // ============================================================
@@ -221,15 +292,23 @@ pub unsafe fn sys_cas_u64(ptr: *mut u64, expected: u64, desired: u64) -> u64 {
 /// NOTE: No `.sem` qualifier — use `membar_sys()` for ordering.
 #[inline(always)]
 pub unsafe fn sys_fetch_add_u64(ptr: *mut u64, val: u64) -> u64 {
-    let result: u64;
-    core::arch::asm!(
-        "atom.add.sys.global.u64 {result}, [{ptr}], {val};",
-        result = out(reg64) result,
-        ptr = in(reg64) ptr,
-        val = in(reg64) val,
-        options(nostack),
-    );
-    result
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let result: u64;
+        core::arch::asm!(
+            "atom.add.sys.global.u64 {result}, [{ptr}], {val};",
+            result = out(reg64) result,
+            ptr = in(reg64) ptr,
+            val = in(reg64) val,
+            options(nostack),
+        );
+        result
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (ptr, val);
+        gpu_stub!()
+    }
 }
 
 // ============================================================
@@ -244,15 +323,23 @@ pub unsafe fn sys_fetch_add_u64(ptr: *mut u64, val: u64) -> u64 {
 /// System-scope: visible to all threads including host CPU.
 #[inline(always)]
 pub unsafe fn sys_exchange_u64(ptr: *mut u64, val: u64) -> u64 {
-    let result: u64;
-    core::arch::asm!(
-        "atom.exch.sys.global.b64 {result}, [{ptr}], {val};",
-        result = out(reg64) result,
-        ptr = in(reg64) ptr,
-        val = in(reg64) val,
-        options(nostack),
-    );
-    result
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let result: u64;
+        core::arch::asm!(
+            "atom.exch.sys.global.b64 {result}, [{ptr}], {val};",
+            result = out(reg64) result,
+            ptr = in(reg64) ptr,
+            val = in(reg64) val,
+            options(nostack),
+        );
+        result
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (ptr, val);
+        gpu_stub!()
+    }
 }
 
 // ============================================================
@@ -281,15 +368,23 @@ pub unsafe fn sys_exchange_u64(ptr: *mut u64, val: u64) -> u64 {
 /// - Includes `nanosleep` — yields warp slot during spin
 #[inline(always)]
 pub unsafe fn sys_spin_load_acquire_u32(ptr: *const u32) -> u32 {
-    let result: u32;
-    core::arch::asm!(
-        "ld.acquire.sys.global.u32 {result}, [{ptr}];",
-        "nanosleep.u32 64;",
-        result = out(reg32) result,
-        ptr = in(reg64) ptr,
-        options(nostack),
-    );
-    result
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let result: u32;
+        core::arch::asm!(
+            "ld.acquire.sys.global.u32 {result}, [{ptr}];",
+            "nanosleep.u32 64;",
+            result = out(reg32) result,
+            ptr = in(reg64) ptr,
+            options(nostack),
+        );
+        result
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = ptr;
+        gpu_stub!()
+    }
 }
 
 /// Spin-loop-safe system-scope acquire load of a u64.
@@ -297,15 +392,23 @@ pub unsafe fn sys_spin_load_acquire_u32(ptr: *const u32) -> u32 {
 /// Emits `ld.acquire.sys.global.u64` followed by `nanosleep.u32 64`.
 #[inline(always)]
 pub unsafe fn sys_spin_load_acquire_u64(ptr: *const u64) -> u64 {
-    let result: u64;
-    core::arch::asm!(
-        "ld.acquire.sys.global.u64 {result}, [{ptr}];",
-        "nanosleep.u32 64;",
-        result = out(reg64) result,
-        ptr = in(reg64) ptr,
-        options(nostack),
-    );
-    result
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let result: u64;
+        core::arch::asm!(
+            "ld.acquire.sys.global.u64 {result}, [{ptr}];",
+            "nanosleep.u32 64;",
+            result = out(reg64) result,
+            ptr = in(reg64) ptr,
+            options(nostack),
+        );
+        result
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = ptr;
+        gpu_stub!()
+    }
 }
 
 // ============================================================
@@ -324,13 +427,18 @@ pub unsafe fn sys_spin_load_acquire_u64(ptr: *const u64) -> u64 {
 /// grid edges have fewer than 32 active lanes.
 #[inline(always)]
 pub unsafe fn activemask() -> u32 {
-    let mask: u32;
-    core::arch::asm!(
-        "activemask.b32 {mask};",
-        mask = out(reg32) mask,
-        options(nostack),
-    );
-    mask
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let mask: u32;
+        core::arch::asm!(
+            "activemask.b32 {mask};",
+            mask = out(reg32) mask,
+            options(nostack),
+        );
+        mask
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    gpu_stub!()
 }
 
 /// Returns the lane ID (0..31) within the current warp.
@@ -338,13 +446,18 @@ pub unsafe fn activemask() -> u32 {
 /// Emits `mov.u32 result, %laneid;`
 #[inline(always)]
 pub unsafe fn lane_id() -> u32 {
-    let id: u32;
-    core::arch::asm!(
-        "mov.u32 {id}, %laneid;",
-        id = out(reg32) id,
-        options(nostack, readonly),
-    );
-    id
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let id: u32;
+        core::arch::asm!(
+            "mov.u32 {id}, %laneid;",
+            id = out(reg32) id,
+            options(nostack, readonly),
+        );
+        id
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    gpu_stub!()
 }
 
 /// Warp barrier: synchronize all lanes specified in `mask`.
@@ -361,11 +474,17 @@ pub unsafe fn lane_id() -> u32 {
 /// are active.
 #[inline(always)]
 pub unsafe fn syncwarp(mask: u32) {
+    #[cfg(target_arch = "nvptx64")]
     core::arch::asm!(
         "bar.warp.sync {mask};",
         mask = in(reg32) mask,
         options(nostack),
     );
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = mask;
+        gpu_stub!();
+    }
 }
 
 /// Warp shuffle: broadcast a u32 value from `src_lane` to all lanes.
@@ -383,16 +502,24 @@ pub unsafe fn syncwarp(mask: u32) {
 /// - Sharing packet indices across lanes
 #[inline(always)]
 pub unsafe fn shfl_sync_idx_u32(mask: u32, val: u32, src_lane: u32) -> u32 {
-    let result: u32;
-    core::arch::asm!(
-        "shfl.sync.idx.b32 {result}, {val}, {src}, 0x1f, {mask};",
-        result = out(reg32) result,
-        val = in(reg32) val,
-        src = in(reg32) src_lane,
-        mask = in(reg32) mask,
-        options(nostack),
-    );
-    result
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let result: u32;
+        core::arch::asm!(
+            "shfl.sync.idx.b32 {result}, {val}, {src}, 0x1f, {mask};",
+            result = out(reg32) result,
+            val = in(reg32) val,
+            src = in(reg32) src_lane,
+            mask = in(reg32) mask,
+            options(nostack),
+        );
+        result
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (mask, val, src_lane);
+        gpu_stub!()
+    }
 }
 
 // ============================================================
@@ -407,12 +534,18 @@ pub unsafe fn shfl_sync_idx_u32(mask: u32, val: u32, src_lane: u32) -> u32 {
 /// you need an explicit `.global` address space qualifier in PTX.
 #[inline(always)]
 pub unsafe fn st_global_u32(ptr: *mut u32, val: u32) {
+    #[cfg(target_arch = "nvptx64")]
     core::arch::asm!(
         "st.global.b32 [{ptr}], {val};",
         ptr = in(reg64) ptr,
         val = in(reg32) val,
         options(nostack),
     );
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (ptr, val);
+        gpu_stub!();
+    }
 }
 
 // NVVM intrinsic fallbacks removed — llvm.nvvm.atomic.add.gen.i.sys

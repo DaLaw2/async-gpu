@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 119     # Monotonic counter, incremented after each completed phase
-completed_tasks = 118
+total_cycles = 120     # Monotonic counter, incremented after each completed phase
+completed_tasks = 119
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.route"
-current_task_id = ""
-last_summary = "warp-cfg.5 done: nested control flow (if+match) verified on GPU. warp-cfg theme COMPLETE — all 5 tasks done. #[warp_async] supports if/else, loop/break, match, and nested combinations. Next: brainstorm for remaining tasks (api-docs.2, ci-protect.2, gpu-compute.2)."
+current_step = "do.execute"
+current_task_id = "ci-protect.2"
+last_summary = "api-docs.2 done: gpu-atomics and gpu-runtime now doc-buildable on x86_64 via cfg(target_arch) stubs. All 4 public crates generate docs. Next: ci-protect.2, gpu-compute.2."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 29
@@ -2816,7 +2816,7 @@ id = "api-docs.2"
 theme = "api-docs"
 title = "Add #[cfg(doc)] stubs to gpu-runtime and gpu-atomics for doc generation on x86_64"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["api-docs.1"]
 spawned_by = "c109"
 research_questions = [

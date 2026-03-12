@@ -4,22 +4,22 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 58      # Monotonic counter, incremented after each completed phase
-completed_tasks = 57
-status = "running"     # ready | running | blocked | completed
+total_cycles = 60      # Monotonic counter, incremented after each completed phase
+completed_tasks = 59
+status = "completed"   # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.execute"
+current_step = "do.save"
 current_task_id = ""
-last_summary = "Batch C done: benchmark.2 (latency microbench: 13µs single-thread, 7ms@128t, CAS retries ~49/call@128t), api.3 (end-to-end example works). 57/58 tasks. benchmark.4 (CUDA comparison) is last pending task."
+last_summary = "Batch D done: product.5 (README rewritten with benchmark data, architecture diagram, limitations), product.6 (MIT + Apache-2.0 dual license). CI fix (.ptx search). 59/59 tasks complete (2 parked). All 15 themes completed. Project is product-ready."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 12
+brainstorm_seq = 13
 review_seq = 3
 
 # Brainstorm trigger control
-last_brainstorm_at_completed = 47
+last_brainstorm_at_completed = 57
 brainstorm_interval = 3
 
 # ============================================================
@@ -905,7 +905,7 @@ success_criteria = [
 [[themes]]
 id = "benchmark"
 title = "Performance characterization and comparison"
-status = "active"
+status = "completed"
 spawned_by = "bs10"
 goal = "Quantify performance characteristics and compare with native CUDA"
 success_criteria = [
@@ -1130,7 +1130,7 @@ success_criteria = [
 [[themes]]
 id = "ci"
 title = "Continuous integration and toolchain management"
-status = "active"
+status = "completed"
 spawned_by = "bs12"
 goal = "Automated build on every push, toolchain pinned and documented"
 success_criteria = [
@@ -1142,7 +1142,7 @@ success_criteria = [
 [[themes]]
 id = "api"
 title = "Library API and developer ergonomics"
-status = "active"
+status = "completed"
 spawned_by = "bs12"
 goal = "Transform research crates into a usable library with clean public API"
 success_criteria = [
@@ -1239,7 +1239,7 @@ id = "benchmark.4"
 theme = "benchmark"
 title = "Comparative benchmark vs equivalent CUDA C++"
 kind = "experiment"
-status = "pending"
+status = "parked"
 depends_on = ["benchmark.2"]
 spawned_by = "bs12"
 research_questions = [
@@ -1366,3 +1366,44 @@ new_themes_spawned = ["host-listener", "ci", "api", "warp-coop", "networking", "
 themes_parked = ["warp-coop", "networking", "upstream"]
 themes_completed = ["multiblock"]
 key_insight = "Research mission complete. Phase 2: measure (benchmark P0), stabilize (host-listener P0, ci P1), package (api P1). Warp-coop deferred pending benchmark data. Value proposition may be ergonomic not performance — validate with benchmark.4."
+
+# --- Tasks: product (Phase 2 additions from bs13) ---
+
+[[tasks]]
+id = "product.5"
+theme = "product"
+title = "Update README with benchmark data and fix outdated limitations"
+kind = "experiment"
+status = "done"
+depends_on = ["benchmark.2"]
+spawned_by = "bs13"
+research_questions = [
+    "Does the README accurately reflect current project state?",
+    "Are benchmark numbers clearly presented for prospective users?",
+    "Is the PTX header bug documented with workaround?",
+]
+
+[[tasks]]
+id = "product.6"
+theme = "product"
+title = "Add LICENSE file (MIT/Apache-2.0 dual license)"
+kind = "experiment"
+status = "done"
+depends_on = []
+spawned_by = "bs13"
+research_questions = [
+    "Is the project legally usable?",
+]
+
+# --- Brainstorm record for bs13 ---
+
+[[brainstorms]]
+seq = 13
+at_cycle = 58
+trigger = "product_readiness_assessment"
+level = "standard"
+new_tasks_spawned = ["product.5", "product.6"]
+new_themes_spawned = []
+themes_parked = ["benchmark"]
+themes_completed = ["benchmark", "ci", "api"]
+key_insight = "Project 95% product-ready. Two gaps: README has stale claims + no LICENSE. benchmark.4 parked (no nvcc). Fix README + add LICENSE = done."

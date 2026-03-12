@@ -54,13 +54,20 @@ jobs:
 
       - name: Verify PTX output exists
         run: |
-          PTX_FILE=$(find crates/gpu-kernel/target/nvptx64-nvidia-cuda/release/deps -name "*.s" | head -1)
+          echo "Searching for PTX output..."
+          find crates/gpu-kernel/target/nvptx64-nvidia-cuda/release -name "*.ptx" -o -name "*.s" 2>/dev/null
+          PTX_FILE=$(find crates/gpu-kernel/target/nvptx64-nvidia-cuda/release -name "*.ptx" | head -1)
+          if [ -z "$PTX_FILE" ]; then
+            PTX_FILE=$(find crates/gpu-kernel/target/nvptx64-nvidia-cuda/release -name "*.s" | head -1)
+          fi
           if [ -z "$PTX_FILE" ]; then
             echo "ERROR: No PTX output found"
+            find crates/gpu-kernel/target -type f | head -20
             exit 1
           fi
           echo "PTX compiled successfully: $PTX_FILE"
           wc -l "$PTX_FILE"
+          head -10 "$PTX_FILE"
 
   build-host:
     name: Check host crate compiles

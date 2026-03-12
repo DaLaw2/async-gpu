@@ -4888,6 +4888,9 @@ fn main() -> Result<()> {
     // Warp-scale Embassy test (async-pipeline.5)
     run_warp_scale_async_test(Arc::clone(&dev))?;
 
+    // Autonomous pipeline test (gpu-compute.2)
+    run_autonomous_pipeline_test(Arc::clone(&dev))?;
+
     // GPU panic handler test (gpu-panic.2) — MUST BE LAST
     // since trap instruction calls process::exit(0)
     run_panic_test(Arc::clone(&dev))?;
@@ -5734,5 +5737,128 @@ fn run_warp_scale_async_test(dev: Arc<CudaDevice>) -> Result<()> {
     println!("  warp_scale_async_kernel: PASSED! ({elapsed:?})");
     println!("    32 threads in one warp, each with own Embassy executor");
     println!("    All threads completed independent async hostcall!");
+    Ok(())
+}
+
+// ============================================================
+// gpu-compute.2: Autonomous Multi-Step Compute Pipeline
+// ============================================================
+
+fn run_autonomous_pipeline_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Autonomous Pipeline (gpu-compute.2) ---");
+    println!("  GPU-driven multi-step compute with #[warp_async] control flow");
+
+    let cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (32, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    // Cleanup files from prior runs
+    let _ = std::fs::remove_file("gpu_autonomous.txt");
+    let _ = std::fs::remove_file("gpu_roundtrip.txt");
+
+    // Helper: launch autonomous_pipeline with a given mode, collect messages
+    fn run_mode(
+        dev: &Arc<CudaDevice>,
+        cfg: LaunchConfig,
+        mode: u64,
+        module_name: &'static str,
+    ) -> Result<(u32, Vec<String>)> {
+        let ptx = cudarc::nvrtc::Ptx::from_src(KERNEL_PTX);
+        let _ = dev.load_ptx(ptx, module_name, &["autonomous_pipeline"]);
+        let f = dev
+            .get_func(module_name, "autonomous_pipeline")
+            .ok_or(GpuHostError::KernelNotFound("autonomous_pipeline"))?;
+
+        let hc_buf = hostcall::HostcallBuffer::new(4)?;
+        let dev_ptr = hc_buf.dev_ptr;
+        let (status_host, status_dev) = unsafe { alloc_mapped_result_array(dev, 1)? };
+
+        let hc_buf_ref = std::sync::Arc::new(hc_buf);
+        let hc_buf_listener = std::sync::Arc::clone(&hc_buf_ref);
+        let messages = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let msg_clone = std::sync::Arc::clone(&messages);
+
+        let listener_handle = std::thread::spawn(move || {
+            hc_buf_listener.listen(move |msg| {
+                let text = String::from_utf8_lossy(msg).to_string();
+                println!("    [GPU] {text}");
+                let mut guard = msg_clone.lock().unwrap();
+                guard.push(text);
+            });
+        });
+
+        unsafe { f.launch(cfg, (dev_ptr, mode, status_dev))? };
+        dev.synchronize()?;
+
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        hc_buf_ref.signal_shutdown();
+        listener_handle.join().unwrap();
+
+        let status = unsafe { std::ptr::read_volatile(status_host) };
+        let msgs = messages.lock().unwrap().clone();
+        Ok((status, msgs))
+    }
+
+    // --- Mode 0: File write pipeline ---
+    println!("\n  Mode 0: File write pipeline (create → write → close)");
+    let (status, msgs) = run_mode(&dev, cfg, 0, "auto_m0")?;
+    assert_eq!(status, 1, "Mode 0: kernel should succeed");
+    assert!(
+        msgs.iter().any(|m| m.contains("auto: start")),
+        "Mode 0: should see init message"
+    );
+    assert!(
+        msgs.iter().any(|m| m.contains("auto: file-written")),
+        "Mode 0: should see file-written"
+    );
+    assert!(
+        msgs.iter().any(|m| m.contains("auto: done")),
+        "Mode 0: should see done message"
+    );
+    // Verify file was actually created
+    let written = std::fs::read_to_string("gpu_autonomous.txt")
+        .expect("Mode 0: file should exist after write");
+    assert_eq!(
+        written, "GPU-autonomous-output",
+        "Mode 0: file content mismatch"
+    );
+    println!("  Mode 0: PASSED (3 hostcall steps, file verified)");
+
+    // --- Mode 1: File read + classify pipeline ---
+    println!("\n  Mode 1: File read + classify pipeline (open → read → close → branch)");
+    let (status, msgs) = run_mode(&dev, cfg, 1, "auto_m1")?;
+    assert_eq!(status, 1, "Mode 1: kernel should succeed");
+    assert!(
+        msgs.iter().any(|m| m.contains("auto: large-payload")),
+        "Mode 1: should detect large payload (21 bytes > 10)"
+    );
+    assert!(
+        msgs.iter().any(|m| m.contains("auto: done")),
+        "Mode 1: should see done message"
+    );
+    println!("  Mode 1: PASSED (4 hostcall steps + GPU-decided branch)");
+
+    // --- Mode 2: End-to-end roundtrip pipeline ---
+    println!("\n  Mode 2: Roundtrip pipeline (create → write → close → reopen → read → verify)");
+    let (status, msgs) = run_mode(&dev, cfg, 2, "auto_m2")?;
+    assert_eq!(status, 1, "Mode 2: kernel should succeed");
+    assert!(
+        msgs.iter().any(|m| m.contains("auto: roundtrip-ok")),
+        "Mode 2: roundtrip should verify successfully"
+    );
+    assert!(
+        msgs.iter().any(|m| m.contains("auto: done")),
+        "Mode 2: should see done message"
+    );
+    println!("  Mode 2: PASSED (6 hostcall steps + GPU-decided verification)");
+
+    println!("\n  Autonomous Pipeline: ALL 3 MODES PASSED!");
+    println!("  Key results:");
+    println!("    - GPU autonomously chose processing paths via match");
+    println!("    - GPU branched on hostcall results via if/else");
+    println!("    - 13 total hostcall steps across 3 pipelines, zero host orchestration");
+    println!("    - #[warp_async] replaces 150+ lines of hand-written state machine");
     Ok(())
 }

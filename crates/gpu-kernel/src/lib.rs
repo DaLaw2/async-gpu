@@ -4,9 +4,9 @@
 #![feature(asm_experimental_arch)]
 use core::arch::nvptx;
 use gpu_atomics::{
-    membar_sys, sys_store_release_u32, sys_load_acquire_u32, sys_cas_u32, st_global_u32,
-    sys_cas_u64, sys_fetch_add_u64, sys_exchange_u64,
-    sys_load_acquire_u64, sys_spin_load_acquire_u32, activemask, lane_id,
+    activemask, lane_id, membar_sys, st_global_u32, sys_cas_u32, sys_cas_u64, sys_exchange_u64,
+    sys_fetch_add_u64, sys_load_acquire_u32, sys_load_acquire_u64, sys_spin_load_acquire_u32,
+    sys_store_release_u32,
 };
 use gpu_protocol::*;
 
@@ -112,12 +112,7 @@ pub unsafe extern "ptx-kernel" fn integration_sys_store(
 
 /// A simple kernel that writes the global thread index into an output buffer.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn vector_add(
-    a: *const f32,
-    b: *const f32,
-    c: *mut f32,
-    len: u32,
-) {
+pub unsafe extern "ptx-kernel" fn vector_add(a: *const f32, b: *const f32, c: *mut f32, len: u32) {
     let thread_x = nvptx::_thread_idx_x() as u32;
     let block_x = nvptx::_block_idx_x() as u32;
     let block_dim_x = nvptx::_block_dim_x() as u32;
@@ -278,10 +273,7 @@ pub unsafe extern "ptx-kernel" fn hostcall_print_hello(buf: *mut u8, result: *mu
 ///
 /// `buf` is the hostcall buffer, `num_msgs` is total number of messages to print.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn hostcall_print_multi(
-    buf: *mut u8,
-    success_count: *mut u32,
-) {
+pub unsafe extern "ptx-kernel" fn hostcall_print_multi(buf: *mut u8, success_count: *mut u32) {
     let thread_x = nvptx::_thread_idx_x() as u32;
     let block_x = nvptx::_block_idx_x() as u32;
 
@@ -329,25 +321,31 @@ pub unsafe extern "ptx-kernel" fn hostcall_print_multi(
 /// GPU-side hostcall: open a file.
 /// Returns `(fd, 0)` on success, `(0, error_category)` on failure.
 #[inline(always)]
-unsafe fn gpu_hostcall_open(buf: *mut u8, path: *const u8, path_len: u32, flags: u32) -> (u64, u16) {
-    let (pkt, success) = gpu_runtime::hostcall::gpu_hostcall_request(buf, SERVICE_OPEN, |payload| {
-        // Slot 0: low 32 bits = path_len, high 32 bits = flags
-        let slot0_val = (path_len as u64) | ((flags as u64) << 32);
-        core::ptr::write_volatile(payload as *mut u64, slot0_val);
+unsafe fn gpu_hostcall_open(
+    buf: *mut u8,
+    path: *const u8,
+    path_len: u32,
+    flags: u32,
+) -> (u64, u16) {
+    let (pkt, success) =
+        gpu_runtime::hostcall::gpu_hostcall_request(buf, SERVICE_OPEN, |payload| {
+            // Slot 0: low 32 bits = path_len, high 32 bits = flags
+            let slot0_val = (path_len as u64) | ((flags as u64) << 32);
+            core::ptr::write_volatile(payload as *mut u64, slot0_val);
 
-        // Slots 1-7: path bytes
-        let copy_len = if path_len > FILE_MAX_PATH_LEN as u32 {
-            FILE_MAX_PATH_LEN as u32
-        } else {
-            path_len
-        };
-        let dst = payload.add(8);
-        let mut i: u32 = 0;
-        while i < copy_len {
-            core::ptr::write_volatile(dst.add(i as usize), *path.add(i as usize));
-            i += 1;
-        }
-    });
+            // Slots 1-7: path bytes
+            let copy_len = if path_len > FILE_MAX_PATH_LEN as u32 {
+                FILE_MAX_PATH_LEN as u32
+            } else {
+                path_len
+            };
+            let dst = payload.add(8);
+            let mut i: u32 = 0;
+            while i < copy_len {
+                core::ptr::write_volatile(dst.add(i as usize), *path.add(i as usize));
+                i += 1;
+            }
+        });
 
     if pkt.is_null() {
         // Timeout — no packet returned
@@ -369,24 +367,25 @@ unsafe fn gpu_hostcall_open(buf: *mut u8, path: *const u8, path_len: u32, flags:
 /// Returns `(bytes_written, 0)` on success, `(0, error_category)` on failure.
 #[inline(always)]
 unsafe fn gpu_hostcall_write(buf: *mut u8, fd: u64, data: *const u8, data_len: u32) -> (u64, u16) {
-    let (pkt, success) = gpu_runtime::hostcall::gpu_hostcall_request(buf, SERVICE_WRITE, |payload| {
-        // Slot 0: fd
-        core::ptr::write_volatile(payload as *mut u64, fd);
-        // Slot 1: data length
-        core::ptr::write_volatile(payload.add(8) as *mut u64, data_len as u64);
-        // Slots 2-7: data bytes (up to 48 bytes)
-        let copy_len = if data_len > FILE_MAX_WRITE_LEN as u32 {
-            FILE_MAX_WRITE_LEN as u32
-        } else {
-            data_len
-        };
-        let dst = payload.add(16); // skip slots 0 and 1
-        let mut i: u32 = 0;
-        while i < copy_len {
-            core::ptr::write_volatile(dst.add(i as usize), *data.add(i as usize));
-            i += 1;
-        }
-    });
+    let (pkt, success) =
+        gpu_runtime::hostcall::gpu_hostcall_request(buf, SERVICE_WRITE, |payload| {
+            // Slot 0: fd
+            core::ptr::write_volatile(payload as *mut u64, fd);
+            // Slot 1: data length
+            core::ptr::write_volatile(payload.add(8) as *mut u64, data_len as u64);
+            // Slots 2-7: data bytes (up to 48 bytes)
+            let copy_len = if data_len > FILE_MAX_WRITE_LEN as u32 {
+                FILE_MAX_WRITE_LEN as u32
+            } else {
+                data_len
+            };
+            let dst = payload.add(16); // skip slots 0 and 1
+            let mut i: u32 = 0;
+            while i < copy_len {
+                core::ptr::write_volatile(dst.add(i as usize), *data.add(i as usize));
+                i += 1;
+            }
+        });
 
     if pkt.is_null() {
         return (0, ERR_HOST_TIMEOUT);
@@ -406,10 +405,11 @@ unsafe fn gpu_hostcall_write(buf: *mut u8, fd: u64, data: *const u8, data_len: u
 /// Returns `(0, 0)` on success, `(0, error_category)` on failure.
 #[inline(always)]
 unsafe fn gpu_hostcall_close(buf: *mut u8, fd: u64) -> (u64, u16) {
-    let (pkt, success) = gpu_runtime::hostcall::gpu_hostcall_request(buf, SERVICE_CLOSE, |payload| {
-        // Slot 0: fd
-        core::ptr::write_volatile(payload as *mut u64, fd);
-    });
+    let (pkt, success) =
+        gpu_runtime::hostcall::gpu_hostcall_request(buf, SERVICE_CLOSE, |payload| {
+            // Slot 0: fd
+            core::ptr::write_volatile(payload as *mut u64, fd);
+        });
 
     if pkt.is_null() {
         return (0, ERR_HOST_TIMEOUT);
@@ -429,12 +429,13 @@ unsafe fn gpu_hostcall_close(buf: *mut u8, fd: u64) -> (u64, u16) {
 /// Returns `(bytes_read, 0)` on success (data copied to out_buf), `(0, error_category)` on failure.
 #[inline(always)]
 unsafe fn gpu_hostcall_read(buf: *mut u8, fd: u64, out_buf: *mut u8, max_len: u32) -> (u64, u16) {
-    let (pkt, success) = gpu_runtime::hostcall::gpu_hostcall_request(buf, SERVICE_READ, |payload| {
-        // Slot 0: fd
-        core::ptr::write_volatile(payload as *mut u64, fd);
-        // Slot 1: max bytes to read
-        core::ptr::write_volatile(payload.add(8) as *mut u64, max_len as u64);
-    });
+    let (pkt, success) =
+        gpu_runtime::hostcall::gpu_hostcall_request(buf, SERVICE_READ, |payload| {
+            // Slot 0: fd
+            core::ptr::write_volatile(payload as *mut u64, fd);
+            // Slot 1: max bytes to read
+            core::ptr::write_volatile(payload.add(8) as *mut u64, max_len as u64);
+        });
 
     if pkt.is_null() {
         return (0, ERR_HOST_TIMEOUT);
@@ -584,10 +585,11 @@ unsafe fn gpu_instant_nanos() -> u64 {
 /// Returns `(bytes_read, 0)` on success (data copied to out_buf), `(0, error_category)` on failure.
 #[inline(always)]
 unsafe fn gpu_hostcall_stdin_read(buf: *mut u8, out_buf: *mut u8, max_len: u32) -> (u64, u16) {
-    let (pkt, success) = gpu_runtime::hostcall::gpu_hostcall_request(buf, SERVICE_STDIN, |payload| {
-        // Slot 0: max bytes to read
-        core::ptr::write_volatile(payload as *mut u64, max_len as u64);
-    });
+    let (pkt, success) =
+        gpu_runtime::hostcall::gpu_hostcall_request(buf, SERVICE_STDIN, |payload| {
+            // Slot 0: max bytes to read
+            core::ptr::write_volatile(payload as *mut u64, max_len as u64);
+        });
 
     if pkt.is_null() {
         return (0, ERR_HOST_TIMEOUT);
@@ -620,9 +622,10 @@ unsafe fn gpu_hostcall_stdin_read(buf: *mut u8, out_buf: *mut u8, max_len: u32) 
 /// Returns (seconds_since_epoch, nanoseconds) on success, (0, 0) on failure.
 #[inline(always)]
 unsafe fn gpu_hostcall_time(buf: *mut u8) -> (u64, u64) {
-    let (pkt, success) = gpu_runtime::hostcall::gpu_hostcall_request(buf, SERVICE_TIME, |_payload| {
-        // No request payload needed
-    });
+    let (pkt, success) =
+        gpu_runtime::hostcall::gpu_hostcall_request(buf, SERVICE_TIME, |_payload| {
+            // No request payload needed
+        });
 
     if pkt.is_null() || !success {
         if !pkt.is_null() {
@@ -928,8 +931,7 @@ pub unsafe extern "ptx-kernel" fn hostcall_latency_bench_v2(
     let tid = block_x * block_dim_x + thread_x;
 
     // Read shard info once
-    let (num_shards, shard_array_off, _) =
-        gpu_runtime::hostcall::read_shard_info(buf as *const u8);
+    let (num_shards, shard_array_off, _) = gpu_runtime::hostcall::read_shard_info(buf as *const u8);
     let free_ptr = gpu_runtime::hostcall::get_free_stack_ptr(buf, num_shards, shard_array_off);
     let ready_ptr = gpu_runtime::hostcall::get_ready_stack_ptr(buf, num_shards, shard_array_off);
 
@@ -940,8 +942,7 @@ pub unsafe extern "ptx-kernel" fn hostcall_latency_bench_v2(
     let mut iter: u32 = 0;
     while iter < num_iters {
         // Pop free packet (instrumented, shard-aware)
-        let (pkt_idx, retries) =
-            hc_pop_free_counted_v2(buf, free_ptr, num_shards, shard_array_off);
+        let (pkt_idx, retries) = hc_pop_free_counted_v2(buf, free_ptr, num_shards, shard_array_off);
         if pkt_idx == NULL_INDEX {
             break;
         }
@@ -1043,11 +1044,7 @@ pub unsafe extern "ptx-kernel" fn panic_test_kernel(buf: *mut u8, result: *mut u
 ///   [2] = bytes read back
 ///   [3] = content match (1 if all bytes match)
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn bulk_io_test(
-    buf: *mut u8,
-    sideband: *mut u8,
-    result: *mut u32,
-) {
+pub unsafe extern "ptx-kernel" fn bulk_io_test(buf: *mut u8, sideband: *mut u8, result: *mut u32) {
     use gpu_runtime::sideband::{gpu_bulk_read, gpu_bulk_write, sideband_reset};
 
     let thread_x = nvptx::_thread_idx_x() as u32;
@@ -1183,8 +1180,8 @@ const WPF_DONE: u32 = 2;
 /// All lanes stay convergent throughout the state machine.
 struct WarpPrintFuture {
     buf: *mut u8,
-    state: u32,       // discriminant (lane 0 authoritative)
-    pkt_idx: u16,     // packet index (uniform after broadcast)
+    state: u32,   // discriminant (lane 0 authoritative)
+    pkt_idx: u16, // packet index (uniform after broadcast)
 }
 
 impl WarpPrintFuture {
@@ -1205,7 +1202,7 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for WarpPrintFuture {
         &mut self,
         wcx: &mut gpu_runtime::warp_future::WarpContext,
     ) -> gpu_runtime::warp_future::WarpPoll<bool> {
-        use gpu_runtime::warp_future::{WarpPoll, broadcast_u32};
+        use gpu_runtime::warp_future::{broadcast_u32, WarpPoll};
 
         // Broadcast state from lane 0 to all lanes
         let state = unsafe { broadcast_u32(wcx.active_mask, self.state) };
@@ -1249,10 +1246,7 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for WarpPrintFuture {
 
                 // First 12 bytes are the prefix — only lanes 0..11 write those
                 if lid < prefix.len() as u32 {
-                    core::ptr::write_volatile(
-                        msg_base.add(lid as usize),
-                        prefix[lid as usize],
-                    );
+                    core::ptr::write_volatile(msg_base.add(lid as usize), prefix[lid as usize]);
                 }
 
                 // Bytes 12..43 are 'A' + lane_id (all 32 lanes write)
@@ -1289,10 +1283,7 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for WarpPrintFuture {
                         pkt.add(gpu_protocol::PKT_OFF_SERVICE) as *mut u32,
                         gpu_protocol::SERVICE_PRINT,
                     );
-                    sys_store_release_u32(
-                        pkt.add(gpu_protocol::PKT_OFF_CONTROL) as *mut u32,
-                        0,
-                    );
+                    sys_store_release_u32(pkt.add(gpu_protocol::PKT_OFF_CONTROL) as *mut u32, 0);
                     sys_store_release_u32(
                         pkt.add(gpu_protocol::PKT_OFF_CONTROL) as *mut u32,
                         gpu_protocol::CONTROL_FILLED,
@@ -1301,14 +1292,10 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for WarpPrintFuture {
                     // Push to ready stack + ring doorbell
                     let (num_shards, shard_off, _) =
                         gpu_runtime::hostcall::read_shard_info(self.buf as *const u8);
-                    let ready_ptr = gpu_runtime::hostcall::get_ready_stack_ptr(
-                        self.buf, num_shards, shard_off,
-                    );
+                    let ready_ptr =
+                        gpu_runtime::hostcall::get_ready_stack_ptr(self.buf, num_shards, shard_off);
                     gpu_runtime::hostcall::hc_push(ready_ptr, self.buf, idx);
-                    sys_fetch_add_u64(
-                        self.buf.add(gpu_protocol::BUF_OFF_DOORBELL) as *mut u64,
-                        1,
-                    );
+                    sys_fetch_add_u64(self.buf.add(gpu_protocol::BUF_OFF_DOORBELL) as *mut u64, 1);
 
                     self.state = WPF_WAIT;
                 }
@@ -1322,9 +1309,8 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for WarpPrintFuture {
                 let idx = broadcast_u32(wcx.active_mask, self.pkt_idx as u32) as u16;
                 let pkt_off = gpu_runtime::hostcall::pkt_offset(self.buf as *const u8, idx);
                 let pkt = self.buf.add(pkt_off);
-                let ctrl = sys_spin_load_acquire_u32(
-                    pkt.add(gpu_protocol::PKT_OFF_CONTROL) as *const u32,
-                );
+                let ctrl =
+                    sys_spin_load_acquire_u32(pkt.add(gpu_protocol::PKT_OFF_CONTROL) as *const u32);
 
                 if ctrl & gpu_protocol::CONTROL_READY != 0 {
                     // Host responded — release packet
@@ -1339,9 +1325,7 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for WarpPrintFuture {
                 WarpPoll::Pending
             },
 
-            WPF_DONE => {
-                WarpPoll::Ready(true)
-            },
+            WPF_DONE => WarpPoll::Ready(true),
 
             _ => WarpPoll::Pending, // unreachable
         }
@@ -1356,10 +1340,7 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for WarpPrintFuture {
 /// `buf` = hostcall buffer
 /// `result` = output u32 (set to 1 if WarpFuture completed successfully)
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn warp_future_print_test(
-    buf: *mut u8,
-    result: *mut u32,
-) {
+pub unsafe extern "ptx-kernel" fn warp_future_print_test(buf: *mut u8, result: *mut u32) {
     gpu_runtime::panic::gpu_panic_init(buf);
 
     let mut future = WarpPrintFuture::new(buf);
@@ -1383,7 +1364,7 @@ const WMP_INIT2: u32 = 2;
 const WMP_WAIT2: u32 = 3;
 const WMP_INIT3: u32 = 4;
 const WMP_WAIT3: u32 = 5;
-const WMP_DONE:  u32 = 6;
+const WMP_DONE: u32 = 6;
 
 /// Hand-written WarpFuture: 3 sequential PRINT hostcalls.
 ///
@@ -1428,7 +1409,7 @@ unsafe fn warp_multi_init_hostcall(
     state: &mut u32,
     call_num: u32,
 ) -> gpu_runtime::warp_future::WarpPoll<bool> {
-    use gpu_runtime::warp_future::{WarpPoll, broadcast_u32};
+    use gpu_runtime::warp_future::{broadcast_u32, WarpPoll};
 
     // Lane 0: pop a free packet
     let mut idx_raw: u32 = gpu_protocol::NULL_INDEX as u32;
@@ -1465,10 +1446,7 @@ unsafe fn warp_multi_init_hostcall(
 
     // Write prefix bytes (lanes with lid < prefix.len)
     if lid < prefix.len() as u32 {
-        core::ptr::write_volatile(
-            msg_base.add(lid as usize),
-            prefix[lid as usize],
-        );
+        core::ptr::write_volatile(msg_base.add(lid as usize), prefix[lid as usize]);
     }
 
     // Write suffix bytes (lanes with lid < suffix.len)
@@ -1481,14 +1459,8 @@ unsafe fn warp_multi_init_hostcall(
 
     // Lane 0: write thread/block metadata at payload+64
     if wcx.is_leader() {
-        core::ptr::write_volatile(
-            payload.add(64) as *mut u32,
-            nvptx::_block_idx_x() as u32,
-        );
-        core::ptr::write_volatile(
-            payload.add(68) as *mut u32,
-            nvptx::_thread_idx_x() as u32,
-        );
+        core::ptr::write_volatile(payload.add(64) as *mut u32, nvptx::_block_idx_x() as u32);
+        core::ptr::write_volatile(payload.add(68) as *mut u32, nvptx::_thread_idx_x() as u32);
     }
 
     // Ensure all payload writes are visible
@@ -1504,25 +1476,16 @@ unsafe fn warp_multi_init_hostcall(
             pkt.add(gpu_protocol::PKT_OFF_SERVICE) as *mut u32,
             gpu_protocol::SERVICE_PRINT,
         );
-        sys_store_release_u32(
-            pkt.add(gpu_protocol::PKT_OFF_CONTROL) as *mut u32,
-            0,
-        );
+        sys_store_release_u32(pkt.add(gpu_protocol::PKT_OFF_CONTROL) as *mut u32, 0);
         sys_store_release_u32(
             pkt.add(gpu_protocol::PKT_OFF_CONTROL) as *mut u32,
             gpu_protocol::CONTROL_FILLED,
         );
 
-        let (num_shards, shard_off, _) =
-            gpu_runtime::hostcall::read_shard_info(buf as *const u8);
-        let ready_ptr = gpu_runtime::hostcall::get_ready_stack_ptr(
-            buf, num_shards, shard_off,
-        );
+        let (num_shards, shard_off, _) = gpu_runtime::hostcall::read_shard_info(buf as *const u8);
+        let ready_ptr = gpu_runtime::hostcall::get_ready_stack_ptr(buf, num_shards, shard_off);
         gpu_runtime::hostcall::hc_push(ready_ptr, buf, idx);
-        sys_fetch_add_u64(
-            buf.add(gpu_protocol::BUF_OFF_DOORBELL) as *mut u64,
-            1,
-        );
+        sys_fetch_add_u64(buf.add(gpu_protocol::BUF_OFF_DOORBELL) as *mut u64, 1);
 
         *state = next_state;
     }
@@ -1544,14 +1507,12 @@ unsafe fn warp_multi_wait_hostcall(
     state: &mut u32,
     calls_completed: &mut u32,
 ) -> gpu_runtime::warp_future::WarpPoll<bool> {
-    use gpu_runtime::warp_future::{WarpPoll, broadcast_u32};
+    use gpu_runtime::warp_future::{broadcast_u32, WarpPoll};
 
     let idx = broadcast_u32(wcx.active_mask, pkt_idx as u32) as u16;
     let pkt_off = gpu_runtime::hostcall::pkt_offset(buf as *const u8, idx);
     let pkt = buf.add(pkt_off);
-    let ctrl = sys_spin_load_acquire_u32(
-        pkt.add(gpu_protocol::PKT_OFF_CONTROL) as *const u32,
-    );
+    let ctrl = sys_spin_load_acquire_u32(pkt.add(gpu_protocol::PKT_OFF_CONTROL) as *const u32);
 
     if ctrl & gpu_protocol::CONTROL_READY != 0 {
         if wcx.is_leader() {
@@ -1577,7 +1538,7 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for WarpMultiPrintFuture {
         &mut self,
         wcx: &mut gpu_runtime::warp_future::WarpContext,
     ) -> gpu_runtime::warp_future::WarpPoll<bool> {
-        use gpu_runtime::warp_future::{WarpPoll, broadcast_u32};
+        use gpu_runtime::warp_future::{broadcast_u32, WarpPoll};
 
         // Broadcast state from lane 0 to all lanes
         let state = unsafe { broadcast_u32(wcx.active_mask, self.state) };
@@ -1585,34 +1546,61 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for WarpMultiPrintFuture {
         match state {
             WMP_INIT1 => unsafe {
                 warp_multi_init_hostcall(
-                    self.buf, wcx, &mut self.pkt_idx, WMP_WAIT1, &mut self.state, 0,
+                    self.buf,
+                    wcx,
+                    &mut self.pkt_idx,
+                    WMP_WAIT1,
+                    &mut self.state,
+                    0,
                 )
             },
             WMP_WAIT1 => unsafe {
                 warp_multi_wait_hostcall(
-                    self.buf, wcx, self.pkt_idx, WMP_INIT2, &mut self.state,
+                    self.buf,
+                    wcx,
+                    self.pkt_idx,
+                    WMP_INIT2,
+                    &mut self.state,
                     &mut self.calls_completed,
                 )
             },
             WMP_INIT2 => unsafe {
                 warp_multi_init_hostcall(
-                    self.buf, wcx, &mut self.pkt_idx, WMP_WAIT2, &mut self.state, 1,
+                    self.buf,
+                    wcx,
+                    &mut self.pkt_idx,
+                    WMP_WAIT2,
+                    &mut self.state,
+                    1,
                 )
             },
             WMP_WAIT2 => unsafe {
                 warp_multi_wait_hostcall(
-                    self.buf, wcx, self.pkt_idx, WMP_INIT3, &mut self.state,
+                    self.buf,
+                    wcx,
+                    self.pkt_idx,
+                    WMP_INIT3,
+                    &mut self.state,
                     &mut self.calls_completed,
                 )
             },
             WMP_INIT3 => unsafe {
                 warp_multi_init_hostcall(
-                    self.buf, wcx, &mut self.pkt_idx, WMP_WAIT3, &mut self.state, 2,
+                    self.buf,
+                    wcx,
+                    &mut self.pkt_idx,
+                    WMP_WAIT3,
+                    &mut self.state,
+                    2,
                 )
             },
             WMP_WAIT3 => unsafe {
                 warp_multi_wait_hostcall(
-                    self.buf, wcx, self.pkt_idx, WMP_DONE, &mut self.state,
+                    self.buf,
+                    wcx,
+                    self.pkt_idx,
+                    WMP_DONE,
+                    &mut self.state,
                     &mut self.calls_completed,
                 )
             },
@@ -1627,10 +1615,7 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for WarpMultiPrintFuture {
 /// `buf` = hostcall buffer
 /// `result` = output u32 (set to 1 if all 3 calls succeeded)
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn warp_future_multi_print_test(
-    buf: *mut u8,
-    result: *mut u32,
-) {
+pub unsafe extern "ptx-kernel" fn warp_future_multi_print_test(buf: *mut u8, result: *mut u32) {
     gpu_runtime::panic::gpu_panic_init(buf);
 
     let mut future = WarpMultiPrintFuture::new(buf);
@@ -1809,6 +1794,69 @@ unsafe fn warp_cfg_nested_test(buf: *mut u8, flag: u64, cmd: u64) -> bool {
 }
 
 // ============================================================
+// gpu-compute.2: Autonomous Multi-Step Compute Pipeline
+// ============================================================
+//
+// Demonstrates GPU-driven multi-step compute without host orchestration.
+// The GPU autonomously decides the processing path using match + if/else,
+// performs file I/O and conditional logic based on hostcall results.
+//
+// This replaces what previously required 150+ lines of hand-written
+// state machine code (cf. BranchingPipelineFuture) with a concise
+// `#[warp_async]` function using full control flow.
+//
+// Mode 0: File write pipeline — create file, write data, close
+// Mode 1: File read + classify — open file, read, branch on result
+// Mode 2: Multi-step I/O — create file, write, re-open, verify, report
+//
+// State machine (auto-generated by proc macro):
+//   Match on `mode` → each arm is a distinct pipeline
+//   Sequential hostcalls within arms (open → write → close)
+//   Conditional branching on hostcall results (if n > 0)
+
+#[warp_macro::warp_async]
+unsafe fn autonomous_pipeline(buf: *mut u8, mode: u64) -> bool {
+    warp_print!(buf, b"auto: start");
+
+    match mode {
+        0 => {
+            // Pipeline A: Create and write a file
+            let fd = warp_open!(buf, b"gpu_autonomous.txt", 1);
+            warp_write!(buf, fd, b"GPU-autonomous-output", 21);
+            warp_close!(buf, fd);
+            warp_print!(buf, b"auto: file-written");
+        }
+        1 => {
+            // Pipeline B: Read file and classify by size
+            let rfd = warp_open!(buf, b"gpu_autonomous.txt", 0);
+            let n = warp_read!(buf, rfd, 56);
+            warp_close!(buf, rfd);
+            if n > 10 {
+                warp_print!(buf, b"auto: large-payload");
+            } else {
+                warp_print!(buf, b"auto: small-payload");
+            }
+        }
+        _ => {
+            // Pipeline C: End-to-end create → verify round-trip
+            let wfd2 = warp_open!(buf, b"gpu_roundtrip.txt", 1);
+            warp_write!(buf, wfd2, b"verify-me", 9);
+            warp_close!(buf, wfd2);
+            let rfd2 = warp_open!(buf, b"gpu_roundtrip.txt", 0);
+            let nb = warp_read!(buf, rfd2, 56);
+            warp_close!(buf, rfd2);
+            if nb > 0 {
+                warp_print!(buf, b"auto: roundtrip-ok");
+            } else {
+                warp_print!(buf, b"auto: roundtrip-fail");
+            }
+        }
+    }
+
+    warp_print!(buf, b"auto: done");
+}
+
+// ============================================================
 // Sharding-aware print test — uses gpu-runtime's hostcall path
 // ============================================================
 
@@ -1816,10 +1864,7 @@ unsafe fn warp_cfg_nested_test(buf: *mut u8, flag: u64, cmd: u64) -> bool {
 /// sharded vs legacy buffers. Thread 0 of each block prints "Shard N".
 /// Increments `success_count` atomically on success.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn sharded_print_test(
-    buf: *mut u8,
-    success_count: *mut u32,
-) {
+pub unsafe extern "ptx-kernel" fn sharded_print_test(buf: *mut u8, success_count: *mut u32) {
     let thread_x = nvptx::_thread_idx_x() as u32;
     let block_x = nvptx::_block_idx_x() as u32;
 
@@ -1902,13 +1947,18 @@ unsafe fn grep_buffer(
                 if found {
                     let mut msg = [0u8; 56];
                     let mut pos: usize = 0;
-                    msg[pos] = b'T'; pos += 1;
+                    msg[pos] = b'T';
+                    pos += 1;
                     if thread_id >= 10 {
-                        msg[pos] = b'0' + (thread_id / 10) as u8; pos += 1;
+                        msg[pos] = b'0' + (thread_id / 10) as u8;
+                        pos += 1;
                     }
-                    msg[pos] = b'0' + (thread_id % 10) as u8; pos += 1;
-                    msg[pos] = b':'; pos += 1;
-                    msg[pos] = b' '; pos += 1;
+                    msg[pos] = b'0' + (thread_id % 10) as u8;
+                    pos += 1;
+                    msg[pos] = b':';
+                    pos += 1;
+                    msg[pos] = b' ';
+                    pos += 1;
                     let copy_len = line_len.min(56 - pos);
                     let mut c: usize = 0;
                     while c < copy_len {
@@ -1959,15 +2009,17 @@ pub unsafe extern "ptx-kernel" fn parallel_grep_kernel(
     }
 
     let mut file_buf = [0u8; 4096];
-    let bytes_read = gpu_runtime::sideband::gpu_bulk_read(
-        buf, sideband, fd, file_buf.as_mut_ptr(), 4096,
-    );
+    let bytes_read =
+        gpu_runtime::sideband::gpu_bulk_read(buf, sideband, fd, file_buf.as_mut_ptr(), 4096);
 
     gpu_hostcall_close(buf, fd);
 
     let match_count = grep_buffer(
-        buf, file_buf.as_ptr(), bytes_read,
-        &pattern_buf[..plen], tid,
+        buf,
+        file_buf.as_ptr(),
+        bytes_read,
+        &pattern_buf[..plen],
+        tid,
     );
 
     core::ptr::write_volatile(results.add(tid as usize), match_count as u64);
@@ -2025,7 +2077,7 @@ unsafe fn hybrid_warp_print_init(
     state_cell: &mut u32,
     pkt_idx_cell: &mut u16,
 ) -> gpu_runtime::warp_future::WarpPoll<bool> {
-    use gpu_runtime::warp_future::{WarpPoll, broadcast_u32};
+    use gpu_runtime::warp_future::{broadcast_u32, WarpPoll};
 
     let mut idx_raw: u32 = gpu_protocol::NULL_INDEX as u32;
     if wcx.is_leader() {
@@ -2082,8 +2134,7 @@ unsafe fn hybrid_warp_print_init(
             pkt.add(gpu_protocol::PKT_OFF_CONTROL) as *mut u32,
             gpu_protocol::CONTROL_FILLED,
         );
-        let (num_shards, shard_off, _) =
-            gpu_runtime::hostcall::read_shard_info(buf as *const u8);
+        let (num_shards, shard_off, _) = gpu_runtime::hostcall::read_shard_info(buf as *const u8);
         let ready_ptr = gpu_runtime::hostcall::get_ready_stack_ptr(buf, num_shards, shard_off);
         gpu_runtime::hostcall::hc_push(ready_ptr, buf, idx);
         sys_fetch_add_u64(buf.add(gpu_protocol::BUF_OFF_DOORBELL) as *mut u64, 1);
@@ -2129,7 +2180,7 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for HybridFuture {
         &mut self,
         wcx: &mut gpu_runtime::warp_future::WarpContext,
     ) -> gpu_runtime::warp_future::WarpPoll<bool> {
-        use gpu_runtime::warp_future::{WarpPoll, broadcast_u32};
+        use gpu_runtime::warp_future::{broadcast_u32, WarpPoll};
 
         let state = unsafe { broadcast_u32(wcx.active_mask, self.state) };
 
@@ -2137,16 +2188,19 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for HybridFuture {
             // === WarpFuture I/O: cooperative PRINT "hybrid: start" ===
             HYB_INIT_PRINT => unsafe {
                 hybrid_warp_print_init(
-                    self.buf, wcx, b"hybrid: start",
-                    HYB_WAIT_PRINT, &mut self.state, &mut self.pkt_idx,
+                    self.buf,
+                    wcx,
+                    b"hybrid: start",
+                    HYB_WAIT_PRINT,
+                    &mut self.state,
+                    &mut self.pkt_idx,
                 )
             },
 
             HYB_WAIT_PRINT => unsafe {
-                if hybrid_warp_wait(
-                    self.buf, wcx, self.pkt_idx,
-                    HYB_COMPUTE, &mut self.state,
-                ).is_some() {
+                if hybrid_warp_wait(self.buf, wcx, self.pkt_idx, HYB_COMPUTE, &mut self.state)
+                    .is_some()
+                {
                     WarpPoll::Pending // continue to next state on next poll
                 } else {
                     WarpPoll::Pending
@@ -2167,10 +2221,7 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for HybridFuture {
                 let value = lid * lid + 1;
 
                 // Each lane writes its result independently
-                core::ptr::write_volatile(
-                    self.results.add(lid as usize),
-                    value,
-                );
+                core::ptr::write_volatile(self.results.add(lid as usize), value);
 
                 // --- End per-thread block ---
                 // syncwarp: reconverge all lanes before returning to WarpFuture mode
@@ -2187,16 +2238,19 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for HybridFuture {
             // === WarpFuture I/O: cooperative PRINT "hybrid: done" ===
             HYB_INIT_PRINT2 => unsafe {
                 hybrid_warp_print_init(
-                    self.buf, wcx, b"hybrid: done",
-                    HYB_WAIT_PRINT2, &mut self.state, &mut self.pkt_idx,
+                    self.buf,
+                    wcx,
+                    b"hybrid: done",
+                    HYB_WAIT_PRINT2,
+                    &mut self.state,
+                    &mut self.pkt_idx,
                 )
             },
 
             HYB_WAIT_PRINT2 => unsafe {
-                if hybrid_warp_wait(
-                    self.buf, wcx, self.pkt_idx,
-                    HYB_DONE, &mut self.state,
-                ).is_some() {
+                if hybrid_warp_wait(self.buf, wcx, self.pkt_idx, HYB_DONE, &mut self.state)
+                    .is_some()
+                {
                     WarpPoll::Ready(true)
                 } else {
                     WarpPoll::Pending
@@ -2278,7 +2332,7 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for HybridStressFuture {
         &mut self,
         wcx: &mut gpu_runtime::warp_future::WarpContext,
     ) -> gpu_runtime::warp_future::WarpPoll<bool> {
-        use gpu_runtime::warp_future::{WarpPoll, broadcast_u32};
+        use gpu_runtime::warp_future::{broadcast_u32, WarpPoll};
 
         let state = unsafe { broadcast_u32(wcx.active_mask, self.state) };
 
@@ -2286,15 +2340,18 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for HybridStressFuture {
             // === Phase 1: WarpFuture PRINT "stress: phase1" ===
             HYB2_INIT1 => unsafe {
                 hybrid_warp_print_init(
-                    self.buf, wcx, b"stress: phase1",
-                    HYB2_WAIT1, &mut self.state, &mut self.pkt_idx,
+                    self.buf,
+                    wcx,
+                    b"stress: phase1",
+                    HYB2_WAIT1,
+                    &mut self.state,
+                    &mut self.pkt_idx,
                 )
             },
             HYB2_WAIT1 => unsafe {
-                if hybrid_warp_wait(
-                    self.buf, wcx, self.pkt_idx,
-                    HYB2_COMPUTE1, &mut self.state,
-                ).is_some() {
+                if hybrid_warp_wait(self.buf, wcx, self.pkt_idx, HYB2_COMPUTE1, &mut self.state)
+                    .is_some()
+                {
                     WarpPoll::Pending
                 } else {
                     WarpPoll::Pending
@@ -2327,15 +2384,18 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for HybridStressFuture {
             // === Phase 2: WarpFuture PRINT "stress: phase2" ===
             HYB2_INIT2 => unsafe {
                 hybrid_warp_print_init(
-                    self.buf, wcx, b"stress: phase2",
-                    HYB2_WAIT2, &mut self.state, &mut self.pkt_idx,
+                    self.buf,
+                    wcx,
+                    b"stress: phase2",
+                    HYB2_WAIT2,
+                    &mut self.state,
+                    &mut self.pkt_idx,
                 )
             },
             HYB2_WAIT2 => unsafe {
-                if hybrid_warp_wait(
-                    self.buf, wcx, self.pkt_idx,
-                    HYB2_COMPUTE2, &mut self.state,
-                ).is_some() {
+                if hybrid_warp_wait(self.buf, wcx, self.pkt_idx, HYB2_COMPUTE2, &mut self.state)
+                    .is_some()
+                {
                     WarpPoll::Pending
                 } else {
                     WarpPoll::Pending
@@ -2369,15 +2429,18 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for HybridStressFuture {
             // === Phase 3: WarpFuture PRINT "stress: phase3" ===
             HYB2_INIT3 => unsafe {
                 hybrid_warp_print_init(
-                    self.buf, wcx, b"stress: phase3",
-                    HYB2_WAIT3, &mut self.state, &mut self.pkt_idx,
+                    self.buf,
+                    wcx,
+                    b"stress: phase3",
+                    HYB2_WAIT3,
+                    &mut self.state,
+                    &mut self.pkt_idx,
                 )
             },
             HYB2_WAIT3 => unsafe {
-                if hybrid_warp_wait(
-                    self.buf, wcx, self.pkt_idx,
-                    HYB2_DONE, &mut self.state,
-                ).is_some() {
+                if hybrid_warp_wait(self.buf, wcx, self.pkt_idx, HYB2_DONE, &mut self.state)
+                    .is_some()
+                {
                     WarpPoll::Ready(true)
                 } else {
                     WarpPoll::Pending
@@ -2480,7 +2543,7 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for FileTransformFuture {
         &mut self,
         wcx: &mut gpu_runtime::warp_future::WarpContext,
     ) -> gpu_runtime::warp_future::WarpPoll<bool> {
-        use gpu_runtime::warp_future::{WarpPoll, broadcast_u32};
+        use gpu_runtime::warp_future::{broadcast_u32, WarpPoll};
 
         let state = unsafe { broadcast_u32(wcx.active_mask, self.state) };
 
@@ -2490,7 +2553,9 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for FileTransformFuture {
                 let path = b"gpu_input.txt";
                 let path_len = path.len();
                 warp_hostcall_submit(
-                    self.buf, wcx, SERVICE_OPEN,
+                    self.buf,
+                    wcx,
+                    SERVICE_OPEN,
                     |payload| {
                         let slot0 = (path_len as u64) | ((FILE_OPEN_READ as u64) << 32);
                         core::ptr::write_volatile(payload as *mut u64, slot0);
@@ -2501,16 +2566,23 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for FileTransformFuture {
                             i += 1;
                         }
                     },
-                    FTP_WAIT_OPEN_IN, &mut self.state, &mut self.pkt_idx,
+                    FTP_WAIT_OPEN_IN,
+                    &mut self.state,
+                    &mut self.pkt_idx,
                 )
             },
 
             FTP_WAIT_OPEN_IN => unsafe {
                 if let Some(fd) = warp_hostcall_wait_u64(
-                    self.buf, wcx, self.pkt_idx,
-                    FTP_BULK_READ, &mut self.state,
+                    self.buf,
+                    wcx,
+                    self.pkt_idx,
+                    FTP_BULK_READ,
+                    &mut self.state,
                 ) {
-                    if wcx.is_leader() { self.fd_in = fd; }
+                    if wcx.is_leader() {
+                        self.fd_in = fd;
+                    }
                 }
                 WarpPoll::Pending
             },
@@ -2519,31 +2591,39 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for FileTransformFuture {
             FTP_BULK_READ => unsafe {
                 if wcx.is_leader() {
                     gpu_runtime::sideband::sideband_reset(self.sideband);
-                    self.sideband_offset = gpu_runtime::sideband::sideband_alloc(
-                        self.sideband, FTP_DATA_SIZE,
-                    );
+                    self.sideband_offset =
+                        gpu_runtime::sideband::sideband_alloc(self.sideband, FTP_DATA_SIZE);
                 }
                 gpu_atomics::syncwarp(wcx.active_mask);
 
                 let fd = self.fd_in;
                 let sb_off = self.sideband_offset;
                 warp_hostcall_submit(
-                    self.buf, wcx, SERVICE_BULK_READ,
+                    self.buf,
+                    wcx,
+                    SERVICE_BULK_READ,
                     |payload| {
                         core::ptr::write_volatile(payload as *mut u64, fd);
                         core::ptr::write_volatile(payload.add(8) as *mut u64, sb_off);
                         core::ptr::write_volatile(payload.add(16) as *mut u64, FTP_DATA_SIZE);
                     },
-                    FTP_WAIT_READ, &mut self.state, &mut self.pkt_idx,
+                    FTP_WAIT_READ,
+                    &mut self.state,
+                    &mut self.pkt_idx,
                 )
             },
 
             FTP_WAIT_READ => unsafe {
                 if let Some(n) = warp_hostcall_wait_u64(
-                    self.buf, wcx, self.pkt_idx,
-                    FTP_COMPUTE, &mut self.state,
+                    self.buf,
+                    wcx,
+                    self.pkt_idx,
+                    FTP_COMPUTE,
+                    &mut self.state,
                 ) {
-                    if wcx.is_leader() { self.bytes_read = n; }
+                    if wcx.is_leader() {
+                        self.bytes_read = n;
+                    }
                 }
                 WarpPoll::Pending
             },
@@ -2554,9 +2634,9 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for FileTransformFuture {
             FTP_COMPUTE => unsafe {
                 let lid = wcx.lane_id;
                 let offset = broadcast_u32(wcx.active_mask, self.sideband_offset as u32) as usize;
-                let data_base = self.sideband.add(
-                    gpu_protocol::SIDEBAND_DATA_OFFSET + offset,
-                );
+                let data_base = self
+                    .sideband
+                    .add(gpu_protocol::SIDEBAND_DATA_OFFSET + offset);
                 let lane_base = data_base.add(lid as usize * 32);
                 let bytes_read = broadcast_u32(wcx.active_mask, self.bytes_read as u32);
                 let lane_start = lid * 32;
@@ -2577,7 +2657,9 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for FileTransformFuture {
                 membar_sys();
                 gpu_atomics::syncwarp(wcx.active_mask);
 
-                if wcx.is_leader() { self.state = FTP_OPEN_OUT; }
+                if wcx.is_leader() {
+                    self.state = FTP_OPEN_OUT;
+                }
                 gpu_atomics::syncwarp(wcx.active_mask);
                 WarpPoll::Pending
             },
@@ -2587,7 +2669,9 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for FileTransformFuture {
                 let path = b"gpu_output.txt";
                 let path_len = path.len();
                 warp_hostcall_submit(
-                    self.buf, wcx, SERVICE_OPEN,
+                    self.buf,
+                    wcx,
+                    SERVICE_OPEN,
                     |payload| {
                         let slot0 = (path_len as u64) | ((FILE_OPEN_WRITE_CREATE as u64) << 32);
                         core::ptr::write_volatile(payload as *mut u64, slot0);
@@ -2598,16 +2682,23 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for FileTransformFuture {
                             i += 1;
                         }
                     },
-                    FTP_WAIT_OPEN_OUT, &mut self.state, &mut self.pkt_idx,
+                    FTP_WAIT_OPEN_OUT,
+                    &mut self.state,
+                    &mut self.pkt_idx,
                 )
             },
 
             FTP_WAIT_OPEN_OUT => unsafe {
                 if let Some(fd) = warp_hostcall_wait_u64(
-                    self.buf, wcx, self.pkt_idx,
-                    FTP_BULK_WRITE, &mut self.state,
+                    self.buf,
+                    wcx,
+                    self.pkt_idx,
+                    FTP_BULK_WRITE,
+                    &mut self.state,
                 ) {
-                    if wcx.is_leader() { self.fd_out = fd; }
+                    if wcx.is_leader() {
+                        self.fd_out = fd;
+                    }
                 }
                 WarpPoll::Pending
             },
@@ -2618,21 +2709,30 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for FileTransformFuture {
                 let sb_off = self.sideband_offset;
                 let len = self.bytes_read;
                 warp_hostcall_submit(
-                    self.buf, wcx, SERVICE_BULK_WRITE,
+                    self.buf,
+                    wcx,
+                    SERVICE_BULK_WRITE,
                     |payload| {
                         core::ptr::write_volatile(payload as *mut u64, fd);
                         core::ptr::write_volatile(payload.add(8) as *mut u64, sb_off);
                         core::ptr::write_volatile(payload.add(16) as *mut u64, len);
                     },
-                    FTP_WAIT_WRITE, &mut self.state, &mut self.pkt_idx,
+                    FTP_WAIT_WRITE,
+                    &mut self.state,
+                    &mut self.pkt_idx,
                 )
             },
 
             FTP_WAIT_WRITE => unsafe {
                 if warp_hostcall_wait_u64(
-                    self.buf, wcx, self.pkt_idx,
-                    FTP_CLOSE_IN, &mut self.state,
-                ).is_some() {}
+                    self.buf,
+                    wcx,
+                    self.pkt_idx,
+                    FTP_CLOSE_IN,
+                    &mut self.state,
+                )
+                .is_some()
+                {}
                 WarpPoll::Pending
             },
 
@@ -2640,19 +2740,28 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for FileTransformFuture {
             FTP_CLOSE_IN => unsafe {
                 let fd = self.fd_in;
                 warp_hostcall_submit(
-                    self.buf, wcx, SERVICE_CLOSE,
+                    self.buf,
+                    wcx,
+                    SERVICE_CLOSE,
                     |payload| {
                         core::ptr::write_volatile(payload as *mut u64, fd);
                     },
-                    FTP_WAIT_CLOSE_IN, &mut self.state, &mut self.pkt_idx,
+                    FTP_WAIT_CLOSE_IN,
+                    &mut self.state,
+                    &mut self.pkt_idx,
                 )
             },
 
             FTP_WAIT_CLOSE_IN => unsafe {
                 if warp_hostcall_wait_u64(
-                    self.buf, wcx, self.pkt_idx,
-                    FTP_CLOSE_OUT, &mut self.state,
-                ).is_some() {}
+                    self.buf,
+                    wcx,
+                    self.pkt_idx,
+                    FTP_CLOSE_OUT,
+                    &mut self.state,
+                )
+                .is_some()
+                {}
                 WarpPoll::Pending
             },
 
@@ -2660,35 +2769,41 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for FileTransformFuture {
             FTP_CLOSE_OUT => unsafe {
                 let fd = self.fd_out;
                 warp_hostcall_submit(
-                    self.buf, wcx, SERVICE_CLOSE,
+                    self.buf,
+                    wcx,
+                    SERVICE_CLOSE,
                     |payload| {
                         core::ptr::write_volatile(payload as *mut u64, fd);
                     },
-                    FTP_WAIT_CLOSE_OUT, &mut self.state, &mut self.pkt_idx,
+                    FTP_WAIT_CLOSE_OUT,
+                    &mut self.state,
+                    &mut self.pkt_idx,
                 )
             },
 
             FTP_WAIT_CLOSE_OUT => unsafe {
-                if warp_hostcall_wait_u64(
-                    self.buf, wcx, self.pkt_idx,
-                    FTP_PRINT, &mut self.state,
-                ).is_some() {}
+                if warp_hostcall_wait_u64(self.buf, wcx, self.pkt_idx, FTP_PRINT, &mut self.state)
+                    .is_some()
+                {}
                 WarpPoll::Pending
             },
 
             // === Step 8: Print completion message ===
             FTP_PRINT => unsafe {
                 hybrid_warp_print_init(
-                    self.buf, wcx, b"pipeline: done",
-                    FTP_WAIT_PRINT, &mut self.state, &mut self.pkt_idx,
+                    self.buf,
+                    wcx,
+                    b"pipeline: done",
+                    FTP_WAIT_PRINT,
+                    &mut self.state,
+                    &mut self.pkt_idx,
                 )
             },
 
             FTP_WAIT_PRINT => unsafe {
-                if hybrid_warp_wait(
-                    self.buf, wcx, self.pkt_idx,
-                    FTP_DONE, &mut self.state,
-                ).is_some() {
+                if hybrid_warp_wait(self.buf, wcx, self.pkt_idx, FTP_DONE, &mut self.state)
+                    .is_some()
+                {
                     WarpPoll::Ready(true)
                 } else {
                     WarpPoll::Pending
@@ -2753,15 +2868,17 @@ unsafe fn gpu_sqrtf(x: f32) -> f32 {
 #[no_mangle]
 pub unsafe extern "ptx-kernel" fn f32_math_test(output: *mut f32) {
     let tid = core::arch::nvptx::_thread_idx_x() as usize;
-    if tid != 0 { return; }
+    if tid != 0 {
+        return;
+    }
 
     // Basic ops
     let a: f32 = 3.0;
     let b: f32 = 4.0;
-    core::ptr::write_volatile(output.add(0), a + b);        // 7.0
-    core::ptr::write_volatile(output.add(1), a * b);        // 12.0
-    core::ptr::write_volatile(output.add(2), 10.0f32 / b);  // 2.5
-    core::ptr::write_volatile(output.add(3), gpu_sqrtf(9.0));// 3.0
+    core::ptr::write_volatile(output.add(0), a + b); // 7.0
+    core::ptr::write_volatile(output.add(1), a * b); // 12.0
+    core::ptr::write_volatile(output.add(2), 10.0f32 / b); // 2.5
+    core::ptr::write_volatile(output.add(3), gpu_sqrtf(9.0)); // 3.0
 
     // Dot product
     let v1 = [1.0f32, 2.0, 3.0, 4.0];
@@ -2772,21 +2889,21 @@ pub unsafe extern "ptx-kernel" fn f32_math_test(output: *mut f32) {
         dot += v1[i] * v2[i];
         i += 1;
     }
-    core::ptr::write_volatile(output.add(4), dot);           // 70.0
+    core::ptr::write_volatile(output.add(4), dot); // 70.0
 
     // Norm
     let norm = gpu_sqrtf(3.0 * 3.0 + 4.0 * 4.0);
-    core::ptr::write_volatile(output.add(5), norm);          // 5.0
+    core::ptr::write_volatile(output.add(5), norm); // 5.0
 
     // Cosine similarity: orthogonal vectors → 0.0
     // cos([1,0], [0,1]) = 0 / (1*1) = 0.0
     let cos_orth = 0.0f32 / (1.0f32 * 1.0f32);
-    core::ptr::write_volatile(output.add(6), cos_orth);      // 0.0
+    core::ptr::write_volatile(output.add(6), cos_orth); // 0.0
 
     // Cosine similarity: identical vectors → 1.0
     // cos([1,0], [1,0]) = 1 / (1*1) = 1.0
     let cos_same = 1.0f32 / (1.0f32 * 1.0f32);
-    core::ptr::write_volatile(output.add(7), cos_same);      // 1.0
+    core::ptr::write_volatile(output.add(7), cos_same); // 1.0
 }
 
 // ============================================================
@@ -2853,7 +2970,10 @@ impl VecSearchFuture {
             db_offset: 0,
             query_offset: 0,
             result_offset: 0,
-            top_k: [TopKEntry { id: u32::MAX, score: -1.0 }; VS_K],
+            top_k: [TopKEntry {
+                id: u32::MAX,
+                score: -1.0,
+            }; VS_K],
         }
     }
 }
@@ -2865,18 +2985,19 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for VecSearchFuture {
         &mut self,
         wcx: &mut gpu_runtime::warp_future::WarpContext,
     ) -> gpu_runtime::warp_future::WarpPoll<bool> {
-        use gpu_runtime::warp_future::{WarpPoll, broadcast_u32};
+        use gpu_runtime::warp_future::{broadcast_u32, WarpPoll};
 
         let state = unsafe { broadcast_u32(wcx.active_mask, self.state) };
 
         match state {
             // --- Database: open -> read -> close ---
-
             VS_SUBMIT_OPEN_DB => unsafe {
                 let path = b"vecdb.bin";
                 let path_len = path.len();
                 warp_hostcall_submit(
-                    self.buf, wcx, SERVICE_OPEN,
+                    self.buf,
+                    wcx,
+                    SERVICE_OPEN,
                     |payload| {
                         let slot0 = (path_len as u64) | ((FILE_OPEN_READ as u64) << 32);
                         core::ptr::write_volatile(payload as *mut u64, slot0);
@@ -2887,21 +3008,25 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for VecSearchFuture {
                             i += 1;
                         }
                     },
-                    VS_WAIT_OPEN_DB, &mut self.state, &mut self.pkt_idx,
+                    VS_WAIT_OPEN_DB,
+                    &mut self.state,
+                    &mut self.pkt_idx,
                 )
             },
 
             VS_WAIT_OPEN_DB => unsafe {
                 if let Some(fd) = warp_hostcall_wait_u64(
-                    self.buf, wcx, self.pkt_idx,
-                    VS_SUBMIT_READ_DB, &mut self.state,
+                    self.buf,
+                    wcx,
+                    self.pkt_idx,
+                    VS_SUBMIT_READ_DB,
+                    &mut self.state,
                 ) {
                     if wcx.is_leader() {
                         self.fd = fd;
                         gpu_runtime::sideband::sideband_reset(self.sideband);
-                        self.db_offset = gpu_runtime::sideband::sideband_alloc(
-                            self.sideband, 900 * 1024,
-                        );
+                        self.db_offset =
+                            gpu_runtime::sideband::sideband_alloc(self.sideband, 900 * 1024);
                     }
                 }
                 WarpPoll::Pending
@@ -2911,25 +3036,32 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for VecSearchFuture {
                 let fd = self.fd;
                 let db_off = self.db_offset;
                 warp_hostcall_submit(
-                    self.buf, wcx, SERVICE_BULK_READ,
+                    self.buf,
+                    wcx,
+                    SERVICE_BULK_READ,
                     |payload| {
                         core::ptr::write_volatile(payload as *mut u64, fd);
                         core::ptr::write_volatile(payload.add(8) as *mut u64, db_off);
                         core::ptr::write_volatile(payload.add(16) as *mut u64, 900 * 1024);
                     },
-                    VS_WAIT_READ_DB, &mut self.state, &mut self.pkt_idx,
+                    VS_WAIT_READ_DB,
+                    &mut self.state,
+                    &mut self.pkt_idx,
                 )
             },
 
             VS_WAIT_READ_DB => unsafe {
                 if let Some(_bytes) = warp_hostcall_wait_u64(
-                    self.buf, wcx, self.pkt_idx,
-                    VS_SUBMIT_CLOSE_DB, &mut self.state,
+                    self.buf,
+                    wcx,
+                    self.pkt_idx,
+                    VS_SUBMIT_CLOSE_DB,
+                    &mut self.state,
                 ) {
                     if wcx.is_leader() {
-                        let header = self.sideband.add(
-                            gpu_protocol::SIDEBAND_DATA_OFFSET + self.db_offset as usize,
-                        );
+                        let header = self
+                            .sideband
+                            .add(gpu_protocol::SIDEBAND_DATA_OFFSET + self.db_offset as usize);
                         self.db_count = core::ptr::read_volatile(header as *const u32);
                     }
                 }
@@ -2939,31 +3071,43 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for VecSearchFuture {
             VS_SUBMIT_CLOSE_DB => unsafe {
                 let fd = self.fd;
                 warp_hostcall_submit(
-                    self.buf, wcx, SERVICE_CLOSE,
+                    self.buf,
+                    wcx,
+                    SERVICE_CLOSE,
                     |payload| {
                         core::ptr::write_volatile(payload as *mut u64, fd);
                     },
-                    VS_WAIT_CLOSE_DB, &mut self.state, &mut self.pkt_idx,
+                    VS_WAIT_CLOSE_DB,
+                    &mut self.state,
+                    &mut self.pkt_idx,
                 )
             },
 
             VS_WAIT_CLOSE_DB => unsafe {
                 if warp_hostcall_wait_u64(
-                    self.buf, wcx, self.pkt_idx,
-                    VS_SUBMIT_OPEN_Q, &mut self.state,
-                ).is_some() {
-                    if wcx.is_leader() { self.fd = 0; }
+                    self.buf,
+                    wcx,
+                    self.pkt_idx,
+                    VS_SUBMIT_OPEN_Q,
+                    &mut self.state,
+                )
+                .is_some()
+                {
+                    if wcx.is_leader() {
+                        self.fd = 0;
+                    }
                 }
                 WarpPoll::Pending
             },
 
             // --- Query: open -> read -> close ---
-
             VS_SUBMIT_OPEN_Q => unsafe {
                 let path = b"query.bin";
                 let path_len = path.len();
                 warp_hostcall_submit(
-                    self.buf, wcx, SERVICE_OPEN,
+                    self.buf,
+                    wcx,
+                    SERVICE_OPEN,
                     |payload| {
                         let slot0 = (path_len as u64) | ((FILE_OPEN_READ as u64) << 32);
                         core::ptr::write_volatile(payload as *mut u64, slot0);
@@ -2974,19 +3118,25 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for VecSearchFuture {
                             i += 1;
                         }
                     },
-                    VS_WAIT_OPEN_Q, &mut self.state, &mut self.pkt_idx,
+                    VS_WAIT_OPEN_Q,
+                    &mut self.state,
+                    &mut self.pkt_idx,
                 )
             },
 
             VS_WAIT_OPEN_Q => unsafe {
                 if let Some(fd) = warp_hostcall_wait_u64(
-                    self.buf, wcx, self.pkt_idx,
-                    VS_SUBMIT_READ_Q, &mut self.state,
+                    self.buf,
+                    wcx,
+                    self.pkt_idx,
+                    VS_SUBMIT_READ_Q,
+                    &mut self.state,
                 ) {
                     if wcx.is_leader() {
                         self.fd = fd;
                         self.query_offset = gpu_runtime::sideband::sideband_alloc(
-                            self.sideband, (4 + VS_VEC_BYTES) as u64,
+                            self.sideband,
+                            (4 + VS_VEC_BYTES) as u64,
                         );
                     }
                 }
@@ -2997,47 +3147,63 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for VecSearchFuture {
                 let fd = self.fd;
                 let q_off = self.query_offset;
                 warp_hostcall_submit(
-                    self.buf, wcx, SERVICE_BULK_READ,
+                    self.buf,
+                    wcx,
+                    SERVICE_BULK_READ,
                     |payload| {
                         core::ptr::write_volatile(payload as *mut u64, fd);
                         core::ptr::write_volatile(payload.add(8) as *mut u64, q_off);
-                        core::ptr::write_volatile(payload.add(16) as *mut u64, (4 + VS_VEC_BYTES) as u64);
+                        core::ptr::write_volatile(
+                            payload.add(16) as *mut u64,
+                            (4 + VS_VEC_BYTES) as u64,
+                        );
                     },
-                    VS_WAIT_READ_Q, &mut self.state, &mut self.pkt_idx,
+                    VS_WAIT_READ_Q,
+                    &mut self.state,
+                    &mut self.pkt_idx,
                 )
             },
 
             VS_WAIT_READ_Q => unsafe {
                 if warp_hostcall_wait_u64(
-                    self.buf, wcx, self.pkt_idx,
-                    VS_SUBMIT_CLOSE_Q, &mut self.state,
-                ).is_some() {}
+                    self.buf,
+                    wcx,
+                    self.pkt_idx,
+                    VS_SUBMIT_CLOSE_Q,
+                    &mut self.state,
+                )
+                .is_some()
+                {}
                 WarpPoll::Pending
             },
 
             VS_SUBMIT_CLOSE_Q => unsafe {
                 let fd = self.fd;
                 warp_hostcall_submit(
-                    self.buf, wcx, SERVICE_CLOSE,
+                    self.buf,
+                    wcx,
+                    SERVICE_CLOSE,
                     |payload| {
                         core::ptr::write_volatile(payload as *mut u64, fd);
                     },
-                    VS_WAIT_CLOSE_Q, &mut self.state, &mut self.pkt_idx,
+                    VS_WAIT_CLOSE_Q,
+                    &mut self.state,
+                    &mut self.pkt_idx,
                 )
             },
 
             VS_WAIT_CLOSE_Q => unsafe {
-                if warp_hostcall_wait_u64(
-                    self.buf, wcx, self.pkt_idx,
-                    VS_COMPUTE, &mut self.state,
-                ).is_some() {
-                    if wcx.is_leader() { self.fd = 0; }
+                if warp_hostcall_wait_u64(self.buf, wcx, self.pkt_idx, VS_COMPUTE, &mut self.state)
+                    .is_some()
+                {
+                    if wcx.is_leader() {
+                        self.fd = 0;
+                    }
                 }
                 WarpPoll::Pending
             },
 
             // --- Compute cosine similarity + write results to sideband ---
-
             VS_COMPUTE => unsafe {
                 let lid = wcx.lane_id;
                 let n = broadcast_u32(wcx.active_mask, self.db_count);
@@ -3067,7 +3233,10 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for VecSearchFuture {
                 let q_norm = gpu_sqrtf(q_norm_sq);
 
                 // Per-lane: stride-32 work distribution
-                let mut local_topk = [TopKEntry { id: u32::MAX, score: -1.0f32 }; VS_K];
+                let mut local_topk = [TopKEntry {
+                    id: u32::MAX,
+                    score: -1.0f32,
+                }; VS_K];
 
                 let mut vec_idx = lid;
                 while vec_idx < n {
@@ -3103,7 +3272,10 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for VecSearchFuture {
                 // Full warp merge: collect all 32 lanes' top-K via shfl.sync
                 // Each lane has local_topk[VS_K] in registers. Lane 0 collects
                 // all 320 candidates (32 lanes * 10 entries) and picks global top-10.
-                let mut global_topk = [TopKEntry { id: u32::MAX, score: -1.0f32 }; VS_K];
+                let mut global_topk = [TopKEntry {
+                    id: u32::MAX,
+                    score: -1.0f32,
+                }; VS_K];
                 if lid == 0 {
                     global_topk = local_topk; // start with lane 0's results
                 }
@@ -3117,13 +3289,18 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for VecSearchFuture {
                     let mut s = 0u32;
                     while s < 32 {
                         let cand_id = gpu_atomics::shfl_sync_idx_u32(mask, my_id, s);
-                        let cand_score_bits = gpu_atomics::shfl_sync_idx_u32(mask, my_score_bits, s);
+                        let cand_score_bits =
+                            gpu_atomics::shfl_sync_idx_u32(mask, my_score_bits, s);
                         let cand_score: f32 = f32::from_bits(cand_score_bits);
 
                         // Lane 0 inserts candidate into global top-K
-                        if lid == 0 && s != 0 { // skip lane 0 (already included)
+                        if lid == 0 && s != 0 {
+                            // skip lane 0 (already included)
                             if cand_score > global_topk[VS_K - 1].score {
-                                global_topk[VS_K - 1] = TopKEntry { id: cand_id, score: cand_score };
+                                global_topk[VS_K - 1] = TopKEntry {
+                                    id: cand_id,
+                                    score: cand_score,
+                                };
                                 let mut j = VS_K - 1;
                                 while j > 0 && global_topk[j].score > global_topk[j - 1].score {
                                     let tmp = global_topk[j - 1];
@@ -3142,21 +3319,17 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for VecSearchFuture {
                 if wcx.is_leader() {
                     self.top_k = global_topk;
 
-                    let result_offset = gpu_runtime::sideband::sideband_alloc(
-                        self.sideband, (4 + VS_K * 8) as u64,
-                    );
+                    let result_offset =
+                        gpu_runtime::sideband::sideband_alloc(self.sideband, (4 + VS_K * 8) as u64);
                     self.result_offset = result_offset;
-                    let result_base = self.sideband.add(
-                        gpu_protocol::SIDEBAND_DATA_OFFSET + result_offset as usize,
-                    );
+                    let result_base = self
+                        .sideband
+                        .add(gpu_protocol::SIDEBAND_DATA_OFFSET + result_offset as usize);
                     core::ptr::write_volatile(result_base as *mut u32, VS_K as u32);
                     let entries = result_base.add(4);
                     let mut i = 0;
                     while i < VS_K {
-                        core::ptr::write_volatile(
-                            entries.add(i * 8) as *mut u32,
-                            self.top_k[i].id,
-                        );
+                        core::ptr::write_volatile(entries.add(i * 8) as *mut u32, self.top_k[i].id);
                         core::ptr::write_volatile(
                             entries.add(i * 8 + 4) as *mut f32,
                             self.top_k[i].score,
@@ -3167,18 +3340,21 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for VecSearchFuture {
 
                 membar_sys();
                 gpu_atomics::syncwarp(wcx.active_mask);
-                if wcx.is_leader() { self.state = VS_SUBMIT_OPEN_OUT; }
+                if wcx.is_leader() {
+                    self.state = VS_SUBMIT_OPEN_OUT;
+                }
                 gpu_atomics::syncwarp(wcx.active_mask);
                 WarpPoll::Pending
             },
 
             // --- Output: open -> write -> close ---
-
             VS_SUBMIT_OPEN_OUT => unsafe {
                 let path = b"results.bin";
                 let path_len = path.len();
                 warp_hostcall_submit(
-                    self.buf, wcx, SERVICE_OPEN,
+                    self.buf,
+                    wcx,
+                    SERVICE_OPEN,
                     |payload| {
                         let slot0 = (path_len as u64) | ((FILE_OPEN_WRITE_CREATE as u64) << 32);
                         core::ptr::write_volatile(payload as *mut u64, slot0);
@@ -3189,16 +3365,23 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for VecSearchFuture {
                             i += 1;
                         }
                     },
-                    VS_WAIT_OPEN_OUT, &mut self.state, &mut self.pkt_idx,
+                    VS_WAIT_OPEN_OUT,
+                    &mut self.state,
+                    &mut self.pkt_idx,
                 )
             },
 
             VS_WAIT_OPEN_OUT => unsafe {
                 if let Some(fd) = warp_hostcall_wait_u64(
-                    self.buf, wcx, self.pkt_idx,
-                    VS_SUBMIT_WRITE, &mut self.state,
+                    self.buf,
+                    wcx,
+                    self.pkt_idx,
+                    VS_SUBMIT_WRITE,
+                    &mut self.state,
                 ) {
-                    if wcx.is_leader() { self.fd = fd; }
+                    if wcx.is_leader() {
+                        self.fd = fd;
+                    }
                 }
                 WarpPoll::Pending
             },
@@ -3208,40 +3391,52 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for VecSearchFuture {
                 let r_off = self.result_offset;
                 let r_len = (4 + VS_K * 8) as u64;
                 warp_hostcall_submit(
-                    self.buf, wcx, SERVICE_BULK_WRITE,
+                    self.buf,
+                    wcx,
+                    SERVICE_BULK_WRITE,
                     |payload| {
                         core::ptr::write_volatile(payload as *mut u64, fd);
                         core::ptr::write_volatile(payload.add(8) as *mut u64, r_off);
                         core::ptr::write_volatile(payload.add(16) as *mut u64, r_len);
                     },
-                    VS_WAIT_WRITE, &mut self.state, &mut self.pkt_idx,
+                    VS_WAIT_WRITE,
+                    &mut self.state,
+                    &mut self.pkt_idx,
                 )
             },
 
             VS_WAIT_WRITE => unsafe {
                 if warp_hostcall_wait_u64(
-                    self.buf, wcx, self.pkt_idx,
-                    VS_SUBMIT_CLOSE_OUT, &mut self.state,
-                ).is_some() {}
+                    self.buf,
+                    wcx,
+                    self.pkt_idx,
+                    VS_SUBMIT_CLOSE_OUT,
+                    &mut self.state,
+                )
+                .is_some()
+                {}
                 WarpPoll::Pending
             },
 
             VS_SUBMIT_CLOSE_OUT => unsafe {
                 let fd = self.fd;
                 warp_hostcall_submit(
-                    self.buf, wcx, SERVICE_CLOSE,
+                    self.buf,
+                    wcx,
+                    SERVICE_CLOSE,
                     |payload| {
                         core::ptr::write_volatile(payload as *mut u64, fd);
                     },
-                    VS_WAIT_CLOSE_OUT, &mut self.state, &mut self.pkt_idx,
+                    VS_WAIT_CLOSE_OUT,
+                    &mut self.state,
+                    &mut self.pkt_idx,
                 )
             },
 
             VS_WAIT_CLOSE_OUT => unsafe {
-                if warp_hostcall_wait_u64(
-                    self.buf, wcx, self.pkt_idx,
-                    VS_DONE, &mut self.state,
-                ).is_some() {
+                if warp_hostcall_wait_u64(self.buf, wcx, self.pkt_idx, VS_DONE, &mut self.state)
+                    .is_some()
+                {
                     return WarpPoll::Ready(true);
                 }
                 WarpPoll::Pending
@@ -3345,18 +3540,19 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for BatchSearchFuture {
         &mut self,
         wcx: &mut gpu_runtime::warp_future::WarpContext,
     ) -> gpu_runtime::warp_future::WarpPoll<bool> {
-        use gpu_runtime::warp_future::{WarpPoll, broadcast_u32};
+        use gpu_runtime::warp_future::{broadcast_u32, WarpPoll};
 
         let state = unsafe { broadcast_u32(wcx.active_mask, self.state) };
 
         match state {
             // --- Database: open -> read -> close ---
-
             BS_SUBMIT_OPEN_DB => unsafe {
                 let path = b"vecdb.bin";
                 let path_len = path.len();
                 warp_hostcall_submit(
-                    self.buf, wcx, SERVICE_OPEN,
+                    self.buf,
+                    wcx,
+                    SERVICE_OPEN,
                     |payload| {
                         let slot0 = (path_len as u64) | ((FILE_OPEN_READ as u64) << 32);
                         core::ptr::write_volatile(payload as *mut u64, slot0);
@@ -3367,21 +3563,25 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for BatchSearchFuture {
                             i += 1;
                         }
                     },
-                    BS_WAIT_OPEN_DB, &mut self.state, &mut self.pkt_idx,
+                    BS_WAIT_OPEN_DB,
+                    &mut self.state,
+                    &mut self.pkt_idx,
                 )
             },
 
             BS_WAIT_OPEN_DB => unsafe {
                 if let Some(fd) = warp_hostcall_wait_u64(
-                    self.buf, wcx, self.pkt_idx,
-                    BS_SUBMIT_READ_DB, &mut self.state,
+                    self.buf,
+                    wcx,
+                    self.pkt_idx,
+                    BS_SUBMIT_READ_DB,
+                    &mut self.state,
                 ) {
                     if wcx.is_leader() {
                         self.fd = fd;
                         gpu_runtime::sideband::sideband_reset(self.sideband);
-                        self.db_offset = gpu_runtime::sideband::sideband_alloc(
-                            self.sideband, 900 * 1024,
-                        );
+                        self.db_offset =
+                            gpu_runtime::sideband::sideband_alloc(self.sideband, 900 * 1024);
                     }
                 }
                 WarpPoll::Pending
@@ -3391,25 +3591,32 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for BatchSearchFuture {
                 let fd = self.fd;
                 let db_off = self.db_offset;
                 warp_hostcall_submit(
-                    self.buf, wcx, SERVICE_BULK_READ,
+                    self.buf,
+                    wcx,
+                    SERVICE_BULK_READ,
                     |payload| {
                         core::ptr::write_volatile(payload as *mut u64, fd);
                         core::ptr::write_volatile(payload.add(8) as *mut u64, db_off);
                         core::ptr::write_volatile(payload.add(16) as *mut u64, 900 * 1024);
                     },
-                    BS_WAIT_READ_DB, &mut self.state, &mut self.pkt_idx,
+                    BS_WAIT_READ_DB,
+                    &mut self.state,
+                    &mut self.pkt_idx,
                 )
             },
 
             BS_WAIT_READ_DB => unsafe {
                 if let Some(_bytes) = warp_hostcall_wait_u64(
-                    self.buf, wcx, self.pkt_idx,
-                    BS_SUBMIT_CLOSE_DB, &mut self.state,
+                    self.buf,
+                    wcx,
+                    self.pkt_idx,
+                    BS_SUBMIT_CLOSE_DB,
+                    &mut self.state,
                 ) {
                     if wcx.is_leader() {
-                        let header = self.sideband.add(
-                            gpu_protocol::SIDEBAND_DATA_OFFSET + self.db_offset as usize,
-                        );
+                        let header = self
+                            .sideband
+                            .add(gpu_protocol::SIDEBAND_DATA_OFFSET + self.db_offset as usize);
                         self.db_count = core::ptr::read_volatile(header as *const u32);
                     }
                 }
@@ -3419,31 +3626,43 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for BatchSearchFuture {
             BS_SUBMIT_CLOSE_DB => unsafe {
                 let fd = self.fd;
                 warp_hostcall_submit(
-                    self.buf, wcx, SERVICE_CLOSE,
+                    self.buf,
+                    wcx,
+                    SERVICE_CLOSE,
                     |payload| {
                         core::ptr::write_volatile(payload as *mut u64, fd);
                     },
-                    BS_WAIT_CLOSE_DB, &mut self.state, &mut self.pkt_idx,
+                    BS_WAIT_CLOSE_DB,
+                    &mut self.state,
+                    &mut self.pkt_idx,
                 )
             },
 
             BS_WAIT_CLOSE_DB => unsafe {
                 if warp_hostcall_wait_u64(
-                    self.buf, wcx, self.pkt_idx,
-                    BS_SUBMIT_OPEN_Q, &mut self.state,
-                ).is_some() {
-                    if wcx.is_leader() { self.fd = 0; }
+                    self.buf,
+                    wcx,
+                    self.pkt_idx,
+                    BS_SUBMIT_OPEN_Q,
+                    &mut self.state,
+                )
+                .is_some()
+                {
+                    if wcx.is_leader() {
+                        self.fd = 0;
+                    }
                 }
                 WarpPoll::Pending
             },
 
             // --- Queries: open -> read -> close ---
-
             BS_SUBMIT_OPEN_Q => unsafe {
                 let path = b"queries.bin";
                 let path_len = path.len();
                 warp_hostcall_submit(
-                    self.buf, wcx, SERVICE_OPEN,
+                    self.buf,
+                    wcx,
+                    SERVICE_OPEN,
                     |payload| {
                         let slot0 = (path_len as u64) | ((FILE_OPEN_READ as u64) << 32);
                         core::ptr::write_volatile(payload as *mut u64, slot0);
@@ -3454,21 +3673,25 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for BatchSearchFuture {
                             i += 1;
                         }
                     },
-                    BS_WAIT_OPEN_Q, &mut self.state, &mut self.pkt_idx,
+                    BS_WAIT_OPEN_Q,
+                    &mut self.state,
+                    &mut self.pkt_idx,
                 )
             },
 
             BS_WAIT_OPEN_Q => unsafe {
                 if let Some(fd) = warp_hostcall_wait_u64(
-                    self.buf, wcx, self.pkt_idx,
-                    BS_SUBMIT_READ_Q, &mut self.state,
+                    self.buf,
+                    wcx,
+                    self.pkt_idx,
+                    BS_SUBMIT_READ_Q,
+                    &mut self.state,
                 ) {
                     if wcx.is_leader() {
                         self.fd = fd;
                         // Allocate query space: up to 100KB for queries
-                        self.query_offset = gpu_runtime::sideband::sideband_alloc(
-                            self.sideband, 100 * 1024,
-                        );
+                        self.query_offset =
+                            gpu_runtime::sideband::sideband_alloc(self.sideband, 100 * 1024);
                     }
                 }
                 WarpPoll::Pending
@@ -3478,26 +3701,35 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for BatchSearchFuture {
                 let fd = self.fd;
                 let q_off = self.query_offset;
                 warp_hostcall_submit(
-                    self.buf, wcx, SERVICE_BULK_READ,
+                    self.buf,
+                    wcx,
+                    SERVICE_BULK_READ,
                     |payload| {
                         core::ptr::write_volatile(payload as *mut u64, fd);
                         core::ptr::write_volatile(payload.add(8) as *mut u64, q_off);
                         core::ptr::write_volatile(payload.add(16) as *mut u64, 100 * 1024);
                     },
-                    BS_WAIT_READ_Q, &mut self.state, &mut self.pkt_idx,
+                    BS_WAIT_READ_Q,
+                    &mut self.state,
+                    &mut self.pkt_idx,
                 )
             },
 
             BS_WAIT_READ_Q => unsafe {
                 if warp_hostcall_wait_u64(
-                    self.buf, wcx, self.pkt_idx,
-                    BS_SUBMIT_CLOSE_Q, &mut self.state,
-                ).is_some() {
+                    self.buf,
+                    wcx,
+                    self.pkt_idx,
+                    BS_SUBMIT_CLOSE_Q,
+                    &mut self.state,
+                )
+                .is_some()
+                {
                     if wcx.is_leader() {
                         // Parse query header: [num_q:u32][dim:u32]
-                        let q_header = self.sideband.add(
-                            gpu_protocol::SIDEBAND_DATA_OFFSET + self.query_offset as usize,
-                        );
+                        let q_header = self
+                            .sideband
+                            .add(gpu_protocol::SIDEBAND_DATA_OFFSET + self.query_offset as usize);
                         self.num_queries = core::ptr::read_volatile(q_header as *const u32);
                     }
                 }
@@ -3507,26 +3739,30 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for BatchSearchFuture {
             BS_SUBMIT_CLOSE_Q => unsafe {
                 let fd = self.fd;
                 warp_hostcall_submit(
-                    self.buf, wcx, SERVICE_CLOSE,
+                    self.buf,
+                    wcx,
+                    SERVICE_CLOSE,
                     |payload| {
                         core::ptr::write_volatile(payload as *mut u64, fd);
                     },
-                    BS_WAIT_CLOSE_Q, &mut self.state, &mut self.pkt_idx,
+                    BS_WAIT_CLOSE_Q,
+                    &mut self.state,
+                    &mut self.pkt_idx,
                 )
             },
 
             BS_WAIT_CLOSE_Q => unsafe {
-                if warp_hostcall_wait_u64(
-                    self.buf, wcx, self.pkt_idx,
-                    BS_COMPUTE, &mut self.state,
-                ).is_some() {
-                    if wcx.is_leader() { self.fd = 0; }
+                if warp_hostcall_wait_u64(self.buf, wcx, self.pkt_idx, BS_COMPUTE, &mut self.state)
+                    .is_some()
+                {
+                    if wcx.is_leader() {
+                        self.fd = 0;
+                    }
                 }
                 WarpPoll::Pending
             },
 
             // --- Compute: loop over all queries, write results to sideband ---
-
             BS_COMPUTE => unsafe {
                 let lid = wcx.lane_id;
                 let mask = wcx.active_mask;
@@ -3546,13 +3782,14 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for BatchSearchFuture {
                 let total_result_bytes = result_header_bytes + result_entries_bytes;
 
                 let result_offset = if wcx.is_leader() {
-                    let off = gpu_runtime::sideband::sideband_alloc(
-                        self.sideband, total_result_bytes,
-                    );
+                    let off =
+                        gpu_runtime::sideband::sideband_alloc(self.sideband, total_result_bytes);
                     self.result_offset = off;
                     self.result_bytes = total_result_bytes;
                     off
-                } else { 0 };
+                } else {
+                    0
+                };
                 let result_offset = broadcast_u32(mask, result_offset as u32) as usize;
                 let result_base = sb_base + result_offset;
 
@@ -3585,11 +3822,15 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for BatchSearchFuture {
                     let q_norm = gpu_sqrtf(q_norm_sq);
 
                     // Per-lane stride-32 search
-                    let mut local_topk = [TopKEntry { id: u32::MAX, score: -1.0f32 }; VS_K];
+                    let mut local_topk = [TopKEntry {
+                        id: u32::MAX,
+                        score: -1.0f32,
+                    }; VS_K];
 
                     let mut vec_idx = lid;
                     while vec_idx < n {
-                        let vec_ptr = (db_vecs_base + (vec_idx as usize) * VS_VEC_BYTES) as *const f32;
+                        let vec_ptr =
+                            (db_vecs_base + (vec_idx as usize) * VS_VEC_BYTES) as *const f32;
 
                         let mut dot: f32 = 0.0;
                         let mut v_norm_sq: f32 = 0.0;
@@ -3619,7 +3860,10 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for BatchSearchFuture {
                     }
 
                     // Full warp merge via shfl.sync
-                    let mut global_topk = [TopKEntry { id: u32::MAX, score: -1.0f32 }; VS_K];
+                    let mut global_topk = [TopKEntry {
+                        id: u32::MAX,
+                        score: -1.0f32,
+                    }; VS_K];
                     if lid == 0 {
                         global_topk = local_topk;
                     }
@@ -3632,12 +3876,16 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for BatchSearchFuture {
                         let mut s = 0u32;
                         while s < 32 {
                             let cand_id = gpu_atomics::shfl_sync_idx_u32(mask, my_id, s);
-                            let cand_score_bits = gpu_atomics::shfl_sync_idx_u32(mask, my_score_bits, s);
+                            let cand_score_bits =
+                                gpu_atomics::shfl_sync_idx_u32(mask, my_score_bits, s);
                             let cand_score: f32 = f32::from_bits(cand_score_bits);
 
                             if lid == 0 && s != 0 {
                                 if cand_score > global_topk[VS_K - 1].score {
-                                    global_topk[VS_K - 1] = TopKEntry { id: cand_id, score: cand_score };
+                                    global_topk[VS_K - 1] = TopKEntry {
+                                        id: cand_id,
+                                        score: cand_score,
+                                    };
                                     let mut j = VS_K - 1;
                                     while j > 0 && global_topk[j].score > global_topk[j - 1].score {
                                         let tmp = global_topk[j - 1];
@@ -3674,18 +3922,21 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for BatchSearchFuture {
 
                 membar_sys();
                 gpu_atomics::syncwarp(wcx.active_mask);
-                if wcx.is_leader() { self.state = BS_SUBMIT_OPEN_OUT; }
+                if wcx.is_leader() {
+                    self.state = BS_SUBMIT_OPEN_OUT;
+                }
                 gpu_atomics::syncwarp(wcx.active_mask);
                 WarpPoll::Pending
             },
 
             // --- Output: open -> write -> close ---
-
             BS_SUBMIT_OPEN_OUT => unsafe {
                 let path = b"batch_results.bin";
                 let path_len = path.len();
                 warp_hostcall_submit(
-                    self.buf, wcx, SERVICE_OPEN,
+                    self.buf,
+                    wcx,
+                    SERVICE_OPEN,
                     |payload| {
                         let slot0 = (path_len as u64) | ((FILE_OPEN_WRITE_CREATE as u64) << 32);
                         core::ptr::write_volatile(payload as *mut u64, slot0);
@@ -3696,16 +3947,23 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for BatchSearchFuture {
                             i += 1;
                         }
                     },
-                    BS_WAIT_OPEN_OUT, &mut self.state, &mut self.pkt_idx,
+                    BS_WAIT_OPEN_OUT,
+                    &mut self.state,
+                    &mut self.pkt_idx,
                 )
             },
 
             BS_WAIT_OPEN_OUT => unsafe {
                 if let Some(fd) = warp_hostcall_wait_u64(
-                    self.buf, wcx, self.pkt_idx,
-                    BS_SUBMIT_WRITE, &mut self.state,
+                    self.buf,
+                    wcx,
+                    self.pkt_idx,
+                    BS_SUBMIT_WRITE,
+                    &mut self.state,
                 ) {
-                    if wcx.is_leader() { self.fd = fd; }
+                    if wcx.is_leader() {
+                        self.fd = fd;
+                    }
                 }
                 WarpPoll::Pending
             },
@@ -3715,40 +3973,52 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for BatchSearchFuture {
                 let r_off = self.result_offset;
                 let r_len = self.result_bytes;
                 warp_hostcall_submit(
-                    self.buf, wcx, SERVICE_BULK_WRITE,
+                    self.buf,
+                    wcx,
+                    SERVICE_BULK_WRITE,
                     |payload| {
                         core::ptr::write_volatile(payload as *mut u64, fd);
                         core::ptr::write_volatile(payload.add(8) as *mut u64, r_off);
                         core::ptr::write_volatile(payload.add(16) as *mut u64, r_len);
                     },
-                    BS_WAIT_WRITE, &mut self.state, &mut self.pkt_idx,
+                    BS_WAIT_WRITE,
+                    &mut self.state,
+                    &mut self.pkt_idx,
                 )
             },
 
             BS_WAIT_WRITE => unsafe {
                 if warp_hostcall_wait_u64(
-                    self.buf, wcx, self.pkt_idx,
-                    BS_SUBMIT_CLOSE_OUT, &mut self.state,
-                ).is_some() {}
+                    self.buf,
+                    wcx,
+                    self.pkt_idx,
+                    BS_SUBMIT_CLOSE_OUT,
+                    &mut self.state,
+                )
+                .is_some()
+                {}
                 WarpPoll::Pending
             },
 
             BS_SUBMIT_CLOSE_OUT => unsafe {
                 let fd = self.fd;
                 warp_hostcall_submit(
-                    self.buf, wcx, SERVICE_CLOSE,
+                    self.buf,
+                    wcx,
+                    SERVICE_CLOSE,
                     |payload| {
                         core::ptr::write_volatile(payload as *mut u64, fd);
                     },
-                    BS_WAIT_CLOSE_OUT, &mut self.state, &mut self.pkt_idx,
+                    BS_WAIT_CLOSE_OUT,
+                    &mut self.state,
+                    &mut self.pkt_idx,
                 )
             },
 
             BS_WAIT_CLOSE_OUT => unsafe {
-                if warp_hostcall_wait_u64(
-                    self.buf, wcx, self.pkt_idx,
-                    BS_DONE, &mut self.state,
-                ).is_some() {
+                if warp_hostcall_wait_u64(self.buf, wcx, self.pkt_idx, BS_DONE, &mut self.state)
+                    .is_some()
+                {
                     return WarpPoll::Ready(true);
                 }
                 WarpPoll::Pending
@@ -3853,7 +4123,7 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for BranchingPipelineFuture {
         &mut self,
         wcx: &mut gpu_runtime::warp_future::WarpContext,
     ) -> gpu_runtime::warp_future::WarpPoll<bool> {
-        use gpu_runtime::warp_future::{WarpPoll, broadcast_u32};
+        use gpu_runtime::warp_future::{broadcast_u32, WarpPoll};
 
         let state = unsafe { broadcast_u32(wcx.active_mask, self.state) };
 
@@ -3863,7 +4133,9 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for BranchingPipelineFuture {
                 let path = b"branch_test.txt";
                 let path_len = path.len();
                 warp_hostcall_submit(
-                    self.buf, wcx, SERVICE_OPEN,
+                    self.buf,
+                    wcx,
+                    SERVICE_OPEN,
                     |payload| {
                         let slot0 = (path_len as u64) | ((FILE_OPEN_READ as u64) << 32);
                         core::ptr::write_volatile(payload as *mut u64, slot0);
@@ -3874,7 +4146,9 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for BranchingPipelineFuture {
                             i += 1;
                         }
                     },
-                    BP_WAIT_OPEN, &mut self.state, &mut self.pkt_idx,
+                    BP_WAIT_OPEN,
+                    &mut self.state,
+                    &mut self.pkt_idx,
                 )
             },
 
@@ -3890,9 +4164,7 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for BranchingPipelineFuture {
                 let idx = broadcast_u32(wcx.active_mask, self.pkt_idx as u32) as u16;
                 let pkt_off = gpu_runtime::hostcall::pkt_offset(self.buf as *const u8, idx);
                 let pkt = self.buf.add(pkt_off);
-                let ctrl = sys_spin_load_acquire_u32(
-                    pkt.add(PKT_OFF_CONTROL) as *const u32,
-                );
+                let ctrl = sys_spin_load_acquire_u32(pkt.add(PKT_OFF_CONTROL) as *const u32);
 
                 if ctrl & CONTROL_READY != 0 {
                     let has_error = (ctrl & CONTROL_ERROR) != 0;
@@ -3902,9 +4174,7 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for BranchingPipelineFuture {
 
                     let mut fd_val: u64 = 0;
                     if wcx.is_leader() && !has_error {
-                        fd_val = core::ptr::read_volatile(
-                            pkt.add(PKT_OFF_PAYLOAD) as *const u64,
-                        );
+                        fd_val = core::ptr::read_volatile(pkt.add(PKT_OFF_PAYLOAD) as *const u64);
                     }
                     // Broadcast fd to all lanes
                     let lo = broadcast_u32(wcx.active_mask, fd_val as u32) as u64;
@@ -3931,19 +4201,28 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for BranchingPipelineFuture {
             BP_CLOSE_EXISTING => unsafe {
                 let fd = self.fd;
                 warp_hostcall_submit(
-                    self.buf, wcx, SERVICE_CLOSE,
+                    self.buf,
+                    wcx,
+                    SERVICE_CLOSE,
                     |payload| {
                         core::ptr::write_volatile(payload as *mut u64, fd);
                     },
-                    BP_WAIT_CLOSE_1, &mut self.state, &mut self.pkt_idx,
+                    BP_WAIT_CLOSE_1,
+                    &mut self.state,
+                    &mut self.pkt_idx,
                 )
             },
 
             BP_WAIT_CLOSE_1 => unsafe {
                 if warp_hostcall_wait_u64(
-                    self.buf, wcx, self.pkt_idx,
-                    BP_PRINT_EXISTS, &mut self.state,
-                ).is_some() {}
+                    self.buf,
+                    wcx,
+                    self.pkt_idx,
+                    BP_PRINT_EXISTS,
+                    &mut self.state,
+                )
+                .is_some()
+                {}
                 WarpPoll::Pending
             },
 
@@ -3952,10 +4231,11 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for BranchingPipelineFuture {
                 let path = b"branch_test.txt";
                 let path_len = path.len();
                 warp_hostcall_submit(
-                    self.buf, wcx, SERVICE_OPEN,
+                    self.buf,
+                    wcx,
+                    SERVICE_OPEN,
                     |payload| {
-                        let slot0 = (path_len as u64)
-                            | ((FILE_OPEN_WRITE_CREATE as u64) << 32);
+                        let slot0 = (path_len as u64) | ((FILE_OPEN_WRITE_CREATE as u64) << 32);
                         core::ptr::write_volatile(payload as *mut u64, slot0);
                         let dst = payload.add(8);
                         let mut i = 0;
@@ -3964,16 +4244,23 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for BranchingPipelineFuture {
                             i += 1;
                         }
                     },
-                    BP_WAIT_CREATE, &mut self.state, &mut self.pkt_idx,
+                    BP_WAIT_CREATE,
+                    &mut self.state,
+                    &mut self.pkt_idx,
                 )
             },
 
             BP_WAIT_CREATE => unsafe {
                 if let Some(fd) = warp_hostcall_wait_u64(
-                    self.buf, wcx, self.pkt_idx,
-                    BP_WRITE_DEFAULT, &mut self.state,
+                    self.buf,
+                    wcx,
+                    self.pkt_idx,
+                    BP_WRITE_DEFAULT,
+                    &mut self.state,
                 ) {
-                    if wcx.is_leader() { self.fd = fd; }
+                    if wcx.is_leader() {
+                        self.fd = fd;
+                    }
                 }
                 WarpPoll::Pending
             },
@@ -3983,7 +4270,9 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for BranchingPipelineFuture {
                 let msg = b"hello from GPU\n";
                 let msg_len = msg.len();
                 warp_hostcall_submit(
-                    self.buf, wcx, SERVICE_WRITE,
+                    self.buf,
+                    wcx,
+                    SERVICE_WRITE,
                     |payload| {
                         core::ptr::write_volatile(payload as *mut u64, fd);
                         core::ptr::write_volatile(payload.add(8) as *mut u64, msg_len as u64);
@@ -3994,22 +4283,31 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for BranchingPipelineFuture {
                             i += 1;
                         }
                     },
-                    BP_WAIT_WRITE, &mut self.state, &mut self.pkt_idx,
+                    BP_WAIT_WRITE,
+                    &mut self.state,
+                    &mut self.pkt_idx,
                 )
             },
 
             BP_WAIT_WRITE => unsafe {
                 if warp_hostcall_wait_u64(
-                    self.buf, wcx, self.pkt_idx,
-                    BP_CLOSE_CREATED, &mut self.state,
-                ).is_some() {}
+                    self.buf,
+                    wcx,
+                    self.pkt_idx,
+                    BP_CLOSE_CREATED,
+                    &mut self.state,
+                )
+                .is_some()
+                {}
                 WarpPoll::Pending
             },
 
             // === Convergence point: both branches end with PRINT ===
             BP_PRINT_EXISTS => unsafe {
                 warp_hostcall_submit(
-                    self.buf, wcx, SERVICE_PRINT,
+                    self.buf,
+                    wcx,
+                    SERVICE_PRINT,
                     |payload| {
                         let msg = b"branch: file exists";
                         core::ptr::write_volatile(payload as *mut u64, msg.len() as u64);
@@ -4028,15 +4326,16 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for BranchingPipelineFuture {
                             nvptx::_thread_idx_x() as u32,
                         );
                     },
-                    BP_WAIT_PRINT_1, &mut self.state, &mut self.pkt_idx,
+                    BP_WAIT_PRINT_1,
+                    &mut self.state,
+                    &mut self.pkt_idx,
                 )
             },
 
             BP_WAIT_PRINT_1 => unsafe {
-                if warp_hostcall_wait_u64(
-                    self.buf, wcx, self.pkt_idx,
-                    BP_DONE, &mut self.state,
-                ).is_some() {
+                if warp_hostcall_wait_u64(self.buf, wcx, self.pkt_idx, BP_DONE, &mut self.state)
+                    .is_some()
+                {
                     return WarpPoll::Ready(true);
                 }
                 WarpPoll::Pending
@@ -4045,25 +4344,36 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for BranchingPipelineFuture {
             BP_CLOSE_CREATED => unsafe {
                 let fd = self.fd;
                 warp_hostcall_submit(
-                    self.buf, wcx, SERVICE_CLOSE,
+                    self.buf,
+                    wcx,
+                    SERVICE_CLOSE,
                     |payload| {
                         core::ptr::write_volatile(payload as *mut u64, fd);
                     },
-                    BP_WAIT_CLOSE_2, &mut self.state, &mut self.pkt_idx,
+                    BP_WAIT_CLOSE_2,
+                    &mut self.state,
+                    &mut self.pkt_idx,
                 )
             },
 
             BP_WAIT_CLOSE_2 => unsafe {
                 if warp_hostcall_wait_u64(
-                    self.buf, wcx, self.pkt_idx,
-                    BP_PRINT_CREATED, &mut self.state,
-                ).is_some() {}
+                    self.buf,
+                    wcx,
+                    self.pkt_idx,
+                    BP_PRINT_CREATED,
+                    &mut self.state,
+                )
+                .is_some()
+                {}
                 WarpPoll::Pending
             },
 
             BP_PRINT_CREATED => unsafe {
                 warp_hostcall_submit(
-                    self.buf, wcx, SERVICE_PRINT,
+                    self.buf,
+                    wcx,
+                    SERVICE_PRINT,
                     |payload| {
                         let msg = b"branch: file created";
                         core::ptr::write_volatile(payload as *mut u64, msg.len() as u64);
@@ -4082,15 +4392,16 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for BranchingPipelineFuture {
                             nvptx::_thread_idx_x() as u32,
                         );
                     },
-                    BP_WAIT_PRINT_2, &mut self.state, &mut self.pkt_idx,
+                    BP_WAIT_PRINT_2,
+                    &mut self.state,
+                    &mut self.pkt_idx,
                 )
             },
 
             BP_WAIT_PRINT_2 => unsafe {
-                if warp_hostcall_wait_u64(
-                    self.buf, wcx, self.pkt_idx,
-                    BP_DONE, &mut self.state,
-                ).is_some() {
+                if warp_hostcall_wait_u64(self.buf, wcx, self.pkt_idx, BP_DONE, &mut self.state)
+                    .is_some()
+                {
                     return WarpPoll::Ready(true);
                 }
                 WarpPoll::Pending
@@ -4165,7 +4476,7 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for PipelinedComputeFuture {
         &mut self,
         wcx: &mut gpu_runtime::warp_future::WarpContext,
     ) -> gpu_runtime::warp_future::WarpPoll<bool> {
-        use gpu_runtime::warp_future::{WarpPoll, broadcast_u32};
+        use gpu_runtime::warp_future::{broadcast_u32, WarpPoll};
 
         let state = unsafe { broadcast_u32(wcx.active_mask, self.state) };
 
@@ -4173,7 +4484,9 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for PipelinedComputeFuture {
             // Step 1: Print start message
             PP_PRINT_START => unsafe {
                 warp_hostcall_submit(
-                    self.buf, wcx, SERVICE_PRINT,
+                    self.buf,
+                    wcx,
+                    SERVICE_PRINT,
                     |payload| {
                         let msg = b"pipelined: start";
                         core::ptr::write_volatile(payload as *mut u64, msg.len() as u64);
@@ -4183,27 +4496,40 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for PipelinedComputeFuture {
                             core::ptr::write_volatile(dst.add(i), msg[i]);
                             i += 1;
                         }
-                        core::ptr::write_volatile(payload.add(64) as *mut u32,
-                            nvptx::_block_idx_x() as u32);
-                        core::ptr::write_volatile(payload.add(68) as *mut u32,
-                            nvptx::_thread_idx_x() as u32);
+                        core::ptr::write_volatile(
+                            payload.add(64) as *mut u32,
+                            nvptx::_block_idx_x() as u32,
+                        );
+                        core::ptr::write_volatile(
+                            payload.add(68) as *mut u32,
+                            nvptx::_thread_idx_x() as u32,
+                        );
                     },
-                    PP_WAIT_START, &mut self.state, &mut self.pkt_idx,
+                    PP_WAIT_START,
+                    &mut self.state,
+                    &mut self.pkt_idx,
                 )
             },
 
             PP_WAIT_START => unsafe {
                 if warp_hostcall_wait_u64(
-                    self.buf, wcx, self.pkt_idx,
-                    PP_SUBMIT_COMPUTING, &mut self.state,
-                ).is_some() {}
+                    self.buf,
+                    wcx,
+                    self.pkt_idx,
+                    PP_SUBMIT_COMPUTING,
+                    &mut self.state,
+                )
+                .is_some()
+                {}
                 WarpPoll::Pending
             },
 
             // Step 2: Submit a PRINT (this is the I/O operation we overlap with compute)
             PP_SUBMIT_COMPUTING => unsafe {
                 warp_hostcall_submit(
-                    self.buf, wcx, SERVICE_PRINT,
+                    self.buf,
+                    wcx,
+                    SERVICE_PRINT,
                     |payload| {
                         let msg = b"pipelined: computing...";
                         core::ptr::write_volatile(payload as *mut u64, msg.len() as u64);
@@ -4213,12 +4539,18 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for PipelinedComputeFuture {
                             core::ptr::write_volatile(dst.add(i), msg[i]);
                             i += 1;
                         }
-                        core::ptr::write_volatile(payload.add(64) as *mut u32,
-                            nvptx::_block_idx_x() as u32);
-                        core::ptr::write_volatile(payload.add(68) as *mut u32,
-                            nvptx::_thread_idx_x() as u32);
+                        core::ptr::write_volatile(
+                            payload.add(64) as *mut u32,
+                            nvptx::_block_idx_x() as u32,
+                        );
+                        core::ptr::write_volatile(
+                            payload.add(68) as *mut u32,
+                            nvptx::_thread_idx_x() as u32,
+                        );
                     },
-                    PP_COMPUTE_WHILE_IO, &mut self.state, &mut self.pkt_idx,
+                    PP_COMPUTE_WHILE_IO,
+                    &mut self.state,
+                    &mut self.pkt_idx,
                 )
             },
 
@@ -4243,9 +4575,7 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for PipelinedComputeFuture {
                 let idx = broadcast_u32(wcx.active_mask, self.pkt_idx as u32) as u16;
                 let pkt_off = gpu_runtime::hostcall::pkt_offset(self.buf as *const u8, idx);
                 let pkt = self.buf.add(pkt_off);
-                let ctrl = sys_spin_load_acquire_u32(
-                    pkt.add(PKT_OFF_CONTROL) as *const u32,
-                );
+                let ctrl = sys_spin_load_acquire_u32(pkt.add(PKT_OFF_CONTROL) as *const u32);
 
                 if ctrl & CONTROL_READY != 0 {
                     // I/O completed! Release packet and move on.
@@ -4265,7 +4595,9 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for PipelinedComputeFuture {
                 // Broadcast lane 0's compute result + iterations for the message
                 let iters = broadcast_u32(wcx.active_mask, self.compute_iters);
                 warp_hostcall_submit(
-                    self.buf, wcx, SERVICE_PRINT,
+                    self.buf,
+                    wcx,
+                    SERVICE_PRINT,
                     |payload| {
                         // Format: "pipelined: done Niter" (N = iteration count)
                         let prefix = b"pipelined: done ";
@@ -4310,20 +4642,25 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for PipelinedComputeFuture {
                             core::ptr::write_volatile(dst.add(i), msg[i]);
                             i += 1;
                         }
-                        core::ptr::write_volatile(payload.add(64) as *mut u32,
-                            nvptx::_block_idx_x() as u32);
-                        core::ptr::write_volatile(payload.add(68) as *mut u32,
-                            nvptx::_thread_idx_x() as u32);
+                        core::ptr::write_volatile(
+                            payload.add(64) as *mut u32,
+                            nvptx::_block_idx_x() as u32,
+                        );
+                        core::ptr::write_volatile(
+                            payload.add(68) as *mut u32,
+                            nvptx::_thread_idx_x() as u32,
+                        );
                     },
-                    PP_WAIT_RESULT, &mut self.state, &mut self.pkt_idx,
+                    PP_WAIT_RESULT,
+                    &mut self.state,
+                    &mut self.pkt_idx,
                 )
             },
 
             PP_WAIT_RESULT => unsafe {
-                if warp_hostcall_wait_u64(
-                    self.buf, wcx, self.pkt_idx,
-                    PP_DONE, &mut self.state,
-                ).is_some() {
+                if warp_hostcall_wait_u64(self.buf, wcx, self.pkt_idx, PP_DONE, &mut self.state)
+                    .is_some()
+                {
                     return WarpPoll::Ready(true);
                 }
                 WarpPoll::Pending
@@ -4342,10 +4679,7 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for PipelinedComputeFuture {
 /// I/O operation is being processed by the host. The number of compute
 /// iterations completed during the I/O round-trip demonstrates the overlap.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn pipelined_compute(
-    buf: *mut u8,
-    status: *mut u32,
-) {
+pub unsafe extern "ptx-kernel" fn pipelined_compute(buf: *mut u8, status: *mut u32) {
     gpu_runtime::panic::gpu_panic_init(buf);
 
     let mut future = PipelinedComputeFuture::new(buf);
@@ -4362,10 +4696,7 @@ pub unsafe extern "ptx-kernel" fn pipelined_compute(
 /// Try to open a file → if exists, close+print; if not, create+write+close+print.
 /// All 32 lanes take the same branch (state is broadcast from lane 0).
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn branching_pipeline(
-    buf: *mut u8,
-    status: *mut u32,
-) {
+pub unsafe extern "ptx-kernel" fn branching_pipeline(buf: *mut u8, status: *mut u32) {
     gpu_runtime::panic::gpu_panic_init(buf);
 
     let mut future = BranchingPipelineFuture::new(buf);

@@ -16,3 +16,6 @@ batch_results.bin
 gpu_output.txt
 gpu_test_output.txt
 gpu_input.txt
+gpu_autonomous.txt
+gpu_roundtrip.txt
+branch_test.txt

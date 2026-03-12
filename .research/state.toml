@@ -4,22 +4,22 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 120     # Monotonic counter, incremented after each completed phase
-completed_tasks = 119
+total_cycles = 121     # Monotonic counter, incremented after each completed phase
+completed_tasks = 120
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "ci-protect.2"
-last_summary = "api-docs.2 done: gpu-atomics and gpu-runtime now doc-buildable on x86_64 via cfg(target_arch) stubs. All 4 public crates generate docs. Next: ci-protect.2, gpu-compute.2."
+current_task_id = "gpu-compute.2"
+last_summary = "ci-protect.2 done, bs30 quick. product-ready themes all done, warp-cooperative-async all criteria met. Now executing gpu-compute.2: GPU-driven multi-step compute prototype."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 29
+brainstorm_seq = 30
 review_seq = 5
 
 # Brainstorm trigger control
-last_brainstorm_at_completed = 116
+last_brainstorm_at_completed = 120
 brainstorm_interval = 3
 
 # ============================================================
@@ -49,7 +49,7 @@ success_criteria = [
 [[epics]]
 id = "warp-cooperative-async"
 title = "Warp-Cooperative Async with Full Control Flow"
-status = "active"
+status = "completed"
 priority = "medium"    # Foundation for gpu-autonomous
 success_criteria = [
     "#[warp_async] supports if/else with warp_*!() in arms — compiles and runs on GPU",
@@ -2686,7 +2686,7 @@ research_questions = ["How to distribute a custom rustc fork with minimal fricti
 [[themes]]
 id = "onboarding"
 title = "One-command hello-gpu experience"
-status = "active"
+status = "completed"
 spawned_by = "bs29"
 epic = "product-ready"
 goal = "Anyone can clone the repo and run hello-gpu with a single command"
@@ -2727,7 +2727,7 @@ research_questions = [
 [[themes]]
 id = "ci-protect"
 title = "CI prevents regressions on new features"
-status = "active"
+status = "completed"
 spawned_by = "bs29"
 epic = "product-ready"
 goal = "New features cannot silently break existing functionality"
@@ -2758,7 +2758,7 @@ research_questions = [
 [[themes]]
 id = "api-docs"
 title = "Public API documentation"
-status = "active"
+status = "completed"
 spawned_by = "bs29"
 epic = "product-ready"
 goal = "Public API is documented — no need to read internals to use it"
@@ -2788,7 +2788,7 @@ research_questions = [
 [[themes]]
 id = "perf-data"
 title = "Accurate reproducible performance benchmarks"
-status = "active"
+status = "completed"
 spawned_by = "bs29"
 epic = "product-ready"
 goal = "Performance data in README is accurate and reproducible by anyone with the hardware"
@@ -2829,7 +2829,7 @@ id = "ci-protect.2"
 theme = "ci-protect"
 title = "Add test kernel PTX builds and doc-check to CI"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["ci-protect.1"]
 spawned_by = "c109"
 research_questions = [
@@ -2875,7 +2875,7 @@ id = "gpu-compute.2"
 theme = "gpu-compute"
 title = "Prototype: GPU-driven multi-step compute without host orchestration"
 kind = "experiment"
-status = "pending"
+status = "active"
 depends_on = ["gpu-compute.1", "warp-cfg.2"]
 spawned_by = "bs29"
 research_questions = [
@@ -2904,3 +2904,14 @@ new_themes_spawned = ["onboarding", "ci-protect", "api-docs", "perf-data", "gpu-
 themes_parked = []
 themes_completed = []
 key_insight = "3 epics established. Product-ready is checklist-style (4 themes: onboarding, ci-protect, api-docs, perf-data). Warp-cooperative-async already has warp-cfg from bs28. GPU-autonomous starts with gpu-compute investigation, depends on warp-cfg results."
+
+[[brainstorms]]
+seq = 30
+at_cycle = 121
+trigger = "Interval: completed=120, last_bs=116"
+level = "quick"
+new_tasks_spawned = []
+new_themes_spawned = []
+themes_parked = []
+themes_completed = ["onboarding", "ci-protect", "api-docs", "perf-data"]
+key_insight = "All product-ready themes have tasks done. warp-cooperative-async epic fully satisfied — completed. Only ready task: gpu-compute.2. Focus on GPU autonomous compute prototype."

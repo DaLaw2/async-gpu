@@ -83,6 +83,10 @@ jobs:
         working-directory: crates/gpu-kernel
         run: cargo build --release
 
+      - name: Build hello-gpu example kernel
+        working-directory: examples/hello-gpu/kernel
+        run: cargo build --release
+
       - name: Verify PTX output exists
         run: |
           PTX_FILE=$(find crates/gpu-kernel/target/nvptx64-nvidia-cuda/release -name "*.ptx" -o -name "*.s" 2>/dev/null | head -1)
@@ -116,3 +120,6 @@ jobs:
 
       - name: Check gpu-host compiles
         run: cargo check --manifest-path crates/gpu-host/Cargo.toml
+
+      - name: Check hello-gpu example host compiles
+        run: cargo check --manifest-path examples/hello-gpu/host/Cargo.toml

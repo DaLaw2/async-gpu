@@ -1895,6 +1895,132 @@ fn run_multi_block_test(dev: Arc<CudaDevice>) -> Result<()> {
     Ok(())
 }
 
+/// Test: multi-block scaling to 512 threads (multiblock.2).
+/// Launches multi_block_sync_kernel with 8 blocks × 64 threads.
+fn run_multi_block_512_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Multiblock Test 2: 8-block × 64-thread sync hostcall (512 threads) ---");
+
+    use std::sync::{Arc as StdArc, Mutex};
+
+    let num_blocks: u32 = 8;
+    let threads_per_block: u32 = 64;
+    let total_threads = (num_blocks * threads_per_block) as usize;
+    let num_packets: u16 = 1024; // 2× thread count for headroom.
+
+    let hc_buf = hostcall::HostcallBuffer::new(num_packets)?;
+    let dev_ptr = hc_buf.dev_ptr;
+
+    let messages: StdArc<Mutex<Vec<String>>> = StdArc::new(Mutex::new(Vec::new()));
+    let messages_clone = StdArc::clone(&messages);
+
+    let (result_host_ptr, result_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 2)? };
+
+    let hc_buf_ref = StdArc::new(hc_buf);
+    let hc_buf_listener = StdArc::clone(&hc_buf_ref);
+    let listener_handle = std::thread::spawn(move || {
+        hc_buf_listener.listen(|msg| {
+            let s = String::from_utf8_lossy(msg).to_string();
+            // Don't print each message for 512 threads — too noisy.
+            messages_clone.lock().unwrap().push(s);
+        });
+    });
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(MULTI_WARP_PTX);
+    dev.load_ptx(ptx, "multi_block_512", &["multi_block_sync_kernel"])?;
+    let f = dev.get_func("multi_block_512", "multi_block_sync_kernel")
+        .ok_or(GpuHostError::KernelNotFound("multi_block_sync_kernel"))?;
+
+    let cfg = LaunchConfig {
+        grid_dim: (num_blocks, 1, 1),
+        block_dim: (threads_per_block, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    println!("  Launching multi_block_sync_kernel ({} blocks × {} threads = {} total)...",
+             num_blocks, threads_per_block, total_threads);
+    let start = std::time::Instant::now();
+    unsafe {
+        f.launch(cfg, (dev_ptr as u64, result_dev_ptr as u64))?;
+    }
+
+    dev.synchronize()?;
+    let elapsed = start.elapsed();
+    println!("  Kernel completed in {:?}.", elapsed);
+
+    // Give the listener more time for 512 messages.
+    std::thread::sleep(std::time::Duration::from_millis(1000));
+    hc_buf_ref.signal_shutdown();
+    listener_handle.join().unwrap();
+
+    let success = unsafe { std::ptr::read_volatile(result_host_ptr.add(0)) };
+    let thread_count = unsafe { std::ptr::read_volatile(result_host_ptr.add(1)) };
+    unsafe { free_mapped_mem(result_host_ptr)? };
+
+    let received = messages.lock().unwrap();
+
+    if success != 1 {
+        return Err(GpuHostError::Verification {
+            test: "multi_block_512",
+            detail: format!("success marker not set (got {})", success),
+        });
+    }
+
+    if thread_count != total_threads as u32 {
+        return Err(GpuHostError::Verification {
+            test: "multi_block_512",
+            detail: format!("expected thread_count={}, got {}", total_threads, thread_count),
+        });
+    }
+
+    // Count unique "Thread NNN hello!" messages (17 chars).
+    let msg_count = received.len();
+    let mut thread_seen = vec![false; total_threads];
+    for msg in received.iter() {
+        if msg.starts_with("Thread ") && msg.len() >= 17 {
+            let hundreds = msg.as_bytes()[7];
+            let tens = msg.as_bytes()[8];
+            let ones = msg.as_bytes()[9];
+            if hundreds >= b'0' && hundreds <= b'9'
+                && tens >= b'0' && tens <= b'9'
+                && ones >= b'0' && ones <= b'9'
+            {
+                let tid = ((hundreds - b'0') as usize) * 100
+                    + ((tens - b'0') as usize) * 10
+                    + (ones - b'0') as usize;
+                if tid < total_threads {
+                    thread_seen[tid] = true;
+                }
+            }
+        }
+    }
+    let unique_threads = thread_seen.iter().filter(|&&v| v).count();
+
+    if unique_threads < total_threads {
+        let missing: Vec<usize> = thread_seen.iter().enumerate()
+            .filter(|(_, &v)| !v)
+            .map(|(i, _)| i)
+            .collect();
+        // Print first 20 missing only to avoid huge output.
+        let shown: Vec<usize> = missing.iter().take(20).copied().collect();
+        return Err(GpuHostError::Verification {
+            test: "multi_block_512",
+            detail: format!(
+                "expected messages from all {} threads, got {} unique. Missing (first 20): {:?}",
+                total_threads, unique_threads, shown
+            ),
+        });
+    }
+
+    // Count duplicates.
+    let duplicates = msg_count - unique_threads;
+
+    println!("  multi_block_512: PASSED! ({:?})", elapsed);
+    println!("    All {} threads across {} blocks sent unique messages", total_threads, num_blocks);
+    println!("    Messages received: {} ({} unique, {} duplicates)", msg_count, unique_threads, duplicates);
+    println!("    Unique threads verified: {}/{}", unique_threads, total_threads);
+    Ok(())
+}
+
 /// Test: 4-step sequential async pipeline (product.2).
 /// Launches pipeline_kernel which chains 4 hostcall prints in sequence.
 fn run_pipeline_test(dev: Arc<CudaDevice>) -> Result<()> {
@@ -2152,6 +2278,9 @@ fn main() -> Result<()> {
 
     // Multi-block scaling test (multiblock.1)
     run_multi_block_test(Arc::clone(&dev))?;
+
+    // Multi-block 512-thread scaling test (multiblock.2)
+    run_multi_block_512_test(Arc::clone(&dev))?;
 
     println!("\nAll tests PASSED.");
     Ok(())

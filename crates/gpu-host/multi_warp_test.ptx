@@ -45,10 +45,12 @@
 	mov.u32 %r4, %ctaid.x;
 	// end inline asm
 	// begin inline asm
-	mov.u32 %r5, %nctaid.x;
+	mov.u32 %r5, %ntid.x;
 	// end inline asm
-	shl.b32 	%r6, %r4, 5;
-	add.s32 	%r7, %r6, %r3;
+	// begin inline asm
+	mov.u32 %r6, %nctaid.x;
+	// end inline asm
+	mad.lo.s32 	%r7, %r5, %r4, %r3;
 	ld.global.nc.b8 	%rs1, [anon_$_c65998829d804f1b61b2a678be7705ae_$_0+16];
 	st.local.b8 	[%rd2+16], %rs1;
 	ld.global.nc.b8 	%rs2, [anon_$_c65998829d804f1b61b2a678be7705ae_$_0+15];
@@ -114,7 +116,7 @@
 	setp.ne.b32 	%p1, %r7, 0;
 	@%p1 bra 	$L__BB0_2;
 // %bb.1:
-	shl.b32 	%r1, %r5, 5;
+	mul.lo.s32 	%r1, %r6, %r5;
 	and.b32 	%r2, %r15, 1;
 	st.global.b32 	[%rd1], %r2;
 	st.global.b32 	[%rd1+4], %r1;

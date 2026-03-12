@@ -196,14 +196,14 @@ pub unsafe extern "ptx-kernel" fn multi_warp_sync_kernel(buf: *mut u8, result: *
 
 /// Multi-block synchronous hostcall scaling test.
 ///
-/// Launches with grid_dim=(N, 1, 1), block_dim=(32, 1, 1).
-/// Each thread computes a global thread ID = blockIdx.x * 32 + threadIdx.x,
+/// Launches with grid_dim=(N, 1, 1), block_dim=(M, 1, 1).
+/// Each thread computes a global thread ID = blockIdx.x * blockDim.x + threadIdx.x,
 /// builds a unique message "Thread NNN hello!" (3-digit ID), and performs
 /// a synchronous hostcall print.
 ///
 /// Thread 0 (global) writes results:
 ///   result[0] = 1 if thread 0's hostcall succeeded
-///   result[1] = total thread count (num_blocks * 32)
+///   result[1] = total thread count (num_blocks * block_dim)
 ///
 /// `buf` = hostcall buffer (mapped memory)
 /// `result` = output array of u32[2]
@@ -225,6 +225,14 @@ pub unsafe extern "ptx-kernel" fn multi_block_sync_kernel(buf: *mut u8, result: 
         options(nostack, readonly),
     );
 
+    // Get block dim (threads per block).
+    let block_dim: u32;
+    core::arch::asm!(
+        "mov.u32 {idx}, %ntid.x;",
+        idx = out(reg32) block_dim,
+        options(nostack, readonly),
+    );
+
     // Get grid dim (number of blocks).
     let num_blocks: u32;
     core::arch::asm!(
@@ -234,8 +242,8 @@ pub unsafe extern "ptx-kernel" fn multi_block_sync_kernel(buf: *mut u8, result: 
     );
 
     // Global thread ID.
-    let global_tid = bid * 32 + tid;
-    let total_threads = num_blocks * 32;
+    let global_tid = bid * block_dim + tid;
+    let total_threads = num_blocks * block_dim;
 
     // Build per-thread message: "Thread NNN hello!"
     // 18 bytes, with NNN replaced by the three-digit global thread ID.

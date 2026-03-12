@@ -830,3 +830,56 @@ pub extern "ptx-kernel" fn slab_dealloc_test_kernel(
         core::ptr::write_volatile(result.add(1), cycles);
     }
 }
+
+// ============================================================
+// allocator.3: Concurrent allocator stress test (32 threads)
+// ============================================================
+
+/// Test that the slab allocator handles 32 concurrent threads allocating
+/// and deallocating simultaneously.
+///
+/// Each thread performs 5 cycles of: Vec::new() + push N elements + sum + drop.
+/// This tests concurrent CAS on bitmap words across threads.
+///
+/// result[0] = number of threads that completed all cycles successfully
+/// result[1] = total successful cycles across all threads
+#[unsafe(no_mangle)]
+pub extern "ptx-kernel" fn slab_concurrent_test_kernel(
+    _buf: *mut u8,
+    result: *mut u32,
+) {
+    let tid: u32;
+    unsafe {
+        core::arch::asm!(
+            "mov.u32 {idx}, %tid.x;",
+            idx = out(reg32) tid,
+            options(nostack, readonly),
+        );
+    }
+
+    let mut ok_cycles: u32 = 0;
+
+    // Each thread does 5 alloc/dealloc cycles.
+    for cycle in 0u32..5 {
+        // Allocate a Vec with thread-specific data.
+        let count = (tid % 8 + 3) as usize; // 3-10 elements per thread
+        let mut v: Vec<u32> = Vec::new();
+        for j in 0..count {
+            v.push(tid * 100 + cycle * 10 + j as u32);
+        }
+
+        // Verify data integrity.
+        let sum: u32 = v.iter().sum();
+        let expected: u32 = (0..count as u32).map(|j| tid * 100 + cycle * 10 + j).sum();
+        if sum == expected && v.len() == count {
+            ok_cycles += 1;
+        }
+        // v dropped here — dealloc frees memory.
+    }
+
+    // Each thread writes its result to a unique slot.
+    // result[tid] = ok_cycles for this thread
+    unsafe {
+        core::ptr::write_volatile(result.add(tid as usize), ok_cycles);
+    }
+}

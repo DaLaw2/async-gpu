@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 42      # Monotonic counter, incremented after each completed phase
-completed_tasks = 42
+total_cycles = 43      # Monotonic counter, incremented after each completed phase
+completed_tasks = 43
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"        # think | do | check
 current_step = "do.execute"
-current_task_id = "allocator.2"
-last_summary = "allocator.2 done: slab+bitmap allocator with dealloc support — 20 alloc/free cycles pass. All existing tests pass. multiblock.3 unblocked."
+current_task_id = "allocator.3"
+last_summary = "allocator theme COMPLETE (3/3 tasks). Slab+bitmap allocator: 32-thread concurrent alloc/dealloc passes (442µs). Next: oncelock.2, error-handling.2, multiblock.3."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 10
@@ -855,7 +855,7 @@ new_tasks_spawned = ["async-runtime.2.1"]
 [[themes]]
 id = "allocator"
 title = "Production-grade GPU memory allocator"
-status = "active"
+status = "completed"
 spawned_by = "bs10"
 goal = "Replace bump allocator with a proper allocator that supports deallocation"
 success_criteria = [
@@ -951,7 +951,7 @@ id = "allocator.3"
 theme = "allocator"
 title = "Concurrent allocator stress test (32 threads)"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["allocator.2"]
 spawned_by = "bs10"
 research_questions = [

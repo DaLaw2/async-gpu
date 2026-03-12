@@ -2263,6 +2263,66 @@ fn run_slab_dealloc_test(dev: Arc<CudaDevice>) -> Result<()> {
     Ok(())
 }
 
+/// Test: concurrent slab allocator stress test (allocator.3).
+/// 32 threads each do 5 alloc/dealloc cycles concurrently.
+fn run_slab_concurrent_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Allocator Test: 32-thread concurrent alloc/dealloc ---");
+
+    let num_threads: u32 = 32;
+    let (result_host_ptr, result_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, num_threads as usize)? };
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(STD_BUILD_TEST_PTX);
+    let _ = dev.load_ptx(ptx, "slab_concurrent", &["slab_concurrent_test_kernel"]);
+    let f = dev.get_func("slab_concurrent", "slab_concurrent_test_kernel")
+        .ok_or(GpuHostError::KernelNotFound("slab_concurrent_test_kernel"))?;
+
+    let cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (num_threads, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    println!("  Launching slab_concurrent_test_kernel (32 threads × 5 cycles each)...");
+    let start = std::time::Instant::now();
+    unsafe {
+        f.launch(cfg, (0u64, result_dev_ptr as u64))?;
+    }
+
+    dev.synchronize()?;
+    let elapsed = start.elapsed();
+
+    // Read per-thread results.
+    let mut total_ok: u32 = 0;
+    let mut threads_ok: u32 = 0;
+    let mut failed_threads = Vec::new();
+    for i in 0..num_threads as usize {
+        let cycles = unsafe { std::ptr::read_volatile(result_host_ptr.add(i)) };
+        total_ok += cycles;
+        if cycles == 5 {
+            threads_ok += 1;
+        } else {
+            failed_threads.push((i, cycles));
+        }
+    }
+    unsafe { free_mapped_mem(result_host_ptr)? };
+
+    if threads_ok < num_threads {
+        return Err(GpuHostError::Verification {
+            test: "slab_concurrent_test_kernel",
+            detail: format!(
+                "expected all 32 threads to complete 5 cycles, got {}/{} threads OK. Failed: {:?}",
+                threads_ok, num_threads, failed_threads
+            ),
+        });
+    }
+
+    println!("  slab_concurrent_test_kernel: PASSED! ({:?})", elapsed);
+    println!("    All {} threads completed 5 alloc/dealloc cycles each", num_threads);
+    println!("    Total successful cycles: {}/{}", total_ok, num_threads * 5);
+    println!("    Concurrent slab allocator verified under contention");
+    Ok(())
+}
+
 fn main() -> Result<()> {
     println!("=== GPU Kernel Execution Test ===\n");
 
@@ -2328,6 +2388,9 @@ fn main() -> Result<()> {
 
     // Slab allocator deallocation test (allocator.2)
     run_slab_dealloc_test(Arc::clone(&dev))?;
+
+    // Concurrent slab allocator test (allocator.3)
+    run_slab_concurrent_test(Arc::clone(&dev))?;
 
     println!("\nAll tests PASSED.");
     Ok(())

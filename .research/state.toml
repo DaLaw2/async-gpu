@@ -4,19 +4,19 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 82      # Monotonic counter, incremented after each completed phase
-completed_tasks = 81
+total_cycles = 83      # Monotonic counter, incremented after each completed phase
+completed_tasks = 82
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.execute"
-current_task_id = "warp-future.5"
-last_summary = "warp-future.6 done (multi-hostcall 7-state PoC, 0.802ms, 3 msgs in order). api-cleanup.1 done (removed 5 duplicated protocol fns). api-cleanup.2 done (prelude curated). Next: warp-future.5 proc macro."
+current_step = "do.route"
+current_task_id = ""
+last_summary = "warp-future.5 done: #[warp_async] proc macro generates WarpFuture state machines from sequential warp_print!() calls. Full code review (rv4) + rework completed. warp-future theme completed (all 6 tasks). api-cleanup theme completed (2 tasks)."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 17
-review_seq = 3
+review_seq = 4
 
 # Brainstorm trigger control
 last_brainstorm_at_completed = 78
@@ -1821,7 +1821,7 @@ research_questions = [
 [[themes]]
 id = "warp-future"
 title = "Warp-level Future — one Future drives 32 lanes in SIMT lockstep"
-status = "active"
+status = "completed"
 spawned_by = "user"
 goal = "Design and implement WarpFuture trait where async state machines maintain warp convergence, avoiding 1/32 throughput degradation from per-thread Future divergence"
 success_criteria = "WarpFuture proc macro generates convergent state machine; warp-cooperative hostcall round-trip verified on hardware; no warp divergence in PTX output"
@@ -1893,7 +1893,7 @@ id = "warp-future.5"
 theme = "warp-future"
 title = "Implement #[warp_async] proc macro for automatic state machine generation"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["warp-future.4", "warp-future.6"]
 spawned_by = "user"
 research_questions = [

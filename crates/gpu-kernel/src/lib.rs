@@ -1497,6 +1497,20 @@ pub unsafe extern "ptx-kernel" fn warp_future_multi_print_test(
 }
 
 // ============================================================
+// WarpFuture proc macro test (warp-future.5)
+// ============================================================
+
+// The #[warp_async] proc macro generates:
+// - `WarpMacroPrintTest` struct with buf, state, pkt_idx
+// - WarpFuture impl with 2 PRINT hostcalls (4 states + DONE)
+// - `warp_macro_print_test` kernel entry point
+#[warp_macro::warp_async]
+unsafe fn warp_macro_print_test(buf: *mut u8) -> bool {
+    warp_print!(buf, b"Macro[1/2]: GENERATED_CODE!!");
+    warp_print!(buf, b"Macro[2/2]: PROC_MACRO_WORKS!");
+}
+
+// ============================================================
 // Sharding-aware print test — uses gpu-runtime's hostcall path
 // ============================================================
 

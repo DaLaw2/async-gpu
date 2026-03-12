@@ -12,6 +12,7 @@ crate-type = ["cdylib"]
 gpu-atomics = { path = "../gpu-atomics" }
 gpu-protocol = { path = "../gpu-protocol" }
 gpu-runtime = { path = "../gpu-runtime" }
+warp-macro = { path = "../warp-macro" }
 
 [profile.release]
 panic = "abort"

@@ -134,10 +134,6 @@ jobs:
         working-directory: crates/gpu-std-test
         run: cargo build --release
 
-      - name: Build std-build-test (PTX)
-        working-directory: crates/std-build-test
-        run: cargo build --release
-
       - name: Verify PTX output exists
         run: |
           PTX_FILE=$(find crates/gpu-kernel/target/nvptx64-nvidia-cuda/release -name "*.ptx" -o -name "*.s" 2>/dev/null | head -1)

@@ -185,7 +185,13 @@ impl HostcallBuffer {
     {
         let mut last_doorbell: u64 = 0;
         let mut idle_spins: u32 = 0;
-        const MAX_IDLE_SPINS: u32 = 1_000_000;
+
+        // Adaptive polling: spin fast for SPIN_PHASE_LIMIT iterations,
+        // then switch to sleeping SLEEP_DURATION between polls.
+        // This keeps latency low when GPU is active, but drops CPU
+        // usage to near-zero when GPU is idle.
+        const SPIN_PHASE_LIMIT: u32 = 1_000; // ~10µs at ~100ns/spin
+        const SLEEP_DURATION: std::time::Duration = std::time::Duration::from_micros(100);
 
         // File descriptor table for FILE I/O services
         let mut fd_table: HashMap<u64, File> = HashMap::new();
@@ -201,12 +207,13 @@ impl HostcallBuffer {
             let current_doorbell = self.doorbell().load(Ordering::Acquire);
             if current_doorbell == last_doorbell {
                 idle_spins += 1;
-                if idle_spins > MAX_IDLE_SPINS {
-                    // Yield to OS to avoid burning CPU
-                    std::thread::yield_now();
-                    idle_spins = 0;
+                if idle_spins <= SPIN_PHASE_LIMIT {
+                    // Fast spin phase — low latency
+                    std::hint::spin_loop();
+                } else {
+                    // Sleep phase — low CPU usage
+                    std::thread::sleep(SLEEP_DURATION);
                 }
-                std::hint::spin_loop();
                 continue;
             }
 
@@ -597,7 +604,8 @@ impl HostcallBuffer {
     {
         let mut last_doorbell: u64 = 0;
         let mut idle_spins: u32 = 0;
-        const MAX_IDLE_SPINS: u32 = 1_000_000;
+        const SPIN_PHASE_LIMIT: u32 = 1_000;
+        const SLEEP_DURATION: std::time::Duration = std::time::Duration::from_micros(100);
 
         let mut fd_table: HashMap<u64, File> = HashMap::new();
         let mut next_fd: u64 = 1;
@@ -611,11 +619,11 @@ impl HostcallBuffer {
             let current_doorbell = self.doorbell().load(Ordering::Acquire);
             if current_doorbell == last_doorbell {
                 idle_spins += 1;
-                if idle_spins > MAX_IDLE_SPINS {
-                    std::thread::yield_now();
-                    idle_spins = 0;
+                if idle_spins <= SPIN_PHASE_LIMIT {
+                    std::hint::spin_loop();
+                } else {
+                    std::thread::sleep(SLEEP_DURATION);
                 }
-                std::hint::spin_loop();
                 continue;
             }
 

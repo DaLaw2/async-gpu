@@ -1,0 +1,20 @@
+[workspace]
+
+[package]
+name = "gpu-runtime"
+version = "0.1.0"
+edition = "2021"
+description = "Facade crate for writing GPU kernels with async hostcall support"
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+gpu-protocol = { path = "../gpu-protocol" }
+gpu-atomics = { path = "../gpu-atomics" }
+gpu-critical-section = { path = "../gpu-critical-section" }
+
+[profile.release]
+panic = "abort"
+opt-level = 3
+lto = false

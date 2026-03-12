@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 53      # Monotonic counter, incremented after each completed phase
-completed_tasks = 52
+total_cycles = 56      # Monotonic counter, incremented after each completed phase
+completed_tasks = 55
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.route"
 current_task_id = ""
-last_summary = "Batch A done: benchmark.1 (methodology), ci.1 (GitHub Actions), ci.2 (toolchain pin), host-listener.1 (CONTROL_FILLED eliminates dupes), api.1 (surface design). 52/58 tasks. Next: batch B — benchmark.2 + benchmark.3 + host-listener.2 + api.2."
+last_summary = "Batch B done: host-listener.2 (adaptive polling), benchmark.3 (PTX register profiling), api.2 (gpu-runtime facade crate). 55/58 tasks. host-listener theme COMPLETE. Next: benchmark.2 (latency microbench), benchmark.4 (CUDA comparison), api.3 (example)."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 12
@@ -1118,7 +1118,7 @@ key_insight = "11/12 themes completed. Only multiblock.3 (multi-block async) rem
 [[themes]]
 id = "host-listener"
 title = "Fix host listener scaling issues"
-status = "active"
+status = "completed"
 spawned_by = "bs12"
 goal = "Eliminate duplicate messages and reduce CPU usage of the host listener"
 success_criteria = [
@@ -1224,7 +1224,7 @@ id = "benchmark.3"
 theme = "benchmark"
 title = "Register and occupancy profiling with cuobjdump/Nsight Compute"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["benchmark.1"]
 spawned_by = "bs12"
 research_questions = [
@@ -1270,7 +1270,7 @@ id = "host-listener.2"
 theme = "host-listener"
 title = "Adaptive polling — spin then sleep"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["host-listener.1"]
 spawned_by = "bs12"
 research_questions = [
@@ -1331,7 +1331,7 @@ id = "api.2"
 theme = "api"
 title = "Implement gpu-runtime facade crate"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["api.1"]
 spawned_by = "bs12"
 research_questions = [

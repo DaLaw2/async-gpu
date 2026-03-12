@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 36      # Monotonic counter, incremented after each completed phase
-completed_tasks = 36
+total_cycles = 37      # Monotonic counter, incremented after each completed phase
+completed_tasks = 37
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"        # think | do | check
-current_step = "do.select"
-current_task_id = ""
-last_summary = "bs10 done: all 8 themes completed. New direction: allocator (P0), multiblock (P0), oncelock (P1), error-handling (P1), benchmark (parked). Next: allocator.1 + multiblock.1 + oncelock.1 in parallel."
+current_step = "do.execute"
+current_task_id = "allocator.1"
+last_summary = "multiblock.1 done: 4 blocks × 32 threads = 128 concurrent hostcalls passed (11.9ms). 3 background subagents running: allocator.1, oncelock.1, error-handling.1."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 10
@@ -921,7 +921,7 @@ id = "allocator.1"
 theme = "allocator"
 title = "Survey GPU allocator designs (TLSF, slab, buddy)"
 kind = "investigation"
-status = "pending"
+status = "active"
 depends_on = []
 spawned_by = "bs10"
 research_questions = [
@@ -968,7 +968,7 @@ id = "multiblock.1"
 theme = "multiblock"
 title = "4-block sync hostcall test (128 threads)"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = []
 spawned_by = "bs10"
 research_questions = [
@@ -1015,7 +1015,7 @@ id = "oncelock.1"
 theme = "oncelock"
 title = "Analyze OnceLock's full dependency chain on GPU"
 kind = "investigation"
-status = "pending"
+status = "active"
 depends_on = []
 spawned_by = "bs10"
 research_questions = [
@@ -1062,7 +1062,7 @@ id = "error-handling.1"
 theme = "error-handling"
 title = "Design error propagation protocol extension"
 kind = "design"
-status = "pending"
+status = "active"
 depends_on = []
 spawned_by = "bs10"
 research_questions = [

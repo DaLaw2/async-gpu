@@ -1,13 +1,14 @@
-//! Multi-warp scaling test: 32 GPU threads each perform a synchronous hostcall.
+//! Multi-warp and multi-block scaling tests.
 //!
-//! This test verifies that all 32 threads in a full warp can independently
-//! issue hostcall requests through the lock-free protocol concurrently.
-//! Each thread sends a unique message "Thread NN hello!" and the host
-//! verifies that all 32 messages are received.
+//! Tests verify that GPU threads can independently issue hostcall requests
+//! through the lock-free protocol concurrently.
 //!
-//! Uses synchronous (spin-wait) hostcall rather than async Embassy executor,
-//! since per-thread static TaskStorage is not feasible. The key insight being
-//! tested is multi-thread concurrent access to the hostcall packet pool.
+//! - multi_warp_sync_kernel: 1 block × 32 threads (single warp)
+//! - multi_block_sync_kernel: N blocks × 32 threads (multi-block)
+//!
+//! Uses synchronous (spin-wait) hostcall rather than async Embassy executor.
+//! The key insight being tested is multi-thread concurrent access to the
+//! hostcall packet pool under varying levels of contention.
 
 #![no_std]
 #![feature(abi_ptx)]
@@ -186,5 +187,69 @@ pub unsafe extern "ptx-kernel" fn multi_warp_sync_kernel(buf: *mut u8, result: *
     if tid == 0 {
         *result = if ok { 1 } else { 0 };
         *result.add(1) = 32; // thread count
+    }
+}
+
+// ============================================================
+// Kernel: multi-block synchronous hostcall scaling test
+// ============================================================
+
+/// Multi-block synchronous hostcall scaling test.
+///
+/// Launches with grid_dim=(N, 1, 1), block_dim=(32, 1, 1).
+/// Each thread computes a global thread ID = blockIdx.x * 32 + threadIdx.x,
+/// builds a unique message "Thread NNN hello!" (3-digit ID), and performs
+/// a synchronous hostcall print.
+///
+/// Thread 0 (global) writes results:
+///   result[0] = 1 if thread 0's hostcall succeeded
+///   result[1] = total thread count (num_blocks * 32)
+///
+/// `buf` = hostcall buffer (mapped memory)
+/// `result` = output array of u32[2]
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn multi_block_sync_kernel(buf: *mut u8, result: *mut u32) {
+    // Get thread ID within the block.
+    let tid: u32;
+    core::arch::asm!(
+        "mov.u32 {idx}, %tid.x;",
+        idx = out(reg32) tid,
+        options(nostack, readonly),
+    );
+
+    // Get block ID.
+    let bid: u32;
+    core::arch::asm!(
+        "mov.u32 {idx}, %ctaid.x;",
+        idx = out(reg32) bid,
+        options(nostack, readonly),
+    );
+
+    // Get grid dim (number of blocks).
+    let num_blocks: u32;
+    core::arch::asm!(
+        "mov.u32 {idx}, %nctaid.x;",
+        idx = out(reg32) num_blocks,
+        options(nostack, readonly),
+    );
+
+    // Global thread ID.
+    let global_tid = bid * 32 + tid;
+    let total_threads = num_blocks * 32;
+
+    // Build per-thread message: "Thread NNN hello!"
+    // 18 bytes, with NNN replaced by the three-digit global thread ID.
+    let mut msg = *b"Thread 000 hello!";
+    msg[7] = b'0' + (global_tid / 100) as u8;
+    msg[8] = b'0' + ((global_tid / 10) % 10) as u8;
+    msg[9] = b'0' + (global_tid % 10) as u8;
+
+    // Each thread performs its own synchronous hostcall.
+    let ok = hostcall_print_sync(buf, &msg);
+
+    // Global thread 0 writes result markers.
+    if global_tid == 0 {
+        *result = if ok { 1 } else { 0 };
+        *result.add(1) = total_threads;
     }
 }

@@ -1771,6 +1771,130 @@ fn run_multi_warp_test(dev: Arc<CudaDevice>) -> Result<()> {
     Ok(())
 }
 
+/// Test: multi-block synchronous hostcall (multiblock.1).
+/// Launches multi_block_sync_kernel with 4 blocks × 32 threads = 128 threads.
+fn run_multi_block_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Multiblock Test 1: 4-block sync hostcall (128 threads) ---");
+
+    use std::sync::{Arc as StdArc, Mutex};
+
+    let num_blocks: u32 = 4;
+    let threads_per_block: u32 = 32;
+    let total_threads = (num_blocks * threads_per_block) as usize;
+    let num_packets: u16 = 256; // 2× thread count for headroom.
+
+    let hc_buf = hostcall::HostcallBuffer::new(num_packets)?;
+    let dev_ptr = hc_buf.dev_ptr;
+
+    let messages: StdArc<Mutex<Vec<String>>> = StdArc::new(Mutex::new(Vec::new()));
+    let messages_clone = StdArc::clone(&messages);
+
+    let (result_host_ptr, result_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 2)? };
+
+    let hc_buf_ref = StdArc::new(hc_buf);
+    let hc_buf_listener = StdArc::clone(&hc_buf_ref);
+    let listener_handle = std::thread::spawn(move || {
+        hc_buf_listener.listen(|msg| {
+            let s = String::from_utf8_lossy(msg).to_string();
+            println!("  [HOST] Received from GPU: \"{}\"", s);
+            messages_clone.lock().unwrap().push(s);
+        });
+    });
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(MULTI_WARP_PTX);
+    dev.load_ptx(ptx, "multi_block", &["multi_block_sync_kernel"])?;
+    let f = dev.get_func("multi_block", "multi_block_sync_kernel")
+        .ok_or(GpuHostError::KernelNotFound("multi_block_sync_kernel"))?;
+
+    let cfg = LaunchConfig {
+        grid_dim: (num_blocks, 1, 1),
+        block_dim: (threads_per_block, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    println!("  Launching multi_block_sync_kernel ({} blocks × {} threads = {} total)...",
+             num_blocks, threads_per_block, total_threads);
+    let start = std::time::Instant::now();
+    unsafe {
+        f.launch(cfg, (dev_ptr as u64, result_dev_ptr as u64))?;
+    }
+
+    dev.synchronize()?;
+    let elapsed = start.elapsed();
+    println!("  Kernel completed in {:?}.", elapsed);
+
+    // Give the listener time to process remaining messages.
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    hc_buf_ref.signal_shutdown();
+    listener_handle.join().unwrap();
+
+    let success = unsafe { std::ptr::read_volatile(result_host_ptr.add(0)) };
+    let thread_count = unsafe { std::ptr::read_volatile(result_host_ptr.add(1)) };
+    unsafe { free_mapped_mem(result_host_ptr)? };
+
+    let received = messages.lock().unwrap();
+
+    if success != 1 {
+        return Err(GpuHostError::Verification {
+            test: "multi_block_sync_kernel",
+            detail: format!("success marker not set (got {})", success),
+        });
+    }
+
+    if thread_count != total_threads as u32 {
+        return Err(GpuHostError::Verification {
+            test: "multi_block_sync_kernel",
+            detail: format!("expected thread_count={}, got {}", total_threads, thread_count),
+        });
+    }
+
+    // Verify we received messages from all threads.
+    let msg_count = received.len();
+    println!("  multi_block_sync_kernel: {} messages received from {} threads", msg_count, total_threads);
+
+    // Count unique "Thread NNN hello!" messages (17 chars).
+    let mut thread_seen = vec![false; total_threads];
+    for msg in received.iter() {
+        if msg.starts_with("Thread ") && msg.len() >= 17 {
+            let hundreds = msg.as_bytes()[7];
+            let tens = msg.as_bytes()[8];
+            let ones = msg.as_bytes()[9];
+            if hundreds >= b'0' && hundreds <= b'9'
+                && tens >= b'0' && tens <= b'9'
+                && ones >= b'0' && ones <= b'9'
+            {
+                let tid = ((hundreds - b'0') as usize) * 100
+                    + ((tens - b'0') as usize) * 10
+                    + (ones - b'0') as usize;
+                if tid < total_threads {
+                    thread_seen[tid] = true;
+                }
+            }
+        }
+    }
+    let unique_threads = thread_seen.iter().filter(|&&v| v).count();
+
+    if unique_threads < total_threads {
+        let missing: Vec<usize> = thread_seen.iter().enumerate()
+            .filter(|(_, &v)| !v)
+            .map(|(i, _)| i)
+            .collect();
+        return Err(GpuHostError::Verification {
+            test: "multi_block_sync_kernel",
+            detail: format!(
+                "expected messages from all {} threads, got {} unique. Missing: {:?}",
+                total_threads, unique_threads, missing
+            ),
+        });
+    }
+
+    println!("  multi_block_sync_kernel: PASSED! ({:?})", elapsed);
+    println!("    All {} threads across {} blocks sent unique messages", total_threads, num_blocks);
+    println!("    Messages received: {}", msg_count);
+    println!("    Unique threads verified: {}/{}", unique_threads, total_threads);
+    Ok(())
+}
+
 /// Test: 4-step sequential async pipeline (product.2).
 /// Launches pipeline_kernel which chains 4 hostcall prints in sequence.
 fn run_pipeline_test(dev: Arc<CudaDevice>) -> Result<()> {
@@ -2025,6 +2149,9 @@ fn main() -> Result<()> {
 
     // Showcase demo kernel (product.4)
     run_showcase_test(Arc::clone(&dev))?;
+
+    // Multi-block scaling test (multiblock.1)
+    run_multi_block_test(Arc::clone(&dev))?;
 
     println!("\nAll tests PASSED.");
     Ok(())

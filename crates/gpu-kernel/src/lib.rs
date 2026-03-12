@@ -1187,6 +1187,36 @@ pub unsafe extern "ptx-kernel" fn bulk_io_test(
 }
 
 // ============================================================
+// Warp intrinsic tests (warp-future.3)
+// ============================================================
+
+/// Test: bar.warp.sync + shfl.sync.idx.b32 warp intrinsics.
+///
+/// Launches with 32 threads (1 warp). Lane 0 writes a magic value,
+/// broadcasts it to all lanes via shfl.sync.idx, then all lanes
+/// write the received value to output[lane_id]. If all outputs
+/// equal the magic value, both shfl.sync and bar.warp.sync work.
+///
+/// `output` must have space for 32 u32 entries.
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn test_warp_intrinsics(output: *mut u32) {
+    let lid = gpu_atomics::lane_id();
+    let mask = gpu_atomics::activemask();
+
+    // Lane 0 provides the magic value; other lanes provide 0
+    let my_val = if lid == 0 { 0xCAFE_BABE_u32 } else { 0u32 };
+
+    // Synchronize all lanes before shuffle
+    gpu_atomics::syncwarp(mask);
+
+    // Broadcast lane 0's value to all lanes
+    let received = gpu_atomics::shfl_sync_idx_u32(mask, my_val, 0);
+
+    // Each lane writes the received value
+    *output.add(lid as usize) = received;
+}
+
+// ============================================================
 // Sharding-aware print test — uses gpu-runtime's hostcall path
 // ============================================================
 

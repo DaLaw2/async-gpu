@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 76      # Monotonic counter, incremented after each completed phase
-completed_tasks = 75
+total_cycles = 78      # Monotonic counter, incremented after each completed phase
+completed_tasks = 77
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.save"
+current_step = "do.execute"
 current_task_id = ""
-last_summary = "warp-future.1 done: deep brainstorm (bs16) confirmed WarpFuture feasible without rustc changes. Key: shfl.sync for state broadcast, bar.warp.sync for convergence. Problem is unmeasured — empirical validation needed. User requested stop after this task."
+last_summary = "warp-future.2+3 done. Measurement: single warp 27% faster than 32 blocks (CAS contention > divergence). Intrinsics: syncwarp + shfl.sync.idx verified on hardware (32/32 lanes). WarpFuture PoC (warp-future.4) unblocked."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 16
@@ -1836,26 +1836,40 @@ research_questions = [
 [[tasks]]
 id = "warp-future.2"
 theme = "warp-future"
-title = "Design WarpFuture trait + WarpContext + WarpExecutor architecture"
-kind = "design"
-status = "pending"
+title = "Measure per-thread async SIMT efficiency across full 32-thread warp"
+kind = "experiment"
+status = "done"
 depends_on = ["warp-future.1"]
 spawned_by = "user"
 research_questions = [
-    "Full WarpFuture trait definition with poll_warp semantics?",
-    "WarpContext: how does waking work for warp-level tasks?",
-    "WarpExecutor: thread 0 drives, how do other lanes follow?",
-    "How do warp-level hostcalls integrate (payload slot per lane)?",
-    "ADR for WarpFuture architecture decisions?",
+    "Does per-thread async across a full 32-thread warp actually work?",
+    "What is the throughput vs 32 blocks x 1 thread (no intra-warp divergence)?",
+    "How severe is warp divergence with per-thread futures in practice?",
+    "Is the divergence penalty significant compared to hostcall latency?",
 ]
 
 [[tasks]]
 id = "warp-future.3"
 theme = "warp-future"
-title = "Implement minimal WarpFuture: manual state machine + executor"
+title = "Add warp intrinsics (shfl_sync, syncwarp) to gpu-atomics + verify PTX"
+kind = "experiment"
+status = "done"
+depends_on = ["warp-future.1"]
+spawned_by = "user"
+research_questions = [
+    "Does shfl.sync.idx.b32 compile correctly from inline PTX asm on nvptx64?",
+    "Does bar.warp.sync compile correctly from inline PTX asm on nvptx64?",
+    "Can lane_id() be implemented via %laneid special register?",
+    "Do these intrinsics survive fat LTO across crate boundaries?",
+]
+
+[[tasks]]
+id = "warp-future.4"
+theme = "warp-future"
+title = "Implement minimal hand-written WarpFuture: single PRINT hostcall PoC"
 kind = "experiment"
 status = "pending"
-depends_on = ["warp-future.2"]
+depends_on = ["warp-future.2", "warp-future.3"]
 spawned_by = "user"
 research_questions = [
     "Can a hand-written WarpFuture state machine compile to convergent PTX?",
@@ -1864,12 +1878,12 @@ research_questions = [
 ]
 
 [[tasks]]
-id = "warp-future.4"
+id = "warp-future.5"
 theme = "warp-future"
 title = "Implement #[warp_async] proc macro for automatic state machine generation"
 kind = "experiment"
 status = "pending"
-depends_on = ["warp-future.3"]
+depends_on = ["warp-future.4"]
 spawned_by = "user"
 research_questions = [
     "Can a proc macro transform async-like syntax into WarpFuture state machine?",

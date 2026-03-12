@@ -2783,6 +2783,281 @@ fn run_hostcall_latency_benchmark(dev: Arc<CudaDevice>) -> Result<()> {
     Ok(())
 }
 
+/// Run the latency bench kernel with explicit grid/block dimensions.
+/// Returns (wall_elapsed_ms, total_completed, total_retries, per_thread_latencies_ns).
+fn run_latency_bench_explicit(
+    dev: &Arc<CudaDevice>,
+    grid_dim: u32,
+    block_dim: u32,
+    num_iters: u32,
+    num_packets: u16,
+) -> Result<(f64, u64, u64, Vec<f64>)> {
+    use std::sync::Arc as StdArc;
+
+    let num_threads = grid_dim * block_dim;
+    let hc_buf = hostcall::HostcallBuffer::new(num_packets)?;
+    let dev_ptr = hc_buf.dev_ptr;
+
+    let results_count = (num_threads as usize) * 3;
+    let (results_host_ptr, results_dev_ptr) =
+        unsafe { alloc_mapped_u64_array(dev, results_count)? };
+
+    let hc_buf_ref = StdArc::new(hc_buf);
+    let hc_buf_listener = StdArc::clone(&hc_buf_ref);
+    let listener_handle = std::thread::spawn(move || {
+        hc_buf_listener.listen(|_msg| {});
+    });
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "kernel", &["hostcall_latency_bench"]);
+    let f = dev
+        .get_func("kernel", "hostcall_latency_bench")
+        .ok_or(GpuHostError::KernelNotFound("hostcall_latency_bench"))?;
+
+    let cfg = LaunchConfig {
+        grid_dim: (grid_dim, 1, 1),
+        block_dim: (block_dim, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    let start = std::time::Instant::now();
+    unsafe {
+        f.launch(cfg, (dev_ptr as u64, results_dev_ptr as u64, num_iters))?;
+    }
+    dev.synchronize()?;
+    let wall_elapsed = start.elapsed();
+
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    hc_buf_ref.signal_shutdown();
+    listener_handle.join().unwrap();
+
+    let mut latencies_ns: Vec<f64> = Vec::new();
+    let mut total_retries: u64 = 0;
+    let mut total_completed: u64 = 0;
+
+    for tid in 0..num_threads as usize {
+        let elapsed_ns = unsafe { std::ptr::read_volatile(results_host_ptr.add(tid * 3)) };
+        let retries = unsafe { std::ptr::read_volatile(results_host_ptr.add(tid * 3 + 1)) };
+        let completed = unsafe { std::ptr::read_volatile(results_host_ptr.add(tid * 3 + 2)) };
+
+        total_retries += retries;
+        total_completed += completed;
+
+        if completed > 0 {
+            let avg_ns = elapsed_ns as f64 / completed as f64;
+            latencies_ns.push(avg_ns);
+        }
+    }
+
+    unsafe { free_mapped_u64_array(results_host_ptr)? };
+
+    Ok((
+        wall_elapsed.as_secs_f64() * 1000.0,
+        total_completed,
+        total_retries,
+        latencies_ns,
+    ))
+}
+
+/// Warp divergence measurement (warp-future.2):
+/// Compare 1 block x 32 threads (intra-warp divergence) vs
+/// 32 blocks x 1 thread (no intra-warp divergence) for hostcall NOP round-trips.
+fn run_warp_divergence_measurement(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Warp Divergence Measurement (warp-future.2) ---");
+    println!("  Comparing hostcall throughput: 1x32 (one warp) vs 32x1 (32 blocks)");
+    println!("  Same total threads (32), same packet pool, same iterations.\n");
+
+    let num_iters = 20;
+    let num_packets: u16 = 32; // enough for all 32 threads
+
+    // Warm-up run (1x1, 5 iters) to ensure PTX is loaded and JIT'd
+    let _ = run_latency_bench_explicit(&dev, 1, 1, 5, 4);
+
+    // Config A: 1 block x 32 threads → all threads in one warp
+    // Expected: intra-warp divergence when threads are in different hostcall phases
+    let mut a_wall_total = 0.0;
+    let mut a_completed_total = 0u64;
+    let mut a_retries_total = 0u64;
+    let mut a_latencies_all: Vec<f64> = Vec::new();
+    const RUNS: usize = 3;
+
+    for _ in 0..RUNS {
+        let (wall_ms, completed, retries, latencies) =
+            run_latency_bench_explicit(&dev, 1, 32, num_iters, num_packets)?;
+        a_wall_total += wall_ms;
+        a_completed_total += completed;
+        a_retries_total += retries;
+        a_latencies_all.extend_from_slice(&latencies);
+    }
+
+    // Config B: 32 blocks x 1 thread → no intra-warp divergence
+    // Expected: each thread is alone in its warp, no divergence
+    let mut b_wall_total = 0.0;
+    let mut b_completed_total = 0u64;
+    let mut b_retries_total = 0u64;
+    let mut b_latencies_all: Vec<f64> = Vec::new();
+
+    for _ in 0..RUNS {
+        let (wall_ms, completed, retries, latencies) =
+            run_latency_bench_explicit(&dev, 32, 1, num_iters, num_packets)?;
+        b_wall_total += wall_ms;
+        b_completed_total += completed;
+        b_retries_total += retries;
+        b_latencies_all.extend_from_slice(&latencies);
+    }
+
+    // Compute statistics
+    a_latencies_all.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    b_latencies_all.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+    let a_mean = if a_latencies_all.is_empty() {
+        0.0
+    } else {
+        a_latencies_all.iter().sum::<f64>() / a_latencies_all.len() as f64
+    };
+    let b_mean = if b_latencies_all.is_empty() {
+        0.0
+    } else {
+        b_latencies_all.iter().sum::<f64>() / b_latencies_all.len() as f64
+    };
+
+    let a_p50 = percentile(&a_latencies_all, 50.0);
+    let b_p50 = percentile(&b_latencies_all, 50.0);
+
+    let a_throughput = if a_wall_total > 0.0 {
+        a_completed_total as f64 / (a_wall_total / 1000.0)
+    } else {
+        0.0
+    };
+    let b_throughput = if b_wall_total > 0.0 {
+        b_completed_total as f64 / (b_wall_total / 1000.0)
+    } else {
+        0.0
+    };
+
+    let a_cas = if a_completed_total > 0 {
+        a_retries_total as f64 / a_completed_total as f64
+    } else {
+        0.0
+    };
+    let b_cas = if b_completed_total > 0 {
+        b_retries_total as f64 / b_completed_total as f64
+    } else {
+        0.0
+    };
+
+    println!("  Config A (1 block x 32 threads — one warp, intra-warp divergence):");
+    println!(
+        "    wall={:.1}ms  completed={}/{}  mean={:.0}ns  p50={:.0}ns  CAS/call={:.2}  throughput={:.0}/s",
+        a_wall_total / RUNS as f64,
+        a_completed_total / RUNS as u64,
+        32 * num_iters,
+        a_mean,
+        a_p50,
+        a_cas,
+        a_throughput / RUNS as f64,
+    );
+
+    println!("\n  Config B (32 blocks x 1 thread — no intra-warp divergence):");
+    println!(
+        "    wall={:.1}ms  completed={}/{}  mean={:.0}ns  p50={:.0}ns  CAS/call={:.2}  throughput={:.0}/s",
+        b_wall_total / RUNS as f64,
+        b_completed_total / RUNS as u64,
+        32 * num_iters,
+        b_mean,
+        b_p50,
+        b_cas,
+        b_throughput / RUNS as f64,
+    );
+
+    println!("\n  --- Comparison ---");
+    let throughput_ratio = if b_throughput > 0.0 {
+        a_throughput / b_throughput
+    } else {
+        f64::NAN
+    };
+    let latency_ratio = if b_mean > 0.0 {
+        a_mean / b_mean
+    } else {
+        f64::NAN
+    };
+    let cas_ratio = if b_cas > 0.0 {
+        a_cas / b_cas
+    } else {
+        f64::NAN
+    };
+
+    println!("    Throughput ratio (A/B): {:.2}x", throughput_ratio);
+    println!("    Latency ratio (A/B):   {:.2}x", latency_ratio);
+    println!("    CAS retry ratio (A/B): {:.2}x", cas_ratio);
+
+    if throughput_ratio >= 0.8 {
+        println!("\n  RESULT: Intra-warp divergence has MINIMAL impact (<20% throughput loss).");
+        println!("  WarpFuture optimization may not be justified for hostcall-bound workloads.");
+    } else if throughput_ratio >= 0.5 {
+        println!("\n  RESULT: Intra-warp divergence causes MODERATE impact ({:.0}% throughput loss).",
+            (1.0 - throughput_ratio) * 100.0);
+        println!("  WarpFuture could provide meaningful improvement.");
+    } else {
+        println!("\n  RESULT: Intra-warp divergence causes SEVERE impact ({:.0}% throughput loss).",
+            (1.0 - throughput_ratio) * 100.0);
+        println!("  WarpFuture is strongly justified.");
+    }
+
+    println!("\n  Measurement complete.");
+    Ok(())
+}
+
+/// Test warp intrinsics: syncwarp + shfl.sync.idx on hardware.
+///
+/// Launches 1 block x 32 threads. Lane 0 writes 0xCAFE_BABE, broadcasts
+/// via shfl.sync.idx.b32 to all lanes. Verifies all 32 outputs match.
+fn run_warp_intrinsics_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Warp Intrinsics Test (warp-future.3) ---");
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "kernel", &["test_warp_intrinsics"]);
+    let f = dev
+        .get_func("kernel", "test_warp_intrinsics")
+        .ok_or(GpuHostError::KernelNotFound("test_warp_intrinsics"))?;
+
+    // Allocate mapped output for 32 u32 values
+    let (output_host, output_dev) = unsafe { alloc_mapped_result_array(&dev, 32)? };
+
+    let cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (32, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    unsafe {
+        f.launch(cfg, (output_dev as u64,))?;
+    }
+    dev.synchronize()?;
+
+    // Verify all 32 lanes received 0xCAFE_BABE
+    let expected = 0xCAFE_BABEu32;
+    let mut pass_count = 0u32;
+    for lane in 0..32 {
+        let val = unsafe { std::ptr::read_volatile(output_host.add(lane)) };
+        if val == expected {
+            pass_count += 1;
+        } else {
+            println!("  FAIL: lane {} got 0x{:08X}, expected 0x{:08X}", lane, val, expected);
+        }
+    }
+
+    if pass_count == 32 {
+        println!("  PASSED: all 32 lanes received 0xCAFE_BABE via shfl.sync.idx.b32");
+        println!("  bar.warp.sync + shfl.sync.idx.b32 confirmed working on hardware.");
+    } else {
+        println!("  FAILED: only {}/32 lanes received correct value", pass_count);
+    }
+
+    unsafe { free_mapped_mem(output_host)? };
+    Ok(())
+}
+
 /// GPU panic handler test: verify panic message is received via hostcall.
 ///
 /// The test kernel deliberately panics. We expect:
@@ -2900,11 +3175,17 @@ fn main() -> Result<()> {
     // Hostcall latency benchmark (benchmark.2) — run before PAL tests
     run_hostcall_latency_benchmark(Arc::clone(&dev))?;
 
+    // Warp divergence measurement (warp-future.2)
+    run_warp_divergence_measurement(Arc::clone(&dev))?;
+
     // Bulk data transfer test (large-payload.3)
     run_bulk_io_test(Arc::clone(&dev))?;
 
     // Per-block sharding test (per-block-sharding.2)
     run_sharded_hostcall_test(Arc::clone(&dev))?;
+
+    // Warp intrinsics test (warp-future.3): syncwarp + shfl.sync.idx
+    run_warp_intrinsics_test(Arc::clone(&dev))?;
 
     // GPU panic handler test (gpu-panic.2) — MUST BE LAST
     // since trap instruction calls process::exit(0)

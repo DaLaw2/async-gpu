@@ -347,6 +347,54 @@ pub unsafe fn lane_id() -> u32 {
     id
 }
 
+/// Warp barrier: synchronize all lanes specified in `mask`.
+///
+/// Emits `bar.warp.sync mask;` (PTX ISA 6.0+, SM 7.0+).
+///
+/// All lanes in `mask` must reach this barrier before any of them can proceed.
+/// On SM70+ with Independent Thread Scheduling, this is required to force
+/// reconvergence. Cost: 0-2 cycles when already converged (effectively free).
+///
+/// **CRITICAL**: Using `mask = 0xFFFFFFFF` on a partial warp (fewer than 32
+/// active lanes) causes deadlock — inactive lanes never reach the barrier.
+/// Always use `activemask()` for the mask unless you are certain all 32 lanes
+/// are active.
+#[inline(always)]
+pub unsafe fn syncwarp(mask: u32) {
+    core::arch::asm!(
+        "bar.warp.sync {mask};",
+        mask = in(reg32) mask,
+        options(nostack),
+    );
+}
+
+/// Warp shuffle: broadcast a u32 value from `src_lane` to all lanes.
+///
+/// Emits `shfl.sync.idx.b32 result, val, src_lane, 0x1f, mask;`
+/// (PTX ISA 6.0+, SM 3.0+ for shfl, SM 7.0+ for shfl.sync).
+///
+/// Each lane provides `val` but receives the value from `src_lane`.
+/// The `0x1f` parameter means the warp width is 32 (clamp = 31).
+/// Commonly used with `src_lane = 0` to broadcast lane 0's value to all.
+///
+/// Use cases:
+/// - Broadcasting state discriminant from lane 0 (WarpFuture)
+/// - Warp-cooperative reductions and scans
+/// - Sharing packet indices across lanes
+#[inline(always)]
+pub unsafe fn shfl_sync_idx_u32(mask: u32, val: u32, src_lane: u32) -> u32 {
+    let result: u32;
+    core::arch::asm!(
+        "shfl.sync.idx.b32 {result}, {val}, {src}, 0x1f, {mask};",
+        result = out(reg32) result,
+        val = in(reg32) val,
+        src = in(reg32) src_lane,
+        mask = in(reg32) mask,
+        options(nostack),
+    );
+    result
+}
+
 // ============================================================
 // Helper: store to global address space
 // ============================================================

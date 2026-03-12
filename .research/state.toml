@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 33      # Monotonic counter, incremented after each completed phase
-completed_tasks = 33
+total_cycles = 35      # Monotonic counter, incremented after each completed phase
+completed_tasks = 35
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"        # think | do | check
 current_step = "do.execute"
-current_task_id = "product.3"
-last_summary = "std-pal.2 done: gpu_stdin_read() works (17 bytes, 229.9µs). std::io::stdin() broken (OnceLock/ReentrantLock, same as println!). Next: product.3 (multi-warp 32 threads)."
+current_task_id = "product.4"
+last_summary = "atomics.6: LLVM 21 fixed loads/stores/cmpxchg scope, atomicrmw still broken (Bug #173993). product.3: 32/32 threads PASSED (1.43ms). Next: product.4 (showcase demo)."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 9
@@ -96,7 +96,7 @@ success_criteria = [
 [[themes]]
 id = "atomics"
 title = "GPU-CPU memory model and atomics verification"
-status = "active"
+status = "completed"
 spawned_by = "bs1"
 goal = "Verify that Rust atomic operations emit correct PTX scope qualifiers for GPU-CPU communication"
 success_criteria = [
@@ -644,7 +644,7 @@ id = "atomics.6"
 theme = "atomics"
 title = "Research LLVM atomics fixes in latest versions"
 kind = "investigation"
-status = "active"
+status = "done"
 depends_on = ["atomics.5"]
 spawned_by = "user"
 research_questions = [
@@ -660,7 +660,7 @@ id = "product.3"
 theme = "product"
 title = "Multi-warp async scaling (32 threads)"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["product.1"]
 spawned_by = "bs9"
 research_questions = [
@@ -676,7 +676,7 @@ id = "product.4"
 theme = "product"
 title = "Showcase demo kernel"
 kind = "experiment"
-status = "pending"
+status = "active"
 depends_on = ["std-pal.1", "product.1", "product.2"]
 spawned_by = "bs9"
 research_questions = [

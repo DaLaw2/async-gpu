@@ -26,6 +26,9 @@ const STD_BUILD_TEST_PTX: &str = include_str!("../std_build_test.ptx");
 // Async pipeline test PTX — compiled from crates/async-pipeline-test with fat LTO
 const ASYNC_PIPELINE_PTX: &str = include_str!("../async_pipeline_test.ptx");
 
+// Multi-warp scaling test PTX — compiled from crates/multi-warp-test with fat LTO
+const MULTI_WARP_PTX: &str = include_str!("../multi_warp_test.ptx");
+
 fn run_write_thread_idx(dev: Arc<CudaDevice>) -> Result<()> {
     const N: usize = 64;
 
@@ -1653,6 +1656,121 @@ fn run_std_stdin_test(dev: Arc<CudaDevice>) -> Result<()> {
     Ok(())
 }
 
+/// Test: 32-thread multi-warp synchronous hostcall scaling (product.3).
+fn run_multi_warp_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Product Test 3: Multi-warp sync hostcall (32 threads) ---");
+
+    use std::sync::{Arc as StdArc, Mutex};
+
+    // 64 packets to handle 32 concurrent thread requests with headroom.
+    let hc_buf = hostcall::HostcallBuffer::new(64)?;
+    let dev_ptr = hc_buf.dev_ptr;
+
+    let messages: StdArc<Mutex<Vec<String>>> = StdArc::new(Mutex::new(Vec::new()));
+    let messages_clone = StdArc::clone(&messages);
+
+    let (result_host_ptr, result_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 2)? };
+
+    let hc_buf_ref = StdArc::new(hc_buf);
+    let hc_buf_listener = StdArc::clone(&hc_buf_ref);
+    let listener_handle = std::thread::spawn(move || {
+        hc_buf_listener.listen(|msg| {
+            let s = String::from_utf8_lossy(msg).to_string();
+            println!("  [HOST] Received from GPU: \"{}\"", s);
+            messages_clone.lock().unwrap().push(s);
+        });
+    });
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(MULTI_WARP_PTX);
+    dev.load_ptx(ptx, "multi_warp", &["multi_warp_sync_kernel"])?;
+    let f = dev.get_func("multi_warp", "multi_warp_sync_kernel")
+        .ok_or(GpuHostError::KernelNotFound("multi_warp_sync_kernel"))?;
+
+    let cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (32, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    println!("  Launching multi_warp_sync_kernel (32 threads, full warp)...");
+    let start = std::time::Instant::now();
+    unsafe {
+        f.launch(cfg, (dev_ptr as u64, result_dev_ptr as u64))?;
+    }
+
+    dev.synchronize()?;
+    let elapsed = start.elapsed();
+    println!("  Kernel completed in {:?}.", elapsed);
+
+    // Give the listener time to process remaining messages.
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    hc_buf_ref.signal_shutdown();
+    listener_handle.join().unwrap();
+
+    let success = unsafe { std::ptr::read_volatile(result_host_ptr.add(0)) };
+    let thread_count = unsafe { std::ptr::read_volatile(result_host_ptr.add(1)) };
+    unsafe { free_mapped_mem(result_host_ptr)? };
+
+    let received = messages.lock().unwrap();
+
+    if success != 1 {
+        return Err(GpuHostError::Verification {
+            test: "multi_warp_sync_kernel",
+            detail: format!("success marker not set (got {})", success),
+        });
+    }
+
+    if thread_count != 32 {
+        return Err(GpuHostError::Verification {
+            test: "multi_warp_sync_kernel",
+            detail: format!("expected thread_count=32, got {}", thread_count),
+        });
+    }
+
+    // Verify we received messages from all 32 threads.
+    let msg_count = received.len();
+    println!("  multi_warp_sync_kernel: {} messages received from 32 threads", msg_count);
+
+    // Count how many unique "Thread NN hello!" messages we got.
+    let mut thread_seen = [false; 32];
+    for msg in received.iter() {
+        if msg.starts_with("Thread ") && msg.len() >= 16 {
+            let tens = msg.as_bytes()[7];
+            let ones = msg.as_bytes()[8];
+            if tens >= b'0' && tens <= b'3' && ones >= b'0' && ones <= b'9' {
+                let tid = ((tens - b'0') * 10 + (ones - b'0')) as usize;
+                if tid < 32 {
+                    thread_seen[tid] = true;
+                }
+            }
+        }
+    }
+    let unique_threads = thread_seen.iter().filter(|&&v| v).count();
+
+    if unique_threads < 32 {
+        // Print which threads were missing.
+        let missing: Vec<usize> = thread_seen.iter().enumerate()
+            .filter(|(_, &v)| !v)
+            .map(|(i, _)| i)
+            .collect();
+        return Err(GpuHostError::Verification {
+            test: "multi_warp_sync_kernel",
+            detail: format!(
+                "expected messages from all 32 threads, got {} unique. Missing: {:?}",
+                unique_threads, missing
+            ),
+        });
+    }
+
+    println!("  multi_warp_sync_kernel: PASSED!");
+    println!("    All 32 threads sent unique messages concurrently");
+    println!("    Thread count: {}", thread_count);
+    println!("    Messages received: {}", msg_count);
+    println!("    Unique threads verified: {}/32", unique_threads);
+    println!("    Multi-warp hostcall scaling demonstrated end-to-end");
+    Ok(())
+}
+
 /// Test: 4-step sequential async pipeline (product.2).
 /// Launches pipeline_kernel which chains 4 hostcall prints in sequence.
 fn run_pipeline_test(dev: Arc<CudaDevice>) -> Result<()> {
@@ -1791,6 +1909,9 @@ fn main() -> Result<()> {
 
     // PAL stdin routing test (std-pal.2)
     run_std_stdin_test(Arc::clone(&dev))?;
+
+    // Multi-warp scaling test (product.3)
+    run_multi_warp_test(Arc::clone(&dev))?;
 
     // 4-step async pipeline test (product.2)
     run_pipeline_test(Arc::clone(&dev))?;

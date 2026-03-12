@@ -9,7 +9,7 @@ An experimental reproduction of [VectorWare](https://www.vectorware.com/)'s tech
 
 This project explores whether Rust's `std` library and async/await can run on GPU hardware using the `nvptx64-nvidia-cuda` target. Rather than writing raw CUDA kernels, the idea is to let GPU threads use familiar Rust abstractions — `File::open()`, `println!()`, `async/await` — with I/O routed to the host CPU through a shared-memory hostcall protocol.
 
-The project is structured as an autonomous research loop with 15+ completed research themes and 57 verified experiments.
+The project is structured as an autonomous research loop with 17+ completed research themes and 68 verified experiments.
 
 ## Architecture
 
@@ -30,7 +30,7 @@ The project is structured as an autonomous research loop with 15+ completed rese
 |  Host CPU                 |                          |
 |  +------------------------v-----------------------+  |
 |  |  gpu-host: hostcall listener + CUDA runtime    |  |
-|  |  adaptive polling (spin 10us then sleep 100us) |  |
+|  |  adaptive polling + dedicated I/O thread       |  |
 |  +------------------------------------------------+  |
 +------------------------------------------------------+
 ```
@@ -66,16 +66,17 @@ Measured on RTX 3060 (SM_86) with the NOP hostcall latency benchmark (benchmark.
 
 | Threads | Packets | p50 | p95 | p99 | Mean | CAS retries/call | Throughput |
 |---------|---------|-----|-----|-----|------|-------------------|------------|
-| 1 | 4 | 13 us | 13 us | 13 us | 13 us | 0.0 | 28K calls/s |
-| 32 | 64 | 1.4 ms | 1.5 ms | 1.5 ms | 1.4 ms | 14-24 | 22K calls/s |
-| 128 | 64 | 6.9 ms | 9.3 ms | 9.3 ms | 6.6 ms | 49 | 14K calls/s |
-| 512 | 64 | 11 ms | 37 ms | 44 ms | 13 ms | 30-44 | 10K calls/s |
+| 1 | 4 | 19-25 us | 19-25 us | 19-25 us | 19-25 us | 0.0 | 26-41K calls/s |
+| 32 | 64 | 1.0 ms | 1.3 ms | 1.3 ms | 1.0 ms | 3-7 | 20-24K calls/s |
+| 128 | 64 | 5.8 ms | 7.3 ms | 45 ms | 6.2 ms | 28-43 | 14K calls/s |
+| 512 | 64 | 14 ms | 38 ms | 115 ms | 22 ms | 42-52 | 8K calls/s |
 
 **Key observations:**
-- Single-thread latency (~13 us) is competitive with CUDA C++ cooperative polling protocols (typically 5-15 us)
-- Throughput **does not scale** with thread count — the single-threaded host listener is the bottleneck
-- CAS contention on the lock-free free-stack grows ~linearly with active threads
-- At 512 threads with 64 packets, **75% of threads are starved** (only 1257/5120 calls completed)
+- Single-thread latency (~20 us) is competitive with CUDA C++ cooperative polling protocols (typically 5-15 us)
+- CAS retries dropped ~6x at 32 threads after nightly upgrade (1.91 -> 1.96, improved LLVM codegen)
+- Throughput **does not scale** with thread count — CAS contention on the lock-free free-stack is the bottleneck
+- At 512 threads with 64 packets, **~70% of threads are starved** (only 1256-1651/5120 calls completed)
+- Host listener uses I/O thread separation (ADR-6): fast services (NOP/PRINT/TIME/PANIC) inline, blocking FILE I/O offloaded
 
 ### PTX Register Pressure (Virtual Registers)
 
@@ -91,8 +92,8 @@ All async kernels use stack spilling (local memory) for Embassy executor state. 
 
 ### When to Use This
 
-- **Debugging GPU kernels**: `println!()` from GPU at 13 us per call — useful for development
-- **Coarse-grained I/O**: File setup/teardown, configuration reads — 13 us overhead is negligible
+- **Debugging GPU kernels**: `println!()` from GPU at ~20 us per call — useful for development
+- **Coarse-grained I/O**: File setup/teardown, configuration reads — 20 us overhead is negligible
 - **Async I/O pipelines**: Embassy drives ~77K poll cycles/s per thread, adequate for I/O-bound tasks
 - **NOT for**: Per-element I/O, high-throughput data transfer, or latency-critical hot loops
 
@@ -106,15 +107,21 @@ All async kernels use stack spilling (local memory) for Embassy executor state. 
 
 4. **System-scope Atomics**: LLVM's `core::sync::atomic` lacks `.sys` scope qualifiers needed for GPU-CPU shared memory. All cross-device atomics use inline PTX through `gpu-atomics`.
 
+5. **GPU Panic Handler (ADR-5)**: Panic handler sends message (56 bytes) + thread/block metadata via `SERVICE_PANIC` hostcall, then executes `trap;` for clean termination. Replaces the previous `loop {}` infinite hang.
+
+6. **Host Listener I/O Thread (ADR-6)**: Fast services (NOP, PRINT, TIME, PANIC) handled inline on the listener thread. Blocking FILE I/O and STDIN offloaded to a dedicated I/O thread via `mpsc` channel. Unified via `StdinSource` trait.
+
 ## Current Status
 
-All 15 research themes are **completed** (57/59 tasks, 2 parked):
+17 research themes completed, 2 active, 3 parked (68/73 tasks done):
 
 - **Core**: toolchain, hostcall, gpu-std, async-runtime, integration
-- **Infrastructure**: atomics, std-pal, allocator, error-handling
-- **Scaling**: multiblock, product
-- **Phase 2**: benchmark (performance characterized), host-listener (adaptive polling), ci (GitHub Actions), api (gpu-runtime facade + example)
-- **Parked**: warp-coop, networking, upstream
+- **Infrastructure**: atomics, std-pal, allocator, error-handling, oncelock
+- **Scaling**: multiblock, product, benchmark
+- **Phase 2**: host-listener, ci (GitHub Actions), api (gpu-runtime facade + example)
+- **Phase 3**: gpu-panic (panic handler), host-scaling (I/O thread), nightly-compat (1.91 -> 1.96)
+- **Active**: large-payload (bulk data transfer design)
+- **Parked**: warp-coop (incompatible with ADR-4), networking, upstream
 
 ## Strengths
 
@@ -124,25 +131,28 @@ All 15 research themes are **completed** (57/59 tasks, 2 parked):
 - **Cross-platform host**: Error propagation uses `io::ErrorKind` mapping (not raw errno), so the host side works on both Linux and Windows
 - **Minimal std patching**: Only ~4 patch files touch the vendored std source, keeping upgrade friction low
 - **No custom rustc fork**: Everything builds on stock nightly rustc with `-Zbuild-std`
-- **13 us single-thread latency**: Competitive with CUDA C++ polling protocols for hostcall round-trip
+- **~20 us single-thread latency**: Competitive with CUDA C++ polling protocols for hostcall round-trip
+- **GPU panic handler**: Panics produce visible `[GPU PANIC] block=N thread=M: message` output instead of silent hangs
+- **I/O thread separation**: Blocking FILE I/O won't stall fast services (PRINT, PANIC)
 
 ## Limitations and Known Issues
 
-- **Nightly-only**: Requires Rust nightly (pinned to `nightly-2025-08-25`) for `#![feature(abi_ptx)]`, `-Zbuild-std`, `core::arch::asm!` with PTX, and other unstable features. Breakage on toolchain updates is expected.
+- **Nightly-only**: Requires Rust nightly (pinned to `nightly-2026-03-11`, rustc 1.96.0) for `#![feature(abi_ptx)]`, `-Zbuild-std`, `core::arch::asm!` with PTX, and other unstable features. Breakage on toolchain updates is expected.
 - **NVIDIA-only**: Targets `nvptx64-nvidia-cuda` exclusively. No AMD/Intel GPU support. Requires CUDA runtime (loaded via `cudarc`) and an SM70+ GPU.
-- **No warp-cooperative execution**: Each thread runs independently. There is no warp-level collective communication or cooperative kernel design — threads cannot share async work.
-- **Throughput does not scale**: The single-threaded host listener is the bottleneck. Throughput peaks at ~28K calls/s for 1 thread and *decreases* with more threads due to CAS contention.
-- **Packet pool starvation**: At 512 threads with 64 packets, 75% of threads starve. Size the packet pool to at least 2x your active thread count.
+- **No warp-cooperative execution**: Each thread runs independently (ADR-4). Warp-cooperative allocation is architecturally incompatible with per-lane async execution.
+- **Throughput does not scale**: CAS contention on the lock-free free-stack is the primary bottleneck. Throughput peaks at ~26-41K calls/s for 1 thread and *decreases* with more threads.
+- **Packet pool starvation**: At 512 threads with 64 packets, ~70% of threads starve. Size the packet pool to at least 2x your active thread count.
+- **56-byte payload limit**: Each hostcall can transfer at most 56 bytes of data. Bulk data transfer (large-payload theme) is under development using a sideband mapped buffer approach.
 - **Limited std coverage**: Only `std::fs` (File), `std::io` (print/stdin), and basic allocation work. Networking, threading, and most of std are stubbed out.
-- **Fat LTO required**: All GPU crates must link with Fat LTO, increasing compile times significantly.
-- **PTX header bug**: `llvm-bitcode-linker` on some nightly toolchains emits `.target sm_30` in the PTX header even when compiled with `-C target-cpu=sm_86`. This causes `CUDA_ERROR_INVALID_PTX` at runtime. Workaround: patch the PTX header or use the pinned `nightly-2025-08-25`.
+- **Fat LTO required**: All GPU crates must link with `lto = "fat"` in Cargo.toml release profile. Required since nightly 1.96.0 for cross-crate function resolution.
 - **All async kernels spill to local memory**: Embassy executor state is stored on the stack, causing register spilling for all async kernels. This adds latency per access but does not prevent execution.
+- **CudaDevice Drop panics after GPU trap**: After a GPU panic (which executes `trap;`), the CUDA context enters a sticky error state. `std::process::exit(0)` is used to avoid cudarc's Drop impl panicking.
 
 ## Building
 
 ### Prerequisites
 
-- Rust nightly toolchain (pinned: `nightly-2025-08-25`) with `nvptx64-nvidia-cuda` target
+- Rust nightly toolchain (pinned: `nightly-2026-03-11`) with `nvptx64-nvidia-cuda` target
 - `llvm-bitcode-linker` component
 - NVIDIA GPU (SM70+, e.g., Volta/Turing/Ampere/Ada/Hopper) with CUDA driver
 

@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 68      # Monotonic counter, incremented after each completed phase
-completed_tasks = 67
+total_cycles = 69      # Monotonic counter, incremented after each completed phase
+completed_tasks = 68
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "large-payload.1"
-last_summary = "nightly-compat.1+2 done: updated nightly-2025-08-25→2026-03-11 (1.91→1.96). PTX sm_30 bug FIXED. Requires lto=fat. asm_experimental_arch stabilized. CAS retries 6x lower at 32 threads. All tests pass. Next: large-payload.1."
+current_task_id = ""
+last_summary = "large-payload.1 done: sideband mapped buffer recommended for bulk transfers (no protocol change, no deadlock). Session batch complete: host-scaling(4), nightly-compat(2), large-payload.1. Next: README update then large-payload.2."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 15
@@ -1591,7 +1591,7 @@ id = "large-payload.1"
 theme = "large-payload"
 title = "Survey bulk data transfer approaches"
 kind = "investigation"
-status = "pending"
+status = "done"
 depends_on = []
 spawned_by = "bs14"
 research_questions = [

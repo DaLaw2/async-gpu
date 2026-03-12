@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 89      # Monotonic counter, incremented after each completed phase
-completed_tasks = 88
+total_cycles = 92      # Monotonic counter, incremented after each completed phase
+completed_tasks = 91
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.execute"
-current_task_id = "async-pipeline.1"
-last_summary = "bs21 deep: async-pipeline theme created. 3 tasks: warp hostcall wrappers → file transform demo → README overhaul. No proc macro expansion — hand-written WarpFuture."
+current_step = "do.save"
+current_task_id = ""
+last_summary = "async-pipeline theme COMPLETE. All 3 tasks done: warp hostcall wrappers, 16-state file transform pipeline demo (GPU-autonomous open→read→transform→write→close, 4.2ms), README overhaul showcasing the vision. User goal achieved: 完成願景時停止."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 21
@@ -2063,7 +2063,7 @@ key_insight = "All 25 themes complete, 88/89 tasks done. Product-ready checklist
 [[themes]]
 id = "async-pipeline"
 title = "GPU-autonomous multi-step async pipeline demo"
-status = "active"
+status = "completed"
 spawned_by = "bs21"
 goal = "Demonstrate GPU self-coordinating a multi-step data pipeline (open → read → transform → write → close) via hand-written WarpFuture, all in one kernel launch with no CPU intervention between steps. Overhaul README to showcase the vision."
 success_criteria = [
@@ -2080,7 +2080,7 @@ id = "async-pipeline.1"
 theme = "async-pipeline"
 title = "Warp-level hostcall wrappers (open/close/bulk_read/bulk_write)"
 kind = "experiment"
-status = "active"
+status = "done"
 depends_on = []
 spawned_by = "bs21"
 research_questions = [
@@ -2094,7 +2094,7 @@ id = "async-pipeline.2"
 theme = "async-pipeline"
 title = "File transform demo: hand-written WarpFuture pipeline"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["async-pipeline.1"]
 spawned_by = "bs21"
 research_questions = [
@@ -2108,7 +2108,7 @@ id = "async-pipeline.3"
 theme = "async-pipeline"
 title = "README overhaul: showcase the vision and make demo runnable"
 kind = "design"
-status = "pending"
+status = "done"
 depends_on = ["async-pipeline.2"]
 spawned_by = "bs21"
 research_questions = [

@@ -3506,6 +3506,135 @@ fn run_hybrid_stress_test(dev: Arc<CudaDevice>) -> Result<()> {
     Ok(())
 }
 
+/// async-pipeline demo: GPU-autonomous file transform pipeline.
+///
+/// The GPU self-coordinates the entire pipeline in one kernel launch:
+///   open(in) → read(in) → transform(per-thread) → open(out) → write(out) → close(in) → close(out) → print
+///
+/// No CPU intervention between steps.
+fn run_file_transform_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- File Transform Pipeline (async-pipeline.1+2) ---");
+
+    // Create 1024 bytes of ASCII input: repeating "Hello, GPU Pipeline! " pattern
+    let pattern = b"Hello, GPU Pipeline! ";
+    let mut input_data = Vec::with_capacity(1024);
+    while input_data.len() < 1024 {
+        let remaining = 1024 - input_data.len();
+        let chunk = remaining.min(pattern.len());
+        input_data.extend_from_slice(&pattern[..chunk]);
+    }
+    std::fs::write("gpu_input.txt", &input_data).map_err(|e| {
+        GpuHostError::Verification {
+            test: "file_transform_pipeline",
+            detail: format!("failed to create input file: {}", e),
+        }
+    })?;
+    println!("  Created gpu_input.txt ({} bytes)", input_data.len());
+
+    let hc_buf = hostcall::HostcallBuffer::new(4)?;
+    let dev_ptr = hc_buf.dev_ptr;
+    let sb_dev_ptr = hc_buf.sideband_dev_ptr;
+
+    let (status_host, status_dev) = unsafe { alloc_mapped_result_array(&dev, 1)? };
+
+    let hc_buf_ref = std::sync::Arc::new(hc_buf);
+    let hc_buf_listener = std::sync::Arc::clone(&hc_buf_ref);
+
+    let messages = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let msg_clone = std::sync::Arc::clone(&messages);
+
+    let listener_handle = std::thread::spawn(move || {
+        hc_buf_listener.listen(move |msg| {
+            let text = String::from_utf8_lossy(msg).to_string();
+            println!("  [HOST] GPU says: \"{}\"", text);
+            let mut guard = msg_clone.lock().unwrap();
+            guard.push(text);
+        });
+    });
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "kernel", &["file_transform_pipeline"]);
+    let f = dev
+        .get_func("kernel", "file_transform_pipeline")
+        .ok_or(GpuHostError::KernelNotFound("file_transform_pipeline"))?;
+
+    let cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (32, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    println!("  Launching file_transform_pipeline kernel...");
+    let start = std::time::Instant::now();
+    unsafe {
+        f.launch(cfg, (dev_ptr as u64, sb_dev_ptr as u64, status_dev as u64))?;
+    }
+    dev.synchronize()?;
+    let elapsed = start.elapsed();
+
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    hc_buf_ref.signal_shutdown();
+    listener_handle.join().unwrap();
+
+    let status_val = unsafe { std::ptr::read_volatile(status_host) };
+    let msgs = messages.lock().unwrap();
+
+    println!("  Status: {} (1=success)", status_val);
+    println!("  Elapsed: {:.3}ms", elapsed.as_secs_f64() * 1000.0);
+
+    // Verify output file exists and contains case-toggled content
+    let output_data = std::fs::read("gpu_output.txt").map_err(|e| {
+        GpuHostError::Verification {
+            test: "file_transform_pipeline",
+            detail: format!("failed to read output file: {}", e),
+        }
+    })?;
+
+    // Expected: toggle ASCII case on the input
+    let expected: Vec<u8> = input_data.iter().map(|&b| {
+        if b.is_ascii_uppercase() || b.is_ascii_lowercase() {
+            b ^ 0x20
+        } else {
+            b
+        }
+    }).collect();
+
+    let content_ok = output_data == expected;
+    let msg_ok = msgs.iter().any(|m| m.contains("pipeline: done"));
+
+    // Clean up
+    let _ = std::fs::remove_file("gpu_input.txt");
+    let _ = std::fs::remove_file("gpu_output.txt");
+    unsafe { free_mapped_mem(status_host)? };
+
+    if status_val == 1 && content_ok && msg_ok {
+        println!("  File Transform Pipeline: PASSED!");
+        println!("    16-state WarpFuture: open→read→transform→open→write→close→close→print");
+        println!("    GPU self-coordinated {} I/O steps + 1 compute step", 8);
+        println!("    {} bytes: ASCII case toggled correctly", output_data.len());
+        println!("    Zero CPU intervention between steps");
+    } else {
+        println!("  File Transform Pipeline: FAILED");
+        if status_val != 1 { println!("    Status: {}", status_val); }
+        if !content_ok {
+            println!("    Content mismatch: output {} bytes, expected {} bytes",
+                output_data.len(), expected.len());
+            if output_data.len() > 0 {
+                let first = std::cmp::min(32, output_data.len());
+                println!("    Output[..{}]: {:?}", first, &output_data[..first]);
+                println!("    Expected[..{}]: {:?}", first, &expected[..first]);
+            }
+        }
+        if !msg_ok { println!("    Missing 'pipeline: done' message. Got: {:?}", *msgs); }
+        return Err(GpuHostError::Verification {
+            test: "file_transform_pipeline",
+            detail: "see above".to_string(),
+        });
+    }
+
+    Ok(())
+}
+
 /// GPU panic handler test: verify panic message is received via hostcall.
 ///
 /// The test kernel deliberately panics. We expect:
@@ -3655,6 +3784,9 @@ fn main() -> Result<()> {
 
     // Hybrid stress test (hybrid-executor.2)
     run_hybrid_stress_test(Arc::clone(&dev))?;
+
+    // File transform pipeline (async-pipeline.1+2)
+    run_file_transform_test(Arc::clone(&dev))?;
 
     // GPU panic handler test (gpu-panic.2) — MUST BE LAST
     // since trap instruction calls process::exit(0)

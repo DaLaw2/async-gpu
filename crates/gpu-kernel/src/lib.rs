@@ -2258,3 +2258,415 @@ pub unsafe extern "ptx-kernel" fn hybrid_stress_test(
         core::ptr::write_volatile(status, if ok { 1 } else { 0 });
     }
 }
+
+// ============================================================
+// async-pipeline: Warp-cooperative hostcall helpers
+// ============================================================
+
+/// General-purpose warp-cooperative hostcall submit.
+/// Lane 0 pops a packet, fills payload via closure (lane 0 only), submits to ready stack.
+/// All lanes participate in broadcast of packet index.
+#[inline(always)]
+unsafe fn warp_hostcall_submit(
+    buf: *mut u8,
+    wcx: &mut gpu_runtime::warp_future::WarpContext,
+    service: u32,
+    fill_payload: impl FnOnce(*mut u8),
+    next_state: u32,
+    state_cell: &mut u32,
+    pkt_idx_cell: &mut u16,
+) -> gpu_runtime::warp_future::WarpPoll<bool> {
+    use gpu_runtime::warp_future::{WarpPoll, broadcast_u32};
+
+    let mut idx_raw: u32 = gpu_protocol::NULL_INDEX as u32;
+    if wcx.is_leader() {
+        idx_raw = gpu_runtime::hostcall::hc_pop_free(buf) as u32;
+    }
+    let idx = broadcast_u32(wcx.active_mask, idx_raw) as u16;
+    if idx == gpu_protocol::NULL_INDEX {
+        return WarpPoll::Pending;
+    }
+    *pkt_idx_cell = idx;
+
+    let pkt_off = gpu_runtime::hostcall::pkt_offset(buf as *const u8, idx);
+    let pkt = buf.add(pkt_off);
+    let payload = pkt.add(gpu_protocol::PKT_OFF_PAYLOAD);
+
+    // Only lane 0 fills the payload
+    if wcx.is_leader() {
+        fill_payload(payload);
+    }
+
+    gpu_atomics::syncwarp(wcx.active_mask);
+
+    if wcx.is_leader() {
+        core::ptr::write_volatile(
+            pkt.add(gpu_protocol::PKT_OFF_ACTIVE_MASK) as *mut u32,
+            wcx.active_mask,
+        );
+        core::ptr::write_volatile(
+            pkt.add(gpu_protocol::PKT_OFF_SERVICE) as *mut u32,
+            service,
+        );
+        sys_store_release_u32(
+            pkt.add(gpu_protocol::PKT_OFF_CONTROL) as *mut u32,
+            gpu_protocol::CONTROL_FILLED,
+        );
+        let (num_shards, shard_off, _) =
+            gpu_runtime::hostcall::read_shard_info(buf as *const u8);
+        let ready_ptr = gpu_runtime::hostcall::get_ready_stack_ptr(buf, num_shards, shard_off);
+        gpu_runtime::hostcall::hc_push(ready_ptr, buf, idx);
+        sys_fetch_add_u64(buf.add(gpu_protocol::BUF_OFF_DOORBELL) as *mut u64, 1);
+        *state_cell = next_state;
+    }
+
+    gpu_atomics::syncwarp(wcx.active_mask);
+    WarpPoll::Pending
+}
+
+/// General-purpose warp-cooperative wait. Returns Some(u64) from payload slot 0 when ready.
+/// Releases the packet and transitions state on completion.
+#[inline(always)]
+unsafe fn warp_hostcall_wait_u64(
+    buf: *mut u8,
+    wcx: &mut gpu_runtime::warp_future::WarpContext,
+    pkt_idx: u16,
+    next_state: u32,
+    state_cell: &mut u32,
+) -> Option<u64> {
+    use gpu_runtime::warp_future::broadcast_u32;
+
+    let idx = broadcast_u32(wcx.active_mask, pkt_idx as u32) as u16;
+    let pkt_off = gpu_runtime::hostcall::pkt_offset(buf as *const u8, idx);
+    let pkt = buf.add(pkt_off);
+    let ctrl = sys_spin_load_acquire_u32(
+        pkt.add(gpu_protocol::PKT_OFF_CONTROL) as *const u32,
+    );
+
+    if ctrl & gpu_protocol::CONTROL_READY != 0 {
+        let mut val: u64 = 0;
+        if wcx.is_leader() {
+            val = core::ptr::read_volatile(
+                pkt.add(gpu_protocol::PKT_OFF_PAYLOAD) as *const u64,
+            );
+            gpu_runtime::hostcall::gpu_hostcall_release(buf, pkt);
+            *state_cell = next_state;
+        }
+        // Broadcast u64 as two u32 halves
+        let lo = broadcast_u32(wcx.active_mask, val as u32) as u64;
+        let hi = broadcast_u32(wcx.active_mask, (val >> 32) as u32) as u64;
+        gpu_atomics::syncwarp(wcx.active_mask);
+        Some(lo | (hi << 32))
+    } else {
+        None
+    }
+}
+
+// ============================================================
+// async-pipeline: File transform demo — 16-state WarpFuture
+// ============================================================
+//
+// GPU-autonomous pipeline: open → read → transform → open → write → close → close → print
+// All I/O is warp-cooperative. Compute is per-thread divergent.
+// One kernel launch, zero CPU intervention between steps.
+
+const FTP_OPEN_IN: u32 = 0;
+const FTP_WAIT_OPEN_IN: u32 = 1;
+const FTP_BULK_READ: u32 = 2;
+const FTP_WAIT_READ: u32 = 3;
+const FTP_COMPUTE: u32 = 4;
+const FTP_OPEN_OUT: u32 = 5;
+const FTP_WAIT_OPEN_OUT: u32 = 6;
+const FTP_BULK_WRITE: u32 = 7;
+const FTP_WAIT_WRITE: u32 = 8;
+const FTP_CLOSE_IN: u32 = 9;
+const FTP_WAIT_CLOSE_IN: u32 = 10;
+const FTP_CLOSE_OUT: u32 = 11;
+const FTP_WAIT_CLOSE_OUT: u32 = 12;
+const FTP_PRINT: u32 = 13;
+const FTP_WAIT_PRINT: u32 = 14;
+const FTP_DONE: u32 = 15;
+
+/// Data size: 32 lanes × 32 bytes = 1024 bytes.
+const FTP_DATA_SIZE: u64 = 1024;
+
+struct FileTransformFuture {
+    buf: *mut u8,
+    sideband: *mut u8,
+    state: u32,
+    pkt_idx: u16,
+    fd_in: u64,
+    fd_out: u64,
+    sideband_offset: u64,
+    bytes_read: u64,
+}
+
+impl FileTransformFuture {
+    unsafe fn new(buf: *mut u8, sideband: *mut u8) -> Self {
+        Self {
+            buf,
+            sideband,
+            state: FTP_OPEN_IN,
+            pkt_idx: gpu_protocol::NULL_INDEX,
+            fd_in: 0,
+            fd_out: 0,
+            sideband_offset: 0,
+            bytes_read: 0,
+        }
+    }
+}
+
+unsafe impl gpu_runtime::warp_future::WarpFuture for FileTransformFuture {
+    type Output = bool;
+
+    fn poll_warp(
+        &mut self,
+        wcx: &mut gpu_runtime::warp_future::WarpContext,
+    ) -> gpu_runtime::warp_future::WarpPoll<bool> {
+        use gpu_runtime::warp_future::{WarpPoll, broadcast_u32};
+
+        let state = unsafe { broadcast_u32(wcx.active_mask, self.state) };
+
+        match state {
+            // === Step 1: Open input file ===
+            FTP_OPEN_IN => unsafe {
+                let path = b"gpu_input.txt";
+                let path_len = path.len();
+                warp_hostcall_submit(
+                    self.buf, wcx, SERVICE_OPEN,
+                    |payload| {
+                        let slot0 = (path_len as u64) | ((FILE_OPEN_READ as u64) << 32);
+                        core::ptr::write_volatile(payload as *mut u64, slot0);
+                        let dst = payload.add(8);
+                        let mut i = 0;
+                        while i < path_len {
+                            core::ptr::write_volatile(dst.add(i), path[i]);
+                            i += 1;
+                        }
+                    },
+                    FTP_WAIT_OPEN_IN, &mut self.state, &mut self.pkt_idx,
+                )
+            },
+
+            FTP_WAIT_OPEN_IN => unsafe {
+                if let Some(fd) = warp_hostcall_wait_u64(
+                    self.buf, wcx, self.pkt_idx,
+                    FTP_BULK_READ, &mut self.state,
+                ) {
+                    if wcx.is_leader() { self.fd_in = fd; }
+                }
+                WarpPoll::Pending
+            },
+
+            // === Step 2: Read data via sideband bulk transfer ===
+            FTP_BULK_READ => unsafe {
+                if wcx.is_leader() {
+                    gpu_runtime::sideband::sideband_reset(self.sideband);
+                    self.sideband_offset = gpu_runtime::sideband::sideband_alloc(
+                        self.sideband, FTP_DATA_SIZE,
+                    );
+                }
+                gpu_atomics::syncwarp(wcx.active_mask);
+
+                let fd = self.fd_in;
+                let sb_off = self.sideband_offset;
+                warp_hostcall_submit(
+                    self.buf, wcx, SERVICE_BULK_READ,
+                    |payload| {
+                        core::ptr::write_volatile(payload as *mut u64, fd);
+                        core::ptr::write_volatile(payload.add(8) as *mut u64, sb_off);
+                        core::ptr::write_volatile(payload.add(16) as *mut u64, FTP_DATA_SIZE);
+                    },
+                    FTP_WAIT_READ, &mut self.state, &mut self.pkt_idx,
+                )
+            },
+
+            FTP_WAIT_READ => unsafe {
+                if let Some(n) = warp_hostcall_wait_u64(
+                    self.buf, wcx, self.pkt_idx,
+                    FTP_COMPUTE, &mut self.state,
+                ) {
+                    if wcx.is_leader() { self.bytes_read = n; }
+                }
+                WarpPoll::Pending
+            },
+
+            // === Step 3: Per-thread compute — toggle ASCII case ===
+            // Each lane processes its 32-byte slice of the sideband data in-place.
+            // Divergent: each lane may process different byte counts.
+            FTP_COMPUTE => unsafe {
+                let lid = wcx.lane_id;
+                let offset = broadcast_u32(wcx.active_mask, self.sideband_offset as u32) as usize;
+                let data_base = self.sideband.add(
+                    gpu_protocol::SIDEBAND_DATA_OFFSET + offset,
+                );
+                let lane_base = data_base.add(lid as usize * 32);
+                let bytes_read = broadcast_u32(wcx.active_mask, self.bytes_read as u32);
+                let lane_start = lid * 32;
+
+                let mut i: u32 = 0;
+                while i < 32 && lane_start + i < bytes_read {
+                    let b = core::ptr::read_volatile(lane_base.add(i as usize));
+                    let toggled = if (b >= b'A' && b <= b'Z') || (b >= b'a' && b <= b'z') {
+                        b ^ 0x20
+                    } else {
+                        b
+                    };
+                    core::ptr::write_volatile(lane_base.add(i as usize), toggled);
+                    i += 1;
+                }
+
+                // Flush all lanes' sideband writes to system visibility
+                membar_sys();
+                gpu_atomics::syncwarp(wcx.active_mask);
+
+                if wcx.is_leader() { self.state = FTP_OPEN_OUT; }
+                gpu_atomics::syncwarp(wcx.active_mask);
+                WarpPoll::Pending
+            },
+
+            // === Step 4: Open output file ===
+            FTP_OPEN_OUT => unsafe {
+                let path = b"gpu_output.txt";
+                let path_len = path.len();
+                warp_hostcall_submit(
+                    self.buf, wcx, SERVICE_OPEN,
+                    |payload| {
+                        let slot0 = (path_len as u64) | ((FILE_OPEN_WRITE_CREATE as u64) << 32);
+                        core::ptr::write_volatile(payload as *mut u64, slot0);
+                        let dst = payload.add(8);
+                        let mut i = 0;
+                        while i < path_len {
+                            core::ptr::write_volatile(dst.add(i), path[i]);
+                            i += 1;
+                        }
+                    },
+                    FTP_WAIT_OPEN_OUT, &mut self.state, &mut self.pkt_idx,
+                )
+            },
+
+            FTP_WAIT_OPEN_OUT => unsafe {
+                if let Some(fd) = warp_hostcall_wait_u64(
+                    self.buf, wcx, self.pkt_idx,
+                    FTP_BULK_WRITE, &mut self.state,
+                ) {
+                    if wcx.is_leader() { self.fd_out = fd; }
+                }
+                WarpPoll::Pending
+            },
+
+            // === Step 5: Write transformed data via sideband ===
+            FTP_BULK_WRITE => unsafe {
+                let fd = self.fd_out;
+                let sb_off = self.sideband_offset;
+                let len = self.bytes_read;
+                warp_hostcall_submit(
+                    self.buf, wcx, SERVICE_BULK_WRITE,
+                    |payload| {
+                        core::ptr::write_volatile(payload as *mut u64, fd);
+                        core::ptr::write_volatile(payload.add(8) as *mut u64, sb_off);
+                        core::ptr::write_volatile(payload.add(16) as *mut u64, len);
+                    },
+                    FTP_WAIT_WRITE, &mut self.state, &mut self.pkt_idx,
+                )
+            },
+
+            FTP_WAIT_WRITE => unsafe {
+                if warp_hostcall_wait_u64(
+                    self.buf, wcx, self.pkt_idx,
+                    FTP_CLOSE_IN, &mut self.state,
+                ).is_some() {}
+                WarpPoll::Pending
+            },
+
+            // === Step 6: Close input file ===
+            FTP_CLOSE_IN => unsafe {
+                let fd = self.fd_in;
+                warp_hostcall_submit(
+                    self.buf, wcx, SERVICE_CLOSE,
+                    |payload| {
+                        core::ptr::write_volatile(payload as *mut u64, fd);
+                    },
+                    FTP_WAIT_CLOSE_IN, &mut self.state, &mut self.pkt_idx,
+                )
+            },
+
+            FTP_WAIT_CLOSE_IN => unsafe {
+                if warp_hostcall_wait_u64(
+                    self.buf, wcx, self.pkt_idx,
+                    FTP_CLOSE_OUT, &mut self.state,
+                ).is_some() {}
+                WarpPoll::Pending
+            },
+
+            // === Step 7: Close output file ===
+            FTP_CLOSE_OUT => unsafe {
+                let fd = self.fd_out;
+                warp_hostcall_submit(
+                    self.buf, wcx, SERVICE_CLOSE,
+                    |payload| {
+                        core::ptr::write_volatile(payload as *mut u64, fd);
+                    },
+                    FTP_WAIT_CLOSE_OUT, &mut self.state, &mut self.pkt_idx,
+                )
+            },
+
+            FTP_WAIT_CLOSE_OUT => unsafe {
+                if warp_hostcall_wait_u64(
+                    self.buf, wcx, self.pkt_idx,
+                    FTP_PRINT, &mut self.state,
+                ).is_some() {}
+                WarpPoll::Pending
+            },
+
+            // === Step 8: Print completion message ===
+            FTP_PRINT => unsafe {
+                hybrid_warp_print_init(
+                    self.buf, wcx, b"pipeline: done",
+                    FTP_WAIT_PRINT, &mut self.state, &mut self.pkt_idx,
+                )
+            },
+
+            FTP_WAIT_PRINT => unsafe {
+                if hybrid_warp_wait(
+                    self.buf, wcx, self.pkt_idx,
+                    FTP_DONE, &mut self.state,
+                ).is_some() {
+                    WarpPoll::Ready(true)
+                } else {
+                    WarpPoll::Pending
+                }
+            },
+
+            FTP_DONE => WarpPoll::Ready(true),
+
+            _ => WarpPoll::Ready(false),
+        }
+    }
+}
+
+/// async-pipeline demo kernel: GPU-autonomous file transform pipeline.
+///
+/// The GPU self-coordinates 8 I/O steps + 1 compute step in a single kernel launch:
+///   open(in) → read(in) → transform → open(out) → write(out) → close(in) → close(out) → print
+///
+/// No CPU intervention between steps — the GPU drives the entire pipeline via WarpFuture.
+///
+/// `buf`      = hostcall buffer (CUDA mapped memory)
+/// `sideband` = sideband buffer for bulk data transfer (CUDA mapped memory)
+/// `status`   = output u32 (1 = success)
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn file_transform_pipeline(
+    buf: *mut u8,
+    sideband: *mut u8,
+    status: *mut u32,
+) {
+    gpu_runtime::panic::gpu_panic_init(buf);
+
+    let mut future = FileTransformFuture::new(buf, sideband);
+    let ok = gpu_runtime::warp_future::WarpExecutor::run(&mut future);
+
+    if gpu_atomics::lane_id() == 0 {
+        core::ptr::write_volatile(status, if ok { 1 } else { 0 });
+    }
+}

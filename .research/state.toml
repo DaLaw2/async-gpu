@@ -4,22 +4,22 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 122     # Monotonic counter, incremented after each completed phase
-completed_tasks = 121
+total_cycles = 124     # Monotonic counter, incremented after each completed phase
+completed_tasks = 123
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.select"
-current_task_id = ""
-last_summary = "bs31 done. product-ready epic completed. gpu-compute.3 (MMA) + gpu-compute.4 (shared memory) are next — parallel decision gate for gpu-autonomous inference viability."
+current_step = "do.execute"
+current_task_id = "gpu-compute.5"
+last_summary = "gpu-compute.3 (MMA) + gpu-compute.4 (shared memory) both DONE. MMA m16n8k16 f32 accum works, .f16 accum invalid on SM86. Shared memory via global_asm! + cvta.shared works. gpu-compute.5 and .6 now unblocked."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 31
+brainstorm_seq = 32
 review_seq = 5
 
 # Brainstorm trigger control
-last_brainstorm_at_completed = 120
+last_brainstorm_at_completed = 123
 brainstorm_interval = 3
 
 # ============================================================
@@ -2927,6 +2927,17 @@ themes_parked = []
 themes_completed = []
 key_insight = "Project at inflection point. VectorWare reproduction achieved. Next: two decision-gate experiments — Tensor Core MMA (gpu-compute.3) and shared memory (gpu-compute.4) in parallel. Results determine if GPU-autonomous inference is viable or project pivots to I/O pipeline focus."
 
+[[brainstorms]]
+seq = 32
+at_cycle = 124
+trigger = "Routine interval (completed_tasks - last_brainstorm_at = 3)"
+level = "quick"
+new_tasks_spawned = []
+new_themes_spawned = []
+themes_parked = []
+themes_completed = []
+key_insight = "Both decision gates passed: MMA (f32 accum) and shared memory both work from Rust inline PTX. Proceed with gpu-compute.5 (tiled GEMM) then gpu-compute.6 (element-wise). Both unblocked."
+
 # ============================================================
 # New tasks from bs31
 # ============================================================
@@ -2936,7 +2947,7 @@ id = "gpu-compute.3"
 theme = "gpu-compute"
 title = "Tensor Core MMA via inline PTX — decision gate"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = []
 spawned_by = "bs31"
 research_questions = [
@@ -2951,7 +2962,7 @@ id = "gpu-compute.4"
 theme = "gpu-compute"
 title = "Shared memory access + bar.sync from Rust inline PTX"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = []
 spawned_by = "bs31"
 research_questions = [

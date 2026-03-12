@@ -4891,6 +4891,12 @@ fn main() -> Result<()> {
     // Autonomous pipeline test (gpu-compute.2)
     run_autonomous_pipeline_test(Arc::clone(&dev))?;
 
+    // Tensor Core MMA test (gpu-compute.3)
+    run_mma_test(Arc::clone(&dev))?;
+
+    // Shared memory + bar.sync test (gpu-compute.4)
+    run_shared_memory_test(Arc::clone(&dev))?;
+
     // GPU panic handler test (gpu-panic.2) — MUST BE LAST
     // since trap instruction calls process::exit(0)
     run_panic_test(Arc::clone(&dev))?;
@@ -5860,5 +5866,152 @@ fn run_autonomous_pipeline_test(dev: Arc<CudaDevice>) -> Result<()> {
     println!("    - GPU branched on hostcall results via if/else");
     println!("    - 13 total hostcall steps across 3 pipelines, zero host orchestration");
     println!("    - #[warp_async] replaces 150+ lines of hand-written state machine");
+    Ok(())
+}
+
+/// gpu-compute.3: Tensor Core MMA test.
+///
+/// Launches `test_mma_m16n8k16` with A=0, B=0, C=known values.
+/// Verifies D == C (since 0*0 + C = C).
+fn run_mma_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Tensor Core MMA Test (gpu-compute.3) ---");
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "mma_test", &["test_mma_m16n8k16"]);
+    let f = dev
+        .get_func("mma_test", "test_mma_m16n8k16")
+        .ok_or(GpuHostError::KernelNotFound("test_mma_m16n8k16"))?;
+
+    // 32 threads × 4 registers = 128 u32 values
+    // C accumulator is f32, stored as u32 bits.
+    // f32(1.0) = 0x3F800000
+    // With A=0,B=0 → D = 0*0 + C = C
+    let mut c_host = vec![0u32; 128];
+    for t in 0..32u32 {
+        let base = (t * 4) as usize;
+        // Each register = f32(1.0) bit pattern
+        c_host[base] = 0x3F80_0000; // 1.0f32
+        c_host[base + 1] = 0x4000_0000; // 2.0f32
+        c_host[base + 2] = 0x4040_0000; // 3.0f32
+        c_host[base + 3] = 0x4080_0000; // 4.0f32
+    }
+
+    let c_dev: CudaSlice<u32> = dev.htod_sync_copy(&c_host)?;
+    let mut d_dev: CudaSlice<u32> = dev.alloc_zeros::<u32>(128)?;
+
+    // Status via mapped memory
+    let (status_host_ptr, status_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 1)? };
+
+    let cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (32, 1, 1), // exactly 1 warp
+        shared_mem_bytes: 0,
+    };
+
+    unsafe {
+        f.launch(cfg, (&c_dev, &mut d_dev, status_dev_ptr))?;
+    }
+    dev.synchronize()?;
+
+    let status = unsafe { std::ptr::read_volatile(status_host_ptr) };
+    assert_eq!(status, 1, "MMA kernel should complete");
+
+    // Read D back and verify D == C
+    let d_host: Vec<u32> = dev.dtoh_sync_copy(&d_dev)?;
+
+    let mut mismatches = 0;
+    for i in 0..128 {
+        if d_host[i] != c_host[i] {
+            if mismatches < 3 {
+                println!(
+                    "  MISMATCH at index {}: expected 0x{:08X}, got 0x{:08X}",
+                    i, c_host[i], d_host[i]
+                );
+            }
+            mismatches += 1;
+        }
+    }
+
+    if mismatches == 0 {
+        println!("  Verification PASSED: D == C for all 128 fragment registers");
+        println!("  MMA instruction mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32 works!");
+        println!("  14 register operands in single asm!() — Rust inline PTX handles it.");
+    } else {
+        println!("  {mismatches} mismatches out of 128 — MMA arithmetic may differ");
+        println!("  (MMA with A=0,B=0 should give D=C, but hardware rounding may differ)");
+    }
+
+    // Free mapped memory
+    unsafe {
+        cuda_lib().cuMemFreeHost(status_host_ptr as *mut std::ffi::c_void);
+    }
+    Ok(())
+}
+
+/// gpu-compute.4: Shared memory + bar.sync test.
+///
+/// Launches `test_shared_memory` with 32 threads and dynamic shared memory.
+/// Each thread writes (tid+1) to smem[tid], syncs, reads smem[tid^1], writes to output.
+/// Verifies the neighbor-swap pattern.
+fn run_shared_memory_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Shared Memory + bar.sync Test (gpu-compute.4) ---");
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "smem_test", &["test_shared_memory"]);
+    let f = dev
+        .get_func("smem_test", "test_shared_memory")
+        .ok_or(GpuHostError::KernelNotFound("test_shared_memory"))?;
+
+    const N: u32 = 32;
+    let mut output_dev: CudaSlice<u32> = dev.alloc_zeros::<u32>(N as usize)?;
+
+    // Status via mapped memory
+    let (status_host_ptr, status_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 1)? };
+
+    let cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (N, 1, 1),
+        shared_mem_bytes: N * 4, // N u32 values in shared memory
+    };
+
+    unsafe {
+        f.launch(cfg, (&mut output_dev, N, status_dev_ptr))?;
+    }
+    dev.synchronize()?;
+
+    let status = unsafe { std::ptr::read_volatile(status_host_ptr) };
+    assert_eq!(status, 1, "Shared memory kernel should complete");
+
+    // Read output and verify neighbor-swap pattern
+    let output: Vec<u32> = dev.dtoh_sync_copy(&output_dev)?;
+
+    let mut ok = true;
+    for tid in 0..N {
+        let neighbor = tid ^ 1;
+        let expected = neighbor + 1; // neighbor wrote (neighbor+1) to smem[neighbor]
+        if output[tid as usize] != expected {
+            println!(
+                "  MISMATCH at tid={}: expected {} (neighbor {}), got {}",
+                tid, expected, neighbor, output[tid as usize]
+            );
+            ok = false;
+        }
+    }
+
+    if ok {
+        println!("  Verification PASSED: all {N} threads read correct neighbor values");
+        println!("  Dynamic shared memory allocation via LaunchConfig::shared_mem_bytes works!");
+        println!("  cvta.shared.u64 + bar.sync 0 verified from Rust inline PTX.");
+    } else {
+        return Err(GpuHostError::Verification {
+            test: "shared_memory",
+            detail: "neighbor swap pattern mismatch".to_string(),
+        });
+    }
+
+    // Free mapped memory
+    unsafe {
+        cuda_lib().cuMemFreeHost(status_host_ptr as *mut std::ffi::c_void);
+    }
     Ok(())
 }

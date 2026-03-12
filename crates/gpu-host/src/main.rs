@@ -3538,6 +3538,107 @@ fn run_warp_macro_print_test(dev: Arc<CudaDevice>) -> Result<()> {
     Ok(())
 }
 
+/// WarpFuture proc macro if/else test (warp-cfg.2):
+/// Tests #[warp_async] with if/else containing warp_*!() calls.
+/// Kernel takes a `flag` parameter: flag != 0 → then branch, flag == 0 → else branch.
+/// Run 1: flag=1 → "branch: then" + "branch: done"
+/// Run 2: flag=0 → "branch: else" + "branch: done"
+fn run_warp_cfg_if_else_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- WarpFuture If/Else Test (warp-cfg.2) ---");
+
+    let launch_cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (32, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    // Helper: run kernel with given flag, return (status, messages)
+    fn run_with_flag(
+        dev: &Arc<CudaDevice>,
+        launch_cfg: LaunchConfig,
+        flag: u64,
+        module_name: &'static str,
+    ) -> Result<(u32, Vec<String>)> {
+        let ptx = cudarc::nvrtc::Ptx::from_src(KERNEL_PTX);
+        let _ = dev.load_ptx(ptx, module_name, &["warp_cfg_if_else_test"]);
+        let f = dev
+            .get_func(module_name, "warp_cfg_if_else_test")
+            .ok_or(GpuHostError::KernelNotFound("warp_cfg_if_else_test"))?;
+
+        let hc_buf = hostcall::HostcallBuffer::new(4)?;
+        let dev_ptr = hc_buf.dev_ptr;
+        let (status_host, status_dev) = unsafe { alloc_mapped_result_array(dev, 1)? };
+
+        let hc_buf_ref = std::sync::Arc::new(hc_buf);
+        let hc_buf_listener = std::sync::Arc::clone(&hc_buf_ref);
+        let messages = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let msg_clone = std::sync::Arc::clone(&messages);
+
+        let listener_handle = std::thread::spawn(move || {
+            hc_buf_listener.listen(move |msg| {
+                let text = String::from_utf8_lossy(msg).to_string();
+                println!("  [HOST] GPU says: \"{text}\"");
+                let mut guard = msg_clone.lock().unwrap();
+                guard.push(text);
+            });
+        });
+
+        unsafe { f.launch(launch_cfg, (dev_ptr, flag, status_dev))? };
+        dev.synchronize()?;
+
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        hc_buf_ref.signal_shutdown();
+        listener_handle.join().unwrap();
+
+        let status = unsafe { std::ptr::read_volatile(status_host) };
+        let msgs = messages.lock().unwrap().clone();
+        unsafe { free_mapped_mem(status_host)? };
+        Ok((status, msgs))
+    }
+
+    // --- Run 1: flag=1 → then branch ---
+    println!("  Run 1: flag=1 (then-branch)");
+    let (status, msgs) = run_with_flag(&dev, launch_cfg, 1, "kernel_cfg1")?;
+    let then_msg = msgs.iter().any(|m| m.contains("branch: then"));
+    let done_msg = msgs.iter().any(|m| m.contains("branch: done"));
+
+    if status == 1 && then_msg && done_msg && msgs.len() == 2 {
+        println!("  Run 1: PASSED (then-branch taken, done reached)");
+    } else {
+        println!("  Run 1: FAILED");
+        println!("    status={status}, then_msg={then_msg}, done_msg={done_msg}");
+        println!("    messages: {msgs:?}");
+        return Err(GpuHostError::Verification {
+            test: "warp_cfg_if_else_run1",
+            detail: "then-branch not taken when flag=1".to_string(),
+        });
+    }
+
+    // --- Run 2: flag=0 → else branch ---
+    println!("  Run 2: flag=0 (else-branch)");
+    let (status, msgs) = run_with_flag(&dev, launch_cfg, 0, "kernel_cfg2")?;
+    let else_msg = msgs.iter().any(|m| m.contains("branch: else"));
+    let done_msg = msgs.iter().any(|m| m.contains("branch: done"));
+
+    if status == 1 && else_msg && done_msg && msgs.len() == 2 {
+        println!("  Run 2: PASSED (else-branch taken, done reached)");
+    } else {
+        println!("  Run 2: FAILED");
+        println!("    status={status}, else_msg={else_msg}, done_msg={done_msg}");
+        println!("    messages: {msgs:?}");
+        return Err(GpuHostError::Verification {
+            test: "warp_cfg_if_else_run2",
+            detail: "else-branch not taken when flag=0".to_string(),
+        });
+    }
+
+    println!("  WarpFuture If/Else: PASSED!");
+    println!("    #[warp_async] if/else generates correct DECISION state");
+    println!("    Lane 0 evaluates condition, broadcasts to all 32 lanes");
+    println!("    Both branches verified on GPU hardware");
+    Ok(())
+}
+
 /// Hybrid executor test: WarpFuture PRINT → per-thread compute → WarpFuture PRINT (hybrid-executor.1)
 ///
 /// Validates that a WarpFuture state machine can transition to per-thread divergent
@@ -4435,6 +4536,9 @@ fn main() -> Result<()> {
 
     // WarpFuture proc macro test (warp-future.5)
     run_warp_macro_print_test(Arc::clone(&dev))?;
+
+    // WarpFuture if/else test (warp-cfg.2)
+    run_warp_cfg_if_else_test(Arc::clone(&dev))?;
 
     // Hybrid executor test (hybrid-executor.1)
     run_hybrid_executor_test(Arc::clone(&dev))?;

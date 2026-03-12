@@ -1657,6 +1657,38 @@ unsafe fn warp_macro_print_test(buf: *mut u8) -> bool {
 }
 
 // ============================================================
+// WarpFuture proc macro if/else test (warp-cfg.2)
+// ============================================================
+
+// The #[warp_async] macro now supports if/else with warp_*!() calls.
+// Lane 0 evaluates the condition and broadcasts the decision to all lanes.
+//
+// `flag` parameter controls branching: flag != 0 → then, flag == 0 → else.
+// This directly tests the DECISION state generation without relying on
+// file error propagation.
+//
+// State machine generated:
+//   0: DECISION             → lane0 evaluates (flag != 0), broadcasts
+//                              if true → goto 1 (then branch)
+//                              if false → goto 3 (else branch)
+//   1: INIT warp_print[A]   → submit PRINT "branch: then"
+//   2: WAIT warp_print[A]   → goto 5 (join: final print)
+//   3: INIT warp_print[B]   → submit PRINT "branch: else"
+//   4: WAIT warp_print[B]   → goto 5 (join: final print)
+//   5: INIT warp_print[end] → submit PRINT "branch: done"
+//   6: WAIT warp_print[end] → DONE (7)
+//   7: DONE
+#[warp_macro::warp_async]
+unsafe fn warp_cfg_if_else_test(buf: *mut u8, flag: u64) -> bool {
+    if flag != 0 {
+        warp_print!(buf, b"branch: then");
+    } else {
+        warp_print!(buf, b"branch: else");
+    }
+    warp_print!(buf, b"branch: done");
+}
+
+// ============================================================
 // Sharding-aware print test — uses gpu-runtime's hostcall path
 // ============================================================
 

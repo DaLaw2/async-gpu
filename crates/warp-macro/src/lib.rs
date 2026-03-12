@@ -26,6 +26,23 @@
 //! Each captured variable becomes a `u64` field in the generated struct.
 //! Variables can be referenced in subsequent macro arguments.
 //!
+//! # Control Flow
+//!
+//! `if`/`else` blocks containing `warp_*!()` calls are supported. Lane 0
+//! evaluates the condition and broadcasts the decision to all 32 lanes:
+//! ```rust,ignore
+//! let fd = warp_open!(buf, b"data.txt", FILE_OPEN_READ);
+//! if fd > 0 {
+//!     warp_print!(buf, b"opened successfully");
+//! } else {
+//!     warp_print!(buf, b"open failed");
+//! }
+//! warp_close!(buf, fd);
+//! ```
+//!
+//! Both `if` and `else` arms must be present when either contains `warp_*!()`
+//! calls (required for warp convergence).
+//!
 //! # Example
 //!
 //! ```rust,ignore
@@ -111,6 +128,115 @@ struct WarpCall {
 }
 
 // ============================================================
+// CFG node — tree representation of the function body
+// ============================================================
+
+enum CfgNode {
+    /// A warp_*!() call — becomes INIT + WAIT state pair (2 states).
+    Call(WarpCall),
+    /// An if/else branch where at least one arm contains warp_*!() calls.
+    /// Becomes a DECISION state (1 state) plus states for each branch.
+    /// Both branches are required for warp convergence.
+    IfElse {
+        cond: syn::Expr,
+        then_branch: Vec<CfgNode>,
+        else_branch: Vec<CfgNode>,
+    },
+}
+
+// ============================================================
+// CFG helpers
+// ============================================================
+
+/// Count total state numbers consumed by a single CfgNode.
+fn count_node_states(node: &CfgNode) -> u32 {
+    match node {
+        CfgNode::Call(_) => 2, // INIT + WAIT
+        CfgNode::IfElse {
+            then_branch,
+            else_branch,
+            ..
+        } => 1 + count_sequence_states(then_branch) + count_sequence_states(else_branch),
+    }
+}
+
+/// Count total state numbers consumed by a sequence of CfgNodes.
+fn count_sequence_states(nodes: &[CfgNode]) -> u32 {
+    nodes.iter().map(count_node_states).sum()
+}
+
+/// Collect all user-defined variables from the CFG tree.
+/// Used to generate struct fields. Returns variables in definition order.
+fn collect_all_vars(nodes: &[CfgNode]) -> Vec<syn::Ident> {
+    let mut vars = Vec::new();
+    for node in nodes {
+        match node {
+            CfgNode::Call(call) => {
+                if let Some(ref var) = call.result_var {
+                    vars.push(var.clone());
+                }
+            }
+            CfgNode::IfElse {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                vars.extend(collect_all_vars(then_branch));
+                vars.extend(collect_all_vars(else_branch));
+            }
+        }
+    }
+    vars
+}
+
+/// Check if a slice of statements contains any warp_*!() macro calls (recursive).
+fn stmts_contain_warp_call(stmts: &[Stmt]) -> bool {
+    for stmt in stmts {
+        match stmt {
+            Stmt::Macro(m) => {
+                if ServiceKind::from_name(&macro_name_str(&m.mac)).is_some() {
+                    return true;
+                }
+            }
+            Stmt::Local(local) => {
+                if let Some(init) = &local.init {
+                    if let Expr::Macro(ExprMacro { mac, .. }) = init.expr.as_ref() {
+                        if ServiceKind::from_name(&macro_name_str(mac)).is_some() {
+                            return true;
+                        }
+                    }
+                }
+            }
+            Stmt::Expr(expr, _) => {
+                if expr_contains_warp_call(expr) {
+                    return true;
+                }
+            }
+            Stmt::Item(_) => {}
+        }
+    }
+    false
+}
+
+/// Check if an expression contains any warp_*!() macro calls (recursive).
+fn expr_contains_warp_call(expr: &Expr) -> bool {
+    match expr {
+        Expr::Macro(ExprMacro { mac, .. }) => {
+            ServiceKind::from_name(&macro_name_str(mac)).is_some()
+        }
+        Expr::If(ei) => {
+            stmts_contain_warp_call(&ei.then_branch.stmts)
+                || ei
+                    .else_branch
+                    .as_ref()
+                    .is_some_and(|(_, e)| expr_contains_warp_call(e))
+        }
+        Expr::Block(eb) => stmts_contain_warp_call(&eb.block.stmts),
+        _ => false,
+    }
+}
+
+// ============================================================
 // Generic comma-separated macro argument parser
 // ============================================================
 
@@ -134,20 +260,17 @@ impl Parse for MacroArgs {
 }
 
 // ============================================================
-// Statement extraction
+// CFG construction (replaces extract_warp_calls)
 // ============================================================
 
 /// Supported macro names for error messages.
 const SUPPORTED_MACROS: &str =
     "warp_print, warp_open, warp_close, warp_read, warp_write, warp_bulk_read, warp_bulk_write";
 
-/// Extract warp calls from the function body.
-/// Handles both `warp_xxx!(buf, ...);` and `let var = warp_xxx!(buf, ...);`.
-fn extract_warp_calls(
-    stmts: &[Stmt],
-    buf_name: &str,
-) -> Result<Vec<WarpCall>, proc_macro2::TokenStream> {
-    let mut calls = Vec::new();
+/// Build a CFG node tree from function body statements.
+/// Handles warp_*!() calls, let bindings, and if/else containing warp calls.
+fn build_cfg(stmts: &[Stmt], buf_name: &str) -> Result<Vec<CfgNode>, proc_macro2::TokenStream> {
+    let mut nodes = Vec::new();
 
     for stmt in stmts {
         match stmt {
@@ -155,7 +278,7 @@ fn extract_warp_calls(
             Stmt::Macro(stmt_mac) => {
                 let call = try_parse_macro_call(&stmt_mac.mac, buf_name, None)?;
                 match call {
-                    Some(c) => calls.push(c),
+                    Some(c) => nodes.push(CfgNode::Call(c)),
                     None => {
                         let name = macro_name_str(&stmt_mac.mac);
                         return Err(syn::Error::new_spanned(
@@ -169,11 +292,11 @@ fn extract_warp_calls(
                 }
             }
 
-            // `warp_xxx!(buf, args...)` — expression without semicolon
+            // `warp_xxx!(buf, args...)` — expression (with or without semicolon)
             Stmt::Expr(Expr::Macro(ExprMacro { mac, .. }), _) => {
                 let call = try_parse_macro_call(mac, buf_name, None)?;
                 match call {
-                    Some(c) => calls.push(c),
+                    Some(c) => nodes.push(CfgNode::Call(c)),
                     None => {
                         let name = macro_name_str(mac);
                         return Err(syn::Error::new_spanned(
@@ -203,7 +326,7 @@ fn extract_warp_calls(
                 if let Expr::Macro(ExprMacro { mac, .. }) = init_expr.expr.as_ref() {
                     let call = try_parse_macro_call(mac, buf_name, Some(var_name))?;
                     match call {
-                        Some(c) => calls.push(c),
+                        Some(c) => nodes.push(CfgNode::Call(c)),
                         None => {
                             let name = macro_name_str(mac);
                             return Err(syn::Error::new_spanned(
@@ -224,13 +347,60 @@ fn extract_warp_calls(
                 }
             }
 
+            // `if cond { ... } else { ... }` — control flow with warp calls
+            Stmt::Expr(Expr::If(expr_if), _) => {
+                let then_has = stmts_contain_warp_call(&expr_if.then_branch.stmts);
+                let else_stmts = extract_else_stmts(expr_if);
+                let else_has = else_stmts
+                    .as_ref()
+                    .is_some_and(|s| stmts_contain_warp_call(s));
+
+                if !then_has && !else_has {
+                    return Err(syn::Error::new_spanned(
+                        expr_if.if_token,
+                        "#[warp_async] `if` blocks without warp_*!() calls are not supported. \
+                         Only if/else containing warp_*!() calls is allowed.",
+                    )
+                    .to_compile_error());
+                }
+
+                // Both arms must exist when either has warp calls (warp convergence)
+                let else_stmts = else_stmts.ok_or_else(|| {
+                    syn::Error::new_spanned(
+                        expr_if.if_token,
+                        "#[warp_async] `if` with warp_*!() calls must have an `else` branch \
+                         (required for warp convergence — all 32 lanes must agree on state).",
+                    )
+                    .to_compile_error()
+                })?;
+
+                let then_nodes = build_cfg(&expr_if.then_branch.stmts, buf_name)?;
+                let else_nodes = build_cfg(&else_stmts, buf_name)?;
+
+                if then_nodes.is_empty() || else_nodes.is_empty() {
+                    return Err(syn::Error::new_spanned(
+                        expr_if.if_token,
+                        "#[warp_async] both `if` and `else` arms must contain at least one \
+                         warp_*!() call when either arm does.",
+                    )
+                    .to_compile_error());
+                }
+
+                nodes.push(CfgNode::IfElse {
+                    cond: *expr_if.cond.clone(),
+                    then_branch: then_nodes,
+                    else_branch: else_nodes,
+                });
+            }
+
             // Any other statement type
             other => {
                 return Err(syn::Error::new_spanned(
                     quote! { #other },
                     format!(
-                        "#[warp_async] function body must contain only warp_*!() calls and \
-                         `let var = warp_*!()` bindings. Supported macros: {SUPPORTED_MACROS}",
+                        "#[warp_async] function body must contain only warp_*!() calls, \
+                         `let var = warp_*!()` bindings, and if/else blocks. \
+                         Supported macros: {SUPPORTED_MACROS}",
                     ),
                 )
                 .to_compile_error());
@@ -238,7 +408,19 @@ fn extract_warp_calls(
         }
     }
 
-    Ok(calls)
+    Ok(nodes)
+}
+
+/// Extract statements from an if-expression's else branch.
+/// Returns None if there is no else branch.
+/// Handles both `else { ... }` and `else if ... { ... }`.
+fn extract_else_stmts(expr_if: &syn::ExprIf) -> Option<Vec<Stmt>> {
+    let (_, else_expr) = expr_if.else_branch.as_ref()?;
+    Some(match else_expr.as_ref() {
+        Expr::Block(eb) => eb.block.stmts.clone(),
+        // else if — wrap as a single expression statement for recursive handling
+        other => vec![Stmt::Expr(other.clone(), None)],
+    })
 }
 
 /// Extract the identifier from a `let` pattern. Only simple `let x = ...` supported.
@@ -462,6 +644,175 @@ fn to_pascal_case(s: &str) -> String {
 }
 
 // ============================================================
+// Recursive match arm generation
+// ============================================================
+
+/// Generate match arms for a sequence of CfgNodes.
+///
+/// `base_state`: the first state number available for this sequence.
+/// `continuation_state`: the state to transition to when this sequence ends.
+/// `done_state`: the DONE state number (for detecting last-call optimization).
+/// `ready_value`: the value to return from `WarpPoll::Ready(...)`.
+/// `param_names`: function parameter names (struct fields, needed for condition captures).
+/// `known_vars`: variables available from prior calls (modified in-place for
+///               sequential nodes; cloned for branch interiors).
+/// `arms`: accumulator for generated match arms.
+#[allow(clippy::too_many_arguments)]
+fn gen_arms_for_sequence(
+    nodes: &[CfgNode],
+    base_state: u32,
+    continuation_state: u32,
+    done_state: u32,
+    ready_value: &proc_macro2::TokenStream,
+    param_names: &[syn::Ident],
+    known_vars: &mut Vec<syn::Ident>,
+    arms: &mut Vec<proc_macro2::TokenStream>,
+) {
+    // Precompute the start state offset for each node in this sequence
+    let mut offsets = Vec::with_capacity(nodes.len());
+    let mut offset = base_state;
+    for node in nodes {
+        offsets.push(offset);
+        offset += count_node_states(node);
+    }
+
+    for (i, node) in nodes.iter().enumerate() {
+        let node_start = offsets[i];
+        let next_state = if i + 1 < nodes.len() {
+            offsets[i + 1]
+        } else {
+            continuation_state
+        };
+
+        match node {
+            CfgNode::Call(call) => {
+                let init_state = node_start;
+                let wait_state = node_start + 1;
+
+                let service_const = call.service.service_const();
+                let payload_fill = gen_payload_fill(call.service, &call.args, known_vars);
+
+                // INIT state: warp_hostcall_submit
+                arms.push(quote! {
+                    #init_state => unsafe {
+                        gpu_runtime::warp_future::warp_hostcall_submit(
+                            self.buf, wcx, #service_const,
+                            |payload| {
+                                #payload_fill
+                            },
+                            #wait_state,
+                            &mut self.state,
+                            &mut self.pkt_idx,
+                        )
+                    }
+                });
+
+                // WAIT state: warp_hostcall_wait_u64
+                let is_final = next_state == done_state;
+                let on_ready = if let Some(ref var) = call.result_var {
+                    if is_final {
+                        quote! {
+                            if wcx.is_leader() { self.#var = val; }
+                            return WarpPoll::Ready(#ready_value);
+                        }
+                    } else {
+                        quote! {
+                            if wcx.is_leader() { self.#var = val; }
+                            return WarpPoll::Pending;
+                        }
+                    }
+                } else if is_final {
+                    quote! { return WarpPoll::Ready(#ready_value); }
+                } else {
+                    quote! { return WarpPoll::Pending; }
+                };
+
+                arms.push(quote! {
+                    #wait_state => unsafe {
+                        if let Some(val) = gpu_runtime::warp_future::warp_hostcall_wait_u64(
+                            self.buf, wcx, self.pkt_idx,
+                            #next_state, &mut self.state,
+                        ) {
+                            #on_ready
+                        }
+                        WarpPoll::Pending
+                    }
+                });
+
+                // Track this variable for subsequent payload fills
+                if let Some(ref var) = call.result_var {
+                    known_vars.push(var.clone());
+                }
+            }
+
+            CfgNode::IfElse {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                let decision_state = node_start;
+                let then_start = node_start + 1;
+                let then_count = count_sequence_states(then_branch);
+                let else_start = then_start + then_count;
+
+                // Captures for condition evaluation: params + known warp-call vars
+                let captures: Vec<_> = param_names
+                    .iter()
+                    .chain(known_vars.iter())
+                    .map(|v| quote! { let #v = self.#v; })
+                    .collect();
+
+                // DECISION state: lane 0 evaluates condition, broadcasts to all lanes
+                arms.push(quote! {
+                    #decision_state => {
+                        #(#captures)*
+                        let mut __branch: u32 = 0;
+                        if wcx.is_leader() {
+                            __branch = if #cond { 1 } else { 0 };
+                        }
+                        let __branch = unsafe { broadcast_u32(wcx.active_mask, __branch) };
+                        if wcx.is_leader() {
+                            self.state = if __branch != 0 { #then_start } else { #else_start };
+                        }
+                        WarpPoll::Pending
+                    }
+                });
+
+                // Generate then-branch arms (continuation = next_state = join point)
+                let mut then_vars = known_vars.clone();
+                gen_arms_for_sequence(
+                    then_branch,
+                    then_start,
+                    next_state, // after then, go to join (= next node or continuation)
+                    done_state,
+                    ready_value,
+                    param_names,
+                    &mut then_vars,
+                    arms,
+                );
+
+                // Generate else-branch arms (continuation = next_state = join point)
+                let mut else_vars = known_vars.clone();
+                gen_arms_for_sequence(
+                    else_branch,
+                    else_start,
+                    next_state, // after else, go to join (= next node or continuation)
+                    done_state,
+                    ready_value,
+                    param_names,
+                    &mut else_vars,
+                    arms,
+                );
+
+                // Note: variables defined inside branches are NOT added to known_vars
+                // for subsequent nodes. To pass data out of if/else, the variable must
+                // be defined before the branch.
+            }
+        }
+    }
+}
+
+// ============================================================
 // Main proc macro
 // ============================================================
 
@@ -471,6 +822,9 @@ fn to_pascal_case(s: &str) -> String {
 /// a pair of states (INIT + WAIT) in a cooperative state machine shared by all 32
 /// lanes in a warp. Lane 0 drives state transitions; all lanes read the current state
 /// via `shfl.sync.idx.b32` broadcast.
+///
+/// Supports `if`/`else` blocks: lane 0 evaluates the condition and broadcasts the
+/// decision to all lanes. Both arms must contain `warp_*!()` calls and must be present.
 ///
 /// # Example
 ///
@@ -563,13 +917,13 @@ pub fn warp_async(attr: TokenStream, item: TokenStream) -> TokenStream {
         }
     };
 
-    // ---- Extract warp calls ----
-    let calls = match extract_warp_calls(&input_fn.block.stmts, &buf_name) {
+    // ---- Build CFG from function body ----
+    let cfg_nodes = match build_cfg(&input_fn.block.stmts, &buf_name) {
         Ok(c) => c,
         Err(e) => return e.into(),
     };
 
-    if calls.is_empty() {
+    if cfg_nodes.is_empty() {
         return syn::Error::new_spanned(
             &input_fn.sig.ident,
             "#[warp_async] requires at least one warp_*!() call",
@@ -578,14 +932,15 @@ pub fn warp_async(attr: TokenStream, item: TokenStream) -> TokenStream {
         .into();
     }
 
-    let num_calls = calls.len();
-    let done_state = (num_calls * 2) as u32;
+    let total_states = count_sequence_states(&cfg_nodes);
+    let done_state = total_states;
 
     // ---- Collect user variable fields (detect duplicates) ----
-    let mut user_vars: Vec<syn::Ident> = Vec::new();
-    for call in &calls {
-        if let Some(ref var) = call.result_var {
-            if user_vars.iter().any(|v| v == var) {
+    let user_vars = collect_all_vars(&cfg_nodes);
+    {
+        let mut seen = Vec::new();
+        for var in &user_vars {
+            if seen.iter().any(|v: &syn::Ident| v == var) {
                 return syn::Error::new_spanned(
                     var,
                     format!(
@@ -596,7 +951,7 @@ pub fn warp_async(attr: TokenStream, item: TokenStream) -> TokenStream {
                 .to_compile_error()
                 .into();
             }
-            user_vars.push(var.clone());
+            seen.push(var.clone());
         }
     }
 
@@ -611,74 +966,25 @@ pub fn warp_async(attr: TokenStream, item: TokenStream) -> TokenStream {
     let param_names: Vec<_> = params.iter().map(|(name, _)| name).collect();
     let user_var_inits: Vec<_> = user_vars.iter().map(|v| quote! { #v: 0 }).collect();
 
-    // ---- Generate match arms ----
+    // ---- Generate match arms recursively ----
+    // Param idents excluding buf (buf is passed separately, not in conditions)
+    let extra_param_idents: Vec<syn::Ident> = params
+        .iter()
+        .skip(1) // skip buf
+        .map(|(name, _)| name.clone())
+        .collect();
     let mut arms = Vec::new();
-    let mut known_vars_so_far: Vec<syn::Ident> = Vec::new();
-
-    for (i, call) in calls.iter().enumerate() {
-        let init_state = (i * 2) as u32;
-        let wait_state = (i * 2 + 1) as u32;
-        let next_after_wait = if i + 1 < num_calls {
-            ((i + 1) * 2) as u32
-        } else {
-            done_state
-        };
-        let is_last = i + 1 == num_calls;
-
-        let service_const = call.service.service_const();
-        let payload_fill = gen_payload_fill(call.service, &call.args, &known_vars_so_far);
-
-        // INIT state: warp_hostcall_submit
-        arms.push(quote! {
-            #init_state => unsafe {
-                gpu_runtime::warp_future::warp_hostcall_submit(
-                    self.buf, wcx, #service_const,
-                    |payload| {
-                        #payload_fill
-                    },
-                    #wait_state,
-                    &mut self.state,
-                    &mut self.pkt_idx,
-                )
-            }
-        });
-
-        // WAIT state: warp_hostcall_wait_u64
-        let on_ready = if let Some(ref var) = call.result_var {
-            if is_last {
-                quote! {
-                    if wcx.is_leader() { self.#var = val; }
-                    return WarpPoll::Ready(#ready_value);
-                }
-            } else {
-                quote! {
-                    if wcx.is_leader() { self.#var = val; }
-                    return WarpPoll::Pending;
-                }
-            }
-        } else if is_last {
-            quote! { return WarpPoll::Ready(#ready_value); }
-        } else {
-            quote! { return WarpPoll::Pending; }
-        };
-
-        arms.push(quote! {
-            #wait_state => unsafe {
-                if let Some(val) = gpu_runtime::warp_future::warp_hostcall_wait_u64(
-                    self.buf, wcx, self.pkt_idx,
-                    #next_after_wait, &mut self.state,
-                ) {
-                    #on_ready
-                }
-                WarpPoll::Pending
-            }
-        });
-
-        // Track this variable for subsequent payload fills
-        if let Some(ref var) = call.result_var {
-            known_vars_so_far.push(var.clone());
-        }
-    }
+    let mut known_vars: Vec<syn::Ident> = Vec::new();
+    gen_arms_for_sequence(
+        &cfg_nodes,
+        0,          // base_state
+        done_state, // continuation_state (last call → DONE)
+        done_state,
+        &ready_value,
+        &extra_param_idents,
+        &mut known_vars,
+        &mut arms,
+    );
 
     // ---- Generate kernel entry point parameters ----
     let kernel_params: Vec<_> = params

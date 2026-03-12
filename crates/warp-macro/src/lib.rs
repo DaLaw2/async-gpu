@@ -142,6 +142,17 @@ enum CfgNode {
         then_branch: Vec<CfgNode>,
         else_branch: Vec<CfgNode>,
     },
+    /// A loop whose body contains warp_*!() calls.
+    /// The body repeats (back-edge) until a BreakIf exits.
+    /// Consumes count_sequence_states(body) state numbers (no overhead).
+    Loop {
+        body: Vec<CfgNode>,
+    },
+    /// `if cond { break; }` — only valid inside a Loop body.
+    /// Becomes a DECISION state (1 state): if cond → post-loop, else → continue.
+    BreakIf {
+        cond: syn::Expr,
+    },
 }
 
 // ============================================================
@@ -157,6 +168,8 @@ fn count_node_states(node: &CfgNode) -> u32 {
             else_branch,
             ..
         } => 1 + count_sequence_states(then_branch) + count_sequence_states(else_branch),
+        CfgNode::Loop { body } => count_sequence_states(body),
+        CfgNode::BreakIf { .. } => 1, // DECISION state
     }
 }
 
@@ -184,6 +197,10 @@ fn collect_all_vars(nodes: &[CfgNode]) -> Vec<syn::Ident> {
                 vars.extend(collect_all_vars(then_branch));
                 vars.extend(collect_all_vars(else_branch));
             }
+            CfgNode::Loop { body } => {
+                vars.extend(collect_all_vars(body));
+            }
+            CfgNode::BreakIf { .. } => {}
         }
     }
     vars
@@ -232,6 +249,7 @@ fn expr_contains_warp_call(expr: &Expr) -> bool {
                     .is_some_and(|(_, e)| expr_contains_warp_call(e))
         }
         Expr::Block(eb) => stmts_contain_warp_call(&eb.block.stmts),
+        Expr::Loop(el) => stmts_contain_warp_call(&el.body.stmts),
         _ => false,
     }
 }
@@ -268,8 +286,13 @@ const SUPPORTED_MACROS: &str =
     "warp_print, warp_open, warp_close, warp_read, warp_write, warp_bulk_read, warp_bulk_write";
 
 /// Build a CFG node tree from function body statements.
-/// Handles warp_*!() calls, let bindings, and if/else containing warp calls.
-fn build_cfg(stmts: &[Stmt], buf_name: &str) -> Result<Vec<CfgNode>, proc_macro2::TokenStream> {
+/// Handles warp_*!() calls, let bindings, if/else, loop, and break.
+/// `in_loop`: true when parsing inside a loop body (enables `if cond { break; }` handling).
+fn build_cfg(
+    stmts: &[Stmt],
+    buf_name: &str,
+    in_loop: bool,
+) -> Result<Vec<CfgNode>, proc_macro2::TokenStream> {
     let mut nodes = Vec::new();
 
     for stmt in stmts {
@@ -347,8 +370,16 @@ fn build_cfg(stmts: &[Stmt], buf_name: &str) -> Result<Vec<CfgNode>, proc_macro2
                 }
             }
 
-            // `if cond { ... } else { ... }` — control flow with warp calls
+            // `if cond { ... } else { ... }` — control flow with warp calls or break
             Stmt::Expr(Expr::If(expr_if), _) => {
+                // Check for `if cond { break; }` pattern inside loop
+                if in_loop && is_break_if(expr_if) {
+                    nodes.push(CfgNode::BreakIf {
+                        cond: *expr_if.cond.clone(),
+                    });
+                    continue;
+                }
+
                 let then_has = stmts_contain_warp_call(&expr_if.then_branch.stmts);
                 let else_stmts = extract_else_stmts(expr_if);
                 let else_has = else_stmts
@@ -374,8 +405,8 @@ fn build_cfg(stmts: &[Stmt], buf_name: &str) -> Result<Vec<CfgNode>, proc_macro2
                     .to_compile_error()
                 })?;
 
-                let then_nodes = build_cfg(&expr_if.then_branch.stmts, buf_name)?;
-                let else_nodes = build_cfg(&else_stmts, buf_name)?;
+                let then_nodes = build_cfg(&expr_if.then_branch.stmts, buf_name, in_loop)?;
+                let else_nodes = build_cfg(&else_stmts, buf_name, in_loop)?;
 
                 if then_nodes.is_empty() || else_nodes.is_empty() {
                     return Err(syn::Error::new_spanned(
@@ -393,13 +424,46 @@ fn build_cfg(stmts: &[Stmt], buf_name: &str) -> Result<Vec<CfgNode>, proc_macro2
                 });
             }
 
+            // `loop { ... }` — loop containing warp calls
+            Stmt::Expr(Expr::Loop(expr_loop), _) => {
+                if !stmts_contain_warp_call(&expr_loop.body.stmts) {
+                    return Err(syn::Error::new_spanned(
+                        &expr_loop.loop_token,
+                        "#[warp_async] `loop` blocks must contain warp_*!() calls.",
+                    )
+                    .to_compile_error());
+                }
+
+                let body_nodes = build_cfg(&expr_loop.body.stmts, buf_name, true)?;
+
+                if body_nodes.is_empty() {
+                    return Err(syn::Error::new_spanned(
+                        &expr_loop.loop_token,
+                        "#[warp_async] `loop` body must contain at least one warp_*!() call.",
+                    )
+                    .to_compile_error());
+                }
+
+                // Verify there's at least one BreakIf in the body
+                if !contains_break_if(&body_nodes) {
+                    return Err(syn::Error::new_spanned(
+                        &expr_loop.loop_token,
+                        "#[warp_async] `loop` must contain `if cond { break; }` \
+                         (infinite loops without break are not allowed).",
+                    )
+                    .to_compile_error());
+                }
+
+                nodes.push(CfgNode::Loop { body: body_nodes });
+            }
+
             // Any other statement type
             other => {
                 return Err(syn::Error::new_spanned(
                     quote! { #other },
                     format!(
                         "#[warp_async] function body must contain only warp_*!() calls, \
-                         `let var = warp_*!()` bindings, and if/else blocks. \
+                         `let var = warp_*!()` bindings, if/else blocks, and loop. \
                          Supported macros: {SUPPORTED_MACROS}",
                     ),
                 )
@@ -409,6 +473,45 @@ fn build_cfg(stmts: &[Stmt], buf_name: &str) -> Result<Vec<CfgNode>, proc_macro2
     }
 
     Ok(nodes)
+}
+
+/// Check if an `if` expression is the pattern `if cond { break; }` (no else).
+fn is_break_if(expr_if: &syn::ExprIf) -> bool {
+    // Must have no else branch
+    if expr_if.else_branch.is_some() {
+        return false;
+    }
+    // then_branch must contain exactly one statement: `break;`
+    let stmts = &expr_if.then_branch.stmts;
+    if stmts.len() != 1 {
+        return false;
+    }
+    matches!(&stmts[0], Stmt::Expr(Expr::Break(_), _))
+}
+
+/// Check if a CFG node list contains at least one BreakIf (recursive).
+fn contains_break_if(nodes: &[CfgNode]) -> bool {
+    for node in nodes {
+        match node {
+            CfgNode::BreakIf { .. } => return true,
+            CfgNode::IfElse {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                if contains_break_if(then_branch) || contains_break_if(else_branch) {
+                    return true;
+                }
+            }
+            CfgNode::Loop { body } => {
+                if contains_break_if(body) {
+                    return true;
+                }
+            }
+            CfgNode::Call(_) => {}
+        }
+    }
+    false
 }
 
 /// Extract statements from an if-expression's else branch.
@@ -666,6 +769,7 @@ fn gen_arms_for_sequence(
     ready_value: &proc_macro2::TokenStream,
     param_names: &[syn::Ident],
     known_vars: &mut Vec<syn::Ident>,
+    break_target: Option<u32>, // set inside loops: where `break` jumps to
     arms: &mut Vec<proc_macro2::TokenStream>,
 ) {
     // Precompute the start state offset for each node in this sequence
@@ -788,6 +892,7 @@ fn gen_arms_for_sequence(
                     ready_value,
                     param_names,
                     &mut then_vars,
+                    break_target,
                     arms,
                 );
 
@@ -801,12 +906,61 @@ fn gen_arms_for_sequence(
                     ready_value,
                     param_names,
                     &mut else_vars,
+                    break_target,
                     arms,
                 );
 
                 // Note: variables defined inside branches are NOT added to known_vars
                 // for subsequent nodes. To pass data out of if/else, the variable must
                 // be defined before the branch.
+            }
+
+            CfgNode::Loop { body } => {
+                let loop_start = node_start;
+                // Loop body continuation = loop_start (back-edge)
+                // Break target = next_state (post-loop)
+                let mut loop_vars = known_vars.clone();
+                gen_arms_for_sequence(
+                    body,
+                    loop_start,
+                    loop_start,  // back-edge: end of body → start of body
+                    done_state,
+                    ready_value,
+                    param_names,
+                    &mut loop_vars,
+                    Some(next_state), // break jumps to post-loop
+                    arms,
+                );
+            }
+
+            CfgNode::BreakIf { cond } => {
+                let decision_state = node_start;
+                let bt = break_target.expect(
+                    "BUG: BreakIf outside loop (should be caught during parsing)",
+                );
+
+                // Captures for condition evaluation
+                let captures: Vec<_> = param_names
+                    .iter()
+                    .chain(known_vars.iter())
+                    .map(|v| quote! { let #v = self.#v; })
+                    .collect();
+
+                // DECISION: if cond → break (post-loop), else → continue (next_state)
+                arms.push(quote! {
+                    #decision_state => {
+                        #(#captures)*
+                        let mut __do_break: u32 = 0;
+                        if wcx.is_leader() {
+                            __do_break = if #cond { 1 } else { 0 };
+                        }
+                        let __do_break = unsafe { broadcast_u32(wcx.active_mask, __do_break) };
+                        if wcx.is_leader() {
+                            self.state = if __do_break != 0 { #bt } else { #next_state };
+                        }
+                        WarpPoll::Pending
+                    }
+                });
             }
         }
     }
@@ -918,7 +1072,7 @@ pub fn warp_async(attr: TokenStream, item: TokenStream) -> TokenStream {
     };
 
     // ---- Build CFG from function body ----
-    let cfg_nodes = match build_cfg(&input_fn.block.stmts, &buf_name) {
+    let cfg_nodes = match build_cfg(&input_fn.block.stmts, &buf_name, false) {
         Ok(c) => c,
         Err(e) => return e.into(),
     };
@@ -983,6 +1137,7 @@ pub fn warp_async(attr: TokenStream, item: TokenStream) -> TokenStream {
         &ready_value,
         &extra_param_idents,
         &mut known_vars,
+        None, // no break target at top level
         &mut arms,
     );
 

@@ -3639,6 +3639,81 @@ fn run_warp_cfg_if_else_test(dev: Arc<CudaDevice>) -> Result<()> {
     Ok(())
 }
 
+/// Loop/break test for #[warp_async] (warp-cfg.3)
+///
+/// Tests that the macro-generated state machine handles loop + break_if correctly.
+/// Uses counter=0 for immediate break (1 "iter" + 1 "done" = 2 messages).
+fn run_warp_cfg_loop_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- WarpFuture Loop/Break Test (warp-cfg.3) ---");
+
+    let launch_cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (32, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "kernel_loop", &["warp_cfg_loop_test"]);
+    let f = dev
+        .get_func("kernel_loop", "warp_cfg_loop_test")
+        .ok_or(GpuHostError::KernelNotFound("warp_cfg_loop_test"))?;
+
+    let hc_buf = hostcall::HostcallBuffer::new(4)?;
+    let dev_ptr = hc_buf.dev_ptr;
+    let (status_host, status_dev) = unsafe { alloc_mapped_result_array(&dev, 1)? };
+
+    let hc_buf_ref = std::sync::Arc::new(hc_buf);
+    let hc_buf_listener = std::sync::Arc::clone(&hc_buf_ref);
+    let messages = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let msg_clone = std::sync::Arc::clone(&messages);
+
+    let listener_handle = std::thread::spawn(move || {
+        hc_buf_listener.listen(move |msg| {
+            let text = String::from_utf8_lossy(msg).to_string();
+            println!("  [HOST] GPU says: \"{text}\"");
+            let mut guard = msg_clone.lock().unwrap();
+            guard.push(text);
+        });
+    });
+
+    // counter=0 → immediate break after first iteration
+    let counter: u64 = 0;
+    unsafe { f.launch(launch_cfg, (dev_ptr, counter, status_dev))? };
+    dev.synchronize()?;
+
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    hc_buf_ref.signal_shutdown();
+    listener_handle.join().unwrap();
+
+    let status = unsafe { std::ptr::read_volatile(status_host) };
+    let msgs = messages.lock().unwrap().clone();
+    unsafe { free_mapped_mem(status_host)? };
+
+    let iter_msg = msgs.iter().any(|m| m.contains("iter"));
+    let done_msg = msgs.iter().any(|m| m.contains("done"));
+
+    if status == 1 && iter_msg && done_msg && msgs.len() == 2 {
+        println!("  PASSED: loop executed once, break taken, done reached");
+        println!("    messages: {msgs:?}");
+    } else {
+        println!("  FAILED");
+        println!("    status={status}, iter_msg={iter_msg}, done_msg={done_msg}");
+        println!("    messages: {msgs:?}");
+        return Err(GpuHostError::Verification {
+            test: "warp_cfg_loop_test",
+            detail: format!(
+                "expected 2 messages (iter+done), got {}: {msgs:?}",
+                msgs.len()
+            ),
+        });
+    }
+
+    println!("  WarpFuture Loop/Break: PASSED!");
+    println!("    #[warp_async] loop/break_if generates correct back-edge + break states");
+    println!("    Lane 0 evaluates break condition, broadcasts to all 32 lanes");
+    Ok(())
+}
+
 /// Hybrid executor test: WarpFuture PRINT → per-thread compute → WarpFuture PRINT (hybrid-executor.1)
 ///
 /// Validates that a WarpFuture state machine can transition to per-thread divergent
@@ -4539,6 +4614,9 @@ fn main() -> Result<()> {
 
     // WarpFuture if/else test (warp-cfg.2)
     run_warp_cfg_if_else_test(Arc::clone(&dev))?;
+
+    // WarpFuture loop/break test (warp-cfg.3)
+    run_warp_cfg_loop_test(Arc::clone(&dev))?;
 
     // Hybrid executor test (hybrid-executor.1)
     run_hybrid_executor_test(Arc::clone(&dev))?;

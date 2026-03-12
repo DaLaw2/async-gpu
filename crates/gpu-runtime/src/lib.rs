@@ -285,6 +285,12 @@ pub mod hostcall {
             i += 1;
         }
 
+        // Write thread/block metadata at payload+64 (lane 1 area, unused by PRINT message)
+        let block_idx = core::arch::nvptx::_block_idx_x() as u32;
+        let thread_idx = core::arch::nvptx::_thread_idx_x() as u32;
+        core::ptr::write_volatile(payload.add(64) as *mut u32, block_idx);
+        core::ptr::write_volatile(payload.add(68) as *mut u32, thread_idx);
+
         sys_store_release_u32(pkt.add(PKT_OFF_CONTROL) as *mut u32, CONTROL_FILLED);
 
         hc_push_with(ready_ptr, buf, pkt_idx, num_shards, shard_array_off);

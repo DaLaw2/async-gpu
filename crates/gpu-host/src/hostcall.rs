@@ -609,7 +609,17 @@ impl HostcallBuffer {
             msg_buf[i] = std::ptr::read_volatile(msg_ptr.add(i));
         }
 
-        on_print(&msg_buf[..msg_len]);
+        // Read thread/block metadata from payload+64 (lane 1 area)
+        let block_idx = std::ptr::read_volatile(payload.add(64) as *const u32);
+        let thread_idx = std::ptr::read_volatile(payload.add(68) as *const u32);
+
+        // Format: [B{block}.T{thread}] message
+        let prefix = format!("[B{}.T{}] ", block_idx, thread_idx);
+        let mut full_msg = Vec::with_capacity(prefix.len() + msg_len);
+        full_msg.extend_from_slice(prefix.as_bytes());
+        full_msg.extend_from_slice(&msg_buf[..msg_len]);
+
+        on_print(&full_msg);
     }
 
     // ================================================================

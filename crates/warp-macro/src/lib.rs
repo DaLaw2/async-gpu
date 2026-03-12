@@ -294,6 +294,18 @@ pub fn warp_async(attr: TokenStream, item: TokenStream) -> TokenStream {
                     }
                 }
 
+                // Lane 0: write thread/block metadata at payload+64
+                if wcx.is_leader() {
+                    core::ptr::write_volatile(
+                        payload.add(64) as *mut u32,
+                        core::arch::nvptx::_block_idx_x() as u32,
+                    );
+                    core::ptr::write_volatile(
+                        payload.add(68) as *mut u32,
+                        core::arch::nvptx::_thread_idx_x() as u32,
+                    );
+                }
+
                 gpu_atomics::syncwarp(wcx.active_mask);
 
                 if wcx.is_leader() {

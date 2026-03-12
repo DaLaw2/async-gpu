@@ -9,7 +9,7 @@ An experimental reproduction of [VectorWare](https://www.vectorware.com/)'s tech
 
 This project explores whether Rust's `std` library and async/await can run on GPU hardware using the `nvptx64-nvidia-cuda` target. Rather than writing raw CUDA kernels, the idea is to let GPU threads use familiar Rust abstractions — `File::open()`, `println!()`, `async/await` — with I/O routed to the host CPU through a shared-memory hostcall protocol.
 
-The project is structured as an autonomous research loop with 17+ completed research themes and 68 verified experiments.
+The project is structured as an autonomous research loop with 24 completed research themes and 85 verified experiments.
 
 ## Architecture
 
@@ -46,6 +46,7 @@ The project is structured as an autonomous research loop with 17+ completed rese
 | `gpu-libc` | Minimal libc shim routing `write`/`read`/`open`/`close` through hostcall |
 | `gpu-kernel` | GPU kernel crate (`cdylib` -> PTX), integration tests + benchmark kernels |
 | `gpu-host` | Host-side CUDA harness using `cudarc`, hostcall listener, test runner |
+| `warp-macro` | `#[warp_async]` proc macro — generates WarpFuture state machines from async-like fn signatures |
 
 ### Test Crates
 
@@ -111,23 +112,28 @@ All async kernels use stack spilling (local memory) for Embassy executor state. 
 
 6. **Host Listener I/O Thread (ADR-6)**: Fast services (NOP, PRINT, TIME, PANIC) handled inline on the listener thread. Blocking FILE I/O and STDIN offloaded to a dedicated I/O thread via `mpsc` channel. Unified via `StdinSource` trait.
 
+7. **WarpFuture (warp-cooperative async)**: All 32 lanes in a warp share a single hostcall packet via `syncwarp()` coordination. Reduces CAS contention from 32 per-thread operations to 1 per-warp. Available as hand-written state machine or via `#[warp_async]` proc macro.
+
+8. **Per-block Sharding**: Hostcall free-stack sharded by `block_idx % num_shards`. Reduces CAS retries from ~53/call (global) to ~0.5/call (sharded) at 128 threads — a 99% reduction in contention.
+
 ## Current Status
 
-17 research themes completed, 2 active, 3 parked (68/73 tasks done):
+24 research themes completed, 1 active, 3 parked (85/87 tasks done):
 
 - **Core**: toolchain, hostcall, gpu-std, async-runtime, integration
 - **Infrastructure**: atomics, std-pal, allocator, error-handling, oncelock
-- **Scaling**: multiblock, product, benchmark
+- **Scaling**: multiblock, product, benchmark, per-block-sharding
 - **Phase 2**: host-listener, ci (GitHub Actions), api (gpu-runtime facade + example)
 - **Phase 3**: gpu-panic (panic handler), host-scaling (I/O thread), nightly-compat (1.91 -> 1.96)
-- **Active**: large-payload (bulk data transfer design)
+- **Data**: large-payload (bulk data transfer via sideband buffer), clean-example
+- **Active**: hybrid-executor (mix WarpFuture + per-thread Future in same kernel)
 - **Parked**: warp-coop (incompatible with ADR-4), networking, upstream
 
 ## Strengths
 
 - **Familiar Rust API on GPU**: GPU code can use `File::open()`, `println!()`, `async/await` — no raw CUDA C needed
-- **Lock-free hostcall**: The two-stack protocol enables GPU-host I/O without mutex contention, scaling to 512+ threads across multiple blocks
-- **Async/await works**: Embassy's poll-based executor runs on GPU. Multiple futures can be composed with standard combinators (`join`, `select`)
+- **Lock-free hostcall**: The two-stack protocol enables GPU-host I/O without mutex contention, scaling to 512+ threads across multiple blocks. Per-block sharding reduces CAS contention by 99%
+- **Async/await works**: Embassy's poll-based executor runs on GPU. Multiple futures can be composed with standard combinators (`join`, `select`). WarpFuture enables warp-cooperative async with `#[warp_async]` proc macro
 - **Cross-platform host**: Error propagation uses `io::ErrorKind` mapping (not raw errno), so the host side works on both Linux and Windows
 - **Minimal std patching**: Only ~4 patch files touch the vendored std source, keeping upgrade friction low
 - **No custom rustc fork**: Everything builds on stock nightly rustc with `-Zbuild-std`
@@ -139,8 +145,8 @@ All async kernels use stack spilling (local memory) for Embassy executor state. 
 
 - **Nightly-only**: Requires Rust nightly (pinned to `nightly-2026-03-11`, rustc 1.96.0) for `#![feature(abi_ptx)]`, `-Zbuild-std`, `core::arch::asm!` with PTX, and other unstable features. Breakage on toolchain updates is expected.
 - **NVIDIA-only**: Targets `nvptx64-nvidia-cuda` exclusively. No AMD/Intel GPU support. Requires CUDA runtime (loaded via `cudarc`) and an SM70+ GPU.
-- **No warp-cooperative execution**: Each thread runs independently (ADR-4). Warp-cooperative allocation is architecturally incompatible with per-lane async execution.
-- **Throughput does not scale**: CAS contention on the lock-free free-stack is the primary bottleneck. Throughput peaks at ~26-41K calls/s for 1 thread and *decreases* with more threads.
+- **WarpFuture requires uniform control flow**: WarpFuture enables warp-cooperative hostcall (1 CAS per warp instead of per thread) but requires all lanes to execute the same I/O sequence. Per-thread divergent control flow requires falling back to per-thread futures.
+- **Throughput scaling limited**: CAS contention on the lock-free free-stack is the primary bottleneck without sharding. Per-block sharding reduces contention by 99%, but pool sizing (packets per shard) becomes critical at high thread counts.
 - **Packet pool starvation**: At 512 threads with 64 packets, ~70% of threads starve. Size the packet pool to at least 2x your active thread count.
 - **56-byte payload limit**: Each hostcall can transfer at most 56 bytes of data. Bulk data transfer (large-payload theme) is under development using a sideband mapped buffer approach.
 - **Limited std coverage**: Only `std::fs` (File), `std::io` (print/stdin), and basic allocation work. Networking, threading, and most of std are stubbed out.

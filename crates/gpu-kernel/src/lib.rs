@@ -874,6 +874,128 @@ pub unsafe extern "ptx-kernel" fn hostcall_latency_bench(
 }
 
 // ============================================================
+// Sharding benchmark kernel (per-block-sharding.3)
+// ============================================================
+
+/// Instrumented shard-aware hc_pop_free: returns (packet_index, cas_retry_count).
+/// Uses shard-local free stack when num_shards > 0, global free stack otherwise.
+#[inline(always)]
+unsafe fn hc_pop_free_counted_v2(
+    buf: *mut u8,
+    free_ptr: *mut u64,
+    num_shards: u32,
+    shard_array_off: u32,
+) -> (u16, u32) {
+    let mut retries: u32 = 0;
+    loop {
+        let old_head = sys_load_acquire_u64(free_ptr as *const u64);
+        let idx = tagged_index(old_head);
+        if idx == NULL_INDEX {
+            return (NULL_INDEX, retries);
+        }
+        let pkt_off = if num_shards == 0 {
+            packet_offset(idx)
+        } else {
+            packet_offset_sharded(idx, shard_array_off as usize, num_shards)
+        };
+        let pkt = buf.add(pkt_off);
+        let next = core::ptr::read_volatile(pkt.add(PKT_OFF_NEXT) as *const u64);
+        if sys_cas_u64(free_ptr, old_head, next) == old_head {
+            return (idx, retries);
+        }
+        retries += 1;
+    }
+}
+
+/// Shard-aware benchmark kernel: measure hostcall NOP round-trip latency.
+///
+/// Identical to `hostcall_latency_bench` but uses shard-aware stacks.
+/// Works with both sharded and unsharded buffers (auto-detects via num_shards).
+///
+/// Layout of `results` (u64 array, 3 entries per thread):
+///   results[tid*3 + 0] = total elapsed nanoseconds for all iterations
+///   results[tid*3 + 1] = total CAS retries across all iterations
+///   results[tid*3 + 2] = number of completed iterations
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn hostcall_latency_bench_v2(
+    buf: *mut u8,
+    results: *mut u64,
+    num_iters: u32,
+) {
+    let thread_x = nvptx::_thread_idx_x() as u32;
+    let block_x = nvptx::_block_idx_x() as u32;
+    let block_dim_x = nvptx::_block_dim_x() as u32;
+    let tid = block_x * block_dim_x + thread_x;
+
+    // Read shard info once
+    let (num_shards, shard_array_off, _) =
+        gpu_runtime::hostcall::read_shard_info(buf as *const u8);
+    let free_ptr = gpu_runtime::hostcall::get_free_stack_ptr(buf, num_shards, shard_array_off);
+    let ready_ptr = gpu_runtime::hostcall::get_ready_stack_ptr(buf, num_shards, shard_array_off);
+
+    let t_start = gpu_instant_nanos();
+    let mut total_retries: u64 = 0;
+    let mut completed: u64 = 0;
+
+    let mut iter: u32 = 0;
+    while iter < num_iters {
+        // Pop free packet (instrumented, shard-aware)
+        let (pkt_idx, retries) =
+            hc_pop_free_counted_v2(buf, free_ptr, num_shards, shard_array_off);
+        if pkt_idx == NULL_INDEX {
+            break;
+        }
+        total_retries += retries as u64;
+
+        let pkt_off = gpu_runtime::hostcall::pkt_offset(buf as *const u8, pkt_idx);
+        let pkt = buf.add(pkt_off);
+
+        // Fill NOP packet
+        let mask = activemask();
+        core::ptr::write_volatile(pkt.add(PKT_OFF_ACTIVE_MASK) as *mut u32, mask);
+        core::ptr::write_volatile(pkt.add(PKT_OFF_SERVICE) as *mut u32, SERVICE_NOP);
+        sys_store_release_u32(pkt.add(PKT_OFF_CONTROL) as *mut u32, 0);
+
+        // Mark as filled
+        sys_store_release_u32(pkt.add(PKT_OFF_CONTROL) as *mut u32, CONTROL_FILLED);
+
+        // Push to ready stack (shard-aware via hc_push which reads shard info)
+        gpu_runtime::hostcall::hc_push(ready_ptr, buf, pkt_idx);
+
+        // Ring doorbell (always global)
+        sys_fetch_add_u64(buf.add(BUF_OFF_DOORBELL) as *mut u64, 1);
+
+        // Spin-wait for response
+        let control_ptr = pkt.add(PKT_OFF_CONTROL) as *const u32;
+        let mut spins: u32 = 0;
+        loop {
+            let ctrl = sys_spin_load_acquire_u32(control_ptr);
+            if ctrl & CONTROL_READY != 0 {
+                break;
+            }
+            spins += 1;
+            if spins >= GPU_MAX_SPIN {
+                break;
+            }
+        }
+
+        // Return packet to free stack (shard-aware)
+        gpu_runtime::hostcall::hc_push(free_ptr, buf, pkt_idx);
+
+        completed += 1;
+        iter += 1;
+    }
+
+    let t_end = gpu_instant_nanos();
+
+    // Write results
+    let base = (tid as usize) * 3;
+    core::ptr::write_volatile(results.add(base), t_end - t_start);
+    core::ptr::write_volatile(results.add(base + 1), total_retries);
+    core::ptr::write_volatile(results.add(base + 2), completed);
+}
+
+// ============================================================
 // GPU panic test kernel (gpu-panic.2)
 // ============================================================
 
@@ -1142,6 +1264,18 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for WarpPrintFuture {
                     );
                 }
 
+                // Lane 0: write thread/block metadata at payload+64
+                if wcx.is_leader() {
+                    core::ptr::write_volatile(
+                        payload.add(64) as *mut u32,
+                        nvptx::_block_idx_x() as u32,
+                    );
+                    core::ptr::write_volatile(
+                        payload.add(68) as *mut u32,
+                        nvptx::_thread_idx_x() as u32,
+                    );
+                }
+
                 // Sync: ensure all payload writes are visible
                 gpu_atomics::syncwarp(wcx.active_mask);
 
@@ -1342,6 +1476,18 @@ unsafe fn warp_multi_init_hostcall(
         core::ptr::write_volatile(
             msg_base.add(prefix.len() + lid as usize),
             suffix[lid as usize],
+        );
+    }
+
+    // Lane 0: write thread/block metadata at payload+64
+    if wcx.is_leader() {
+        core::ptr::write_volatile(
+            payload.add(64) as *mut u32,
+            nvptx::_block_idx_x() as u32,
+        );
+        core::ptr::write_volatile(
+            payload.add(68) as *mut u32,
+            nvptx::_thread_idx_x() as u32,
         );
     }
 
@@ -1558,4 +1704,119 @@ pub unsafe extern "ptx-kernel" fn sharded_print_test(
     if ok {
         gpu_atomics::sys_fetch_add_u32(success_count, 1);
     }
+}
+
+// ============================================================
+// Parallel file grep kernel (product.8)
+// ============================================================
+
+/// Search a byte buffer for lines containing a pattern.
+#[inline(always)]
+unsafe fn grep_buffer(
+    buf: *mut u8,
+    data: *const u8,
+    data_len: usize,
+    pattern: &[u8],
+    thread_id: u32,
+) -> u32 {
+    let mut matches: u32 = 0;
+    let mut line_start: usize = 0;
+
+    let mut i: usize = 0;
+    while i <= data_len {
+        let is_eol = i == data_len || *data.add(i) == b'\n';
+        if is_eol {
+            let line_len = i - line_start;
+            if line_len >= pattern.len() && line_len > 0 {
+                let mut found = false;
+                let mut j: usize = 0;
+                while j + pattern.len() <= line_len {
+                    let mut match_ok = true;
+                    let mut k: usize = 0;
+                    while k < pattern.len() {
+                        if *data.add(line_start + j + k) != pattern[k] {
+                            match_ok = false;
+                            break;
+                        }
+                        k += 1;
+                    }
+                    if match_ok {
+                        found = true;
+                        break;
+                    }
+                    j += 1;
+                }
+
+                if found {
+                    let mut msg = [0u8; 56];
+                    let mut pos: usize = 0;
+                    msg[pos] = b'T'; pos += 1;
+                    if thread_id >= 10 {
+                        msg[pos] = b'0' + (thread_id / 10) as u8; pos += 1;
+                    }
+                    msg[pos] = b'0' + (thread_id % 10) as u8; pos += 1;
+                    msg[pos] = b':'; pos += 1;
+                    msg[pos] = b' '; pos += 1;
+                    let copy_len = line_len.min(56 - pos);
+                    let mut c: usize = 0;
+                    while c < copy_len {
+                        msg[pos] = *data.add(line_start + c);
+                        pos += 1;
+                        c += 1;
+                    }
+                    gpu_runtime::hostcall::gpu_hostcall_print(buf, msg.as_ptr(), pos as u32);
+                    matches += 1;
+                }
+            }
+            line_start = i + 1;
+        }
+        i += 1;
+    }
+    matches
+}
+
+/// Parallel file grep kernel: each thread opens, reads, and searches a file.
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn parallel_grep_kernel(
+    buf: *mut u8,
+    sideband: *mut u8,
+    results: *mut u64,
+    pattern_ptr: *const u8,
+    pattern_len: u32,
+) {
+    gpu_runtime::panic::gpu_panic_init(buf);
+
+    let thread_x = nvptx::_thread_idx_x() as u32;
+    let block_x = nvptx::_block_idx_x() as u32;
+    let block_dim_x = nvptx::_block_dim_x() as u32;
+    let tid = block_x * block_dim_x + thread_x;
+
+    let mut pattern_buf = [0u8; 32];
+    let plen = (pattern_len as usize).min(32);
+    let mut pi: usize = 0;
+    while pi < plen {
+        pattern_buf[pi] = core::ptr::read_volatile(pattern_ptr.add(pi));
+        pi += 1;
+    }
+
+    let path = b"gpu_grep_test.txt";
+    let (fd, err) = gpu_hostcall_open(buf, path.as_ptr(), path.len() as u32, 0);
+    if err != 0 || fd == 0 {
+        core::ptr::write_volatile(results.add(tid as usize), 0u64);
+        return;
+    }
+
+    let mut file_buf = [0u8; 4096];
+    let bytes_read = gpu_runtime::sideband::gpu_bulk_read(
+        buf, sideband, fd, file_buf.as_mut_ptr(), 4096,
+    );
+
+    gpu_hostcall_close(buf, fd);
+
+    let match_count = grep_buffer(
+        buf, file_buf.as_ptr(), bytes_read,
+        &pattern_buf[..plen], tid,
+    );
+
+    core::ptr::write_volatile(results.add(tid as usize), match_count as u64);
 }

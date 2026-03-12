@@ -4,22 +4,22 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 83      # Monotonic counter, incremented after each completed phase
-completed_tasks = 82
+total_cycles = 86      # Monotonic counter, incremented after each completed phase
+completed_tasks = 85
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.route"
-current_task_id = ""
-last_summary = "warp-future.5 done: #[warp_async] proc macro generates WarpFuture state machines from sequential warp_print!() calls. Full code review (rv4) + rework completed. warp-future theme completed (all 6 tasks). api-cleanup theme completed (2 tasks)."
+current_step = "do.execute"
+current_task_id = "hybrid-executor.1"
+last_summary = "product.8 done: parallel grep 4 threads × 4 matches = 16 total in ~2ms. All existing active themes complete. Next: hybrid-executor.1 PoC."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 17
+brainstorm_seq = 18
 review_seq = 4
 
 # Brainstorm trigger control
-last_brainstorm_at_completed = 78
+last_brainstorm_at_completed = 82
 brainstorm_interval = 3
 
 # ============================================================
@@ -120,7 +120,7 @@ success_criteria = [
 [[themes]]
 id = "product"
 title = "Product-ready demonstrations and stress testing"
-status = "active"
+status = "completed"
 spawned_by = "bs9"
 goal = "Validate the complete stack under realistic conditions and produce showcase demo"
 success_criteria = [
@@ -1636,7 +1636,7 @@ id = "product.7"
 theme = "product"
 title = "Add thread/block/warp metadata to host print output"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = []
 spawned_by = "bs14"
 research_questions = [
@@ -1649,7 +1649,7 @@ id = "product.8"
 theme = "product"
 title = "Real workload demo: parallel file grep"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["host-scaling.4", "large-payload.3"]
 spawned_by = "bs14"
 research_questions = [
@@ -1706,6 +1706,17 @@ themes_parked = []
 themes_completed = []
 key_insight = "Roadmap: (1) warp-future.6 multi-hostcall PoC validates composition, (2) api-cleanup eliminates duplicated hostcall code in gpu-kernel, (3) warp-future.5 proc macro builds on both hand-written PoCs. Updated warp-future.5 deps to include .6."
 
+[[brainstorms]]
+seq = 18
+at_cycle = 83
+trigger = "interval (82-78=4 >= 3) + user-requested hybrid-executor theme"
+level = "quick"
+new_tasks_spawned = ["hybrid-executor.1"]
+new_themes_spawned = ["hybrid-executor"]
+themes_parked = []
+themes_completed = ["clean-example"]
+key_insight = "clean-example completed (2/2 done). User defined hybrid-executor theme: mix WarpFuture (homogeneous I/O) + per-thread Future (divergent control flow) in same kernel. First PoC: per-thread block is non-yielding pure computation. Execute existing pending tasks first."
+
 # ============================================================
 # Theme: per-block-sharding (user-requested critical)
 # ============================================================
@@ -1713,7 +1724,7 @@ key_insight = "Roadmap: (1) warp-future.6 multi-hostcall PoC validates compositi
 [[themes]]
 id = "per-block-sharding"
 title = "Per-block packet pool sharding to reduce CAS contention"
-status = "active"
+status = "completed"
 spawned_by = "user"
 goal = "Reduce CAS contention by giving each block its own packet pool partition"
 success_criteria = [
@@ -1729,7 +1740,7 @@ success_criteria = [
 [[themes]]
 id = "clean-example"
 title = "Clean, self-contained example for new users"
-status = "active"
+status = "completed"
 spawned_by = "user"
 goal = "Provide a minimal hello-world example that demonstrates the full stack"
 success_criteria = [
@@ -1775,7 +1786,7 @@ id = "per-block-sharding.3"
 theme = "per-block-sharding"
 title = "Benchmark per-block sharding vs global pool"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["per-block-sharding.2"]
 spawned_by = "user"
 research_questions = [
@@ -1957,4 +1968,39 @@ research_questions = [
     "What is the minimal public API surface for gpu-runtime?",
     "Should warp_future be a separate crate or stay as a module?",
     "What re-exports should the prelude contain?",
+]
+
+# ============================================================
+# Theme: hybrid-executor (WarpFuture + per-thread Future coexistence)
+# ============================================================
+
+[[themes]]
+id = "hybrid-executor"
+title = "Hybrid executor: mix WarpFuture and per-thread Future in same kernel"
+status = "active"
+spawned_by = "user"
+goal = "Enable mixing WarpFuture (homogeneous linear I/O, 1 CAS/warp) and per-thread Future (divergent dynamic control flow) in the same GPU kernel, with safe switching points"
+success_criteria = [
+    "WarpFuture can transition to per-thread computation block and back",
+    "syncwarp() correctly inserted at switching points",
+    "Switching overhead measured (target: negligible vs hostcall latency)",
+    "API makes it hard to misuse switching points",
+]
+
+# --- Tasks: hybrid-executor ---
+
+[[tasks]]
+id = "hybrid-executor.1"
+theme = "hybrid-executor"
+title = "Minimal hybrid PoC: WarpFuture read → per-thread compute → WarpFuture write"
+kind = "experiment"
+status = "active"
+depends_on = []
+spawned_by = "user"
+research_questions = [
+    "Can a WarpFuture state machine transition to per-thread computation and back?",
+    "How should the per_thread_block! API look for non-yielding computation?",
+    "Does syncwarp() at entry/exit of per-thread block ensure correct reconvergence?",
+    "What is the measured overhead of WarpFuture↔per-thread switching?",
+    "What happens when lanes compute different durations in per-thread block?",
 ]

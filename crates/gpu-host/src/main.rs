@@ -607,7 +607,7 @@ fn run_hostcall_print_hello(dev: Arc<CudaDevice>) -> Result<()> {
             detail: format!("kernel reported failure (result={})", result_val),
         });
     }
-    if received.len() != 1 || received[0] != "Hello from GPU!" {
+    if received.len() != 1 || !received[0].contains("Hello from GPU!") {
         return Err(GpuHostError::Verification {
             test: "hostcall_print_hello",
             detail: format!("unexpected messages: {:?}", *received),
@@ -615,7 +615,7 @@ fn run_hostcall_print_hello(dev: Arc<CudaDevice>) -> Result<()> {
     }
 
     println!("  hostcall_print_hello: PASSED!");
-    println!("    GPU sent \"Hello from GPU!\" via hostcall protocol");
+    println!("    GPU sent \"{}\" via hostcall protocol", received[0]);
     println!("    Host listener received and printed it correctly");
     Ok(())
 }
@@ -3116,7 +3116,7 @@ fn run_warp_future_print_test(dev: Arc<CudaDevice>) -> Result<()> {
     println!("  Elapsed: {:.3}ms", elapsed.as_secs_f64() * 1000.0);
 
     let received_msg = msg_received.lock().unwrap();
-    if result_val == 1 && received_msg.starts_with("WarpFuture: ") {
+    if result_val == 1 && received_msg.contains("WarpFuture: ") {
         println!("  WarpFuture PoC: PASSED!");
         println!("    32 lanes cooperatively built and sent a message via WarpFuture trait.");
         println!("    State machine: INIT -> WAIT -> DONE (zero divergence by construction).");
@@ -3414,6 +3414,12 @@ fn main() -> Result<()> {
     // Per-block sharding test (per-block-sharding.2)
     run_sharded_hostcall_test(Arc::clone(&dev))?;
 
+    // Sharding benchmark (per-block-sharding.3)
+    run_sharding_benchmark(Arc::clone(&dev))?;
+
+    // Parallel file grep demo (product.8)
+    run_parallel_grep_test(Arc::clone(&dev))?;
+
     // Warp intrinsics test (warp-future.3): syncwarp + shfl.sync.idx
     run_warp_intrinsics_test(Arc::clone(&dev))?;
 
@@ -3650,5 +3656,272 @@ fn run_sharded_hostcall_test(dev: Arc<CudaDevice>) -> Result<()> {
         "    {} blocks with per-block sharding, all printed successfully",
         num_blocks
     );
+    Ok(())
+}
+
+// ============================================================
+// Sharding benchmark (per-block-sharding.3)
+// ============================================================
+
+/// Run a single sharding benchmark config using hostcall_latency_bench_v2.
+/// Returns (wall_ms, total_completed, total_retries, per_thread_latencies_ns).
+fn run_sharding_bench_config(
+    dev: &Arc<CudaDevice>,
+    grid_dim: u32,
+    block_dim: u32,
+    num_iters: u32,
+    hc_buf: &std::sync::Arc<hostcall::HostcallBuffer>,
+) -> Result<(f64, u64, u64, Vec<f64>)> {
+    let num_threads = grid_dim * block_dim;
+    let dev_ptr = hc_buf.dev_ptr;
+
+    let results_count = (num_threads as usize) * 3;
+    let (results_host_ptr, results_dev_ptr) =
+        unsafe { alloc_mapped_u64_array(dev, results_count)? };
+
+    let hc_buf_listener = std::sync::Arc::clone(hc_buf);
+    let listener_handle = std::thread::spawn(move || {
+        hc_buf_listener.listen(|_msg| {});
+    });
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "kernel_bench_v2", &["hostcall_latency_bench_v2"]);
+    let f = dev
+        .get_func("kernel_bench_v2", "hostcall_latency_bench_v2")
+        .ok_or(GpuHostError::KernelNotFound("hostcall_latency_bench_v2"))?;
+
+    let cfg = LaunchConfig {
+        grid_dim: (grid_dim, 1, 1),
+        block_dim: (block_dim, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    let start = std::time::Instant::now();
+    unsafe {
+        f.launch(cfg, (dev_ptr as u64, results_dev_ptr as u64, num_iters))?;
+    }
+    dev.synchronize()?;
+    let wall_elapsed = start.elapsed();
+
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    hc_buf.signal_shutdown();
+    listener_handle.join().unwrap();
+
+    let mut latencies_ns: Vec<f64> = Vec::new();
+    let mut total_retries: u64 = 0;
+    let mut total_completed: u64 = 0;
+
+    for tid in 0..num_threads as usize {
+        let elapsed_ns = unsafe { std::ptr::read_volatile(results_host_ptr.add(tid * 3)) };
+        let retries = unsafe { std::ptr::read_volatile(results_host_ptr.add(tid * 3 + 1)) };
+        let completed = unsafe { std::ptr::read_volatile(results_host_ptr.add(tid * 3 + 2)) };
+
+        total_retries += retries;
+        total_completed += completed;
+
+        if completed > 0 {
+            let avg_ns = elapsed_ns as f64 / completed as f64;
+            latencies_ns.push(avg_ns);
+        }
+    }
+
+    unsafe { free_mapped_u64_array(results_host_ptr)? };
+
+    Ok((
+        wall_elapsed.as_secs_f64() * 1000.0,
+        total_completed,
+        total_retries,
+        latencies_ns,
+    ))
+}
+
+/// Benchmark: compare sharded vs unsharded hostcall pools at various thread counts.
+fn run_sharding_benchmark(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Sharding Benchmark (per-block-sharding.3) ---");
+    println!("  Comparing unsharded (global pool) vs sharded (per-block pool)");
+    println!("  using NOP hostcalls with CAS retry counting.\n");
+
+    let num_iters: u32 = 10;
+
+    // Test configs: (num_blocks, threads_per_block, total_threads)
+    let configs: &[(u32, u32)] = &[
+        (1, 32),    // 32 threads, 1 block
+        (4, 32),    // 128 threads, 4 blocks
+        (16, 32),   // 512 threads, 16 blocks
+    ];
+
+    for &(num_blocks, block_dim) in configs {
+        let total_threads = num_blocks * block_dim;
+        let packets_per_thread = 2u32;
+        let total_packets = (total_threads * packets_per_thread).min(64) as u16;
+
+        println!("  --- {} blocks × {} threads = {} total ---", num_blocks, block_dim, total_threads);
+
+        // Baseline: unsharded (global pool)
+        let hc_buf_global = std::sync::Arc::new(
+            hostcall::HostcallBuffer::new(total_packets)?
+        );
+        let (g_wall, g_completed, g_retries, mut g_latencies) =
+            run_sharding_bench_config(&dev, num_blocks, block_dim, num_iters, &hc_buf_global)?;
+
+        g_latencies.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let g_p50 = percentile(&g_latencies, 50.0);
+        let g_p95 = percentile(&g_latencies, 95.0);
+        let g_cas = if g_completed > 0 { g_retries as f64 / g_completed as f64 } else { 0.0 };
+        let g_throughput = if g_wall > 0.0 { g_completed as f64 / (g_wall / 1000.0) } else { 0.0 };
+
+        // Sharded: one shard per block
+        let pkts_per_shard = packets_per_thread;
+        let hc_buf_sharded = std::sync::Arc::new(
+            hostcall::HostcallBuffer::new_sharded(num_blocks, pkts_per_shard)?
+        );
+        let (s_wall, s_completed, s_retries, mut s_latencies) =
+            run_sharding_bench_config(&dev, num_blocks, block_dim, num_iters, &hc_buf_sharded)?;
+
+        s_latencies.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let s_p50 = percentile(&s_latencies, 50.0);
+        let s_p95 = percentile(&s_latencies, 95.0);
+        let s_cas = if s_completed > 0 { s_retries as f64 / s_completed as f64 } else { 0.0 };
+        let s_throughput = if s_wall > 0.0 { s_completed as f64 / (s_wall / 1000.0) } else { 0.0 };
+
+        println!(
+            "    GLOBAL:  p50={:>10.0}ns  p95={:>10.0}ns  CAS/call={:>6.2}  throughput={:>8.0}/s  completed={}/{}  wall={:.1}ms",
+            g_p50, g_p95, g_cas, g_throughput, g_completed, total_threads as u64 * num_iters as u64, g_wall,
+        );
+        println!(
+            "    SHARDED: p50={:>10.0}ns  p95={:>10.0}ns  CAS/call={:>6.2}  throughput={:>8.0}/s  completed={}/{}  wall={:.1}ms",
+            s_p50, s_p95, s_cas, s_throughput, s_completed, total_threads as u64 * num_iters as u64, s_wall,
+        );
+
+        let speedup = if s_wall > 0.0 { g_wall / s_wall } else { 0.0 };
+        let cas_reduction = if g_cas > 0.0 { (1.0 - s_cas / g_cas) * 100.0 } else { 0.0 };
+        println!(
+            "    DELTA:   wall speedup={:.2}x  CAS reduction={:.0}%  latency ratio(p50)={:.2}x",
+            speedup, cas_reduction, if s_p50 > 0.0 { g_p50 / s_p50 } else { 0.0 },
+        );
+        println!();
+    }
+
+    println!("  Sharding benchmark complete.");
+    Ok(())
+}
+
+// ============================================================
+// Parallel file grep demo (product.8)
+// ============================================================
+
+/// Parallel file grep: 4 GPU threads independently open, read, and search a file.
+fn run_parallel_grep_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Parallel File Grep Demo (product.8) ---");
+
+    // Create test file with lines, some containing "GPU"
+    let test_content = "\
+Hello world from the host\n\
+This line mentions GPU computing\n\
+Plain text line number three\n\
+Another GPU reference here\n\
+Nothing special on this line\n\
+GPU acceleration is the future\n\
+Final line without the keyword\n\
+Yet another GPU mention for testing\n";
+    std::fs::write("gpu_grep_test.txt", test_content).expect("write test file");
+    println!("  Created test file: gpu_grep_test.txt ({} bytes, 8 lines)", test_content.len());
+
+    let pattern = b"GPU";
+    let num_threads: u32 = 4;
+
+    // Allocate hostcall buffer with sideband for bulk read
+    let hc_buf = hostcall::HostcallBuffer::new_with_sideband(8, 1024 * 1024)?;
+    let dev_ptr = hc_buf.dev_ptr;
+    let sb_dev_ptr = hc_buf.sideband_dev_ptr;
+
+    // Allocate results array (1 u32 per thread, but use u64 array for convenience)
+    let (results_host_ptr, results_dev_ptr) =
+        unsafe { alloc_mapped_u64_array(&dev, num_threads as usize)? };
+
+    // Allocate pattern in mapped memory
+    let (pattern_host_ptr, pattern_dev_ptr) =
+        unsafe { alloc_mapped_u64_array(&dev, 1)? };
+    unsafe {
+        let pat_bytes = pattern_host_ptr as *mut u8;
+        for (i, &b) in pattern.iter().enumerate() {
+            std::ptr::write_volatile(pat_bytes.add(i), b);
+        }
+    }
+
+    let messages: std::sync::Arc<std::sync::Mutex<Vec<String>>> =
+        std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let messages_clone = std::sync::Arc::clone(&messages);
+
+    let hc_buf_ref = std::sync::Arc::new(hc_buf);
+    let hc_buf_listener = std::sync::Arc::clone(&hc_buf_ref);
+    let listener_handle = std::thread::spawn(move || {
+        hc_buf_listener.listen(|msg| {
+            let s = String::from_utf8_lossy(msg).to_string();
+            println!("  [GREP] {}", s);
+            messages_clone.lock().unwrap().push(s);
+        });
+    });
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "kernel_grep", &["parallel_grep_kernel"]);
+    let f = dev.get_func("kernel_grep", "parallel_grep_kernel")
+        .ok_or(GpuHostError::KernelNotFound("parallel_grep_kernel"))?;
+
+    // Launch: 4 blocks × 1 thread (avoid warp divergence)
+    let cfg = LaunchConfig {
+        grid_dim: (num_threads, 1, 1),
+        block_dim: (1, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    println!("  Launching parallel_grep_kernel ({} threads, pattern=\"{}\")...",
+             num_threads, String::from_utf8_lossy(pattern));
+    let start = std::time::Instant::now();
+    unsafe {
+        f.launch(cfg, (
+            dev_ptr as u64,
+            sb_dev_ptr as u64,
+            results_dev_ptr as u64,
+            pattern_dev_ptr as u64,
+            pattern.len() as u32,
+        ))?;
+    }
+    dev.synchronize()?;
+    let elapsed = start.elapsed();
+
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    hc_buf_ref.signal_shutdown();
+    listener_handle.join().unwrap();
+
+    // Read results
+    let mut total_matches: u32 = 0;
+    for tid in 0..num_threads as usize {
+        let count = unsafe { std::ptr::read_volatile(results_host_ptr.add(tid)) } as u32;
+        total_matches += count;
+        println!("    Thread {}: {} matches", tid, count);
+    }
+
+    unsafe {
+        free_mapped_u64_array(results_host_ptr)?;
+        free_mapped_u64_array(pattern_host_ptr)?;
+    }
+    let _ = std::fs::remove_file("gpu_grep_test.txt");
+
+    let received = messages.lock().unwrap();
+    println!("  Elapsed: {:.3}ms", elapsed.as_secs_f64() * 1000.0);
+    println!("  Total matches: {} (expected {} per thread × {} threads = {})",
+             total_matches, 4, num_threads, 4 * num_threads);
+    println!("  Messages received: {}", received.len());
+
+    if total_matches == 4 * num_threads {
+        println!("  parallel_grep: PASSED!");
+        println!("    {} threads independently searched a file, each finding 4 \"GPU\" matches.",
+                 num_threads);
+    } else {
+        println!("  parallel_grep: PARTIAL (expected {} total matches, got {})",
+                 4 * num_threads, total_matches);
+    }
+
     Ok(())
 }

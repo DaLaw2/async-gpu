@@ -19,7 +19,7 @@ brainstorm_seq = 29
 review_seq = 5
 
 # Brainstorm trigger control
-last_brainstorm_at_completed = 107
+last_brainstorm_at_completed = 116
 brainstorm_interval = 3
 
 # ============================================================

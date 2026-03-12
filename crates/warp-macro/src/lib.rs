@@ -43,6 +43,16 @@
 //! Both `if` and `else` arms must be present when either contains `warp_*!()`
 //! calls (required for warp convergence).
 //!
+//! `match` expressions are also supported — all arms must contain `warp_*!()`
+//! calls. Lane 0 evaluates the scrutinee, maps to an arm index, and broadcasts:
+//! ```rust,ignore
+//! match cmd {
+//!     0 => { warp_print!(buf, b"cmd: zero"); }
+//!     1 => { warp_print!(buf, b"cmd: one"); }
+//!     _ => { warp_print!(buf, b"cmd: other"); }
+//! }
+//! ```
+//!
 //! # Example
 //!
 //! ```rust,ignore
@@ -145,13 +155,16 @@ enum CfgNode {
     /// A loop whose body contains warp_*!() calls.
     /// The body repeats (back-edge) until a BreakIf exits.
     /// Consumes count_sequence_states(body) state numbers (no overhead).
-    Loop {
-        body: Vec<CfgNode>,
-    },
+    Loop { body: Vec<CfgNode> },
     /// `if cond { break; }` — only valid inside a Loop body.
     /// Becomes a DECISION state (1 state): if cond → post-loop, else → continue.
-    BreakIf {
-        cond: syn::Expr,
+    BreakIf { cond: syn::Expr },
+    /// A match expression where at least one arm contains warp_*!() calls.
+    /// Becomes a MATCH_DECISION state (1 state) plus states for each arm.
+    /// All arms must contain warp_*!() calls (required for warp convergence).
+    Match {
+        scrutinee: syn::Expr,
+        arms: Vec<(syn::Pat, Vec<CfgNode>)>,
     },
 }
 
@@ -170,6 +183,12 @@ fn count_node_states(node: &CfgNode) -> u32 {
         } => 1 + count_sequence_states(then_branch) + count_sequence_states(else_branch),
         CfgNode::Loop { body } => count_sequence_states(body),
         CfgNode::BreakIf { .. } => 1, // DECISION state
+        CfgNode::Match { arms, .. } => {
+            1 + arms
+                .iter()
+                .map(|(_, nodes)| count_sequence_states(nodes))
+                .sum::<u32>()
+        }
     }
 }
 
@@ -201,6 +220,11 @@ fn collect_all_vars(nodes: &[CfgNode]) -> Vec<syn::Ident> {
                 vars.extend(collect_all_vars(body));
             }
             CfgNode::BreakIf { .. } => {}
+            CfgNode::Match { arms, .. } => {
+                for (_, arm_nodes) in arms {
+                    vars.extend(collect_all_vars(arm_nodes));
+                }
+            }
         }
     }
     vars
@@ -250,6 +274,7 @@ fn expr_contains_warp_call(expr: &Expr) -> bool {
         }
         Expr::Block(eb) => stmts_contain_warp_call(&eb.block.stmts),
         Expr::Loop(el) => stmts_contain_warp_call(&el.body.stmts),
+        Expr::Match(em) => em.arms.iter().any(|arm| expr_contains_warp_call(&arm.body)),
         _ => false,
     }
 }
@@ -424,6 +449,67 @@ fn build_cfg(
                 });
             }
 
+            // `match expr { arms... }` — match containing warp calls
+            Stmt::Expr(Expr::Match(expr_match), _) => {
+                let has_warp = expr_match
+                    .arms
+                    .iter()
+                    .any(|arm| expr_contains_warp_call(&arm.body));
+
+                if !has_warp {
+                    return Err(syn::Error::new_spanned(
+                        &expr_match.match_token,
+                        "#[warp_async] `match` blocks without warp_*!() calls are not supported. \
+                         Only match arms containing warp_*!() calls are allowed.",
+                    )
+                    .to_compile_error());
+                }
+
+                let mut match_arms = Vec::new();
+                for arm in &expr_match.arms {
+                    // Each arm body must be a block containing warp calls
+                    let arm_stmts = match &*arm.body {
+                        Expr::Block(eb) => eb.block.stmts.clone(),
+                        // Single expression: wrap as a statement
+                        other => vec![Stmt::Expr(other.clone(), None)],
+                    };
+
+                    if !stmts_contain_warp_call(&arm_stmts) {
+                        return Err(syn::Error::new_spanned(
+                            &arm.body,
+                            "#[warp_async] all match arms must contain warp_*!() calls \
+                             (required for warp convergence — all 32 lanes must agree on state).",
+                        )
+                        .to_compile_error());
+                    }
+
+                    // Guard clauses not supported
+                    if arm.guard.is_some() {
+                        return Err(syn::Error::new_spanned(
+                            &arm.body,
+                            "#[warp_async] match arm guards (`if ...`) are not supported.",
+                        )
+                        .to_compile_error());
+                    }
+
+                    let arm_nodes = build_cfg(&arm_stmts, buf_name, in_loop)?;
+                    if arm_nodes.is_empty() {
+                        return Err(syn::Error::new_spanned(
+                            &arm.body,
+                            "#[warp_async] match arm must contain at least one warp_*!() call.",
+                        )
+                        .to_compile_error());
+                    }
+
+                    match_arms.push((arm.pat.clone(), arm_nodes));
+                }
+
+                nodes.push(CfgNode::Match {
+                    scrutinee: *expr_match.expr.clone(),
+                    arms: match_arms,
+                });
+            }
+
             // `loop { ... }` — loop containing warp calls
             Stmt::Expr(Expr::Loop(expr_loop), _) => {
                 if !stmts_contain_warp_call(&expr_loop.body.stmts) {
@@ -506,6 +592,13 @@ fn contains_break_if(nodes: &[CfgNode]) -> bool {
             CfgNode::Loop { body } => {
                 if contains_break_if(body) {
                     return true;
+                }
+            }
+            CfgNode::Match { arms, .. } => {
+                for (_, arm_nodes) in arms {
+                    if contains_break_if(arm_nodes) {
+                        return true;
+                    }
                 }
             }
             CfgNode::Call(_) => {}
@@ -923,7 +1016,7 @@ fn gen_arms_for_sequence(
                 gen_arms_for_sequence(
                     body,
                     loop_start,
-                    loop_start,  // back-edge: end of body → start of body
+                    loop_start, // back-edge: end of body → start of body
                     done_state,
                     ready_value,
                     param_names,
@@ -933,11 +1026,90 @@ fn gen_arms_for_sequence(
                 );
             }
 
+            CfgNode::Match {
+                scrutinee,
+                arms: match_arms,
+            } => {
+                let decision_state = node_start;
+
+                // Compute arm start states
+                let mut arm_starts = Vec::with_capacity(match_arms.len());
+                let mut arm_offset = node_start + 1; // +1 for DECISION state
+                for (_, arm_nodes) in match_arms {
+                    arm_starts.push(arm_offset);
+                    arm_offset += count_sequence_states(arm_nodes);
+                }
+
+                // Captures for scrutinee evaluation
+                let captures: Vec<_> = param_names
+                    .iter()
+                    .chain(known_vars.iter())
+                    .map(|v| quote! { let #v = self.#v; })
+                    .collect();
+
+                // Build the match expression that returns arm index
+                let arm_index_arms: Vec<_> = match_arms
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, (pat, _))| {
+                        let idx_u32 = idx as u32;
+                        quote! { #pat => #idx_u32 }
+                    })
+                    .collect();
+
+                // Build the dispatch: arm_index → arm start state
+                let dispatch_arms: Vec<_> = arm_starts
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, start)| {
+                        let idx_u32 = idx as u32;
+                        quote! { #idx_u32 => #start }
+                    })
+                    .collect();
+
+                // Fallback: if somehow no arm matches, stay in decision (shouldn't happen
+                // with exhaustive match, but safe default)
+                arms.push(quote! {
+                    #decision_state => {
+                        #(#captures)*
+                        let mut __arm_idx: u32 = 0;
+                        if wcx.is_leader() {
+                            __arm_idx = match #scrutinee {
+                                #(#arm_index_arms,)*
+                            };
+                        }
+                        let __arm_idx = unsafe { broadcast_u32(wcx.active_mask, __arm_idx) };
+                        if wcx.is_leader() {
+                            self.state = match __arm_idx {
+                                #(#dispatch_arms,)*
+                                _ => #decision_state, // unreachable with exhaustive match
+                            };
+                        }
+                        WarpPoll::Pending
+                    }
+                });
+
+                // Generate arms for each match arm (all converge at next_state)
+                for (idx, (_, arm_nodes)) in match_arms.iter().enumerate() {
+                    let mut arm_vars = known_vars.clone();
+                    gen_arms_for_sequence(
+                        arm_nodes,
+                        arm_starts[idx],
+                        next_state, // all arms converge at join point
+                        done_state,
+                        ready_value,
+                        param_names,
+                        &mut arm_vars,
+                        break_target,
+                        arms,
+                    );
+                }
+            }
+
             CfgNode::BreakIf { cond } => {
                 let decision_state = node_start;
-                let bt = break_target.expect(
-                    "BUG: BreakIf outside loop (should be caught during parsing)",
-                );
+                let bt = break_target
+                    .expect("BUG: BreakIf outside loop (should be caught during parsing)");
 
                 // Captures for condition evaluation
                 let captures: Vec<_> = param_names
@@ -977,8 +1149,9 @@ fn gen_arms_for_sequence(
 /// lanes in a warp. Lane 0 drives state transitions; all lanes read the current state
 /// via `shfl.sync.idx.b32` broadcast.
 ///
-/// Supports `if`/`else` blocks: lane 0 evaluates the condition and broadcasts the
-/// decision to all lanes. Both arms must contain `warp_*!()` calls and must be present.
+/// Supports `if`/`else`, `loop`/`break`, and `match` blocks: lane 0 evaluates the
+/// condition/scrutinee and broadcasts the decision to all lanes. All branches/arms
+/// must contain `warp_*!()` calls (required for warp convergence).
 ///
 /// # Example
 ///

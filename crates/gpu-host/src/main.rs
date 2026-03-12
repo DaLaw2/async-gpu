@@ -3714,6 +3714,115 @@ fn run_warp_cfg_loop_test(dev: Arc<CudaDevice>) -> Result<()> {
     Ok(())
 }
 
+/// Match dispatch test for #[warp_async] (warp-cfg.4)
+///
+/// Tests that the macro-generated state machine handles match expressions correctly.
+/// Runs 3 tests: cmd=0 ("cmd: zero"), cmd=1 ("cmd: one"), cmd=99 ("cmd: other").
+/// Each run should produce exactly 2 messages: the arm message + "match: done".
+fn run_warp_cfg_match_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- WarpFuture Match Test (warp-cfg.4) ---");
+
+    let launch_cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (32, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    fn run_with_cmd(
+        dev: &Arc<CudaDevice>,
+        launch_cfg: LaunchConfig,
+        cmd: u64,
+        module_name: &'static str,
+    ) -> Result<(u32, Vec<String>)> {
+        let ptx = cudarc::nvrtc::Ptx::from_src(KERNEL_PTX);
+        let _ = dev.load_ptx(ptx, module_name, &["warp_cfg_match_test"]);
+        let f = dev
+            .get_func(module_name, "warp_cfg_match_test")
+            .ok_or(GpuHostError::KernelNotFound("warp_cfg_match_test"))?;
+
+        let hc_buf = hostcall::HostcallBuffer::new(4)?;
+        let dev_ptr = hc_buf.dev_ptr;
+        let (status_host, status_dev) = unsafe { alloc_mapped_result_array(dev, 1)? };
+
+        let hc_buf_ref = std::sync::Arc::new(hc_buf);
+        let hc_buf_listener = std::sync::Arc::clone(&hc_buf_ref);
+        let messages = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let msg_clone = std::sync::Arc::clone(&messages);
+
+        let listener_handle = std::thread::spawn(move || {
+            hc_buf_listener.listen(move |msg| {
+                let text = String::from_utf8_lossy(msg).to_string();
+                println!("  [HOST] GPU says: \"{text}\"");
+                let mut guard = msg_clone.lock().unwrap();
+                guard.push(text);
+            });
+        });
+
+        unsafe { f.launch(launch_cfg, (dev_ptr, cmd, status_dev))? };
+        dev.synchronize()?;
+
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        hc_buf_ref.signal_shutdown();
+        listener_handle.join().unwrap();
+
+        let status = unsafe { std::ptr::read_volatile(status_host) };
+        let msgs = messages.lock().unwrap().clone();
+        unsafe { free_mapped_mem(status_host)? };
+        Ok((status, msgs))
+    }
+
+    // --- Run 1: cmd=0 → "cmd: zero" ---
+    println!("  Run 1: cmd=0");
+    let (status, msgs) = run_with_cmd(&dev, launch_cfg, 0, "kernel_match0")?;
+    let arm_msg = msgs.iter().any(|m| m.contains("cmd: zero"));
+    let done_msg = msgs.iter().any(|m| m.contains("match: done"));
+    if status == 1 && arm_msg && done_msg && msgs.len() == 2 {
+        println!("  Run 1: PASSED (arm 0 taken)");
+    } else {
+        println!("  Run 1: FAILED (status={status}, msgs={msgs:?})");
+        return Err(GpuHostError::Verification {
+            test: "warp_cfg_match_cmd0",
+            detail: format!("expected cmd:zero + match:done, got: {msgs:?}"),
+        });
+    }
+
+    // --- Run 2: cmd=1 → "cmd: one" ---
+    println!("  Run 2: cmd=1");
+    let (status, msgs) = run_with_cmd(&dev, launch_cfg, 1, "kernel_match1")?;
+    let arm_msg = msgs.iter().any(|m| m.contains("cmd: one"));
+    let done_msg = msgs.iter().any(|m| m.contains("match: done"));
+    if status == 1 && arm_msg && done_msg && msgs.len() == 2 {
+        println!("  Run 2: PASSED (arm 1 taken)");
+    } else {
+        println!("  Run 2: FAILED (status={status}, msgs={msgs:?})");
+        return Err(GpuHostError::Verification {
+            test: "warp_cfg_match_cmd1",
+            detail: format!("expected cmd:one + match:done, got: {msgs:?}"),
+        });
+    }
+
+    // --- Run 3: cmd=99 → "cmd: other" (wildcard arm) ---
+    println!("  Run 3: cmd=99 (wildcard)");
+    let (status, msgs) = run_with_cmd(&dev, launch_cfg, 99, "kernel_match99")?;
+    let arm_msg = msgs.iter().any(|m| m.contains("cmd: other"));
+    let done_msg = msgs.iter().any(|m| m.contains("match: done"));
+    if status == 1 && arm_msg && done_msg && msgs.len() == 2 {
+        println!("  Run 3: PASSED (wildcard arm taken)");
+    } else {
+        println!("  Run 3: FAILED (status={status}, msgs={msgs:?})");
+        return Err(GpuHostError::Verification {
+            test: "warp_cfg_match_cmd99",
+            detail: format!("expected cmd:other + match:done, got: {msgs:?}"),
+        });
+    }
+
+    println!("  WarpFuture Match: PASSED!");
+    println!("    #[warp_async] match generates correct MATCH_DECISION state");
+    println!("    Lane 0 evaluates scrutinee, maps to arm index, broadcasts to all 32 lanes");
+    println!("    All 3 arms verified on GPU hardware");
+    Ok(())
+}
+
 /// Hybrid executor test: WarpFuture PRINT → per-thread compute → WarpFuture PRINT (hybrid-executor.1)
 ///
 /// Validates that a WarpFuture state machine can transition to per-thread divergent
@@ -4617,6 +4726,9 @@ fn main() -> Result<()> {
 
     // WarpFuture loop/break test (warp-cfg.3)
     run_warp_cfg_loop_test(Arc::clone(&dev))?;
+
+    // WarpFuture match test (warp-cfg.4)
+    run_warp_cfg_match_test(Arc::clone(&dev))?;
 
     // Hybrid executor test (hybrid-executor.1)
     run_hybrid_executor_test(Arc::clone(&dev))?;

@@ -1721,6 +1721,41 @@ unsafe fn warp_cfg_loop_test(buf: *mut u8, counter: u64) -> bool {
 }
 
 // ============================================================
+// warp-cfg.4: Match support in #[warp_async]
+// ============================================================
+//
+// Test: match on a u64 command code, each arm prints a different message.
+// Uses 3 arms: 0 → "cmd: zero", 1 → "cmd: one", _ → "cmd: other".
+// Then prints "match: done" after the match.
+//
+// State machine (for cmd=0):
+//   0: MATCH_DECISION → broadcast(cmd) → arm 0,1,2 start states
+//   1: INIT print("cmd: zero")    → submit PRINT
+//   2: WAIT print("cmd: zero")    → goto 7 (join)
+//   3: INIT print("cmd: one")     → submit PRINT
+//   4: WAIT print("cmd: one")     → goto 7 (join)
+//   5: INIT print("cmd: other")   → submit PRINT
+//   6: WAIT print("cmd: other")   → goto 7 (join)
+//   7: INIT print("match: done")  → submit PRINT
+//   8: WAIT print("match: done")  → DONE
+//   9: DONE
+#[warp_macro::warp_async]
+unsafe fn warp_cfg_match_test(buf: *mut u8, cmd: u64) -> bool {
+    match cmd {
+        0 => {
+            warp_print!(buf, b"cmd: zero");
+        }
+        1 => {
+            warp_print!(buf, b"cmd: one");
+        }
+        _ => {
+            warp_print!(buf, b"cmd: other");
+        }
+    }
+    warp_print!(buf, b"match: done");
+}
+
+// ============================================================
 // Sharding-aware print test — uses gpu-runtime's hostcall path
 // ============================================================
 

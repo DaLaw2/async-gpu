@@ -59,3 +59,12 @@ Record important technical decisions here as they emerge from research.
 - **Rationale**: (1) Reuses existing hostcall protocol — no new transport mechanism. (2) 56-byte message is sufficient for most panic messages. (3) `trap` instruction cleanly terminates the thread on SM70+. (4) Global static is the only way to pass buffer pointer to `#[panic_handler]` (fixed signature). (5) Best-effort avoids double-panic.
 - **Alternatives**: Device-side printf (CUDA-specific, no custom formatting), shared memory flag (limited info, no message text), custom exception handler (no PTX support).
 - **Sources**: gpu-panic.1-c61
+
+### ADR-6: Host listener I/O thread separation
+- **Date**: 2026-03-12
+- **Status**: accepted
+- **Context**: Blocking FILE I/O handlers (OPEN, WRITE, READ, CLOSE) and STDIN stall the entire listener thread, preventing timely processing of fast services (PRINT, PANIC). STDIN can block indefinitely. Code was duplicated across two listener methods (`listen` and `listen_with_stdin`).
+- **Decision**: Split listener into fast-path (inline) and slow-path (I/O thread via `mpsc` channel). Fast services (NOP, PRINT, TIME, PANIC) handled inline. Slow services (FILE I/O, STDIN) offloaded to dedicated I/O thread. Unified both listener implementations via `StdinSource` trait with `RealStdin` and `CannedStdin` implementations. Uses `std::thread::scope` for safe I/O thread lifecycle.
+- **Rationale**: (1) Host profiling (host-scaling.1) showed NOP processing takes ~2µs — host CPU is NOT the bottleneck. (2) Blocking I/O is the only service that stalls other packets. (3) Channel overhead (~100ns) is negligible vs FILE I/O cost (10-500µs). (4) No protocol changes needed — GPU doesn't know which host thread responded. (5) `StdinSource` trait eliminates 100+ lines of duplicated dispatch code.
+- **Alternatives**: Multi-threaded dispatch (ready stack doesn't partition well), async runtime/tokio (over-engineering for CPU-bound fast path), per-warp packet pools (requires GPU protocol changes).
+- **Sources**: host-scaling.1-c63, host-scaling.2-c64

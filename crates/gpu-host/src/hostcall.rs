@@ -10,6 +10,69 @@ use std::fmt;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::mpsc;
+
+// ================================================================
+// Stdin abstraction (host-scaling.2 Phase A)
+// ================================================================
+
+/// Trait for providing stdin data to the listener.
+/// Implementations must be `Send` to allow I/O thread offloading.
+pub trait StdinSource: Send {
+    /// Read up to `buf.len()` bytes of stdin input. Returns bytes written.
+    fn read_line_bytes(&mut self, buf: &mut [u8]) -> usize;
+}
+
+/// Real stdin — reads from `std::io::stdin()`. Blocks until input available.
+pub struct RealStdin;
+
+impl StdinSource for RealStdin {
+    fn read_line_bytes(&mut self, buf: &mut [u8]) -> usize {
+        let mut line = String::new();
+        match std::io::stdin().read_line(&mut line) {
+            Ok(0) | Err(_) => 0,
+            Ok(n) => {
+                let bytes = line.as_bytes();
+                let copy = n.min(buf.len());
+                buf[..copy].copy_from_slice(&bytes[..copy]);
+                copy
+            }
+        }
+    }
+}
+
+/// Canned stdin — returns pre-loaded data once, then EOF on subsequent reads.
+pub struct CannedStdin {
+    data: Vec<u8>,
+    consumed: bool,
+}
+
+impl CannedStdin {
+    pub fn new(data: Vec<u8>) -> Self {
+        Self {
+            data,
+            consumed: false,
+        }
+    }
+}
+
+impl StdinSource for CannedStdin {
+    fn read_line_bytes(&mut self, buf: &mut [u8]) -> usize {
+        if self.consumed {
+            return 0;
+        }
+        self.consumed = true;
+        let copy = self.data.len().min(buf.len());
+        buf[..copy].copy_from_slice(&self.data[..copy]);
+        copy
+    }
+}
+
+/// Request sent from listener thread to I/O thread for blocking operations.
+struct IoRequest {
+    pkt_idx: u16,
+    service: u32,
+}
 
 /// Map a std::io::Error to an error category code for hostcall error propagation.
 fn io_error_to_category(e: &std::io::Error) -> u16 {
@@ -176,127 +239,175 @@ impl HostcallBuffer {
         self.shutdown().store(1, Ordering::Release);
     }
 
-    /// Run the host listener loop. Blocks until shutdown is signaled.
+    /// Run the host listener loop with real stdin. Blocks until shutdown is signaled.
     ///
     /// `on_print` is called for each PRINT service request with the message bytes.
-    pub fn listen<F>(&self, mut on_print: F)
+    pub fn listen<F>(&self, on_print: F)
     where
         F: FnMut(&[u8]),
     {
-        let mut last_doorbell: u64 = 0;
-        let mut idle_spins: u32 = 0;
+        self.listen_unified(on_print, RealStdin);
+    }
 
-        // Adaptive polling: spin fast for SPIN_PHASE_LIMIT iterations,
-        // then switch to sleeping SLEEP_DURATION between polls.
-        // This keeps latency low when GPU is active, but drops CPU
-        // usage to near-zero when GPU is idle.
-        const SPIN_PHASE_LIMIT: u32 = 1_000; // ~10µs at ~100ns/spin
-        const SLEEP_DURATION: std::time::Duration = std::time::Duration::from_micros(100);
+    /// Unified listener with I/O thread separation (host-scaling.3, ADR-6).
+    ///
+    /// Fast services (NOP, PRINT, TIME, PANIC) are handled inline on the listener thread.
+    /// Blocking services (FILE I/O, STDIN) are offloaded to a dedicated I/O thread via channel.
+    pub fn listen_unified<F, S>(&self, mut on_print: F, stdin: S)
+    where
+        F: FnMut(&[u8]),
+        S: StdinSource,
+    {
+        let (io_tx, io_rx) = mpsc::channel::<IoRequest>();
 
-        // File descriptor table for FILE I/O services
+        std::thread::scope(|scope| {
+            // Spawn I/O thread for blocking operations (FILE, STDIN)
+            scope.spawn(|| {
+                self.io_thread_loop(io_rx, stdin);
+            });
+
+            let mut last_doorbell: u64 = 0;
+            let mut idle_spins: u32 = 0;
+
+            // Adaptive polling: spin fast for SPIN_PHASE_LIMIT iterations,
+            // then switch to sleeping SLEEP_DURATION between polls.
+            const SPIN_PHASE_LIMIT: u32 = 1_000; // ~10µs at ~100ns/spin
+            const SLEEP_DURATION: std::time::Duration =
+                std::time::Duration::from_micros(100);
+
+            loop {
+                if self.shutdown().load(Ordering::Acquire) != 0 {
+                    break;
+                }
+
+                let current_doorbell = self.doorbell().load(Ordering::Acquire);
+                if current_doorbell == last_doorbell {
+                    idle_spins += 1;
+                    if idle_spins <= SPIN_PHASE_LIMIT {
+                        std::hint::spin_loop();
+                    } else {
+                        std::thread::sleep(SLEEP_DURATION);
+                    }
+                    continue;
+                }
+
+                last_doorbell = current_doorbell;
+                idle_spins = 0;
+
+                let ready_head =
+                    self.ready_stack().swap(null_tagged(), Ordering::AcqRel);
+                if tagged_index(ready_head) == NULL_INDEX {
+                    continue;
+                }
+
+                let mut current = ready_head;
+                while tagged_index(current) != NULL_INDEX {
+                    let idx = tagged_index(current);
+                    let pkt = self.packet_ptr(idx);
+
+                    unsafe {
+                        let next = std::ptr::read_volatile(
+                            pkt.add(PKT_OFF_NEXT) as *const u64,
+                        );
+
+                        let control =
+                            &*(pkt.add(PKT_OFF_CONTROL) as *const AtomicU32);
+                        let ctrl = control.load(Ordering::Acquire);
+                        if ctrl & CONTROL_FILLED == 0 {
+                            current = next;
+                            continue;
+                        }
+
+                        let service = std::ptr::read_volatile(
+                            pkt.add(PKT_OFF_SERVICE) as *const u32,
+                        );
+
+                        match service {
+                            // Fast path — handle inline, set CONTROL_READY immediately
+                            SERVICE_NOP => {
+                                control.store(CONTROL_READY, Ordering::Release);
+                            }
+                            SERVICE_PRINT => {
+                                self.handle_print(pkt, &mut on_print);
+                                control.store(CONTROL_READY, Ordering::Release);
+                            }
+                            SERVICE_TIME => {
+                                let has_error = self.handle_time(pkt);
+                                let flags = if has_error {
+                                    CONTROL_READY | CONTROL_ERROR
+                                } else {
+                                    CONTROL_READY
+                                };
+                                control.store(flags, Ordering::Release);
+                            }
+                            SERVICE_PANIC => {
+                                self.handle_panic(pkt);
+                                control.store(CONTROL_READY, Ordering::Release);
+                            }
+                            // Slow path — offload to I/O thread
+                            SERVICE_OPEN | SERVICE_WRITE | SERVICE_READ
+                            | SERVICE_CLOSE | SERVICE_STDIN => {
+                                let _ = io_tx.send(IoRequest {
+                                    pkt_idx: idx,
+                                    service,
+                                });
+                            }
+                            _ => {
+                                control.store(
+                                    CONTROL_READY | CONTROL_ERROR,
+                                    Ordering::Release,
+                                );
+                            }
+                        }
+
+                        current = next;
+                    }
+                }
+            }
+
+            // Drop sender to signal I/O thread to exit
+            drop(io_tx);
+            // I/O thread joins automatically when scope exits
+        });
+    }
+
+    /// I/O thread loop — processes blocking FILE and STDIN operations.
+    ///
+    /// Runs until the channel sender is dropped (listener shutdown).
+    fn io_thread_loop<S: StdinSource>(
+        &self,
+        rx: mpsc::Receiver<IoRequest>,
+        mut stdin: S,
+    ) {
         let mut fd_table: HashMap<u64, File> = HashMap::new();
         let mut next_fd: u64 = 1; // fd 0 is reserved
 
-        loop {
-            // Check shutdown
-            if self.shutdown().load(Ordering::Acquire) != 0 {
-                break;
-            }
-
-            // Poll doorbell
-            let current_doorbell = self.doorbell().load(Ordering::Acquire);
-            if current_doorbell == last_doorbell {
-                idle_spins += 1;
-                if idle_spins <= SPIN_PHASE_LIMIT {
-                    // Fast spin phase — low latency
-                    std::hint::spin_loop();
-                } else {
-                    // Sleep phase — low CPU usage
-                    std::thread::sleep(SLEEP_DURATION);
-                }
-                continue;
-            }
-
-            last_doorbell = current_doorbell;
-            idle_spins = 0;
-
-            // Atomically grab all ready packets
-            let ready_head =
-                self.ready_stack().swap(null_tagged(), Ordering::AcqRel);
-            if tagged_index(ready_head) == NULL_INDEX {
-                continue;
-            }
-
-            // Walk the ready list and process each packet
-            let mut current = ready_head;
-            while tagged_index(current) != NULL_INDEX {
-                let idx = tagged_index(current);
-                let pkt = self.packet_ptr(idx);
-
-                unsafe {
-                    let next =
-                        std::ptr::read_volatile(pkt.add(PKT_OFF_NEXT) as *const u64);
-
-                    // Check CONTROL_FILLED — skip packets that were already processed
-                    // (prevents duplicate processing on re-visit)
-                    let control =
-                        &*(pkt.add(PKT_OFF_CONTROL) as *const AtomicU32);
-                    let ctrl = control.load(Ordering::Acquire);
-                    if ctrl & CONTROL_FILLED == 0 {
-                        // Not filled (stale or already processed) — skip
-                        current = next;
-                        continue;
+        while let Ok(req) = rx.recv() {
+            let pkt = self.packet_ptr(req.pkt_idx);
+            let has_error = unsafe {
+                match req.service {
+                    SERVICE_OPEN => {
+                        self.handle_open(pkt, &mut fd_table, &mut next_fd)
                     }
-
-                    let service =
-                        std::ptr::read_volatile(pkt.add(PKT_OFF_SERVICE) as *const u32);
-
-                    let has_error = match service {
-                        SERVICE_PRINT => {
-                            self.handle_print(pkt, &mut on_print);
-                            false
-                        }
-                        SERVICE_NOP => {
-                            false
-                        }
-                        SERVICE_OPEN => {
-                            self.handle_open(pkt, &mut fd_table, &mut next_fd)
-                        }
-                        SERVICE_WRITE => {
-                            self.handle_write(pkt, &mut fd_table)
-                        }
-                        SERVICE_READ => {
-                            self.handle_read(pkt, &mut fd_table)
-                        }
-                        SERVICE_CLOSE => {
-                            self.handle_close(pkt, &mut fd_table)
-                        }
-                        SERVICE_STDIN => {
-                            self.handle_stdin(pkt)
-                        }
-                        SERVICE_TIME => {
-                            self.handle_time(pkt)
-                        }
-                        SERVICE_PANIC => {
-                            self.handle_panic(pkt)
-                        }
-                        _ => {
-                            // Unknown service — set error bit
-                            true
-                        }
-                    };
-
-                    // Signal GPU: response is ready (clears FILLED, sets READY)
-                    let flags = if has_error {
-                        CONTROL_READY | CONTROL_ERROR
-                    } else {
-                        CONTROL_READY
-                    };
-                    control.store(flags, Ordering::Release);
-
-                    current = next;
+                    SERVICE_WRITE => self.handle_write(pkt, &mut fd_table),
+                    SERVICE_READ => self.handle_read(pkt, &mut fd_table),
+                    SERVICE_CLOSE => self.handle_close(pkt, &mut fd_table),
+                    SERVICE_STDIN => {
+                        self.handle_stdin_from_source(pkt, &mut stdin)
+                    }
+                    _ => true,
                 }
-            }
+            };
+
+            let control = unsafe {
+                &*(pkt.add(PKT_OFF_CONTROL) as *const AtomicU32)
+            };
+            let flags = if has_error {
+                CONTROL_READY | CONTROL_ERROR
+            } else {
+                CONTROL_READY
+            };
+            control.store(flags, Ordering::Release);
         }
     }
 
@@ -491,45 +602,6 @@ impl HostcallBuffer {
         }
     }
 
-    /// Handle SERVICE_STDIN: read a line from host stdin.
-    ///
-    /// Request payload (lane 0):
-    ///   Slot 0: max bytes to read (u64)
-    /// Response payload (lane 0):
-    ///   Slot 0: bytes read (u64), or FILE_ERROR_SENTINEL on error/EOF
-    ///   Slots 1-7: data bytes (up to 56 bytes)
-    unsafe fn handle_stdin(&self, pkt: *mut u8) -> bool {
-        let payload = pkt.add(PKT_OFF_PAYLOAD);
-
-        let max_len = std::ptr::read_volatile(payload as *const u64) as usize;
-        let max_len = max_len.min(STDIN_MAX_READ_LEN);
-
-        let mut line = String::new();
-        match std::io::stdin().read_line(&mut line) {
-            Ok(0) => {
-                // EOF — not an error, just zero bytes
-                println!("  [HOST] STDIN: EOF");
-                std::ptr::write_volatile(payload as *mut u64, 0u64);
-                false
-            }
-            Ok(n) => {
-                let bytes = line.as_bytes();
-                let copy_len = n.min(max_len);
-                println!("  [HOST] STDIN: read {} bytes: {:?}", copy_len, &line[..copy_len]);
-                std::ptr::write_volatile(payload as *mut u64, copy_len as u64);
-                let dst = payload.add(8);
-                for i in 0..copy_len {
-                    std::ptr::write_volatile(dst.add(i), bytes[i]);
-                }
-                false
-            }
-            Err(e) => {
-                eprintln!("  [HOST] STDIN ERROR: {}", e);
-                write_error_response(payload, &e)
-            }
-        }
-    }
-
     /// Handle SERVICE_TIME: return wall-clock time.
     ///
     /// Response payload (lane 0):
@@ -615,130 +687,42 @@ impl HostcallBuffer {
             }
         }
     }
-    /// Handle SERVICE_STDIN with canned data instead of reading from real stdin.
-    /// Returns the provided data as the stdin response.
-    unsafe fn handle_stdin_canned(&self, pkt: *mut u8, data: &[u8]) -> bool {
+    /// Handle SERVICE_STDIN using a `StdinSource` abstraction.
+    ///
+    /// Request payload (lane 0):
+    ///   Slot 0: max bytes to read (u64)
+    /// Response payload (lane 0):
+    ///   Slot 0: bytes read (u64)
+    ///   Slots 1-7: data bytes (up to 56 bytes)
+    unsafe fn handle_stdin_from_source<S: StdinSource>(
+        &self,
+        pkt: *mut u8,
+        stdin: &mut S,
+    ) -> bool {
         let payload = pkt.add(PKT_OFF_PAYLOAD);
         let max_len = std::ptr::read_volatile(payload as *const u64) as usize;
         let max_len = max_len.min(STDIN_MAX_READ_LEN);
-        let copy_len = data.len().min(max_len);
 
-        println!("  [HOST] STDIN (canned): providing {} bytes", copy_len);
-        std::ptr::write_volatile(payload as *mut u64, copy_len as u64);
+        let mut buf = [0u8; STDIN_MAX_READ_LEN];
+        let n = stdin.read_line_bytes(&mut buf[..max_len]);
+
+        println!("  [HOST] STDIN: {} bytes", n);
+        std::ptr::write_volatile(payload as *mut u64, n as u64);
         let dst = payload.add(8);
-        for i in 0..copy_len {
-            std::ptr::write_volatile(dst.add(i), data[i]);
+        for i in 0..n {
+            std::ptr::write_volatile(dst.add(i), buf[i]);
         }
         false
     }
 
     /// Listen with both a print callback and a canned stdin provider.
-    pub fn listen_with_stdin<F>(&self, mut on_print: F, stdin_data: Vec<u8>)
+    ///
+    /// Convenience wrapper around `listen_unified` with `CannedStdin`.
+    pub fn listen_with_stdin<F>(&self, on_print: F, stdin_data: Vec<u8>)
     where
         F: FnMut(&[u8]),
     {
-        let mut last_doorbell: u64 = 0;
-        let mut idle_spins: u32 = 0;
-        const SPIN_PHASE_LIMIT: u32 = 1_000;
-        const SLEEP_DURATION: std::time::Duration = std::time::Duration::from_micros(100);
-
-        let mut fd_table: HashMap<u64, File> = HashMap::new();
-        let mut next_fd: u64 = 1;
-        let mut stdin_consumed = false;
-
-        loop {
-            if self.shutdown().load(Ordering::Acquire) != 0 {
-                break;
-            }
-
-            let current_doorbell = self.doorbell().load(Ordering::Acquire);
-            if current_doorbell == last_doorbell {
-                idle_spins += 1;
-                if idle_spins <= SPIN_PHASE_LIMIT {
-                    std::hint::spin_loop();
-                } else {
-                    std::thread::sleep(SLEEP_DURATION);
-                }
-                continue;
-            }
-
-            last_doorbell = current_doorbell;
-            idle_spins = 0;
-
-            let ready_head =
-                self.ready_stack().swap(null_tagged(), Ordering::AcqRel);
-            if tagged_index(ready_head) == NULL_INDEX {
-                continue;
-            }
-
-            let mut current = ready_head;
-            while tagged_index(current) != NULL_INDEX {
-                let idx = tagged_index(current);
-                let pkt = self.packet_ptr(idx);
-
-                unsafe {
-                    let next =
-                        std::ptr::read_volatile(pkt.add(PKT_OFF_NEXT) as *const u64);
-
-                    // Check CONTROL_FILLED — skip packets that were already processed
-                    let control =
-                        &*(pkt.add(PKT_OFF_CONTROL) as *const AtomicU32);
-                    let ctrl = control.load(Ordering::Acquire);
-                    if ctrl & CONTROL_FILLED == 0 {
-                        current = next;
-                        continue;
-                    }
-
-                    let service =
-                        std::ptr::read_volatile(pkt.add(PKT_OFF_SERVICE) as *const u32);
-
-                    let has_error = match service {
-                        SERVICE_PRINT => {
-                            self.handle_print(pkt, &mut on_print);
-                            false
-                        }
-                        SERVICE_STDIN => {
-                            if !stdin_consumed {
-                                stdin_consumed = true;
-                                self.handle_stdin_canned(pkt, &stdin_data)
-                            } else {
-                                // Subsequent reads return EOF
-                                self.handle_stdin_canned(pkt, &[])
-                            }
-                        }
-                        SERVICE_TIME => {
-                            self.handle_time(pkt)
-                        }
-                        SERVICE_PANIC => {
-                            self.handle_panic(pkt)
-                        }
-                        SERVICE_OPEN => {
-                            self.handle_open(pkt, &mut fd_table, &mut next_fd)
-                        }
-                        SERVICE_WRITE => {
-                            self.handle_write(pkt, &mut fd_table)
-                        }
-                        SERVICE_READ => {
-                            self.handle_read(pkt, &mut fd_table)
-                        }
-                        SERVICE_CLOSE => {
-                            self.handle_close(pkt, &mut fd_table)
-                        }
-                        _ => true,
-                    };
-
-                    // Signal GPU: response is ready (clears FILLED, sets READY)
-                    let flags = if has_error {
-                        CONTROL_READY | CONTROL_ERROR
-                    } else {
-                        CONTROL_READY
-                    };
-                    control.store(flags, Ordering::Release);
-
-                    current = next;
-                }
-            }
-        }
+        self.listen_unified(on_print, CannedStdin::new(stdin_data));
     }
 }
 

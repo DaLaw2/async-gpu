@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 62      # Monotonic counter, incremented after each completed phase
-completed_tasks = 61
+total_cycles = 66      # Monotonic counter, incremented after each completed phase
+completed_tasks = 65
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
-current_mode = "do"
-current_step = "do.execute"
-current_task_id = "host-scaling.1"
-last_summary = "gpu-panic theme DONE: panic handler sends message via SERVICE_PANIC hostcall before trap. ADR-5 recorded. Test verified: block=0 thread=0 message with source location. Next: host-scaling.1 (profile listener bottleneck)."
+current_mode = "think"
+current_step = "think.triage"
+current_task_id = ""
+last_summary = "host-scaling theme DONE: unified listener + I/O thread (ADR-6). NOP benchmark comparable at 32+ threads, 1-thread shows ~2x latency (setup overhead). All 14 test suites pass. Next: brainstorm (trigger: 65-57=8 tasks since last bs)."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 14
@@ -1427,7 +1427,7 @@ success_criteria = [
 [[themes]]
 id = "host-scaling"
 title = "Scale host listener throughput"
-status = "active"
+status = "completed"
 spawned_by = "bs14"
 goal = "Host listener throughput scales with thread count (>100K calls/s at 512 threads)"
 success_criteria = [
@@ -1499,7 +1499,7 @@ id = "host-scaling.1"
 theme = "host-scaling"
 title = "Profile host listener bottleneck"
 kind = "investigation"
-status = "pending"
+status = "done"
 depends_on = []
 spawned_by = "bs14"
 research_questions = [
@@ -1514,7 +1514,7 @@ id = "host-scaling.2"
 theme = "host-scaling"
 title = "Design scaled listener architecture"
 kind = "design"
-status = "pending"
+status = "done"
 depends_on = ["host-scaling.1"]
 spawned_by = "bs14"
 research_questions = [
@@ -1529,7 +1529,7 @@ id = "host-scaling.3"
 theme = "host-scaling"
 title = "Implement scaled listener"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["host-scaling.2"]
 spawned_by = "bs14"
 research_questions = [
@@ -1543,7 +1543,7 @@ id = "host-scaling.4"
 theme = "host-scaling"
 title = "Benchmark throughput scaling"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["host-scaling.3"]
 spawned_by = "bs14"
 research_questions = [

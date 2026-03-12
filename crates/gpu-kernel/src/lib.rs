@@ -1756,6 +1756,59 @@ unsafe fn warp_cfg_match_test(buf: *mut u8, cmd: u64) -> bool {
 }
 
 // ============================================================
+// warp-cfg.5: Nested control flow stress test
+// ============================================================
+//
+// Test: if/else with match nested inside the then-branch.
+// Validates that nested control flow generates correct state machine.
+//
+// Parameters: flag (u64) selects if/else, cmd (u64) selects match arm within then.
+//
+// flag=1, cmd=0 → "then-cmd0" + "nested: done"
+// flag=1, cmd=1 → "then-cmd1" + "nested: done"
+// flag=1, cmd=99 → "then-other" + "nested: done"
+// flag=0, cmd=* → "else-path" + "nested: done"
+//
+// State machine (flag=1, cmd=0):
+//   0: IF_DECISION → broadcast(flag!=0) → 1 (then) or 9 (else)
+//   1: MATCH_DECISION → broadcast(match cmd) → 2, 4, or 6
+//   2: INIT print("then-cmd0")
+//   3: WAIT print("then-cmd0") → goto 8 (match-join)
+//   4: INIT print("then-cmd1")
+//   5: WAIT print("then-cmd1") → goto 8
+//   6: INIT print("then-other")
+//   7: WAIT print("then-other") → goto 8
+//   8: [match join → if join at 11]
+//   9: INIT print("else-path")
+//  10: WAIT print("else-path") → goto 11 (if join)
+//  11: INIT print("nested: done")
+//  12: WAIT print("nested: done") → DONE (13)
+//  13: DONE
+//
+// Note: match join (state 8) and if join (state 11) are the same because
+// the match is the only node in the then-branch — so match join IS the then
+// continuation, which is the if join point.
+#[warp_macro::warp_async]
+unsafe fn warp_cfg_nested_test(buf: *mut u8, flag: u64, cmd: u64) -> bool {
+    if flag != 0 {
+        match cmd {
+            0 => {
+                warp_print!(buf, b"then-cmd0");
+            }
+            1 => {
+                warp_print!(buf, b"then-cmd1");
+            }
+            _ => {
+                warp_print!(buf, b"then-other");
+            }
+        }
+    } else {
+        warp_print!(buf, b"else-path");
+    }
+    warp_print!(buf, b"nested: done");
+}
+
+// ============================================================
 // Sharding-aware print test — uses gpu-runtime's hostcall path
 // ============================================================
 

@@ -3823,6 +3823,134 @@ fn run_warp_cfg_match_test(dev: Arc<CudaDevice>) -> Result<()> {
     Ok(())
 }
 
+/// Nested control flow stress test for #[warp_async] (warp-cfg.5)
+///
+/// Tests if/else with match nested inside then-branch.
+/// 4 test cases: flag=1+cmd=0, flag=1+cmd=1, flag=1+cmd=99, flag=0.
+fn run_warp_cfg_nested_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- WarpFuture Nested Control Flow Test (warp-cfg.5) ---");
+
+    let launch_cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (32, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    fn run_nested(
+        dev: &Arc<CudaDevice>,
+        launch_cfg: LaunchConfig,
+        flag: u64,
+        cmd: u64,
+        module_name: &'static str,
+    ) -> Result<(u32, Vec<String>)> {
+        let ptx = cudarc::nvrtc::Ptx::from_src(KERNEL_PTX);
+        let _ = dev.load_ptx(ptx, module_name, &["warp_cfg_nested_test"]);
+        let f = dev
+            .get_func(module_name, "warp_cfg_nested_test")
+            .ok_or(GpuHostError::KernelNotFound("warp_cfg_nested_test"))?;
+
+        let hc_buf = hostcall::HostcallBuffer::new(4)?;
+        let dev_ptr = hc_buf.dev_ptr;
+        let (status_host, status_dev) = unsafe { alloc_mapped_result_array(dev, 1)? };
+
+        let hc_buf_ref = std::sync::Arc::new(hc_buf);
+        let hc_buf_listener = std::sync::Arc::clone(&hc_buf_ref);
+        let messages = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let msg_clone = std::sync::Arc::clone(&messages);
+
+        let listener_handle = std::thread::spawn(move || {
+            hc_buf_listener.listen(move |msg| {
+                let text = String::from_utf8_lossy(msg).to_string();
+                println!("  [HOST] GPU says: \"{text}\"");
+                let mut guard = msg_clone.lock().unwrap();
+                guard.push(text);
+            });
+        });
+
+        unsafe { f.launch(launch_cfg, (dev_ptr, flag, cmd, status_dev))? };
+        dev.synchronize()?;
+
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        hc_buf_ref.signal_shutdown();
+        listener_handle.join().unwrap();
+
+        let status = unsafe { std::ptr::read_volatile(status_host) };
+        let msgs = messages.lock().unwrap().clone();
+        unsafe { free_mapped_mem(status_host)? };
+        Ok((status, msgs))
+    }
+
+    struct TestCase {
+        flag: u64,
+        cmd: u64,
+        expected_msg: &'static str,
+        label: &'static str,
+        module: &'static str,
+    }
+
+    let cases = [
+        TestCase {
+            flag: 1,
+            cmd: 0,
+            expected_msg: "then-cmd0",
+            label: "then + match arm 0",
+            module: "kernel_nested_1_0",
+        },
+        TestCase {
+            flag: 1,
+            cmd: 1,
+            expected_msg: "then-cmd1",
+            label: "then + match arm 1",
+            module: "kernel_nested_1_1",
+        },
+        TestCase {
+            flag: 1,
+            cmd: 99,
+            expected_msg: "then-other",
+            label: "then + match wildcard",
+            module: "kernel_nested_1_99",
+        },
+        TestCase {
+            flag: 0,
+            cmd: 0,
+            expected_msg: "else-path",
+            label: "else branch",
+            module: "kernel_nested_0_0",
+        },
+    ];
+
+    for (i, tc) in cases.iter().enumerate() {
+        println!(
+            "  Run {}: flag={}, cmd={} ({})",
+            i + 1,
+            tc.flag,
+            tc.cmd,
+            tc.label
+        );
+        let (status, msgs) = run_nested(&dev, launch_cfg, tc.flag, tc.cmd, tc.module)?;
+        let arm_msg = msgs.iter().any(|m| m.contains(tc.expected_msg));
+        let done_msg = msgs.iter().any(|m| m.contains("nested: done"));
+        if status == 1 && arm_msg && done_msg && msgs.len() == 2 {
+            println!("  Run {}: PASSED ({})", i + 1, tc.label);
+        } else {
+            println!("  Run {}: FAILED (status={status}, msgs={msgs:?})", i + 1);
+            return Err(GpuHostError::Verification {
+                test: "warp_cfg_nested",
+                detail: format!(
+                    "run {}: expected '{}' + 'nested: done', got: {msgs:?}",
+                    i + 1,
+                    tc.expected_msg
+                ),
+            });
+        }
+    }
+
+    println!("  WarpFuture Nested Control Flow: PASSED!");
+    println!("    if/else with match nested inside then-branch verified on GPU");
+    println!("    All 4 paths (3 match arms + else branch) produce correct messages");
+    Ok(())
+}
+
 /// Hybrid executor test: WarpFuture PRINT → per-thread compute → WarpFuture PRINT (hybrid-executor.1)
 ///
 /// Validates that a WarpFuture state machine can transition to per-thread divergent
@@ -4729,6 +4857,9 @@ fn main() -> Result<()> {
 
     // WarpFuture match test (warp-cfg.4)
     run_warp_cfg_match_test(Arc::clone(&dev))?;
+
+    // WarpFuture nested control flow test (warp-cfg.5)
+    run_warp_cfg_nested_test(Arc::clone(&dev))?;
 
     // Hybrid executor test (hybrid-executor.1)
     run_hybrid_executor_test(Arc::clone(&dev))?;

@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 117     # Monotonic counter, incremented after each completed phase
-completed_tasks = 116
+total_cycles = 118     # Monotonic counter, incremented after each completed phase
+completed_tasks = 117
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "warp-cfg.4"
-last_summary = "warp-cfg.3 done: loop/break in #[warp_async] works on GPU. CfgNode::Loop back-edge + BreakIf DECISION state verified with counter=0. Next: warp-cfg.4 (match support)."
+current_task_id = "warp-cfg.5"
+last_summary = "warp-cfg.4 done: match in #[warp_async] works on GPU. MATCH_DECISION broadcasts arm index, all 3 arms verified. All control flow constructs (if/else, loop/break, match) now supported. Next: warp-cfg.5 (nested control flow stress test)."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 29
@@ -2591,7 +2591,7 @@ id = "warp-cfg.4"
 theme = "warp-cfg"
 title = "Implement match support in #[warp_async]"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["warp-cfg.2"]
 spawned_by = "bs28"
 research_questions = [
@@ -2605,7 +2605,7 @@ id = "warp-cfg.5"
 theme = "warp-cfg"
 title = "Nested control flow stress test"
 kind = "experiment"
-status = "pending"
+status = "active"
 depends_on = ["warp-cfg.3", "warp-cfg.4"]
 spawned_by = "bs28"
 research_questions = [

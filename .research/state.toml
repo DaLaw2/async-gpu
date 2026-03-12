@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 56      # Monotonic counter, incremented after each completed phase
-completed_tasks = 55
+total_cycles = 58      # Monotonic counter, incremented after each completed phase
+completed_tasks = 57
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.route"
+current_step = "do.execute"
 current_task_id = ""
-last_summary = "Batch B done: host-listener.2 (adaptive polling), benchmark.3 (PTX register profiling), api.2 (gpu-runtime facade crate). 55/58 tasks. host-listener theme COMPLETE. Next: benchmark.2 (latency microbench), benchmark.4 (CUDA comparison), api.3 (example)."
+last_summary = "Batch C done: benchmark.2 (latency microbench: 13µs single-thread, 7ms@128t, CAS retries ~49/call@128t), api.3 (end-to-end example works). 57/58 tasks. benchmark.4 (CUDA comparison) is last pending task."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 12
@@ -1209,7 +1209,7 @@ id = "benchmark.2"
 theme = "benchmark"
 title = "Hostcall microbenchmarks — latency, throughput, CAS retries"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["benchmark.1"]
 spawned_by = "bs12"
 research_questions = [
@@ -1345,7 +1345,7 @@ id = "api.3"
 theme = "api"
 title = "End-to-end example with build script"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["api.2"]
 spawned_by = "bs12"
 research_questions = [

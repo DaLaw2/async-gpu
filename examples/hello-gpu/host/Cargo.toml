@@ -1,0 +1,10 @@
+[workspace]
+
+[package]
+name = "hello-gpu-host"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cudarc = { version = "0.12", features = ["cuda-12060"] }
+gpu-protocol = { path = "../../../crates/gpu-protocol" }

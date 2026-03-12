@@ -935,3 +935,114 @@ pub unsafe extern "ptx-kernel" fn error_propagation_test(buf: *mut u8, result: *
         core::ptr::write_volatile(result.add(0), 1); // All tests passed
     }
 }
+
+// ============================================================
+// Hostcall latency benchmark kernel (benchmark.2)
+// ============================================================
+
+/// Instrumented hc_pop_free: returns (packet_index, cas_retry_count).
+#[inline(always)]
+unsafe fn hc_pop_free_counted(buf: *mut u8) -> (u16, u32) {
+    let free_ptr = buf.add(BUF_OFF_FREE_STACK) as *mut u64;
+    let mut retries: u32 = 0;
+    loop {
+        let old_head = sys_load_acquire_u64(free_ptr as *const u64);
+        let idx = tagged_index(old_head);
+        if idx == NULL_INDEX {
+            return (NULL_INDEX, retries);
+        }
+        let pkt = buf.add(packet_offset(idx));
+        let next = core::ptr::read_volatile(pkt.add(PKT_OFF_NEXT) as *const u64);
+        if sys_cas_u64(free_ptr, old_head, next) == old_head {
+            return (idx, retries);
+        }
+        retries += 1;
+    }
+}
+
+/// Benchmark kernel: measure hostcall NOP round-trip latency.
+///
+/// Each thread performs `num_iters` NOP hostcalls sequentially.
+/// Records per-thread: total elapsed ns, total CAS retries, iterations completed.
+///
+/// Layout of `results` (u64 array, 3 entries per thread):
+///   results[tid*3 + 0] = total elapsed nanoseconds for all iterations
+///   results[tid*3 + 1] = total CAS retries across all iterations
+///   results[tid*3 + 2] = number of completed iterations
+///
+/// `buf` = hostcall buffer
+/// `results` = output array, must have space for num_threads * 3 u64 entries
+/// `num_iters` = number of NOP hostcalls per thread
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn hostcall_latency_bench(
+    buf: *mut u8,
+    results: *mut u64,
+    num_iters: u32,
+) {
+    let thread_x = nvptx::_thread_idx_x() as u32;
+    let block_x = nvptx::_block_idx_x() as u32;
+    let block_dim_x = nvptx::_block_dim_x() as u32;
+    let tid = block_x * block_dim_x + thread_x;
+
+    let t_start = gpu_instant_nanos();
+    let mut total_retries: u64 = 0;
+    let mut completed: u64 = 0;
+
+    let mut iter: u32 = 0;
+    while iter < num_iters {
+        // Pop free packet (instrumented)
+        let (pkt_idx, retries) = hc_pop_free_counted(buf);
+        if pkt_idx == NULL_INDEX {
+            // Pool exhaustion — stop this thread
+            break;
+        }
+        total_retries += retries as u64;
+
+        let pkt = buf.add(packet_offset(pkt_idx));
+
+        // Fill NOP packet
+        let mask = activemask();
+        core::ptr::write_volatile(pkt.add(PKT_OFF_ACTIVE_MASK) as *mut u32, mask);
+        core::ptr::write_volatile(pkt.add(PKT_OFF_SERVICE) as *mut u32, SERVICE_NOP);
+        sys_store_release_u32(pkt.add(PKT_OFF_CONTROL) as *mut u32, 0);
+
+        // Mark as filled
+        sys_store_release_u32(pkt.add(PKT_OFF_CONTROL) as *mut u32, CONTROL_FILLED);
+
+        // Push to ready stack
+        let ready_ptr = buf.add(BUF_OFF_READY_STACK) as *mut u64;
+        hc_push(ready_ptr, buf, pkt_idx);
+
+        // Ring doorbell
+        sys_fetch_add_u64(buf.add(BUF_OFF_DOORBELL) as *mut u64, 1);
+
+        // Spin-wait for response
+        let control_ptr = pkt.add(PKT_OFF_CONTROL) as *const u32;
+        let mut spins: u32 = 0;
+        loop {
+            let ctrl = sys_spin_load_acquire_u32(control_ptr);
+            if ctrl & CONTROL_READY != 0 {
+                break;
+            }
+            spins += 1;
+            if spins >= GPU_MAX_SPIN {
+                break;
+            }
+        }
+
+        // Return packet to free stack
+        let free_ptr = buf.add(BUF_OFF_FREE_STACK) as *mut u64;
+        hc_push(free_ptr, buf, pkt_idx);
+
+        completed += 1;
+        iter += 1;
+    }
+
+    let t_end = gpu_instant_nanos();
+
+    // Write results
+    let base = (tid as usize) * 3;
+    core::ptr::write_volatile(results.add(base), t_end - t_start);
+    core::ptr::write_volatile(results.add(base + 1), total_retries);
+    core::ptr::write_volatile(results.add(base + 2), completed);
+}

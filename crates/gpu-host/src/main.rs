@@ -2589,6 +2589,200 @@ fn run_slab_concurrent_test(dev: Arc<CudaDevice>) -> Result<()> {
     Ok(())
 }
 
+// ============================================================
+// Hostcall latency benchmark (benchmark.2)
+// ============================================================
+
+/// Allocate a mapped u64 array for benchmark results.
+unsafe fn alloc_mapped_u64_array(
+    _dev: &Arc<CudaDevice>,
+    count: usize,
+) -> Result<(*mut u64, sys::CUdeviceptr)> {
+    let cu = cuda_lib();
+    let size = count * std::mem::size_of::<u64>();
+
+    let mut host_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
+    let flags = sys::CU_MEMHOSTALLOC_DEVICEMAP | sys::CU_MEMHOSTALLOC_PORTABLE;
+    let result = cu.cuMemHostAlloc(&mut host_ptr, size, flags);
+    if result != sys::CUresult::CUDA_SUCCESS {
+        return Err(GpuHostError::CudaAlloc(result));
+    }
+
+    let mut dev_ptr: sys::CUdeviceptr = 0;
+    let result = cu.cuMemHostGetDevicePointer_v2(&mut dev_ptr, host_ptr, 0);
+    if result != sys::CUresult::CUDA_SUCCESS {
+        cu.cuMemFreeHost(host_ptr);
+        return Err(GpuHostError::CudaGetDevPtr(result));
+    }
+
+    std::ptr::write_bytes(host_ptr as *mut u8, 0, size);
+    Ok((host_ptr as *mut u64, dev_ptr))
+}
+
+/// Free a mapped u64 array.
+unsafe fn free_mapped_u64_array(host_ptr: *mut u64) -> Result<()> {
+    let cu = cuda_lib();
+    let result = cu.cuMemFreeHost(host_ptr as *mut std::ffi::c_void);
+    if result != sys::CUresult::CUDA_SUCCESS {
+        return Err(GpuHostError::CudaFreeMem(result));
+    }
+    Ok(())
+}
+
+/// Compute percentile from a sorted slice (nearest-rank method).
+fn percentile(sorted: &[f64], p: f64) -> f64 {
+    if sorted.is_empty() {
+        return 0.0;
+    }
+    let rank = (p / 100.0 * sorted.len() as f64).ceil() as usize;
+    let idx = rank.saturating_sub(1).min(sorted.len() - 1);
+    sorted[idx]
+}
+
+/// Run the hostcall latency benchmark at a specific thread count.
+fn run_latency_bench_config(
+    dev: &Arc<CudaDevice>,
+    num_threads: u32,
+    num_iters: u32,
+    num_packets: u16,
+) -> Result<()> {
+    use std::sync::Arc as StdArc;
+
+    let hc_buf = hostcall::HostcallBuffer::new(num_packets)?;
+    let dev_ptr = hc_buf.dev_ptr;
+
+    // Allocate results: 3 u64 per thread
+    let results_count = (num_threads as usize) * 3;
+    let (results_host_ptr, results_dev_ptr) =
+        unsafe { alloc_mapped_u64_array(dev, results_count)? };
+
+    let hc_buf_ref = StdArc::new(hc_buf);
+    let hc_buf_listener = StdArc::clone(&hc_buf_ref);
+    let listener_handle = std::thread::spawn(move || {
+        hc_buf_listener.listen(|_msg| {
+            // NOP service — no print messages expected
+        });
+    });
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "kernel", &["hostcall_latency_bench"]);
+    let f = dev
+        .get_func("kernel", "hostcall_latency_bench")
+        .ok_or(GpuHostError::KernelNotFound("hostcall_latency_bench"))?;
+
+    // Launch: 1 block with num_threads threads (up to 1024)
+    let block_dim = num_threads.min(1024);
+    let grid_dim = (num_threads + block_dim - 1) / block_dim;
+    let cfg = LaunchConfig {
+        grid_dim: (grid_dim, 1, 1),
+        block_dim: (block_dim, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    let start = std::time::Instant::now();
+    unsafe {
+        f.launch(
+            cfg,
+            (dev_ptr as u64, results_dev_ptr as u64, num_iters),
+        )?;
+    }
+    dev.synchronize()?;
+    let wall_elapsed = start.elapsed();
+
+    // Give listener time to finish processing
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    hc_buf_ref.signal_shutdown();
+    listener_handle.join().unwrap();
+
+    // Read results and compute statistics
+    let mut latencies_ns: Vec<f64> = Vec::new();
+    let mut total_retries: u64 = 0;
+    let mut total_completed: u64 = 0;
+
+    for tid in 0..num_threads as usize {
+        let elapsed_ns = unsafe { std::ptr::read_volatile(results_host_ptr.add(tid * 3)) };
+        let retries = unsafe { std::ptr::read_volatile(results_host_ptr.add(tid * 3 + 1)) };
+        let completed = unsafe { std::ptr::read_volatile(results_host_ptr.add(tid * 3 + 2)) };
+
+        total_retries += retries;
+        total_completed += completed;
+
+        if completed > 0 {
+            let avg_ns = elapsed_ns as f64 / completed as f64;
+            latencies_ns.push(avg_ns);
+        }
+    }
+
+    latencies_ns.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+    let p50 = percentile(&latencies_ns, 50.0);
+    let p95 = percentile(&latencies_ns, 95.0);
+    let p99 = percentile(&latencies_ns, 99.0);
+    let mean = if latencies_ns.is_empty() {
+        0.0
+    } else {
+        latencies_ns.iter().sum::<f64>() / latencies_ns.len() as f64
+    };
+
+    let total_hostcalls = total_completed;
+    let throughput = if wall_elapsed.as_secs_f64() > 0.0 {
+        total_hostcalls as f64 / wall_elapsed.as_secs_f64()
+    } else {
+        0.0
+    };
+    let cas_retry_rate = if total_completed > 0 {
+        total_retries as f64 / total_completed as f64
+    } else {
+        0.0
+    };
+
+    println!(
+        "    threads={:<4} iters={:<4} packets={:<3} | \
+         p50={:>10.0}ns  p95={:>10.0}ns  p99={:>10.0}ns  mean={:>10.0}ns | \
+         CAS retries/call={:.2}  throughput={:.0} calls/s  \
+         completed={}/{}  wall={:.1}ms",
+        num_threads,
+        num_iters,
+        num_packets,
+        p50,
+        p95,
+        p99,
+        mean,
+        cas_retry_rate,
+        throughput,
+        total_completed,
+        num_threads as u64 * num_iters as u64,
+        wall_elapsed.as_secs_f64() * 1000.0,
+    );
+
+    unsafe { free_mapped_u64_array(results_host_ptr)? };
+
+    Ok(())
+}
+
+/// Run the full hostcall latency benchmark suite.
+fn run_hostcall_latency_benchmark(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Hostcall Latency Benchmark (benchmark.2) ---");
+    println!("  Each thread performs N sequential NOP hostcalls with globaltimer timing.");
+    println!("  Latency = per-thread average round-trip time.\n");
+
+    let num_iters = 10;
+
+    // Test matrix: thread counts × packet pool sizes
+    let thread_counts = [1, 32, 128, 512];
+    let packet_multipliers = [2, 4]; // packets = multiplier × thread_count (capped at 64)
+
+    for &threads in &thread_counts {
+        for &mult in &packet_multipliers {
+            let packets = ((threads * mult) as u16).min(64).max(4);
+            run_latency_bench_config(&dev, threads, num_iters, packets)?;
+        }
+    }
+
+    println!("\n  Benchmark complete.");
+    Ok(())
+}
+
 fn main() -> Result<()> {
     println!("=== GPU Kernel Execution Test ===\n");
 
@@ -2630,6 +2824,9 @@ fn main() -> Result<()> {
 
     // Dynamic allocation stress test (product.1)
     run_dynamic_alloc_test(Arc::clone(&dev))?;
+
+    // Hostcall latency benchmark (benchmark.2) — run before PAL tests
+    run_hostcall_latency_benchmark(Arc::clone(&dev))?;
 
     // PAL stdout routing test (std-pal.1)
     run_std_println_test(Arc::clone(&dev))?;

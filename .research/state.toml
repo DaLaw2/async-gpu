@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 127     # Monotonic counter, incremented after each completed phase
-completed_tasks = 126
+total_cycles = 129     # Monotonic counter, incremented after each completed phase
+completed_tasks = 128
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.execute"
-current_task_id = "gpu-pipeline.2"
-last_summary = "gpu-pipeline.1 done: fragment-to-matrix mapping verified for mma.sync.aligned.m16n8k16. D output is transposed (row=lane, col=group). Modularized gpu-kernel (5230→8 modules) and gpu-host main.rs (6333→9 modules). Next: gpu-pipeline.2 multi-tile GEMM."
+current_step = "do.route"
+current_task_id = ""
+last_summary = "gpu-pipeline theme COMPLETE: all 3 tasks done. Fragment mapping (.1), multi-tile GEMM (.2), GEMM+softmax pipeline (.3) all verified. gpu-autonomous epic decision gate reached."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 33
@@ -3021,7 +3021,7 @@ key_insight = "All building blocks proven. Next: focused integration theme (gpu-
 [[themes]]
 id = "gpu-pipeline"
 title = "GPU autonomous compute pipeline integration"
-status = "active"
+status = "completed"
 spawned_by = "bs33"
 epic = "gpu-autonomous"
 goal = "Compose proven primitives (MMA, shared memory, hostcall) into a working autonomous pipeline"
@@ -3050,7 +3050,7 @@ id = "gpu-pipeline.2"
 theme = "gpu-pipeline"
 title = "Multi-tile K-accumulation GEMM loop"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["gpu-pipeline.1"]
 spawned_by = "bs33"
 research_questions = [
@@ -3064,7 +3064,7 @@ id = "gpu-pipeline.3"
 theme = "gpu-pipeline"
 title = "End-to-end autonomous compute pipeline (load → GEMM → softmax → save)"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["gpu-pipeline.2"]
 spawned_by = "bs33"
 research_questions = [

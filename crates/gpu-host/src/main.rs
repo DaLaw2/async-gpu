@@ -166,6 +166,12 @@ fn main() -> Result<()> {
     // Softmax test (gpu-compute.6)
     tests_compute::run_softmax_test(Arc::clone(&dev))?;
 
+    // Multi-tile GEMM test (gpu-pipeline.2)
+    tests_compute::run_multi_tile_gemm_test(Arc::clone(&dev))?;
+
+    // GEMM + softmax pipeline test (gpu-pipeline.3)
+    tests_compute::run_gemm_softmax_pipeline_test(Arc::clone(&dev))?;
+
     // GPU panic handler test (gpu-panic.2) — MUST BE LAST
     // since trap instruction calls process::exit(0)
     tests_pipeline::run_panic_test(Arc::clone(&dev))?;

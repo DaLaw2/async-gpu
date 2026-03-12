@@ -1603,3 +1603,284 @@ pub unsafe extern "ptx-kernel" fn test_softmax(
         core::ptr::write_volatile(status, 1);
     }
 }
+
+// ============================================================
+// gpu-pipeline.2: Multi-tile K-accumulation GEMM loop
+// ============================================================
+
+/// Multi-tile GEMM: D = A(16×K) × B(K×8) with K-dimension tiling.
+///
+/// Loops over K in tiles of 16, accumulating MMA results in f32 registers.
+/// A is row-major f16x2 packed [16][K/2] u32, B is row-major f16x2 packed [K][4] u32.
+/// D output is 16×8 f32 in thread-indexed layout (128 u32).
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn test_multi_tile_gemm(
+    a_global: *const u32,
+    b_global: *const u32,
+    d_global: *mut u32,
+    k_tiles: u32,
+    status: *mut u32,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let smem = get_dynamic_smem_ptr() as *mut u32;
+        let a_smem = smem; // [16][8] = 128 u32 per tile
+        let b_smem = smem.add(128); // [16][4] = 64 u32 per tile
+
+        let group = tid / 4;
+        let lane = tid % 4;
+        let k_half = k_tiles * 8; // K/2 = packed u32 count per row of A
+
+        // Initialize accumulator to zero
+        let mut c0: u32 = 0;
+        let mut c1: u32 = 0;
+        let mut c2: u32 = 0;
+        let mut c3: u32 = 0;
+
+        let mut t = 0u32;
+        while t < k_tiles {
+            // Load A tile: 32 threads load 128 u32 (4 each)
+            // A_tile[row][col_packed] = A_full[row][t*8 + col_packed]
+            let mut i = 0u32;
+            while i < 4 {
+                let smem_idx = tid * 4 + i;
+                let row = smem_idx / 8;
+                let col_packed = smem_idx % 8;
+                let global_idx = row * k_half + t * 8 + col_packed;
+                *a_smem.add(smem_idx as usize) = *a_global.add(global_idx as usize);
+                i += 1;
+            }
+
+            // Load B tile: 32 threads load 64 u32 (2 each)
+            // B_tile[row][col_packed] = B_full[t*16 + row][col_packed]
+            let mut i = 0u32;
+            while i < 2 {
+                let smem_idx = tid * 2 + i;
+                let row = smem_idx / 4;
+                let col_packed = smem_idx % 4;
+                let global_idx = (t * 16 + row) * 4 + col_packed;
+                *b_smem.add(smem_idx as usize) = *b_global.add(global_idx as usize);
+                i += 1;
+            }
+
+            bar_sync();
+
+            // Load MMA fragments from shared memory (same mapping as gpu-pipeline.1)
+            let a0 = *a_smem.add((group * 8 + lane) as usize);
+            let a1 = *a_smem.add((group * 8 + lane + 4) as usize);
+            let a2 = *a_smem.add(((group + 8) * 8 + lane) as usize);
+            let a3 = *a_smem.add(((group + 8) * 8 + lane + 4) as usize);
+
+            let b0 = *b_smem.add((group * 4 + lane) as usize);
+            let b1 = *b_smem.add(((group + 8) * 4 + lane) as usize);
+
+            // MMA: D = A*B + C (accumulate across tiles)
+            let d0: u32;
+            let d1: u32;
+            let d2: u32;
+            let d3: u32;
+            core::arch::asm!(
+                "mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32 \
+                 {{{d0}, {d1}, {d2}, {d3}}}, \
+                 {{{a0}, {a1}, {a2}, {a3}}}, \
+                 {{{b0}, {b1}}}, \
+                 {{{c0}, {c1}, {c2}, {c3}}};",
+                d0 = out(reg32) d0,
+                d1 = out(reg32) d1,
+                d2 = out(reg32) d2,
+                d3 = out(reg32) d3,
+                a0 = in(reg32) a0,
+                a1 = in(reg32) a1,
+                a2 = in(reg32) a2,
+                a3 = in(reg32) a3,
+                b0 = in(reg32) b0,
+                b1 = in(reg32) b1,
+                c0 = in(reg32) c0,
+                c1 = in(reg32) c1,
+                c2 = in(reg32) c2,
+                c3 = in(reg32) c3,
+            );
+
+            // Feed D back as C for next iteration
+            c0 = d0;
+            c1 = d1;
+            c2 = d2;
+            c3 = d3;
+
+            bar_sync(); // Ensure all threads done before overwriting smem
+            t += 1;
+        }
+
+        // Write final accumulated D fragments to output
+        let out_base = (tid * 4) as usize;
+        *d_global.add(out_base) = c0;
+        *d_global.add(out_base + 1) = c1;
+        *d_global.add(out_base + 2) = c2;
+        *d_global.add(out_base + 3) = c3;
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (a_global, b_global, d_global, k_tiles);
+    }
+
+    if tid == 0 {
+        core::ptr::write_volatile(status, 1);
+    }
+}
+
+// ============================================================
+// gpu-pipeline.3: End-to-end GEMM + softmax pipeline
+// ============================================================
+
+/// Autonomous GEMM + softmax pipeline: output = softmax(A × B, per row).
+///
+/// Phase 1: Multi-tile GEMM (reuses gpu-pipeline.2 pattern)
+/// Phase 2: Write GEMM output to shared memory in matrix order
+/// Phase 3: Per-row softmax (16 threads, 1 row each, 8 elements)
+///
+/// This demonstrates GPU-autonomous multi-step compute: the host launches once,
+/// and the GPU executes the entire GEMM → softmax pipeline without intervention.
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn test_gemm_softmax_pipeline(
+    a_global: *const u32,
+    b_global: *const u32,
+    softmax_output: *mut f32,
+    k_tiles: u32,
+    status: *mut u32,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let smem = get_dynamic_smem_ptr() as *mut u32;
+        let a_smem = smem; // 128 u32 for A tile
+        let b_smem = smem.add(128); // 64 u32 for B tile
+
+        let group = tid / 4;
+        let lane = tid % 4;
+        let k_half = k_tiles * 8;
+
+        // === Phase 1: Multi-tile GEMM ===
+        let mut c0: u32 = 0;
+        let mut c1: u32 = 0;
+        let mut c2: u32 = 0;
+        let mut c3: u32 = 0;
+
+        let mut t = 0u32;
+        while t < k_tiles {
+            let mut i = 0u32;
+            while i < 4 {
+                let smem_idx = tid * 4 + i;
+                let row = smem_idx / 8;
+                let col_packed = smem_idx % 8;
+                let global_idx = row * k_half + t * 8 + col_packed;
+                *a_smem.add(smem_idx as usize) = *a_global.add(global_idx as usize);
+                i += 1;
+            }
+            let mut i = 0u32;
+            while i < 2 {
+                let smem_idx = tid * 2 + i;
+                let row = smem_idx / 4;
+                let col_packed = smem_idx % 4;
+                let global_idx = (t * 16 + row) * 4 + col_packed;
+                *b_smem.add(smem_idx as usize) = *b_global.add(global_idx as usize);
+                i += 1;
+            }
+            bar_sync();
+
+            let a0 = *a_smem.add((group * 8 + lane) as usize);
+            let a1 = *a_smem.add((group * 8 + lane + 4) as usize);
+            let a2 = *a_smem.add(((group + 8) * 8 + lane) as usize);
+            let a3 = *a_smem.add(((group + 8) * 8 + lane + 4) as usize);
+            let b0 = *b_smem.add((group * 4 + lane) as usize);
+            let b1 = *b_smem.add(((group + 8) * 4 + lane) as usize);
+
+            let d0: u32;
+            let d1: u32;
+            let d2: u32;
+            let d3: u32;
+            core::arch::asm!(
+                "mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32 \
+                 {{{d0}, {d1}, {d2}, {d3}}}, \
+                 {{{a0}, {a1}, {a2}, {a3}}}, \
+                 {{{b0}, {b1}}}, \
+                 {{{c0}, {c1}, {c2}, {c3}}};",
+                d0 = out(reg32) d0,
+                d1 = out(reg32) d1,
+                d2 = out(reg32) d2,
+                d3 = out(reg32) d3,
+                a0 = in(reg32) a0,
+                a1 = in(reg32) a1,
+                a2 = in(reg32) a2,
+                a3 = in(reg32) a3,
+                b0 = in(reg32) b0,
+                b1 = in(reg32) b1,
+                c0 = in(reg32) c0,
+                c1 = in(reg32) c1,
+                c2 = in(reg32) c2,
+                c3 = in(reg32) c3,
+            );
+
+            c0 = d0;
+            c1 = d1;
+            c2 = d2;
+            c3 = d3;
+            bar_sync();
+            t += 1;
+        }
+
+        // === Phase 2: Write GEMM output to shared memory in matrix order ===
+        // Fragment mapping: d0=D[lane*2][group], d1=D[lane*2+1][group],
+        //                   d2=D[lane*2+8][group], d3=D[lane*2+9][group]
+        let d_smem = smem as *mut f32; // reuse shared memory (128 f32 fits in 192 u32)
+        *d_smem.add((lane * 2 * 8 + group) as usize) = f32::from_bits(c0);
+        *d_smem.add(((lane * 2 + 1) * 8 + group) as usize) = f32::from_bits(c1);
+        *d_smem.add(((lane * 2 + 8) * 8 + group) as usize) = f32::from_bits(c2);
+        *d_smem.add(((lane * 2 + 9) * 8 + group) as usize) = f32::from_bits(c3);
+        bar_sync();
+
+        // === Phase 3: Per-row softmax (threads 0-15 each handle one row) ===
+        if tid < 16 {
+            let row_base = (tid * 8) as usize;
+
+            // Find max in this row
+            let mut max_val = *d_smem.add(row_base);
+            let mut j = 1usize;
+            while j < 8 {
+                let v = *d_smem.add(row_base + j);
+                if v > max_val {
+                    max_val = v;
+                }
+                j += 1;
+            }
+
+            // Compute exp(x - max) and sum
+            let mut sum = 0.0f32;
+            let mut exp_vals = [0.0f32; 8];
+            j = 0;
+            while j < 8 {
+                let e = gpu_exp_f32(*d_smem.add(row_base + j) - max_val);
+                exp_vals[j] = e;
+                sum += e;
+                j += 1;
+            }
+
+            // Normalize and write to global output
+            j = 0;
+            while j < 8 {
+                *softmax_output.add(row_base + j) = exp_vals[j] / sum;
+                j += 1;
+            }
+        }
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (a_global, b_global, softmax_output, k_tiles);
+    }
+
+    if tid == 0 {
+        core::ptr::write_volatile(status, 1);
+    }
+}

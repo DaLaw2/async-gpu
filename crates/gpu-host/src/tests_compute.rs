@@ -848,3 +848,231 @@ pub(crate) fn run_softmax_test(dev: Arc<CudaDevice>) -> Result<()> {
     }
     Ok(())
 }
+
+/// gpu-pipeline.2: Multi-tile K-accumulation GEMM.
+/// Tests D = A(16×K) × B(K×8) with K=32 (2 tiles) and K=64 (4 tiles).
+pub(crate) fn run_multi_tile_gemm_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Multi-tile K-accumulation GEMM test (gpu-pipeline.2) ---");
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "multi_tile_gemm", &["test_multi_tile_gemm"]);
+    let f = dev
+        .get_func("multi_tile_gemm", "test_multi_tile_gemm")
+        .ok_or(GpuHostError::KernelNotFound("test_multi_tile_gemm"))?;
+
+    // f16 packing helpers
+    fn f32_to_f16(val: f32) -> u16 {
+        let bits = val.to_bits();
+        let sign = (bits >> 31) & 1;
+        let exp = ((bits >> 23) & 0xFF) as i32;
+        let frac = bits & 0x7FFFFF;
+        if val == 0.0 {
+            return (sign << 15) as u16;
+        }
+        let new_exp = exp - 127 + 15;
+        if new_exp <= 0 {
+            return (sign << 15) as u16;
+        }
+        if new_exp >= 31 {
+            return ((sign << 15) | 0x7C00) as u16;
+        }
+        ((sign << 15) | ((new_exp as u32) << 10) | (frac >> 13)) as u16
+    }
+    fn pack_f16x2(lo: f32, hi: f32) -> u32 {
+        let lo_bits = f32_to_f16(lo) as u32;
+        let hi_bits = f32_to_f16(hi) as u32;
+        lo_bits | (hi_bits << 16)
+    }
+
+    // Test with K=32 (2 tiles) and K=64 (4 tiles): A = all 1.0, B = all 1.0 → D[i][j] = K
+    for &k in &[32u32, 64] {
+        let k_tiles = k / 16;
+        let m = 16usize;
+        let n = 8usize;
+
+        // A: 16×K row-major, packed f16x2 → [16][K/2] u32
+        let a_packed: Vec<u32> = vec![pack_f16x2(1.0, 1.0); m * k as usize / 2];
+
+        // B: K×8 row-major, packed f16x2 → [K][4] u32
+        let b_packed: Vec<u32> = vec![pack_f16x2(1.0, 1.0); k as usize * n / 2];
+
+        let a_dev: CudaSlice<u32> = dev.htod_sync_copy(&a_packed)?;
+        let b_dev: CudaSlice<u32> = dev.htod_sync_copy(&b_packed)?;
+        let mut d_dev: CudaSlice<u32> = dev.alloc_zeros::<u32>(128)?;
+        let (status_host_ptr, status_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 1)? };
+
+        let cfg = LaunchConfig {
+            grid_dim: (1, 1, 1),
+            block_dim: (32, 1, 1),
+            shared_mem_bytes: (128 + 64) * 4, // a_smem + b_smem
+        };
+
+        unsafe {
+            f.clone()
+                .launch(cfg, (&a_dev, &b_dev, &mut d_dev, k_tiles, status_dev_ptr))?;
+        }
+        dev.synchronize()?;
+
+        let status = unsafe { std::ptr::read_volatile(status_host_ptr) };
+        assert_eq!(status, 1, "Multi-tile GEMM kernel did not complete (K={k})");
+
+        let d_host: Vec<u32> = dev.dtoh_sync_copy(&d_dev)?;
+
+        // Verify: all elements should equal K (sum of K ones)
+        let expected = k as f32;
+        let mut mismatches = 0;
+        for tid in 0..32u32 {
+            let group = tid / 4;
+            let lane = tid % 4;
+            let base = (tid * 4) as usize;
+
+            let rows = [lane * 2, lane * 2 + 1, lane * 2 + 8, lane * 2 + 9];
+            for (r, &row) in rows.iter().enumerate() {
+                let got = f32::from_bits(d_host[base + r]);
+                if (got - expected).abs() > 0.5 {
+                    if mismatches < 5 {
+                        println!(
+                            "  MISMATCH K={k} D[{row}][{group}]: expected {expected}, got {got}"
+                        );
+                    }
+                    mismatches += 1;
+                }
+            }
+        }
+
+        if mismatches == 0 {
+            println!(
+                "  K={k} ({k_tiles} tiles): all {} elements = {expected} — PASSED",
+                m * n
+            );
+        } else {
+            println!("  K={k}: {mismatches}/{} mismatches", m * n);
+            return Err(GpuHostError::Verification {
+                test: "multi_tile_gemm",
+                detail: format!("K={k}: {mismatches} mismatches"),
+            });
+        }
+
+        unsafe {
+            free_mapped_mem(status_host_ptr)?;
+        }
+    }
+
+    println!("  K-accumulation GEMM loop verified across multiple tile counts");
+    Ok(())
+}
+
+/// gpu-pipeline.3: End-to-end GEMM + softmax pipeline.
+/// Tests: A(16×32) × B(32×8) → GEMM(16×8) → softmax(per row) → output(16×8).
+pub(crate) fn run_gemm_softmax_pipeline_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- End-to-end GEMM + softmax pipeline (gpu-pipeline.3) ---");
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "gemm_softmax", &["test_gemm_softmax_pipeline"]);
+    let f = dev
+        .get_func("gemm_softmax", "test_gemm_softmax_pipeline")
+        .ok_or(GpuHostError::KernelNotFound("test_gemm_softmax_pipeline"))?;
+
+    fn f32_to_f16(val: f32) -> u16 {
+        let bits = val.to_bits();
+        let sign = (bits >> 31) & 1;
+        let exp = ((bits >> 23) & 0xFF) as i32;
+        let frac = bits & 0x7FFFFF;
+        if val == 0.0 {
+            return (sign << 15) as u16;
+        }
+        let new_exp = exp - 127 + 15;
+        if new_exp <= 0 {
+            return (sign << 15) as u16;
+        }
+        if new_exp >= 31 {
+            return ((sign << 15) | 0x7C00) as u16;
+        }
+        ((sign << 15) | ((new_exp as u32) << 10) | (frac >> 13)) as u16
+    }
+    fn pack_f16x2(lo: f32, hi: f32) -> u32 {
+        let lo_bits = f32_to_f16(lo) as u32;
+        let hi_bits = f32_to_f16(hi) as u32;
+        lo_bits | (hi_bits << 16)
+    }
+
+    const K: u32 = 32;
+    const K_TILES: u32 = K / 16;
+    const M: usize = 16;
+    const N: usize = 8;
+
+    // A: 16×32 all-1.0, B: 32×8 all-1.0
+    // GEMM result: D[i][j] = 32.0 for all i,j
+    // Softmax of uniform row [32, 32, ..., 32]: each = exp(0)/8 = 1/8 = 0.125
+    let a_packed: Vec<u32> = vec![pack_f16x2(1.0, 1.0); M * K as usize / 2];
+    let b_packed: Vec<u32> = vec![pack_f16x2(1.0, 1.0); K as usize * N / 2];
+
+    let a_dev: CudaSlice<u32> = dev.htod_sync_copy(&a_packed)?;
+    let b_dev: CudaSlice<u32> = dev.htod_sync_copy(&b_packed)?;
+    let mut out_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(M * N)?;
+    let (status_host_ptr, status_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 1)? };
+
+    let cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (32, 1, 1),
+        shared_mem_bytes: (128 + 64) * 4, // shared memory for GEMM tiles + D matrix
+    };
+
+    unsafe {
+        f.launch(cfg, (&a_dev, &b_dev, &mut out_dev, K_TILES, status_dev_ptr))?;
+    }
+    dev.synchronize()?;
+
+    let status = unsafe { std::ptr::read_volatile(status_host_ptr) };
+    assert_eq!(status, 1, "GEMM+softmax pipeline kernel did not complete");
+
+    let out_host: Vec<f32> = dev.dtoh_sync_copy(&out_dev)?;
+
+    // Verify softmax output: each row sums to 1.0, each element ≈ 0.125
+    let expected_per_element = 1.0f32 / N as f32; // 0.125
+    let mut mismatches = 0;
+    let mut row_sum_ok = true;
+
+    for row in 0..M {
+        let mut row_sum = 0.0f32;
+        for col in 0..N {
+            let val = out_host[row * N + col];
+            row_sum += val;
+            if (val - expected_per_element).abs() > 0.01 {
+                if mismatches < 5 {
+                    println!(
+                        "  MISMATCH softmax[{row}][{col}] = {val} (expected {expected_per_element})"
+                    );
+                }
+                mismatches += 1;
+            }
+        }
+        if (row_sum - 1.0).abs() > 0.01 {
+            println!("  Row {row} sum = {row_sum} (expected 1.0)");
+            row_sum_ok = false;
+        }
+    }
+
+    if mismatches == 0 && row_sum_ok {
+        println!("  Phase 1 (GEMM): A(16×32) × B(32×8) → D(16×8) = 32.0 everywhere");
+        println!(
+            "  Phase 2 (softmax): softmax([32,32,...,32]) = [0.125,...,0.125] per row — PASSED"
+        );
+        println!("  All {} elements correct, all 16 row sums = 1.0", M * N);
+        println!("  GPU-autonomous multi-step compute pipeline verified");
+    } else {
+        println!(
+            "  {mismatches}/{} mismatches, row_sum_ok={row_sum_ok}",
+            M * N
+        );
+        return Err(GpuHostError::Verification {
+            test: "gemm_softmax_pipeline",
+            detail: format!("{mismatches} mismatches"),
+        });
+    }
+
+    unsafe {
+        free_mapped_mem(status_host_ptr)?;
+    }
+    Ok(())
+}

@@ -4,24 +4,22 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 47      # Monotonic counter, incremented after each completed phase
+total_cycles = 48      # Monotonic counter, incremented after each completed phase
 completed_tasks = 47
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
-current_mode = "do"        # think | do | check
-current_step = "do.execute"
-current_task_id = ""
 current_mode = "do"
-current_step = "do.route"
-last_summary = "multiblock.3 done: 4-block async Embassy test passes. ALL 12 active themes now completed (47 tasks). Only benchmark theme remains (parked). Research mission fully accomplished."
+current_step = "do.select"
+current_task_id = ""
+last_summary = "bs12 deep brainstorm done. Phase 2 defined: benchmark (unpark, P0), host-listener (P0), ci (P1), api (P1). Warp-coop/networking/upstream parked as P2. Next: batch A — benchmark.1 + ci.1 + ci.2."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 11
+brainstorm_seq = 12
 review_seq = 3
 
 # Brainstorm trigger control
-last_brainstorm_at_completed = 46
+last_brainstorm_at_completed = 47
 brainstorm_interval = 3
 
 # ============================================================
@@ -907,7 +905,7 @@ success_criteria = [
 [[themes]]
 id = "benchmark"
 title = "Performance characterization and comparison"
-status = "parked"
+status = "active"
 spawned_by = "bs10"
 goal = "Quantify performance characteristics and compare with native CUDA"
 success_criteria = [
@@ -1112,3 +1110,259 @@ new_themes_spawned = []
 themes_parked = []
 themes_completed = ["allocator", "oncelock", "error-handling"]
 key_insight = "11/12 themes completed. Only multiblock.3 (multi-block async) remains. OnceLock bypass was low-risk (simple cfg gate). Error propagation required cross-platform fix (use ErrorKind not raw errno). Execute multiblock.3 to finish all active themes."
+
+# ============================================================
+# Phase 2: Post-Research Themes and Tasks
+# ============================================================
+
+[[themes]]
+id = "host-listener"
+title = "Fix host listener scaling issues"
+status = "active"
+spawned_by = "bs12"
+goal = "Eliminate duplicate messages and reduce CPU usage of the host listener"
+success_criteria = [
+    "0% duplicate messages at 512 threads",
+    "Host CPU usage < 5% when GPU is idle",
+    "Latency increase < 10% vs current busy-loop",
+]
+
+[[themes]]
+id = "ci"
+title = "Continuous integration and toolchain management"
+status = "active"
+spawned_by = "bs12"
+goal = "Automated build on every push, toolchain pinned and documented"
+success_criteria = [
+    "GitHub Actions workflow compiles all PTX",
+    "rust-toolchain.toml pins specific nightly version",
+    "Toolchain requirements documented",
+]
+
+[[themes]]
+id = "api"
+title = "Library API and developer ergonomics"
+status = "active"
+spawned_by = "bs12"
+goal = "Transform research crates into a usable library with clean public API"
+success_criteria = [
+    "Single gpu-runtime facade crate for GPU-side APIs",
+    "Host-side GpuContext builder with automatic setup",
+    "End-to-end example a newcomer can follow",
+]
+
+[[themes]]
+id = "warp-coop"
+title = "Warp-cooperative hostcall and execution"
+status = "parked"
+spawned_by = "bs12"
+goal = "Enable warp-level batching of hostcall operations for scaling"
+success_criteria = [
+    "Warp-cooperative packet allocation (1 CAS per warp instead of 32)",
+    "512-thread benchmark shows < 4x slowdown vs 32-thread",
+    "Fallback to per-lane mode for divergent workloads",
+]
+
+[[themes]]
+id = "networking"
+title = "TCP/UDP via hostcall"
+status = "parked"
+spawned_by = "bs12"
+goal = "GPU kernel can open TCP connections and transfer data via hostcall"
+success_criteria = [
+    "SERVICE_TCP_CONNECT opens connection on host",
+    "SERVICE_TCP_SEND/RECV transfer data",
+    "End-to-end test: GPU kernel makes HTTP GET request",
+]
+
+[[themes]]
+id = "upstream"
+title = "Contribute fixes to upstream projects"
+status = "parked"
+spawned_by = "bs12"
+goal = "At least 2 upstream contributions accepted (LLVM, Embassy, Rust)"
+success_criteria = [
+    "LLVM bug #173993 has our reproducer or fix contribution",
+    "Embassy nvptx64 compatibility documented",
+    "Feasibility of upstreaming nvptx64 PAL assessed",
+]
+
+# --- Tasks: benchmark (unpark) ---
+
+[[tasks]]
+id = "benchmark.1"
+theme = "benchmark"
+title = "Benchmark methodology design"
+kind = "investigation"
+status = "pending"
+depends_on = []
+spawned_by = "bs12"
+research_questions = [
+    "What metrics to measure (latency, throughput, registers, occupancy)?",
+    "How many samples for statistical rigor (p50/p95/p99)?",
+    "What tools to use (cuobjdump, ncu, globaltimer)?",
+    "What baselines to compare against?",
+]
+
+[[tasks]]
+id = "benchmark.2"
+theme = "benchmark"
+title = "Hostcall microbenchmarks — latency, throughput, CAS retries"
+kind = "experiment"
+status = "pending"
+depends_on = ["benchmark.1"]
+spawned_by = "bs12"
+research_questions = [
+    "What is the hostcall round-trip latency (p50/p95/p99) at 1/32/128/512 threads?",
+    "What is the CAS retry rate per contention level?",
+    "What is the maximum sustained hostcall throughput?",
+    "How does latency scale with packet pool size?",
+]
+
+[[tasks]]
+id = "benchmark.3"
+theme = "benchmark"
+title = "Register and occupancy profiling with cuobjdump/Nsight Compute"
+kind = "experiment"
+status = "pending"
+depends_on = ["benchmark.1"]
+spawned_by = "bs12"
+research_questions = [
+    "What is the hardware register count for each kernel variant?",
+    "What is the actual occupancy achieved on hardware?",
+    "Is register spilling occurring to local memory?",
+    "How does async state machine size affect occupancy?",
+]
+
+[[tasks]]
+id = "benchmark.4"
+theme = "benchmark"
+title = "Comparative benchmark vs equivalent CUDA C++"
+kind = "experiment"
+status = "pending"
+depends_on = ["benchmark.2"]
+spawned_by = "bs12"
+research_questions = [
+    "Implement a simple workload in both Rust+hostcall and CUDA C++",
+    "Compare latency, throughput, and resource usage",
+    "Identify where Rust+hostcall approach wins and where it loses",
+    "Is the value proposition ergonomic or also performance?",
+]
+
+# --- Tasks: host-listener ---
+
+[[tasks]]
+id = "host-listener.1"
+theme = "host-listener"
+title = "Per-packet processed bit to eliminate duplicate reads"
+kind = "experiment"
+status = "pending"
+depends_on = []
+spawned_by = "bs12"
+research_questions = [
+    "Does adding a CONTROL_PROCESSED state eliminate all duplicate messages?",
+    "What is the impact on hostcall latency?",
+    "Does the processed bit need sys-scope atomics?",
+]
+
+[[tasks]]
+id = "host-listener.2"
+theme = "host-listener"
+title = "Adaptive polling — spin then sleep"
+kind = "experiment"
+status = "pending"
+depends_on = ["host-listener.1"]
+spawned_by = "bs12"
+research_questions = [
+    "What spin/sleep ratio gives <5% CPU at idle with <10% latency increase?",
+    "Does doorbell counter polling work better than ready-stack polling?",
+    "Can we use OS-level wait (WaitOnAddress/futex) on the doorbell?",
+]
+
+# --- Tasks: ci ---
+
+[[tasks]]
+id = "ci.1"
+theme = "ci"
+title = "GitHub Actions workflow for PTX compilation"
+kind = "experiment"
+status = "pending"
+depends_on = []
+spawned_by = "bs12"
+research_questions = [
+    "Can GitHub Actions compile nvptx64 PTX without a GPU?",
+    "What CUDA toolkit version is available in Actions runners?",
+    "How to cache the nightly toolchain and CUDA SDK?",
+]
+
+[[tasks]]
+id = "ci.2"
+theme = "ci"
+title = "rust-toolchain.toml and toolchain requirements documentation"
+kind = "experiment"
+status = "pending"
+depends_on = []
+spawned_by = "bs12"
+research_questions = [
+    "Which nightly version is currently known-good?",
+    "What components are required (rust-src, llvm-tools, nvptx64 target)?",
+    "How to document the CUDA toolkit and driver requirements?",
+]
+
+# --- Tasks: api ---
+
+[[tasks]]
+id = "api.1"
+theme = "api"
+title = "API surface design"
+kind = "design"
+status = "pending"
+depends_on = []
+spawned_by = "bs12"
+research_questions = [
+    "What is public vs internal? What naming conventions?",
+    "How many crates should a user depend on?",
+    "What is the minimal code for a hello-world GPU kernel with hostcall?",
+    "How to handle the PTX compilation step in the build process?",
+]
+
+[[tasks]]
+id = "api.2"
+theme = "api"
+title = "Implement gpu-runtime facade crate"
+kind = "experiment"
+status = "pending"
+depends_on = ["api.1"]
+spawned_by = "bs12"
+research_questions = [
+    "Does a single re-export crate simplify kernel authoring?",
+    "Can we hide gpu-protocol/gpu-atomics behind a clean API?",
+    "What ergonomic wrappers are needed for hostcall operations?",
+]
+
+[[tasks]]
+id = "api.3"
+theme = "api"
+title = "End-to-end example with build script"
+kind = "experiment"
+status = "pending"
+depends_on = ["api.2"]
+spawned_by = "bs12"
+research_questions = [
+    "Can a build.rs automate PTX compilation and embedding?",
+    "What does a minimal but complete GPU kernel project look like?",
+    "Can a newcomer follow the example without reading internals?",
+]
+
+# --- Brainstorm record for bs12 ---
+
+[[brainstorms]]
+seq = 12
+at_cycle = 47
+trigger = "all_themes_completed"
+level = "deep"
+new_tasks_spawned = ["benchmark.1", "benchmark.2", "benchmark.3", "benchmark.4", "host-listener.1", "host-listener.2", "ci.1", "ci.2", "api.1", "api.2", "api.3"]
+new_themes_spawned = ["host-listener", "ci", "api", "warp-coop", "networking", "upstream"]
+themes_parked = ["warp-coop", "networking", "upstream"]
+themes_completed = ["multiblock"]
+key_insight = "Research mission complete. Phase 2: measure (benchmark P0), stabilize (host-listener P0, ci P1), package (api P1). Warp-coop deferred pending benchmark data. Value proposition may be ergonomic not performance — validate with benchmark.4."

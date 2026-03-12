@@ -1,5 +1,7 @@
 /target
 crates/*/target/
+examples/*/kernel/target/
+examples/*/host/target/
 *.swp
 *.swo
 *~
@@ -8,3 +10,9 @@ Thumbs.db
 patched-std/
 query.bin
 vecdb.bin
+queries.bin
+results.bin
+batch_results.bin
+gpu_output.txt
+gpu_test_output.txt
+gpu_input.txt

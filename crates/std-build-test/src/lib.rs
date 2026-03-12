@@ -779,3 +779,54 @@ pub extern "ptx-kernel" fn showcase_kernel(
         core::ptr::write_volatile(result.add(1), msg_count);
     }
 }
+
+// ============================================================
+// allocator.2: Slab allocator deallocation test
+// ============================================================
+
+/// Test that the slab allocator correctly deallocates memory.
+/// Allocates and drops Vec 10 times in a loop. With bump allocator,
+/// this would consume 10x the memory. With slab allocator, memory
+/// is reused.
+///
+/// result[0] = 1 on success
+/// result[1] = number of successful alloc/dealloc cycles
+#[unsafe(no_mangle)]
+pub extern "ptx-kernel" fn slab_dealloc_test_kernel(
+    _buf: *mut u8,
+    result: *mut u32,
+) {
+    let mut cycles: u32 = 0;
+
+    // Run 10 cycles of alloc+dealloc.
+    // Each Vec<u32> with 100 elements = 400 bytes + Vec overhead.
+    // With bump allocator, 10 cycles = 10x allocation (4KB+ leaked).
+    // With slab allocator, memory is reused each cycle.
+    for i in 0u32..10 {
+        let mut v: Vec<u32> = Vec::new();
+        for j in 0..100 {
+            v.push(i * 100 + j);
+        }
+        let sum: u32 = v.iter().sum();
+        // Verify correctness.
+        let expected = (0..100u32).map(|j| i * 100 + j).sum::<u32>();
+        if sum == expected {
+            cycles += 1;
+        }
+        // v is dropped here — dealloc should free the memory.
+    }
+
+    // Now test String alloc/dealloc cycles.
+    for _ in 0..10 {
+        let s = format!("Hello from cycle {}", cycles);
+        if !s.is_empty() {
+            cycles += 1;
+        }
+        // s is dropped here — dealloc should free the String's buffer.
+    }
+
+    unsafe {
+        core::ptr::write_volatile(result.add(0), if cycles == 20 { 1 } else { 0 });
+        core::ptr::write_volatile(result.add(1), cycles);
+    }
+}

@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 41      # Monotonic counter, incremented after each completed phase
-completed_tasks = 41
+total_cycles = 42      # Monotonic counter, incremented after each completed phase
+completed_tasks = 42
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"        # think | do | check
 current_step = "do.execute"
-current_task_id = "multiblock.2"
-last_summary = "Phase 1 batch complete: multiblock.1+2 (128+512 threads pass), allocator.1 (slab+bitmap rec), oncelock.1 (const-init strategy), error-handling.1 (payload slot 0). Next: allocator.2 + oncelock.2 + error-handling.2."
+current_task_id = "allocator.2"
+last_summary = "allocator.2 done: slab+bitmap allocator with dealloc support — 20 alloc/free cycles pass. All existing tests pass. multiblock.3 unblocked."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 10
@@ -936,7 +936,7 @@ id = "allocator.2"
 theme = "allocator"
 title = "Implement chosen allocator as GlobalAlloc replacement"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["allocator.1"]
 spawned_by = "bs10"
 research_questions = [

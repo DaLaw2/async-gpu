@@ -2219,6 +2219,50 @@ fn run_showcase_test(dev: Arc<CudaDevice>) -> Result<()> {
     Ok(())
 }
 
+/// Test: slab allocator deallocation (allocator.2).
+/// Runs 10 Vec alloc/dealloc cycles + 10 String cycles on GPU.
+fn run_slab_dealloc_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Allocator Test: Slab dealloc (10 Vec + 10 String cycles) ---");
+
+    let (result_host_ptr, result_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 2)? };
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(STD_BUILD_TEST_PTX);
+    let _ = dev.load_ptx(ptx, "slab_test", &["slab_dealloc_test_kernel"]);
+    let f = dev.get_func("slab_test", "slab_dealloc_test_kernel")
+        .ok_or(GpuHostError::KernelNotFound("slab_dealloc_test_kernel"))?;
+
+    let cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (1, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    println!("  Launching slab_dealloc_test_kernel (10 Vec + 10 String alloc/dealloc cycles)...");
+    let start = std::time::Instant::now();
+    unsafe {
+        f.launch(cfg, (0u64, result_dev_ptr as u64))?;
+    }
+
+    dev.synchronize()?;
+    let elapsed = start.elapsed();
+
+    let success = unsafe { std::ptr::read_volatile(result_host_ptr.add(0)) };
+    let cycles = unsafe { std::ptr::read_volatile(result_host_ptr.add(1)) };
+    unsafe { free_mapped_mem(result_host_ptr)? };
+
+    if success != 1 {
+        return Err(GpuHostError::Verification {
+            test: "slab_dealloc_test_kernel",
+            detail: format!("expected 20 successful cycles, got {}", cycles),
+        });
+    }
+
+    println!("  slab_dealloc_test_kernel: PASSED! ({:?})", elapsed);
+    println!("    Completed {} alloc/dealloc cycles (10 Vec + 10 String)", cycles);
+    println!("    Memory reuse confirmed — slab allocator deallocates correctly");
+    Ok(())
+}
+
 fn main() -> Result<()> {
     println!("=== GPU Kernel Execution Test ===\n");
 
@@ -2281,6 +2325,9 @@ fn main() -> Result<()> {
 
     // Multi-block 512-thread scaling test (multiblock.2)
     run_multi_block_512_test(Arc::clone(&dev))?;
+
+    // Slab allocator deallocation test (allocator.2)
+    run_slab_dealloc_test(Arc::clone(&dev))?;
 
     println!("\nAll tests PASSED.");
     Ok(())

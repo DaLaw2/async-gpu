@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 96      # Monotonic counter, incremented after each completed phase
-completed_tasks = 95
+total_cycles = 97      # Monotonic counter, incremented after each completed phase
+completed_tasks = 96
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "ml-workload.6"
-last_summary = "ml-workload.5 done: full warp merge via shfl.sync verified — 32 lanes' top-K merged, 100% DB coverage, results match CPU reference exactly. Next: ml-workload.6 README update."
+current_task_id = ""
+last_summary = "ml-workload.5+6 done: full warp merge verified, README updated with vector search + batch search demos. ml-workload theme complete. Next: brainstorm for next direction."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 23
@@ -2233,7 +2233,7 @@ id = "ml-workload.6"
 theme = "ml-workload"
 title = "README update: add vector search and batch search demos to showcase"
 kind = "design"
-status = "pending"
+status = "done"
 depends_on = ["ml-workload.3"]
 spawned_by = "bs23"
 research_questions = [

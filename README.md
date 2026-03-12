@@ -43,6 +43,51 @@ A single kernel launch where the GPU self-coordinates an 8-step I/O pipeline + p
 
 The GPU decides what to read, how to process it, and where to write — all expressed as a Rust state machine on the GPU side. The CPU only provides I/O services when asked.
 
+### Vector Similarity Search
+
+A GPU-autonomous vector search pipeline: open database, read vectors, open query, read query, compute cosine similarity across all 32 warp lanes, merge results via `shfl.sync`, write top-K — all in one kernel launch:
+
+```
+--- Vector Similarity Search (ml-workload) ---
+  Created vecdb.bin (100 vectors × 128 dims = 51208 bytes)
+  Created query.bin (query = db[42], expect top-1 match at id ~42)
+  CPU reference top-3: ["id=42 score=1.0000", "id=82 score=0.2103", "id=18 score=0.0913"]
+  Launching vector_search_pipeline kernel...
+  [HOST] FILE OPEN: "vecdb.bin" flags=0 -> fd=1
+  [HOST] BULK READ: fd=1 51208 bytes read
+  [HOST] FILE CLOSE: fd=1 closed
+  [HOST] FILE OPEN: "query.bin" flags=0 -> fd=2
+  [HOST] BULK READ: fd=2 516 bytes read
+  [HOST] FILE CLOSE: fd=2 closed
+  [HOST] FILE OPEN: "results.bin" flags=1 -> fd=3
+  [HOST] BULK WRITE: fd=3 84 bytes written
+  [HOST] FILE CLOSE: fd=3 closed
+  Status: 1 (1=success)
+  Elapsed: 6.434ms
+  Results: K=10
+    rank 1: id=42 score=1.0000   ← exact match found
+    rank 2: id=82 score=0.2103
+    rank 3: id=18 score=0.0913
+```
+
+20-state `VecSearchFuture` — the GPU reads a database, reads a query, computes cosine similarity with all 32 lanes processing different vectors in parallel, merges per-lane top-K via warp shuffle, and writes results. 9 hostcall round-trips, 6.4ms end-to-end.
+
+### Batch Vector Search
+
+Five queries processed in a single kernel launch — I/O cost amortized, 1.6ms/query:
+
+```
+--- Batch Vector Search ---
+  Launching batch_search_pipeline kernel (5 queries)...
+  Elapsed: 7.997ms
+  Query 0: [id=10 s=1.0000] [id=73 s=0.3801] [id=50 s=0.0853]
+  Query 1: [id=42 s=1.0000] [id=82 s=0.2103] [id=18 s=0.0913]
+  Query 2: [id=77 s=1.0000] [id=14 s=0.3891] [id=47 s=0.2168]
+  Query 3: [id=3 s=1.0000] [id=66 s=0.3961] [id=57 s=0.0927]
+  Query 4: [id=95 s=1.0000] [id=32 s=0.4102] [id=29 s=0.2164]
+    5 queries, amortized 1.6ms/query (vs 6.4ms single-query)
+```
+
 ## How It Works
 
 GPU threads communicate with the host through a **lock-free hostcall protocol** over CUDA shared memory:
@@ -131,6 +176,8 @@ cargo run --release
 | Hybrid executor (I/O + compute) | Working | `hybrid_executor_test` |
 | Bulk data transfer (sideband) | Working | `bulk_io_test` (4KB+) |
 | GPU-autonomous pipeline | Working | `file_transform_pipeline` |
+| Vector similarity search | Working | `vector_search_pipeline` (20-state, full warp merge) |
+| Batch vector search | Working | `batch_search_pipeline` (5 queries, 1.6ms/query amortized) |
 | GPU panic handler | Working | Visible `[GPU PANIC]` messages |
 | Multi-block scaling | Working | 16 blocks, per-block sharding |
 
@@ -178,7 +225,7 @@ Per-block sharding reduces CAS contention by **99%** (from ~53 retries/call to ~
 
 ## Research
 
-This project was built through 26 research themes and 90 verified experiments using an autonomous Think/Do/Check loop. Research state and findings are in `.research/`.
+This project was built through 26 research themes and 95+ verified experiments using an autonomous Think/Do/Check loop. Research state and findings are in `.research/`.
 
 Inspired by [VectorWare](https://www.vectorware.com/)'s blog posts on [Rust std on GPU](https://www.vectorware.com/blog/rust-std-on-gpu/) and [Async/Await on GPU](https://www.vectorware.com/blog/async-await-on-gpu/).
 

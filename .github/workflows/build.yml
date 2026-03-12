@@ -51,8 +51,32 @@ jobs:
       - name: cargo clippy (warp-macro)
         run: cargo +stable clippy --manifest-path crates/warp-macro/Cargo.toml -- -D warnings
 
+      - name: cargo fmt --check (gpu-atomics)
+        run: cargo +stable fmt --manifest-path crates/gpu-atomics/Cargo.toml -- --check
+
+      - name: cargo fmt --check (gpu-runtime)
+        run: cargo +stable fmt --manifest-path crates/gpu-runtime/Cargo.toml -- --check
+
+      - name: cargo clippy (gpu-atomics)
+        run: cargo +stable clippy --manifest-path crates/gpu-atomics/Cargo.toml -- -D warnings
+
+      - name: cargo clippy (gpu-runtime)
+        run: cargo +stable clippy --manifest-path crates/gpu-runtime/Cargo.toml -- -D warnings
+
       - name: doc-tests (gpu-protocol)
         run: cargo +stable test --manifest-path crates/gpu-protocol/Cargo.toml --doc
+
+      - name: cargo doc (gpu-protocol)
+        run: RUSTDOCFLAGS="-D missing_docs" cargo +stable doc --manifest-path crates/gpu-protocol/Cargo.toml --no-deps
+
+      - name: cargo doc (warp-macro)
+        run: RUSTDOCFLAGS="-D missing_docs" cargo +stable doc --manifest-path crates/warp-macro/Cargo.toml --no-deps
+
+      - name: cargo doc (gpu-atomics)
+        run: cargo +stable doc --manifest-path crates/gpu-atomics/Cargo.toml --no-deps
+
+      - name: cargo doc (gpu-runtime)
+        run: cargo +stable doc --manifest-path crates/gpu-runtime/Cargo.toml --no-deps
 
   build-ptx:
     name: Compile GPU kernels to PTX
@@ -88,6 +112,30 @@ jobs:
 
       - name: Build hello-gpu example kernel
         working-directory: examples/hello-gpu/kernel
+        run: cargo build --release
+
+      - name: Build async-hostcall-test (PTX)
+        working-directory: crates/async-hostcall-test
+        run: cargo build --release
+
+      - name: Build async-pipeline-test (PTX)
+        working-directory: crates/async-pipeline-test
+        run: cargo build --release
+
+      - name: Build embassy-test (PTX)
+        working-directory: crates/embassy-test
+        run: cargo build --release
+
+      - name: Build multi-warp-test (PTX)
+        working-directory: crates/multi-warp-test
+        run: cargo build --release
+
+      - name: Build gpu-std-test (PTX)
+        working-directory: crates/gpu-std-test
+        run: cargo build --release
+
+      - name: Build std-build-test (PTX)
+        working-directory: crates/std-build-test
         run: cargo build --release
 
       - name: Verify PTX output exists

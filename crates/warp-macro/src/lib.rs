@@ -458,7 +458,7 @@ fn build_cfg(
 
                 if !has_warp {
                     return Err(syn::Error::new_spanned(
-                        &expr_match.match_token,
+                        expr_match.match_token,
                         "#[warp_async] `match` blocks without warp_*!() calls are not supported. \
                          Only match arms containing warp_*!() calls are allowed.",
                     )
@@ -514,7 +514,7 @@ fn build_cfg(
             Stmt::Expr(Expr::Loop(expr_loop), _) => {
                 if !stmts_contain_warp_call(&expr_loop.body.stmts) {
                     return Err(syn::Error::new_spanned(
-                        &expr_loop.loop_token,
+                        expr_loop.loop_token,
                         "#[warp_async] `loop` blocks must contain warp_*!() calls.",
                     )
                     .to_compile_error());
@@ -524,7 +524,7 @@ fn build_cfg(
 
                 if body_nodes.is_empty() {
                     return Err(syn::Error::new_spanned(
-                        &expr_loop.loop_token,
+                        expr_loop.loop_token,
                         "#[warp_async] `loop` body must contain at least one warp_*!() call.",
                     )
                     .to_compile_error());
@@ -533,7 +533,7 @@ fn build_cfg(
                 // Verify there's at least one BreakIf in the body
                 if !contains_break_if(&body_nodes) {
                     return Err(syn::Error::new_spanned(
-                        &expr_loop.loop_token,
+                        expr_loop.loop_token,
                         "#[warp_async] `loop` must contain `if cond { break; }` \
                          (infinite loops without break are not allowed).",
                     )

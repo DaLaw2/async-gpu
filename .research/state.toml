@@ -4,18 +4,18 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 121     # Monotonic counter, incremented after each completed phase
-completed_tasks = 120
+total_cycles = 122     # Monotonic counter, incremented after each completed phase
+completed_tasks = 121
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.execute"
-current_task_id = "gpu-compute.2"
-last_summary = "ci-protect.2 done, bs30 quick. product-ready themes all done, warp-cooperative-async all criteria met. Now executing gpu-compute.2: GPU-driven multi-step compute prototype."
+current_step = "do.select"
+current_task_id = ""
+last_summary = "bs31 done. product-ready epic completed. gpu-compute.3 (MMA) + gpu-compute.4 (shared memory) are next — parallel decision gate for gpu-autonomous inference viability."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 30
+brainstorm_seq = 31
 review_seq = 5
 
 # Brainstorm trigger control
@@ -37,7 +37,7 @@ brainstorm_interval = 3
 [[epics]]
 id = "product-ready"
 title = "Product Ready"
-status = "active"
+status = "completed"
 priority = "highest"   # Always highest, but does not block other epics
 success_criteria = [
     "Anyone can clone from README and run hello-gpu with a single command",
@@ -2619,7 +2619,7 @@ research_questions = [
 [[themes]]
 id = "rustc-warp"
 title = "Compiler-level warp async via rustc fork"
-status = "parked"
+status = "completed"  # closed: parent epic done, proc macro succeeded
 spawned_by = "bs28"
 epic = "warp-cooperative-async"
 goal = "Fork rustc to add MIR pass for warp-cooperative state machine generation"
@@ -2634,7 +2634,7 @@ id = "rustc-warp.1"
 theme = "rustc-warp"
 title = "Deep dive into rustc generator.rs, identify MIR pass insertion points"
 kind = "investigation"
-status = "pending"
+status = "skipped"
 depends_on = []
 spawned_by = "bs28"
 research_questions = ["Where in rustc's MIR pipeline can a warp-cooperative pass be inserted?"]
@@ -2644,7 +2644,7 @@ id = "rustc-warp.2"
 theme = "rustc-warp"
 title = "Design MIR warp-cooperative pass, define intrinsics"
 kind = "design"
-status = "pending"
+status = "skipped"
 depends_on = ["rustc-warp.1"]
 spawned_by = "bs28"
 research_questions = ["What MIR transformations are needed for warp-cooperative generators?"]
@@ -2654,7 +2654,7 @@ id = "rustc-warp.3"
 theme = "rustc-warp"
 title = "Fork rustc, implement minimal linear-only MIR pass"
 kind = "experiment"
-status = "pending"
+status = "skipped"
 depends_on = ["rustc-warp.2"]
 spawned_by = "bs28"
 research_questions = ["Can a minimal MIR pass produce correct warp-cooperative PTX for linear pipelines?"]
@@ -2664,7 +2664,7 @@ id = "rustc-warp.4"
 theme = "rustc-warp"
 title = "Add branch/loop/match support to MIR pass"
 kind = "experiment"
-status = "pending"
+status = "skipped"
 depends_on = ["rustc-warp.3"]
 spawned_by = "bs28"
 research_questions = ["Can the MIR pass handle control flow in warp-cooperative generators?"]
@@ -2674,7 +2674,7 @@ id = "rustc-warp.5"
 theme = "rustc-warp"
 title = "CI, distribution, pre-built binaries for warp-rustc"
 kind = "experiment"
-status = "pending"
+status = "skipped"
 depends_on = ["rustc-warp.4"]
 spawned_by = "bs28"
 research_questions = ["How to distribute a custom rustc fork with minimal friction?"]
@@ -2875,7 +2875,7 @@ id = "gpu-compute.2"
 theme = "gpu-compute"
 title = "Prototype: GPU-driven multi-step compute without host orchestration"
 kind = "experiment"
-status = "active"
+status = "done"
 depends_on = ["gpu-compute.1", "warp-cfg.2"]
 spawned_by = "bs29"
 research_questions = [
@@ -2915,3 +2915,75 @@ new_themes_spawned = []
 themes_parked = []
 themes_completed = ["onboarding", "ci-protect", "api-docs", "perf-data"]
 key_insight = "All product-ready themes have tasks done. warp-cooperative-async epic fully satisfied — completed. Only ready task: gpu-compute.2. Focus on GPU autonomous compute prototype."
+
+[[brainstorms]]
+seq = 31
+at_cycle = 122
+trigger = "No ready tasks after gpu-compute.2 completion"
+level = "standard"
+new_tasks_spawned = ["gpu-compute.3", "gpu-compute.4", "gpu-compute.5", "gpu-compute.6"]
+new_themes_spawned = []
+themes_parked = []
+themes_completed = []
+key_insight = "Project at inflection point. VectorWare reproduction achieved. Next: two decision-gate experiments — Tensor Core MMA (gpu-compute.3) and shared memory (gpu-compute.4) in parallel. Results determine if GPU-autonomous inference is viable or project pivots to I/O pipeline focus."
+
+# ============================================================
+# New tasks from bs31
+# ============================================================
+
+[[tasks]]
+id = "gpu-compute.3"
+theme = "gpu-compute"
+title = "Tensor Core MMA via inline PTX — decision gate"
+kind = "experiment"
+status = "pending"
+depends_on = []
+spawned_by = "bs31"
+research_questions = [
+    "Can asm!() with 32+ reg32 operands compile on nvptx64?",
+    "Does mma.sync.aligned.m16n8k16 produce correct FP16 matmul results?",
+    "What is the register count for a single MMA operation?",
+    "DECISION: If MMA fails, GPU-autonomous inference is not viable with this stack.",
+]
+
+[[tasks]]
+id = "gpu-compute.4"
+theme = "gpu-compute"
+title = "Shared memory access + bar.sync from Rust inline PTX"
+kind = "experiment"
+status = "pending"
+depends_on = []
+spawned_by = "bs31"
+research_questions = [
+    "Does cudarc LaunchConfig support shared_mem_bytes?",
+    "Can inline PTX ld.shared/st.shared access dynamic shared memory?",
+    "Does bar.sync correctly synchronize all threads in a block?",
+    "Can multiple warps share data via shared memory?",
+]
+
+[[tasks]]
+id = "gpu-compute.5"
+theme = "gpu-compute"
+title = "Tiled GEMM combining Tensor Cores + shared memory"
+kind = "experiment"
+status = "pending"
+depends_on = ["gpu-compute.3", "gpu-compute.4"]
+spawned_by = "bs31"
+research_questions = [
+    "Can tiled matrix multiply work with MMA + shared memory on Rust nvptx64?",
+    "What is the performance vs cuBLAS for a small matrix?",
+    "What is the register pressure with MMA fragments + shared memory pointers?",
+]
+
+[[tasks]]
+id = "gpu-compute.6"
+theme = "gpu-compute"
+title = "Element-wise GPU compute kernels (softmax, RoPE, LayerNorm)"
+kind = "experiment"
+status = "pending"
+depends_on = ["gpu-compute.4"]
+spawned_by = "bs31"
+research_questions = [
+    "Can softmax with shared memory reduction work in Rust GPU code?",
+    "Can RoPE and LayerNorm be implemented as pure Rust GPU functions?",
+]

@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 126     # Monotonic counter, incremented after each completed phase
-completed_tasks = 125
+total_cycles = 127     # Monotonic counter, incremented after each completed phase
+completed_tasks = 126
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.select"
-current_task_id = ""
-last_summary = "bs33 done. gpu-compute theme completed. New gpu-pipeline theme: 3 tasks for integration (fragment mapping, multi-tile GEMM, end-to-end pipeline). Decision gate after completion."
+current_step = "do.execute"
+current_task_id = "gpu-pipeline.2"
+last_summary = "gpu-pipeline.1 done: fragment-to-matrix mapping verified for mma.sync.aligned.m16n8k16. D output is transposed (row=lane, col=group). Modularized gpu-kernel (5230→8 modules) and gpu-host main.rs (6333→9 modules). Next: gpu-pipeline.2 multi-tile GEMM."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 33
@@ -3036,7 +3036,7 @@ id = "gpu-pipeline.1"
 theme = "gpu-pipeline"
 title = "Fragment-to-matrix index mapping for MMA (non-uniform matrices)"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = []
 spawned_by = "bs33"
 research_questions = [

@@ -844,8 +844,12 @@ pub mod prelude {
         NULL_INDEX, PACKET_SIZE, PRINT_MAX_MSG_LEN,
         FILE_MAX_PATH_LEN, FILE_MAX_WRITE_LEN, FILE_MAX_READ_LEN,
         FILE_ERROR_SENTINEL,
+        FILE_OPEN_READ, FILE_OPEN_WRITE_CREATE, FILE_OPEN_APPEND,
     };
 
     // --- Warp intrinsics ---
     pub use gpu_atomics::{activemask, lane_id, syncwarp, shfl_sync_idx_u32};
+
+    // --- Commonly needed atomics ---
+    pub use gpu_atomics::{sys_store_release_u32, sys_load_acquire_u32};
 }

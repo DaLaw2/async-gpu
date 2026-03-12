@@ -1,6 +1,6 @@
 # Autonomous Research Loop State File
-# Two-level hierarchy: Theme → Task
-# Themes are research directions; Tasks are actionable items within a theme.
+# Three-level hierarchy: Epic → Theme → Task
+# Epics are user-defined high-level goals; Themes are research directions; Tasks are actionable items within a theme.
 
 [meta]
 created = "2026-03-11"
@@ -10,16 +10,16 @@ status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.execute"
+current_step = "do.select"
 current_task_id = ""
-last_summary = "async-pipeline EPIC COMPLETE. All 5 tasks done: .1 move helpers, .2 macro generalization, .3 branching pipeline, .4 pipelined I/O+compute, .5 warp-scale Embassy (32/32 threads PASSED). CI fixed: +stable for lint/check, clippy uninlined_format_args fixed."
+last_summary = "BS29 quick brainstorm: 3 epics established. Product-ready: 4 themes (onboarding, ci-protect, api-docs, perf-data). Warp-cooperative-async: warp-cfg active (5 tasks from bs28). GPU-autonomous: gpu-compute investigation. Next: select ready tasks."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 27
+brainstorm_seq = 29
 review_seq = 5
 
 # Brainstorm trigger control
-last_brainstorm_at_completed = 102
+last_brainstorm_at_completed = 107
 brainstorm_interval = 3
 
 # ============================================================
@@ -29,6 +29,45 @@ brainstorm_interval = 3
 # Task:        tasks/{task_id}-c{cycle}.md     (e.g., tasks/toolchain.1-c3.md)
 # Review:      reviews/rv{seq}-{task_id}-{role}.md, rv{seq}-{task_id}-synthesis.md
 # Rework:      new task ID with .{n} suffix    (e.g., toolchain.4.1)
+
+# ============================================================
+# Epics (user-defined, only user can create/close)
+# ============================================================
+
+[[epics]]
+id = "product-ready"
+title = "Product Ready"
+status = "active"
+priority = "highest"   # Always highest, but does not block other epics
+success_criteria = [
+    "Anyone can clone from README and run hello-gpu with a single command",
+    "New features cannot silently break existing functionality (CI protection)",
+    "Public API is documented — no need to read internals to use it",
+    "Performance data in README is accurate and reproducible",
+]
+
+[[epics]]
+id = "warp-cooperative-async"
+title = "Warp-Cooperative Async with Full Control Flow"
+status = "active"
+priority = "medium"    # Foundation for gpu-autonomous
+success_criteria = [
+    "#[warp_async] supports if/else with warp_*!() in arms — compiles and runs on GPU",
+    "#[warp_async] supports loop with warp_*!() and break — compiles and runs on GPU",
+    "#[warp_async] supports match with warp_*!() in arms — compiles and runs on GPU",
+    "Nested control flow (if inside loop) works correctly",
+    "All generated code maintains warp convergence (32 lanes agree on state)",
+]
+
+[[epics]]
+id = "gpu-autonomous"
+title = "GPU as Autonomous Compute Environment"
+status = "active"
+priority = "long-term" # Depends on warp-cooperative-async results
+success_criteria = [
+    "GPU can autonomously execute arbitrarily complex compute without host orchestration",
+    "Native GPU inference is possible (ultimate goal)",
+]
 
 # ============================================================
 # Themes
@@ -2487,3 +2526,355 @@ new_themes_spawned = ["async-pipeline"]
 themes_parked = []
 themes_completed = []
 key_insight = "Gap 1 (macro generalization) is the CRITICAL PATH — it IS the product. Gaps 2+3 (branching/pipelining) solved by documentation+examples. Gap 4 (per-thread yield) is an anti-goal — use Embassy. 5 tasks: move helpers → generalize macro → branching example → pipelining example → Embassy scale test."
+
+# --- Theme: warp-cfg (from bs28, serves warp-cooperative-async epic) ---
+
+[[themes]]
+id = "warp-cfg"
+title = "Extend #[warp_async] proc macro to support control flow"
+status = "active"
+spawned_by = "bs28"
+epic = "warp-cooperative-async"
+goal = "Add if/loop/match support to #[warp_async] via CFG-based state machine generation"
+success_criteria = [
+    "if/else with warp_*!() in arms compiles and runs on GPU",
+    "loop with warp_*!() and break compiles and runs on GPU",
+    "match with warp_*!() in arms compiles and runs on GPU",
+    "Nested control flow works correctly on GPU",
+]
+
+[[tasks]]
+id = "warp-cfg.1"
+theme = "warp-cfg"
+title = "Design CFG-based state machine generation for #[warp_async]"
+kind = "design"
+status = "pending"
+depends_on = []
+spawned_by = "bs28"
+research_questions = [
+    "How to parse if/loop/match at token level and assign states to a DAG?",
+    "How to handle variable scoping across branches?",
+    "How to generate broadcast-based branch decisions?",
+    "What does generated code look like for each construct?",
+]
+
+[[tasks]]
+id = "warp-cfg.2"
+theme = "warp-cfg"
+title = "Implement if/else support in #[warp_async]"
+kind = "experiment"
+status = "pending"
+depends_on = ["warp-cfg.1"]
+spawned_by = "bs28"
+research_questions = [
+    "Can the macro parse if blocks containing warp_*!() and generate forked state ranges?",
+    "Does lane-0 broadcast decision work correctly for if/else branching?",
+    "Hardware test: if-based branching pipeline runs on GPU?",
+]
+
+[[tasks]]
+id = "warp-cfg.3"
+theme = "warp-cfg"
+title = "Implement loop/break support in #[warp_async]"
+kind = "experiment"
+status = "pending"
+depends_on = ["warp-cfg.2"]
+spawned_by = "bs28"
+research_questions = [
+    "Can the macro handle loop bodies with warp_*!() and generate cycle-back transitions?",
+    "Does break correctly exit the loop state machine?",
+    "Hardware test: read-until-done loop pipeline runs on GPU?",
+]
+
+[[tasks]]
+id = "warp-cfg.4"
+theme = "warp-cfg"
+title = "Implement match support in #[warp_async]"
+kind = "experiment"
+status = "pending"
+depends_on = ["warp-cfg.2"]
+spawned_by = "bs28"
+research_questions = [
+    "Can the macro broadcast discriminant and generate per-arm state ranges?",
+    "Does match arm dispatch work correctly with warp convergence?",
+    "Hardware test: dispatch-command match pipeline runs on GPU?",
+]
+
+[[tasks]]
+id = "warp-cfg.5"
+theme = "warp-cfg"
+title = "Nested control flow stress test"
+kind = "experiment"
+status = "pending"
+depends_on = ["warp-cfg.3", "warp-cfg.4"]
+spawned_by = "bs28"
+research_questions = [
+    "Does if inside loop with match all containing warp_*!() work correctly?",
+    "Is state correctness maintained across nested control flow?",
+    "Does warp convergence hold under nested branching?",
+]
+
+# --- Theme: rustc-warp (from bs28, PARKED, serves warp-cooperative-async epic) ---
+
+[[themes]]
+id = "rustc-warp"
+title = "Compiler-level warp async via rustc fork"
+status = "parked"
+spawned_by = "bs28"
+epic = "warp-cooperative-async"
+goal = "Fork rustc to add MIR pass for warp-cooperative state machine generation"
+success_criteria = [
+    "MIR pass correctly transforms generator state machines for warp execution",
+    "Generated PTX runs on GPU with warp convergence",
+]
+activation_trigger = "Concrete workload exists that proc macro cannot express AND limitation is fundamental AND effort is justified"
+
+[[tasks]]
+id = "rustc-warp.1"
+theme = "rustc-warp"
+title = "Deep dive into rustc generator.rs, identify MIR pass insertion points"
+kind = "investigation"
+status = "pending"
+depends_on = []
+spawned_by = "bs28"
+research_questions = ["Where in rustc's MIR pipeline can a warp-cooperative pass be inserted?"]
+
+[[tasks]]
+id = "rustc-warp.2"
+theme = "rustc-warp"
+title = "Design MIR warp-cooperative pass, define intrinsics"
+kind = "design"
+status = "pending"
+depends_on = ["rustc-warp.1"]
+spawned_by = "bs28"
+research_questions = ["What MIR transformations are needed for warp-cooperative generators?"]
+
+[[tasks]]
+id = "rustc-warp.3"
+theme = "rustc-warp"
+title = "Fork rustc, implement minimal linear-only MIR pass"
+kind = "experiment"
+status = "pending"
+depends_on = ["rustc-warp.2"]
+spawned_by = "bs28"
+research_questions = ["Can a minimal MIR pass produce correct warp-cooperative PTX for linear pipelines?"]
+
+[[tasks]]
+id = "rustc-warp.4"
+theme = "rustc-warp"
+title = "Add branch/loop/match support to MIR pass"
+kind = "experiment"
+status = "pending"
+depends_on = ["rustc-warp.3"]
+spawned_by = "bs28"
+research_questions = ["Can the MIR pass handle control flow in warp-cooperative generators?"]
+
+[[tasks]]
+id = "rustc-warp.5"
+theme = "rustc-warp"
+title = "CI, distribution, pre-built binaries for warp-rustc"
+kind = "experiment"
+status = "pending"
+depends_on = ["rustc-warp.4"]
+spawned_by = "bs28"
+research_questions = ["How to distribute a custom rustc fork with minimal friction?"]
+
+# ============================================================
+# Theme: onboarding (serves product-ready epic)
+# ============================================================
+
+[[themes]]
+id = "onboarding"
+title = "One-command hello-gpu experience"
+status = "active"
+spawned_by = "bs29"
+epic = "product-ready"
+goal = "Anyone can clone the repo and run hello-gpu with a single command"
+success_criteria = [
+    "Single command from repo root runs hello-gpu end-to-end",
+    "README quick start reflects the single-command experience",
+]
+
+[[tasks]]
+id = "onboarding.1"
+theme = "onboarding"
+title = "Create single-command build+run for hello-gpu"
+kind = "experiment"
+status = "pending"
+depends_on = []
+spawned_by = "bs29"
+research_questions = [
+    "What is the simplest way to automate kernel build + PTX copy + host run?",
+    "Should this be a build.rs, a cargo-make task, or a shell script?",
+]
+
+[[tasks]]
+id = "onboarding.2"
+theme = "onboarding"
+title = "Update README quick start to single-command flow"
+kind = "experiment"
+status = "pending"
+depends_on = ["onboarding.1"]
+spawned_by = "bs29"
+research_questions = [
+    "Does the README accurately reflect the new single-command experience?",
+]
+
+# ============================================================
+# Theme: ci-protect (serves product-ready epic)
+# ============================================================
+
+[[themes]]
+id = "ci-protect"
+title = "CI prevents regressions on new features"
+status = "active"
+spawned_by = "bs29"
+epic = "product-ready"
+goal = "New features cannot silently break existing functionality"
+success_criteria = [
+    "CI runs lint + build + doc-tests on every PR",
+    "hello-gpu example is verified in CI",
+    "PTX compilation verified for all kernel crates",
+]
+
+[[tasks]]
+id = "ci-protect.1"
+theme = "ci-protect"
+title = "Audit and harden CI coverage"
+kind = "investigation"
+status = "pending"
+depends_on = []
+spawned_by = "bs29"
+research_questions = [
+    "What crates/examples are NOT covered by current CI?",
+    "Can we add host-side unit tests that don't require a GPU?",
+    "Should we add a CI job that verifies hello-gpu builds end-to-end?",
+]
+
+# ============================================================
+# Theme: api-docs (serves product-ready epic)
+# ============================================================
+
+[[themes]]
+id = "api-docs"
+title = "Public API documentation"
+status = "active"
+spawned_by = "bs29"
+epic = "product-ready"
+goal = "Public API is documented — no need to read internals to use it"
+success_criteria = [
+    "All public items in gpu-protocol, gpu-runtime, warp-macro have rustdoc",
+    "Usage examples in doc comments",
+    "cargo doc builds without warnings",
+]
+
+[[tasks]]
+id = "api-docs.1"
+theme = "api-docs"
+title = "Add rustdoc to public crates (gpu-protocol, gpu-runtime, warp-macro)"
+kind = "experiment"
+status = "pending"
+depends_on = []
+spawned_by = "bs29"
+research_questions = [
+    "Which public items currently lack documentation?",
+    "What usage examples are most valuable for users?",
+]
+
+# ============================================================
+# Theme: perf-data (serves product-ready epic)
+# ============================================================
+
+[[themes]]
+id = "perf-data"
+title = "Accurate reproducible performance benchmarks"
+status = "active"
+spawned_by = "bs29"
+epic = "product-ready"
+goal = "Performance data in README is accurate and reproducible by anyone with the hardware"
+success_criteria = [
+    "Benchmark script exists and produces consistent results",
+    "README performance numbers match script output",
+    "Instructions to reproduce benchmarks are in README",
+]
+
+[[tasks]]
+id = "perf-data.1"
+theme = "perf-data"
+title = "Create benchmark script and verify README numbers"
+kind = "experiment"
+status = "pending"
+depends_on = []
+spawned_by = "bs29"
+research_questions = [
+    "Are the current README performance numbers still accurate?",
+    "What is the simplest reproducible benchmark methodology?",
+]
+
+# ============================================================
+# Theme: gpu-compute (serves gpu-autonomous epic)
+# ============================================================
+
+[[themes]]
+id = "gpu-compute"
+title = "GPU autonomous compute foundations"
+status = "active"
+spawned_by = "bs29"
+epic = "gpu-autonomous"
+goal = "Investigate what is needed for GPU to autonomously execute arbitrarily complex computation"
+success_criteria = [
+    "Identified the key capabilities needed (memory management, scheduling, data loading)",
+    "Feasibility assessment for each capability on current stack",
+    "Roadmap from current state to autonomous compute",
+]
+
+[[tasks]]
+id = "gpu-compute.1"
+theme = "gpu-compute"
+title = "Survey: what capabilities does GPU need for autonomous complex compute?"
+kind = "investigation"
+status = "pending"
+depends_on = []
+spawned_by = "bs29"
+research_questions = [
+    "What does 'autonomous compute' require beyond current hostcall I/O?",
+    "What memory management is needed on GPU (dynamic allocation, large buffers)?",
+    "What scheduling/control flow is needed for multi-step compute pipelines?",
+    "What are the gaps between current async_gpu and autonomous inference?",
+    "How do existing GPU inference engines (TensorRT, vLLM) structure their compute?",
+]
+
+[[tasks]]
+id = "gpu-compute.2"
+theme = "gpu-compute"
+title = "Prototype: GPU-driven multi-step compute without host orchestration"
+kind = "experiment"
+status = "pending"
+depends_on = ["gpu-compute.1", "warp-cfg.2"]
+spawned_by = "bs29"
+research_questions = [
+    "Can the GPU autonomously decide what to compute next based on intermediate results?",
+    "How does warp-cooperative async enable autonomous compute pipelines?",
+]
+
+[[brainstorms]]
+seq = 28
+at_cycle = 108
+trigger = "User-directed: rustc modifications for WarpFuture full control flow + project organization + CI/CD"
+level = "deep"
+new_tasks_spawned = ["warp-cfg.1", "warp-cfg.2", "warp-cfg.3", "warp-cfg.4", "warp-cfg.5", "rustc-warp.1", "rustc-warp.2", "rustc-warp.3", "rustc-warp.4", "rustc-warp.5"]
+new_themes_spawned = ["warp-cfg", "rustc-warp"]
+themes_parked = []
+themes_completed = ["async-pipeline"]
+key_insight = "Start with proc macro CFG builder (warp-cfg), park rustc fork (rustc-warp). Warp-uniform invariant is fundamental to SIMT. Proc macro approach gives selective broadcast control and zero-friction distribution."
+
+[[brainstorms]]
+seq = 29
+at_cycle = 108
+trigger = "User defined 3 epics: product-ready, warp-cooperative-async, gpu-autonomous"
+level = "quick"
+new_tasks_spawned = ["onboarding.1", "onboarding.2", "ci-protect.1", "api-docs.1", "perf-data.1", "gpu-compute.1", "gpu-compute.2"]
+new_themes_spawned = ["onboarding", "ci-protect", "api-docs", "perf-data", "gpu-compute"]
+themes_parked = []
+themes_completed = []
+key_insight = "3 epics established. Product-ready is checklist-style (4 themes: onboarding, ci-protect, api-docs, perf-data). Warp-cooperative-async already has warp-cfg from bs28. GPU-autonomous starts with gpu-compute investigation, depends on warp-cfg results."

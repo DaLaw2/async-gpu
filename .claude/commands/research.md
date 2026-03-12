@@ -2,8 +2,9 @@
 
 You are an autonomous exploratory research agent. Cyclical, evolving research — not linear.
 
-## Hierarchy: Theme → Task
-- **Theme**: Research direction with goal + success criteria. Status: active | parked | completed.
+## Hierarchy: Epic → Theme → Task
+- **Epic**: User-defined high-level goal. Only the user can create or close epics. Brainstorm CANNOT park, complete, or delete epics. Status: active | completed.
+- **Theme**: Research direction with goal + success criteria. Status: active | parked | completed. References its parent epic via `epic = "..."`.
 - **Task**: Actionable item within a theme. Kind: investigation | experiment | design.
 - Task IDs: `{theme}.{n}` (e.g., `hostcall.3`). Rework: `{theme}.{n}.{m}`.
 
@@ -13,6 +14,7 @@ You are an autonomous exploratory research agent. Cyclical, evolving research �
 2. **Disk-first**: Write findings to disk BEFORE proceeding. Synthesis reads from FILES.
 3. **HOST IS READ-ONLY**: No installing packages, no modifying system config. If env changes needed → STOP, list what user must do, set `current_step = "awaiting_user"`.
 4. **Git save**: Commit + push after each completed batch of work (not after every micro-step).
+5. **Epic alignment**: Every brainstorm MUST read all active epics first. All spawned themes/tasks must serve an active epic.
 
 ---
 
@@ -53,6 +55,12 @@ You are an autonomous exploratory research agent. Cyclical, evolving research �
 - `completed_tasks - last_brainstorm_at_completed >= brainstorm_interval`
 - A task was marked `blocked`
 
+### Epic Check (MANDATORY before every brainstorm)
+1. Read all `[[epics]]` with `status = "active"`
+2. Verify: are there themes/tasks actively working toward each epic?
+3. If an active epic has no active themes → brainstorm MUST spawn themes/tasks for it
+4. All recommendations must reference which epic they serve
+
 ### Brainstorm Triage
 
 Assess scope to choose the right level:
@@ -64,18 +72,21 @@ Assess scope to choose the right level:
 | **Deep** | Major pivot, 2+ blocked tasks, decision gate, cross-theme conflict | 2-agent team → `bs{seq}-proposer.md` + `bs{seq}-skeptic.md` + `bs{seq}.md` |
 
 ### Quick Brainstorm (main agent, no subagent)
-1. Review active themes, recent findings, ready tasks
+1. Review active epics, active themes, recent findings, ready tasks
 2. Decide task priority and any small adjustments directly
 3. Update state.toml (tasks, dependencies)
 4. No separate brainstorm file — record key insight in `[[brainstorms]]` entry only
 
 ### Standard Brainstorm (single subagent)
-1. **Prepare**: Gather context — active themes, recent findings, blocked tasks, open questions
+1. **Prepare**: Gather context — active epics, active themes, recent findings, blocked tasks, open questions
 2. **Launch subagent**:
 
 ```
 You are analyzing the next steps for a GPU research project. Write a structured
 analysis covering ALL of these perspectives in a single document:
+
+## Active Epics
+- List each active epic and assess progress toward its success criteria
 
 ## Technical Analysis (systems + compiler + GPU architecture)
 - What's feasible, what are the risks, what are the constraints?
@@ -86,9 +97,10 @@ analysis covering ALL of these perspectives in a single document:
 
 ## Recommendations
 - Concrete task changes: new tasks, skip/park decisions, dependency updates
+- Each recommendation must reference which epic it serves
 - Priority ordering with rationale
 
-Context: {themes, recent findings, blocked tasks, open questions}
+Context: {epics, themes, recent findings, blocked tasks, open questions}
 
 Write to: .research/findings/brainstorm/bs{seq}.md
 ```
@@ -100,6 +112,10 @@ Write to: .research/findings/brainstorm/bs{seq}.md
 2. **Launch agent team** with 2 teammates:
    - **"proposer"**: Write structured analysis with MANDATORY separate sections. Write to `bs{seq}-proposer.md`:
      ```
+     ## Active Epics Assessment
+     - Progress toward each epic's success criteria
+     - Gaps and unaddressed criteria
+
      ## Systems Analysis (memory models, ABI, unsafe boundaries)
      - What's feasible? What are the constraints?
      - Specific risks for the current tasks
@@ -114,6 +130,7 @@ Write to: .research/findings/brainstorm/bs{seq}.md
 
      ## Concrete Recommendations
      - New tasks, skip/park decisions, dependency updates
+     - Each must reference which epic it serves
      - Priority ordering with rationale
      ```
    - **"skeptic"**: Challenge every claim, find holes, identify untested assumptions. Read proposer's file and write counterarguments. Write to `bs{seq}-skeptic.md`
@@ -169,8 +186,9 @@ After each task:
 
 ### Step do.save
 After the batch is complete:
-- git commit + push (one commit per task, or batch commit if tasks are small)
-- Update `last_summary` in state.toml
+1. **Lint check**: Run `cargo +stable fmt --check` and `cargo +stable clippy -- -D warnings` on all modified crates. Fix any failures before committing.
+2. **Commit + push**: one commit per task, or batch commit if tasks are small.
+3. Update `last_summary` in state.toml
 
 ### Step do.route
 Decide what to do next:
@@ -254,8 +272,8 @@ awaiting_user? ──Yes──► Output request, STOP
   │ No
   ▼
 current_mode?
-  ├─ "think" → Triage (quick/standard/deep) → adapt → git save → "do"
-  ├─ "do"    → Batch select → env check → execute tasks → git save → route
+  ├─ "think" → Epic check → Triage (quick/standard/deep) → adapt → git save → "do"
+  ├─ "do"    → Batch select → env check → execute tasks → lint → git save → route
   └─ "check" → Triage (skip/light/full) → git save → route
        │
        ▼

@@ -24,12 +24,13 @@ Exploratory research with no fixed endpoint.
 - https://www.vectorware.com/blog/rust-std-on-gpu/
 - https://www.vectorware.com/blog/async-await-on-gpu/
 
-## Hierarchy: Theme → Task
-- **Theme**: A research direction with goal + success criteria. Can be active/parked/completed.
+## Hierarchy: Epic → Theme → Task
+- **Epic**: User-defined high-level goal. Only the user can create or close epics. Brainstorm CANNOT park, complete, or delete epics.
+- **Theme**: A research direction with goal + success criteria. Can be active/parked/completed. References parent epic.
 - **Task**: An actionable item within a theme (investigation/experiment/design).
 - Task IDs prefixed with theme: `toolchain.1`, `hostcall.3`
 - Rework suffix: `toolchain.4.1`
-- Brainstorm can add new themes or park existing ones.
+- Brainstorm can add new themes or park existing ones, but must align with active epics.
 
 ## Project Structure
 ```
@@ -41,7 +42,8 @@ async_gpu/
 │       └── research.md                    # /research loop engine
 ├── .research/
 │   ├── state.toml                         # State machine (SSOT) + last_summary
-│   │   ├── [[themes]]                     #   Research directions
+│   │   ├── [[epics]]                      #   User-defined high-level goals
+│   │   ├── [[themes]]                     #   Research directions (under epics)
 │   │   └── [[tasks]]                      #   Actionable items per theme
 │   ├── decisions.md                       # Architecture Decision Records
 │   └── findings/

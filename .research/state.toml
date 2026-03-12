@@ -6,16 +6,16 @@
 created = "2026-03-11"
 total_cycles = 60      # Monotonic counter, incremented after each completed phase
 completed_tasks = 59
-status = "completed"   # ready | running | blocked | completed
+status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.save"
+current_step = "do.select"
 current_task_id = ""
-last_summary = "Batch D done: product.5 (README rewritten with benchmark data, architecture diagram, limitations), product.6 (MIT + Apache-2.0 dual license). CI fix (.ptx search). 59/59 tasks complete (2 parked). All 15 themes completed. Project is product-ready."
+last_summary = "bs14 deep brainstorm done. Phase 3 planned: gpu-panic (P0), host-scaling (P0), nightly-compat (P1), large-payload (P1). 4 new themes, 12 new tasks. Warp-coop permanently parked (ADR-4 incompatible). Next: gpu-panic.1 then host-scaling.1."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 13
+brainstorm_seq = 14
 review_seq = 3
 
 # Brainstorm trigger control
@@ -120,7 +120,7 @@ success_criteria = [
 [[themes]]
 id = "product"
 title = "Product-ready demonstrations and stress testing"
-status = "completed"
+status = "active"
 spawned_by = "bs9"
 goal = "Validate the complete stack under realistic conditions and produce showcase demo"
 success_criteria = [
@@ -1407,3 +1407,266 @@ new_themes_spawned = []
 themes_parked = ["benchmark"]
 themes_completed = ["benchmark", "ci", "api"]
 key_insight = "Project 95% product-ready. Two gaps: README has stale claims + no LICENSE. benchmark.4 parked (no nvcc). Fix README + add LICENSE = done."
+
+# ============================================================
+# Phase 3: Post-Product-Ready Themes and Tasks (from bs14)
+# ============================================================
+
+[[themes]]
+id = "gpu-panic"
+title = "GPU panic handler with hostcall reporting"
+status = "active"
+spawned_by = "bs14"
+goal = "GPU panic messages displayed on host instead of loop {}"
+success_criteria = [
+    "panic!(msg) on GPU prints message with thread/block ID on host",
+    "Thread terminates cleanly after panic",
+    "Works for both sync and async kernel code paths",
+]
+
+[[themes]]
+id = "host-scaling"
+title = "Scale host listener throughput"
+status = "active"
+spawned_by = "bs14"
+goal = "Host listener throughput scales with thread count (>100K calls/s at 512 threads)"
+success_criteria = [
+    ">=4x throughput improvement at 128+ GPU threads",
+    "0% message drops under contention",
+    "Latency regression < 20% vs current single-threaded listener",
+]
+
+[[themes]]
+id = "nightly-compat"
+title = "Toolchain compatibility and future-proofing"
+status = "active"
+spawned_by = "bs14"
+goal = "Document nightly compatibility, remove PTX header workaround if possible"
+success_criteria = [
+    "At least one newer nightly tested with results documented",
+    "gpu-kernel ABI evaluated (works/breaks, differences from ptx-kernel)",
+    "If nightly works: toolchain pin updated, workaround removed",
+]
+
+[[themes]]
+id = "large-payload"
+title = "Bulk data transfer beyond 56-byte packets"
+status = "active"
+spawned_by = "bs14"
+goal = "GPU can read/write 4KB+ data via hostcall"
+success_criteria = [
+    "File read of 4KB+ works end-to-end",
+    "Throughput measured and documented",
+    "Protocol extension documented with synchronization guarantees",
+]
+
+# --- Tasks: gpu-panic ---
+
+[[tasks]]
+id = "gpu-panic.1"
+theme = "gpu-panic"
+title = "GPU panic handler design"
+kind = "design"
+status = "pending"
+depends_on = []
+spawned_by = "bs14"
+research_questions = [
+    "How to encode panic message in hostcall packet (SERVICE_PANIC opcode)?",
+    "Can trap instruction terminate just the panicking thread?",
+    "How does host detect and report panic (vs normal hostcall)?",
+    "What metadata to include (thread ID, block ID, warp ID)?",
+]
+
+[[tasks]]
+id = "gpu-panic.2"
+theme = "gpu-panic"
+title = "Implement GPU panic handler"
+kind = "experiment"
+status = "pending"
+depends_on = ["gpu-panic.1"]
+spawned_by = "bs14"
+research_questions = [
+    "Does #[panic_handler] correctly route formatted message through hostcall?",
+    "Does trap instruction cleanly terminate the thread after sending panic?",
+    "Does host-side print panic message with thread/block metadata?",
+    "Does panic work in both sync and async kernel code paths?",
+]
+
+# --- Tasks: host-scaling ---
+
+[[tasks]]
+id = "host-scaling.1"
+theme = "host-scaling"
+title = "Profile host listener bottleneck"
+kind = "investigation"
+status = "pending"
+depends_on = []
+spawned_by = "bs14"
+research_questions = [
+    "What fraction of time is spent in polling vs dispatching vs I/O syscalls vs sleep?",
+    "Is the bottleneck compute-bound, I/O-bound, or polling-strategy-bound?",
+    "Would async I/O (tokio) or multi-threading be more effective?",
+    "What is the theoretical max throughput with zero-cost dispatch?",
+]
+
+[[tasks]]
+id = "host-scaling.2"
+theme = "host-scaling"
+title = "Design scaled listener architecture"
+kind = "design"
+status = "pending"
+depends_on = ["host-scaling.1"]
+spawned_by = "bs14"
+research_questions = [
+    "Multi-threaded vs async I/O vs hybrid — which approach based on profiling?",
+    "How to partition or share the ready stack among multiple consumers?",
+    "What synchronization is needed between listener threads?",
+    "How to handle file descriptor sharing across threads?",
+]
+
+[[tasks]]
+id = "host-scaling.3"
+theme = "host-scaling"
+title = "Implement scaled listener"
+kind = "experiment"
+status = "pending"
+depends_on = ["host-scaling.2"]
+spawned_by = "bs14"
+research_questions = [
+    "Does the implementation match the design?",
+    "Are there race conditions under contention?",
+    "Does it handle all existing hostcall services correctly?",
+]
+
+[[tasks]]
+id = "host-scaling.4"
+theme = "host-scaling"
+title = "Benchmark throughput scaling"
+kind = "experiment"
+status = "pending"
+depends_on = ["host-scaling.3"]
+spawned_by = "bs14"
+research_questions = [
+    "What is throughput at 1/2/4/8 listener threads x 32/128/512 GPU threads?",
+    "Is there a latency regression vs single-threaded listener?",
+    "What is the optimal number of listener threads?",
+    "Does starvation at 512 threads improve?",
+]
+
+# --- Tasks: nightly-compat ---
+
+[[tasks]]
+id = "nightly-compat.1"
+theme = "nightly-compat"
+title = "Test latest nightly compatibility"
+kind = "investigation"
+status = "pending"
+depends_on = []
+spawned_by = "bs14"
+research_questions = [
+    "Does the PTX header bug (.target sm_30) persist in latest nightly?",
+    "Does gpu-kernel ABI compile and produce correct PTX?",
+    "Any new compilation errors or warnings?",
+    "Does the existing test suite pass on newer nightly?",
+]
+
+[[tasks]]
+id = "nightly-compat.2"
+theme = "nightly-compat"
+title = "Update toolchain if compatible"
+kind = "experiment"
+status = "pending"
+depends_on = ["nightly-compat.1"]
+spawned_by = "bs14"
+research_questions = [
+    "Can we update rust-toolchain.toml to newer nightly?",
+    "Can we remove build.rs PTX header workaround?",
+    "Does CI pass with updated toolchain?",
+]
+
+# --- Tasks: large-payload ---
+
+[[tasks]]
+id = "large-payload.1"
+theme = "large-payload"
+title = "Survey bulk data transfer approaches"
+kind = "investigation"
+status = "pending"
+depends_on = []
+spawned_by = "bs14"
+research_questions = [
+    "Multi-packet chaining vs larger mapped buffer with offset+length?",
+    "What synchronization is needed for a sideband data channel?",
+    "How do existing GPU frameworks handle large data transfer?",
+    "What is the performance ceiling for mapped memory bandwidth?",
+]
+
+[[tasks]]
+id = "large-payload.2"
+theme = "large-payload"
+title = "Design bulk transfer protocol extension"
+kind = "design"
+status = "pending"
+depends_on = ["large-payload.1"]
+spawned_by = "bs14"
+research_questions = [
+    "What protocol changes are needed in gpu-protocol?",
+    "How to ensure data visibility before control packet is processed?",
+    "What is the GPU-side API for large reads/writes?",
+]
+
+[[tasks]]
+id = "large-payload.3"
+theme = "large-payload"
+title = "Implement bulk read/write"
+kind = "experiment"
+status = "pending"
+depends_on = ["large-payload.2"]
+spawned_by = "bs14"
+research_questions = [
+    "Does 4KB+ file read work end-to-end?",
+    "What is the throughput vs multi-packet approach?",
+    "Does it work under multi-thread contention?",
+]
+
+# --- Standalone tasks ---
+
+[[tasks]]
+id = "product.7"
+theme = "product"
+title = "Add thread/block/warp metadata to host print output"
+kind = "experiment"
+status = "pending"
+depends_on = []
+spawned_by = "bs14"
+research_questions = [
+    "Can the host print handler automatically prepend [block.thread] to GPU print output?",
+    "Does this work for both gpu-libc and std println paths?",
+]
+
+[[tasks]]
+id = "product.8"
+theme = "product"
+title = "Real workload demo: parallel file grep"
+kind = "experiment"
+status = "pending"
+depends_on = ["host-scaling.4", "large-payload.3"]
+spawned_by = "bs14"
+research_questions = [
+    "Can GPU threads read file chunks via hostcall and search in parallel?",
+    "What is the speedup vs single-threaded host grep?",
+    "Is the end-to-end latency practical for real use?",
+]
+
+# --- Brainstorm record for bs14 ---
+
+[[brainstorms]]
+seq = 14
+at_cycle = 60
+trigger = "user_requested_next_directions"
+level = "deep"
+new_tasks_spawned = ["gpu-panic.1", "gpu-panic.2", "host-scaling.1", "host-scaling.2", "host-scaling.3", "host-scaling.4", "nightly-compat.1", "nightly-compat.2", "large-payload.1", "large-payload.2", "large-payload.3", "product.7", "product.8"]
+new_themes_spawned = ["gpu-panic", "host-scaling", "nightly-compat", "large-payload"]
+themes_parked = []
+themes_completed = []
+key_insight = "Project product-ready but I/O-throughput-limited. Phase 3: debugging first (gpu-panic P0), then scale host listener (profile before optimize), then bulk data + nightly compat. Warp-coop permanently parked (ADR-4 incompatible). Measure before optimizing."

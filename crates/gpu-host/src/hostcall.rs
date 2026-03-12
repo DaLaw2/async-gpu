@@ -229,6 +229,18 @@ impl HostcallBuffer {
                 unsafe {
                     let next =
                         std::ptr::read_volatile(pkt.add(PKT_OFF_NEXT) as *const u64);
+
+                    // Check CONTROL_FILLED — skip packets that were already processed
+                    // (prevents duplicate processing on re-visit)
+                    let control =
+                        &*(pkt.add(PKT_OFF_CONTROL) as *const AtomicU32);
+                    let ctrl = control.load(Ordering::Acquire);
+                    if ctrl & CONTROL_FILLED == 0 {
+                        // Not filled (stale or already processed) — skip
+                        current = next;
+                        continue;
+                    }
+
                     let service =
                         std::ptr::read_volatile(pkt.add(PKT_OFF_SERVICE) as *const u32);
 
@@ -264,9 +276,7 @@ impl HostcallBuffer {
                         }
                     };
 
-                    // Signal GPU: response is ready
-                    let control =
-                        &*(pkt.add(PKT_OFF_CONTROL) as *const AtomicU32);
+                    // Signal GPU: response is ready (clears FILLED, sets READY)
                     let flags = if has_error {
                         CONTROL_READY | CONTROL_ERROR
                     } else {
@@ -626,6 +636,16 @@ impl HostcallBuffer {
                 unsafe {
                     let next =
                         std::ptr::read_volatile(pkt.add(PKT_OFF_NEXT) as *const u64);
+
+                    // Check CONTROL_FILLED — skip packets that were already processed
+                    let control =
+                        &*(pkt.add(PKT_OFF_CONTROL) as *const AtomicU32);
+                    let ctrl = control.load(Ordering::Acquire);
+                    if ctrl & CONTROL_FILLED == 0 {
+                        current = next;
+                        continue;
+                    }
+
                     let service =
                         std::ptr::read_volatile(pkt.add(PKT_OFF_SERVICE) as *const u32);
 
@@ -661,8 +681,7 @@ impl HostcallBuffer {
                         _ => true,
                     };
 
-                    let control =
-                        &*(pkt.add(PKT_OFF_CONTROL) as *const AtomicU32);
+                    // Signal GPU: response is ready (clears FILLED, sets READY)
                     let flags = if has_error {
                         CONTROL_READY | CONTROL_ERROR
                     } else {

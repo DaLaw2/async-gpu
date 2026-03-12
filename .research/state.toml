@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 48      # Monotonic counter, incremented after each completed phase
-completed_tasks = 47
+total_cycles = 53      # Monotonic counter, incremented after each completed phase
+completed_tasks = 52
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.select"
+current_step = "do.route"
 current_task_id = ""
-last_summary = "bs12 deep brainstorm done. Phase 2 defined: benchmark (unpark, P0), host-listener (P0), ci (P1), api (P1). Warp-coop/networking/upstream parked as P2. Next: batch A — benchmark.1 + ci.1 + ci.2."
+last_summary = "Batch A done: benchmark.1 (methodology), ci.1 (GitHub Actions), ci.2 (toolchain pin), host-listener.1 (CONTROL_FILLED eliminates dupes), api.1 (surface design). 52/58 tasks. Next: batch B — benchmark.2 + benchmark.3 + host-listener.2 + api.2."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 12
@@ -1194,7 +1194,7 @@ id = "benchmark.1"
 theme = "benchmark"
 title = "Benchmark methodology design"
 kind = "investigation"
-status = "pending"
+status = "done"
 depends_on = []
 spawned_by = "bs12"
 research_questions = [
@@ -1256,7 +1256,7 @@ id = "host-listener.1"
 theme = "host-listener"
 title = "Per-packet processed bit to eliminate duplicate reads"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = []
 spawned_by = "bs12"
 research_questions = [
@@ -1286,7 +1286,7 @@ id = "ci.1"
 theme = "ci"
 title = "GitHub Actions workflow for PTX compilation"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = []
 spawned_by = "bs12"
 research_questions = [
@@ -1300,7 +1300,7 @@ id = "ci.2"
 theme = "ci"
 title = "rust-toolchain.toml and toolchain requirements documentation"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = []
 spawned_by = "bs12"
 research_questions = [
@@ -1316,7 +1316,7 @@ id = "api.1"
 theme = "api"
 title = "API surface design"
 kind = "design"
-status = "pending"
+status = "done"
 depends_on = []
 spawned_by = "bs12"
 research_questions = [

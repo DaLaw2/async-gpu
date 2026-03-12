@@ -7,11 +7,11 @@
 .address_size 64
 
 	// .globl	multi_block_sync_kernel // -- Begin function multi_block_sync_kernel
-.func  (.param .b32 func_retval0) _ZN15multi_warp_test19hostcall_print_sync17h9622ec60d0d5f05cE
+.func  (.param .b32 func_retval0) _ZN15multi_warp_test19hostcall_print_sync17h3d0b1769e7d4a3aaE
 (
-	.param .b64 _ZN15multi_warp_test19hostcall_print_sync17h9622ec60d0d5f05cE_param_0,
-	.param .b64 _ZN15multi_warp_test19hostcall_print_sync17h9622ec60d0d5f05cE_param_1,
-	.param .b64 _ZN15multi_warp_test19hostcall_print_sync17h9622ec60d0d5f05cE_param_2
+	.param .b64 _ZN15multi_warp_test19hostcall_print_sync17h3d0b1769e7d4a3aaE_param_0,
+	.param .b64 _ZN15multi_warp_test19hostcall_print_sync17h3d0b1769e7d4a3aaE_param_1,
+	.param .b64 _ZN15multi_warp_test19hostcall_print_sync17h3d0b1769e7d4a3aaE_param_2
 )
 ;
 .global .align 1 .b8 anon_$_c65998829d804f1b61b2a678be7705ae_$_0[17] = {84, 104, 114, 101, 97, 100, 32, 48, 48, 48, 32, 104, 101, 108, 108, 111, 33};
@@ -110,7 +110,7 @@
 	.param .b64 	param2;
 	st.param.b64 	[param2], 17;
 	.param .b32 	retval0;
-	call.uni (retval0), _ZN15multi_warp_test19hostcall_print_sync17h9622ec60d0d5f05cE, (param0, param1, param2);
+	call.uni (retval0), _ZN15multi_warp_test19hostcall_print_sync17h3d0b1769e7d4a3aaE, (param0, param1, param2);
 	ld.param.b32 	%r15, [retval0];
 	} // callseq 0
 	setp.ne.b32 	%p1, %r7, 0;
@@ -124,23 +124,23 @@ $L__BB0_2:
 	ret;
                                         // -- End function
 }
-.func  (.param .b32 func_retval0) _ZN15multi_warp_test19hostcall_print_sync17h9622ec60d0d5f05cE(
-	.param .b64 _ZN15multi_warp_test19hostcall_print_sync17h9622ec60d0d5f05cE_param_0,
-	.param .b64 _ZN15multi_warp_test19hostcall_print_sync17h9622ec60d0d5f05cE_param_1,
-	.param .b64 _ZN15multi_warp_test19hostcall_print_sync17h9622ec60d0d5f05cE_param_2
-)                                       // -- Begin function _ZN15multi_warp_test19hostcall_print_sync17h9622ec60d0d5f05cE
-                                        // @_ZN15multi_warp_test19hostcall_print_sync17h9622ec60d0d5f05cE
+.func  (.param .b32 func_retval0) _ZN15multi_warp_test19hostcall_print_sync17h3d0b1769e7d4a3aaE(
+	.param .b64 _ZN15multi_warp_test19hostcall_print_sync17h3d0b1769e7d4a3aaE_param_0,
+	.param .b64 _ZN15multi_warp_test19hostcall_print_sync17h3d0b1769e7d4a3aaE_param_1,
+	.param .b64 _ZN15multi_warp_test19hostcall_print_sync17h3d0b1769e7d4a3aaE_param_2
+)                                       // -- Begin function _ZN15multi_warp_test19hostcall_print_sync17h3d0b1769e7d4a3aaE
+                                        // @_ZN15multi_warp_test19hostcall_print_sync17h3d0b1769e7d4a3aaE
 {
 	.reg .pred 	%p<33>;
 	.reg .b16 	%rs<18>;
-	.reg .b32 	%r<48>;
-	.reg .b64 	%rd<84>;
+	.reg .b32 	%r<49>;
+	.reg .b64 	%rd<85>;
 
 // %bb.0:
-	mov.b32 	%r45, 0;
-	ld.param.b64 	%rd20, [_ZN15multi_warp_test19hostcall_print_sync17h9622ec60d0d5f05cE_param_2];
-	ld.param.b64 	%rd19, [_ZN15multi_warp_test19hostcall_print_sync17h9622ec60d0d5f05cE_param_1];
-	ld.param.b64 	%rd22, [_ZN15multi_warp_test19hostcall_print_sync17h9622ec60d0d5f05cE_param_0];
+	mov.b32 	%r46, 0;
+	ld.param.b64 	%rd20, [_ZN15multi_warp_test19hostcall_print_sync17h3d0b1769e7d4a3aaE_param_2];
+	ld.param.b64 	%rd19, [_ZN15multi_warp_test19hostcall_print_sync17h3d0b1769e7d4a3aaE_param_1];
+	ld.param.b64 	%rd22, [_ZN15multi_warp_test19hostcall_print_sync17h3d0b1769e7d4a3aaE_param_0];
 $L__BB1_1:                              // =>This Loop Header: Depth=1
                                         //     Child Loop BB1_4 Depth 2
                                         //     Child Loop BB1_6 Depth 2
@@ -148,12 +148,12 @@ $L__BB1_1:                              // =>This Loop Header: Depth=1
 	// begin inline asm
 	ld.acquire.sys.global.u64 %rd25, [%rd22];
 	// end inline asm
-	and.b64 	%rd83, %rd25, 65535;
-	setp.eq.b64 	%p3, %rd83, 65535;
+	and.b64 	%rd84, %rd25, 65535;
+	setp.eq.b64 	%p3, %rd84, 65535;
 	@%p3 bra 	$L__BB1_3;
 // %bb.2:                               //   in Loop: Header=BB1_1 Depth=1
-	mad.lo.s64 	%rd82, %rd83, 2112, %rd22;
-	ld.volatile.b64 	%rd26, [%rd82+64];
+	mad.lo.s64 	%rd83, %rd84, 2112, %rd22;
+	ld.volatile.b64 	%rd26, [%rd83+64];
 	// begin inline asm
 	atom.cas.sys.global.b64 %rd23, [%rd22], %rd25, %rd26;
 	// end inline asm
@@ -161,7 +161,7 @@ $L__BB1_1:                              // =>This Loop Header: Depth=1
 	@%p4 bra 	$L__BB1_10;
 	bra.uni 	$L__BB1_1;
 $L__BB1_3:                              //   in Loop: Header=BB1_1 Depth=1
-	setp.eq.b32 	%p6, %r45, 10000000;
+	setp.eq.b32 	%p6, %r46, 10000000;
 	mov.pred 	%p32, 0;
 	@%p6 bra 	$L__BB1_30;
 $L__BB1_4:                              // %.preheader9
@@ -170,13 +170,13 @@ $L__BB1_4:                              // %.preheader9
 	// begin inline asm
 	ld.acquire.sys.global.u64 %rd31, [%rd22];
 	// end inline asm
-	and.b64 	%rd83, %rd31, 65535;
-	setp.ne.b64 	%p7, %rd83, 65535;
+	and.b64 	%rd84, %rd31, 65535;
+	setp.ne.b64 	%p7, %rd84, 65535;
 	@%p7 bra 	$L__BB1_5;
 	bra.uni 	$L__BB1_6;
 $L__BB1_5:                              //   in Loop: Header=BB1_4 Depth=2
-	mad.lo.s64 	%rd82, %rd83, 2112, %rd22;
-	ld.volatile.b64 	%rd32, [%rd82+64];
+	mad.lo.s64 	%rd83, %rd84, 2112, %rd22;
+	ld.volatile.b64 	%rd32, [%rd83+64];
 	// begin inline asm
 	atom.cas.sys.global.b64 %rd29, [%rd22], %rd31, %rd32;
 	// end inline asm
@@ -184,8 +184,8 @@ $L__BB1_5:                              //   in Loop: Header=BB1_4 Depth=2
 	@%p8 bra 	$L__BB1_10;
 	bra.uni 	$L__BB1_4;
 $L__BB1_7:                              //   in Loop: Header=BB1_6 Depth=2
-	mad.lo.s64 	%rd82, %rd83, 2112, %rd22;
-	ld.volatile.b64 	%rd38, [%rd82+64];
+	mad.lo.s64 	%rd83, %rd84, 2112, %rd22;
+	ld.volatile.b64 	%rd38, [%rd83+64];
 	// begin inline asm
 	atom.cas.sys.global.b64 %rd35, [%rd22], %rd37, %rd38;
 	// end inline asm
@@ -197,13 +197,13 @@ $L__BB1_6:                              // %.preheader7
 	// begin inline asm
 	ld.acquire.sys.global.u64 %rd37, [%rd22];
 	// end inline asm
-	and.b64 	%rd83, %rd37, 65535;
-	setp.ne.b64 	%p9, %rd83, 65535;
+	and.b64 	%rd84, %rd37, 65535;
+	setp.ne.b64 	%p9, %rd84, 65535;
 	@%p9 bra 	$L__BB1_7;
 	bra.uni 	$L__BB1_8;
 $L__BB1_9:                              //   in Loop: Header=BB1_8 Depth=2
-	mad.lo.s64 	%rd82, %rd83, 2112, %rd22;
-	ld.volatile.b64 	%rd44, [%rd82+64];
+	mad.lo.s64 	%rd83, %rd84, 2112, %rd22;
+	ld.volatile.b64 	%rd44, [%rd83+64];
 	// begin inline asm
 	atom.cas.sys.global.b64 %rd41, [%rd22], %rd43, %rd44;
 	// end inline asm
@@ -215,217 +215,218 @@ $L__BB1_8:                              // %.preheader5
 	// begin inline asm
 	ld.acquire.sys.global.u64 %rd43, [%rd22];
 	// end inline asm
-	and.b64 	%rd83, %rd43, 65535;
-	setp.eq.b64 	%p11, %rd83, 65535;
+	and.b64 	%rd84, %rd43, 65535;
+	setp.eq.b64 	%p11, %rd84, 65535;
 	@%p11 bra 	$L__BB1_31;
 	bra.uni 	$L__BB1_9;
 $L__BB1_31:                             //   in Loop: Header=BB1_1 Depth=1
-	add.s32 	%r45, %r45, 4;
+	add.s32 	%r46, %r46, 4;
 	bra.uni 	$L__BB1_1;
 $L__BB1_10:                             // %.loopexit6
 	// begin inline asm
 	activemask.b32 %r18;
 	// end inline asm
-	st.volatile.b32 	[%rd82+72], %r18;
-	st.volatile.b32 	[%rd82+76], 1;
-	add.s64 	%rd57, %rd82, 80;
+	st.volatile.b32 	[%rd83+72], %r18;
+	st.volatile.b32 	[%rd83+76], 1;
+	add.s64 	%rd58, %rd83, 80;
 	mov.b32 	%r19, 0;
 	// begin inline asm
-	st.release.sys.global.u32 [%rd57], %r19;
+	st.release.sys.global.u32 [%rd58], %r19;
 	// end inline asm
-	st.volatile.b64 	[%rd82+96], %rd20;
+	st.volatile.b64 	[%rd83+96], %rd20;
 	ld.b8 	%rs1, [%rd19];
-	st.volatile.b8 	[%rd82+104], %rs1;
+	st.volatile.b8 	[%rd83+104], %rs1;
 	ld.b8 	%rs2, [%rd19+1];
-	st.volatile.b8 	[%rd82+105], %rs2;
+	st.volatile.b8 	[%rd83+105], %rs2;
 	ld.b8 	%rs3, [%rd19+2];
-	st.volatile.b8 	[%rd82+106], %rs3;
+	st.volatile.b8 	[%rd83+106], %rs3;
 	ld.b8 	%rs4, [%rd19+3];
-	st.volatile.b8 	[%rd82+107], %rs4;
+	st.volatile.b8 	[%rd83+107], %rs4;
 	ld.b8 	%rs5, [%rd19+4];
-	st.volatile.b8 	[%rd82+108], %rs5;
+	st.volatile.b8 	[%rd83+108], %rs5;
 	ld.b8 	%rs6, [%rd19+5];
-	st.volatile.b8 	[%rd82+109], %rs6;
+	st.volatile.b8 	[%rd83+109], %rs6;
 	ld.b8 	%rs7, [%rd19+6];
-	st.volatile.b8 	[%rd82+110], %rs7;
+	st.volatile.b8 	[%rd83+110], %rs7;
 	ld.b8 	%rs8, [%rd19+7];
-	st.volatile.b8 	[%rd82+111], %rs8;
+	st.volatile.b8 	[%rd83+111], %rs8;
 	ld.b8 	%rs9, [%rd19+8];
-	st.volatile.b8 	[%rd82+112], %rs9;
+	st.volatile.b8 	[%rd83+112], %rs9;
 	ld.b8 	%rs10, [%rd19+9];
-	st.volatile.b8 	[%rd82+113], %rs10;
+	st.volatile.b8 	[%rd83+113], %rs10;
 	ld.b8 	%rs11, [%rd19+10];
-	st.volatile.b8 	[%rd82+114], %rs11;
+	st.volatile.b8 	[%rd83+114], %rs11;
 	ld.b8 	%rs12, [%rd19+11];
-	st.volatile.b8 	[%rd82+115], %rs12;
+	st.volatile.b8 	[%rd83+115], %rs12;
 	ld.b8 	%rs13, [%rd19+12];
-	st.volatile.b8 	[%rd82+116], %rs13;
+	st.volatile.b8 	[%rd83+116], %rs13;
 	ld.b8 	%rs14, [%rd19+13];
-	st.volatile.b8 	[%rd82+117], %rs14;
+	st.volatile.b8 	[%rd83+117], %rs14;
 	ld.b8 	%rs15, [%rd19+14];
-	st.volatile.b8 	[%rd82+118], %rs15;
+	st.volatile.b8 	[%rd83+118], %rs15;
 	ld.b8 	%rs16, [%rd19+15];
-	st.volatile.b8 	[%rd82+119], %rs16;
+	st.volatile.b8 	[%rd83+119], %rs16;
 	and.b64 	%rd46, %rd20, 1;
 	setp.ne.b64 	%p13, %rd46, 0;
 	not.pred 	%p14, %p13;
 	@%p14 bra 	$L__BB1_12;
 // %bb.11:
 	ld.b8 	%rs17, [%rd19+16];
-	st.volatile.b8 	[%rd82+120], %rs17;
+	st.volatile.b8 	[%rd83+120], %rs17;
 $L__BB1_12:
+	mov.b32 	%r20, 4;
 	// begin inline asm
-	membar.sys;
+	st.release.sys.global.u32 [%rd58], %r20;
 	// end inline asm
-	add.s64 	%rd48, %rd22, 8;
-	or.b64 	%rd17, %rd83, 4294967296;
+	add.s64 	%rd49, %rd22, 8;
+	or.b64 	%rd17, %rd84, 4294967296;
 $L__BB1_13:                             // =>This Inner Loop Header: Depth=1
 	// begin inline asm
-	ld.acquire.sys.global.u64 %rd51, [%rd48];
+	ld.acquire.sys.global.u64 %rd52, [%rd49];
 	// end inline asm
-	st.volatile.b64 	[%rd82+64], %rd51;
-	and.b64 	%rd53, %rd51, -4294967296;
-	add.s64 	%rd52, %rd53, %rd17;
+	st.volatile.b64 	[%rd83+64], %rd52;
+	and.b64 	%rd54, %rd52, -4294967296;
+	add.s64 	%rd53, %rd54, %rd17;
 	// begin inline asm
-	atom.cas.sys.global.b64 %rd49, [%rd48], %rd51, %rd52;
+	atom.cas.sys.global.b64 %rd50, [%rd49], %rd52, %rd53;
 	// end inline asm
-	setp.ne.b64 	%p15, %rd49, %rd51;
+	setp.ne.b64 	%p15, %rd50, %rd52;
 	@%p15 bra 	$L__BB1_13;
 // %bb.14:
-	add.s64 	%rd55, %rd22, 16;
-	mov.b64 	%rd56, 1;
+	add.s64 	%rd56, %rd22, 16;
+	mov.b64 	%rd57, 1;
 	// begin inline asm
-	atom.add.sys.global.u64 %rd54, [%rd55], %rd56;
+	atom.add.sys.global.u64 %rd55, [%rd56], %rd57;
 	// end inline asm
-	mov.b32 	%r46, 10000001;
+	mov.b32 	%r47, 10000001;
 $L__BB1_15:                             // =>This Inner Loop Header: Depth=1
 	// begin inline asm
-	ld.acquire.sys.global.u32 %r47, [%rd57];
+	ld.acquire.sys.global.u32 %r48, [%rd58];
 nanosleep.u32 64;
 	// end inline asm
-	and.b32 	%r22, %r47, 1;
-	setp.ne.b32 	%p16, %r22, 0;
+	and.b32 	%r23, %r48, 1;
+	setp.ne.b32 	%p16, %r23, 0;
 	not.pred 	%p17, %p16;
 	@%p17 bra 	$L__BB1_16;
 	bra.uni 	$L__BB1_28;
 $L__BB1_16:                             //   in Loop: Header=BB1_15 Depth=1
 	// begin inline asm
-	ld.acquire.sys.global.u32 %r47, [%rd57];
+	ld.acquire.sys.global.u32 %r48, [%rd58];
 nanosleep.u32 64;
 	// end inline asm
-	and.b32 	%r24, %r47, 1;
-	setp.ne.b32 	%p18, %r24, 0;
+	and.b32 	%r25, %r48, 1;
+	setp.ne.b32 	%p18, %r25, 0;
 	@%p18 bra 	$L__BB1_28;
 // %bb.17:                              //   in Loop: Header=BB1_15 Depth=1
 	// begin inline asm
-	ld.acquire.sys.global.u32 %r47, [%rd57];
+	ld.acquire.sys.global.u32 %r48, [%rd58];
 nanosleep.u32 64;
 	// end inline asm
-	and.b32 	%r26, %r47, 1;
-	setp.ne.b32 	%p19, %r26, 0;
+	and.b32 	%r27, %r48, 1;
+	setp.ne.b32 	%p19, %r27, 0;
 	@%p19 bra 	$L__BB1_28;
 // %bb.18:                              //   in Loop: Header=BB1_15 Depth=1
 	// begin inline asm
-	ld.acquire.sys.global.u32 %r47, [%rd57];
+	ld.acquire.sys.global.u32 %r48, [%rd58];
 nanosleep.u32 64;
 	// end inline asm
-	and.b32 	%r28, %r47, 1;
-	setp.ne.b32 	%p20, %r28, 0;
+	and.b32 	%r29, %r48, 1;
+	setp.ne.b32 	%p20, %r29, 0;
 	@%p20 bra 	$L__BB1_28;
 // %bb.19:                              //   in Loop: Header=BB1_15 Depth=1
 	// begin inline asm
-	ld.acquire.sys.global.u32 %r47, [%rd57];
+	ld.acquire.sys.global.u32 %r48, [%rd58];
 nanosleep.u32 64;
 	// end inline asm
-	and.b32 	%r30, %r47, 1;
-	setp.ne.b32 	%p21, %r30, 0;
+	and.b32 	%r31, %r48, 1;
+	setp.ne.b32 	%p21, %r31, 0;
 	@%p21 bra 	$L__BB1_28;
 // %bb.20:                              //   in Loop: Header=BB1_15 Depth=1
 	// begin inline asm
-	ld.acquire.sys.global.u32 %r47, [%rd57];
+	ld.acquire.sys.global.u32 %r48, [%rd58];
 nanosleep.u32 64;
 	// end inline asm
-	and.b32 	%r32, %r47, 1;
-	setp.ne.b32 	%p22, %r32, 0;
+	and.b32 	%r33, %r48, 1;
+	setp.ne.b32 	%p22, %r33, 0;
 	@%p22 bra 	$L__BB1_28;
 // %bb.21:                              //   in Loop: Header=BB1_15 Depth=1
 	// begin inline asm
-	ld.acquire.sys.global.u32 %r47, [%rd57];
+	ld.acquire.sys.global.u32 %r48, [%rd58];
 nanosleep.u32 64;
 	// end inline asm
-	and.b32 	%r34, %r47, 1;
-	setp.ne.b32 	%p23, %r34, 0;
+	and.b32 	%r35, %r48, 1;
+	setp.ne.b32 	%p23, %r35, 0;
 	@%p23 bra 	$L__BB1_28;
 // %bb.22:                              //   in Loop: Header=BB1_15 Depth=1
 	// begin inline asm
-	ld.acquire.sys.global.u32 %r47, [%rd57];
+	ld.acquire.sys.global.u32 %r48, [%rd58];
 nanosleep.u32 64;
 	// end inline asm
-	and.b32 	%r36, %r47, 1;
-	setp.ne.b32 	%p24, %r36, 0;
+	and.b32 	%r37, %r48, 1;
+	setp.ne.b32 	%p24, %r37, 0;
 	@%p24 bra 	$L__BB1_28;
 // %bb.23:                              //   in Loop: Header=BB1_15 Depth=1
 	// begin inline asm
-	ld.acquire.sys.global.u32 %r47, [%rd57];
+	ld.acquire.sys.global.u32 %r48, [%rd58];
 nanosleep.u32 64;
 	// end inline asm
-	and.b32 	%r38, %r47, 1;
-	setp.ne.b32 	%p25, %r38, 0;
+	and.b32 	%r39, %r48, 1;
+	setp.ne.b32 	%p25, %r39, 0;
 	@%p25 bra 	$L__BB1_28;
 // %bb.24:                              //   in Loop: Header=BB1_15 Depth=1
 	// begin inline asm
-	ld.acquire.sys.global.u32 %r47, [%rd57];
+	ld.acquire.sys.global.u32 %r48, [%rd58];
 nanosleep.u32 64;
 	// end inline asm
-	and.b32 	%r40, %r47, 1;
-	setp.ne.b32 	%p26, %r40, 0;
+	and.b32 	%r41, %r48, 1;
+	setp.ne.b32 	%p26, %r41, 0;
 	@%p26 bra 	$L__BB1_28;
 // %bb.25:                              //   in Loop: Header=BB1_15 Depth=1
 	// begin inline asm
-	ld.acquire.sys.global.u32 %r47, [%rd57];
+	ld.acquire.sys.global.u32 %r48, [%rd58];
 nanosleep.u32 64;
 	// end inline asm
-	and.b32 	%r42, %r47, 1;
-	setp.ne.b32 	%p27, %r42, 0;
+	and.b32 	%r43, %r48, 1;
+	setp.ne.b32 	%p27, %r43, 0;
 	@%p27 bra 	$L__BB1_28;
 // %bb.26:                              //   in Loop: Header=BB1_15 Depth=1
-	add.s32 	%r46, %r46, -11;
-	setp.ne.b32 	%p29, %r46, 0;
+	add.s32 	%r47, %r47, -11;
+	setp.ne.b32 	%p29, %r47, 0;
 	@%p29 bra 	$L__BB1_15;
 $L__BB1_27:                             // %.preheader
                                         // =>This Inner Loop Header: Depth=1
 	// begin inline asm
-	ld.acquire.sys.global.u64 %rd79, [%rd22];
+	ld.acquire.sys.global.u64 %rd80, [%rd22];
 	// end inline asm
-	st.volatile.b64 	[%rd82+64], %rd79;
-	and.b64 	%rd81, %rd79, -4294967296;
-	add.s64 	%rd80, %rd81, %rd17;
+	st.volatile.b64 	[%rd83+64], %rd80;
+	and.b64 	%rd82, %rd80, -4294967296;
+	add.s64 	%rd81, %rd82, %rd17;
 	// begin inline asm
-	atom.cas.sys.global.b64 %rd77, [%rd22], %rd79, %rd80;
+	atom.cas.sys.global.b64 %rd78, [%rd22], %rd80, %rd81;
 	// end inline asm
-	setp.eq.b64 	%p31, %rd77, %rd79;
+	setp.eq.b64 	%p31, %rd78, %rd80;
 	mov.pred 	%p32, 0;
 	@%p31 bra 	$L__BB1_30;
 	bra.uni 	$L__BB1_27;
 $L__BB1_28:                             // =>This Inner Loop Header: Depth=1
 	// begin inline asm
-	ld.acquire.sys.global.u64 %rd72, [%rd22];
+	ld.acquire.sys.global.u64 %rd73, [%rd22];
 	// end inline asm
-	st.volatile.b64 	[%rd82+64], %rd72;
-	and.b64 	%rd74, %rd72, -4294967296;
-	add.s64 	%rd73, %rd74, %rd17;
+	st.volatile.b64 	[%rd83+64], %rd73;
+	and.b64 	%rd75, %rd73, -4294967296;
+	add.s64 	%rd74, %rd75, %rd17;
 	// begin inline asm
-	atom.cas.sys.global.b64 %rd70, [%rd22], %rd72, %rd73;
+	atom.cas.sys.global.b64 %rd71, [%rd22], %rd73, %rd74;
 	// end inline asm
-	setp.eq.b64 	%p28, %rd70, %rd72;
+	setp.eq.b64 	%p28, %rd71, %rd73;
 	@%p28 bra 	$L__BB1_29;
 	bra.uni 	$L__BB1_28;
 $L__BB1_29:
-	and.b32 	%r43, %r47, 2;
-	setp.eq.b32 	%p32, %r43, 0;
+	and.b32 	%r44, %r48, 2;
+	setp.eq.b32 	%p32, %r44, 0;
 $L__BB1_30:                             // %.loopexit
-	selp.b32 	%r44, 1, 0, %p32;
-	st.param.b32 	[func_retval0], %r44;
+	selp.b32 	%r45, 1, 0, %p32;
+	st.param.b32 	[func_retval0], %r45;
 	ret;
                                         // -- End function
 }
@@ -503,7 +504,7 @@ $L__BB1_30:                             // %.loopexit
 	.param .b64 	param2;
 	st.param.b64 	[param2], 16;
 	.param .b32 	retval0;
-	call.uni (retval0), _ZN15multi_warp_test19hostcall_print_sync17h9622ec60d0d5f05cE, (param0, param1, param2);
+	call.uni (retval0), _ZN15multi_warp_test19hostcall_print_sync17h3d0b1769e7d4a3aaE, (param0, param1, param2);
 	ld.param.b32 	%r6, [retval0];
 	} // callseq 1
 	setp.ne.b32 	%p1, %r2, 0;

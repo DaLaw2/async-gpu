@@ -74,6 +74,7 @@ unsafe fn gpu_hostcall_print_raw(hc_buf: *mut u8, msg: *const u8, msg_len: u32) 
     const NULL_INDEX: u16 = 0xFFFF;
     const SERVICE_PRINT: u32 = 1;
     const CONTROL_READY: u32 = 1;
+    const CONTROL_FILLED: u32 = 4;
     const GPU_MAX_SPIN: u32 = 10_000_000;
 
     #[inline(always)]
@@ -154,7 +155,8 @@ unsafe fn gpu_hostcall_print_raw(hc_buf: *mut u8, msg: *const u8, msg_len: u32) 
         i += 1;
     }
 
-    membar();
+    // Mark packet as filled (release store ensures all prior writes visible).
+    st_rel_u32(pkt.add(PKT_OFF_CONTROL) as *mut u32, CONTROL_FILLED);
 
     // Push to ready stack
     let ready_ptr = hc_buf.add(BUF_OFF_READY_STACK) as *mut u64;
@@ -219,6 +221,7 @@ unsafe fn gpu_hostcall_stdin_raw(hc_buf: *mut u8, out_buf: *mut u8, max_len: u32
     const NULL_INDEX: u16 = 0xFFFF;
     const SERVICE_STDIN: u32 = 8;
     const CONTROL_READY: u32 = 1;
+    const CONTROL_FILLED: u32 = 4;
     const GPU_MAX_SPIN: u32 = 100_000_000; // Stdin is blocking, allow longer wait
 
     #[inline(always)]
@@ -292,7 +295,8 @@ unsafe fn gpu_hostcall_stdin_raw(hc_buf: *mut u8, out_buf: *mut u8, max_len: u32
     let payload = pkt.add(PKT_OFF_PAYLOAD);
     core::ptr::write_volatile(payload as *mut u64, max_len as u64);
 
-    membar();
+    // Mark packet as filled (release store ensures all prior writes visible).
+    st_rel_u32(pkt.add(PKT_OFF_CONTROL) as *mut u32, CONTROL_FILLED);
 
     // Push to ready stack
     let ready_ptr = hc_buf.add(BUF_OFF_READY_STACK) as *mut u64;

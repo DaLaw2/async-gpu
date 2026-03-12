@@ -319,8 +319,8 @@ unsafe fn gpu_hostcall_print(buf: *mut u8, msg: *const u8, msg_len: u32) -> bool
         i += 1;
     }
 
-    // Step 4: membar.sys to ensure all packet writes are visible at system scope
-    membar_sys();
+    // Step 4: Mark packet as filled (release store ensures all prior writes visible)
+    sys_store_release_u32(pkt.add(PKT_OFF_CONTROL) as *mut u32, CONTROL_FILLED);
 
     // Step 5: Push to ready stack
     let ready_ptr = buf.add(BUF_OFF_READY_STACK) as *mut u64;
@@ -457,8 +457,8 @@ unsafe fn gpu_hostcall_request(
     // Step 3: Fill payload
     fill_payload(pkt.add(PKT_OFF_PAYLOAD));
 
-    // Step 4: membar.sys
-    membar_sys();
+    // Step 4: Mark packet as filled (release store ensures all prior writes visible)
+    sys_store_release_u32(pkt.add(PKT_OFF_CONTROL) as *mut u32, CONTROL_FILLED);
 
     // Step 5: Push to ready stack
     let ready_ptr = buf.add(BUF_OFF_READY_STACK) as *mut u64;

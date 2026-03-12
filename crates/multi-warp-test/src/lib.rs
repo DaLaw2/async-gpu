@@ -17,7 +17,7 @@
 use core::panic::PanicInfo;
 
 use gpu_atomics::{
-    activemask, membar_sys, sys_cas_u64, sys_fetch_add_u64, sys_load_acquire_u64,
+    activemask, sys_cas_u64, sys_fetch_add_u64, sys_load_acquire_u64,
     sys_spin_load_acquire_u32, sys_store_release_u32,
 };
 use gpu_protocol::*;
@@ -118,8 +118,8 @@ unsafe fn hostcall_print_sync(buf: *mut u8, msg: &[u8]) -> bool {
         i += 1;
     }
 
-    // Ensure all writes are visible at system scope.
-    membar_sys();
+    // Mark packet as filled (release store ensures all prior writes visible).
+    sys_store_release_u32(pkt.add(PKT_OFF_CONTROL) as *mut u32, CONTROL_FILLED);
 
     // Push to ready stack.
     let ready_ptr = buf.add(BUF_OFF_READY_STACK) as *mut u64;

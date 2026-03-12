@@ -21,7 +21,7 @@ extern crate gpu_critical_section;
 
 use embassy_executor::raw::{Executor, TaskStorage};
 use gpu_atomics::{
-    activemask, membar_sys, sys_cas_u64, sys_fetch_add_u64, sys_load_acquire_u32,
+    activemask, sys_cas_u64, sys_fetch_add_u64, sys_load_acquire_u32,
     sys_load_acquire_u64, sys_store_release_u32,
 };
 use gpu_protocol::*;
@@ -112,7 +112,8 @@ unsafe fn submit_print(buf: *mut u8, pkt_idx: u16, msg: &[u8]) {
         i += 1;
     }
 
-    membar_sys();
+    // Mark packet as filled (release store ensures all prior writes visible).
+    sys_store_release_u32(pkt.add(PKT_OFF_CONTROL) as *mut u32, CONTROL_FILLED);
 
     let ready_ptr = buf.add(BUF_OFF_READY_STACK) as *mut u64;
     hc_push(ready_ptr, buf, pkt_idx);

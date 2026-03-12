@@ -27,6 +27,9 @@ pub const SERVICE_TIME: u32 = 9;
 
 pub const CONTROL_READY: u32 = 1;
 pub const CONTROL_ERROR: u32 = 2;
+/// Set by GPU after filling the packet, before pushing to ready stack.
+/// Host checks this bit before processing — skip if not set (stale re-visit).
+pub const CONTROL_FILLED: u32 = 4;
 
 // ============================================================
 // Tagged pointer constants

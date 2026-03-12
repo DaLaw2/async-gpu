@@ -22,7 +22,7 @@ fn main() {
     // The kernel's .cargo/config.toml and rust-toolchain.toml handle everything.
     let status = Command::new("cargo")
         .args([
-            "+nightly-2025-08-25",
+            "+nightly-2026-03-11",
             "build",
             "--release",
         ])
@@ -34,7 +34,7 @@ fn main() {
         .env_remove("CARGO_TARGET_DIR")
         .env_remove("CARGO_BUILD_TARGET")
         .status()
-        .expect("Failed to run cargo for kernel compilation. Is nightly-2025-08-25 installed?");
+        .expect("Failed to run cargo for kernel compilation. Is nightly-2026-03-11 installed?");
 
     if !status.success() {
         panic!("Kernel PTX compilation failed");

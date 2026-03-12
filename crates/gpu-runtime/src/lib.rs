@@ -45,17 +45,85 @@ pub mod hostcall {
     };
     use gpu_protocol::*;
 
+    // ================================================================
+    // Sharding helpers — compute shard index and resolve packet offsets
+    // ================================================================
+
+    /// Read sharding metadata from buffer header. Returns (num_shards, shard_array_offset, pkts_per_shard).
+    /// If num_shards == 0, this is a legacy (unsharded) buffer.
+    #[inline(always)]
+    pub unsafe fn read_shard_info(buf: *const u8) -> (u32, u32, u32) {
+        let num_shards = core::ptr::read_volatile(buf.add(BUF_OFF_NUM_SHARDS) as *const u32);
+        if num_shards == 0 {
+            return (0, BUFFER_HEADER_SIZE as u32, 0);
+        }
+        let pkts_per_shard = core::ptr::read_volatile(buf.add(BUF_OFF_PKTS_PER_SHARD) as *const u32);
+        let shard_array_off = core::ptr::read_volatile(buf.add(BUF_OFF_SHARD_ARRAY_OFF) as *const u32);
+        (num_shards, shard_array_off, pkts_per_shard)
+    }
+
+    /// Compute the byte offset of a packet from buf base, handling both legacy and sharded layouts.
+    #[inline(always)]
+    pub unsafe fn pkt_offset(buf: *const u8, idx: u16) -> usize {
+        let (num_shards, shard_array_off, _) = read_shard_info(buf);
+        if num_shards == 0 {
+            packet_offset(idx)
+        } else {
+            packet_offset_sharded(idx, shard_array_off as usize, num_shards)
+        }
+    }
+
+    /// Get the free stack pointer for the current block's shard (or global if unsharded).
+    #[inline(always)]
+    pub unsafe fn get_free_stack_ptr(buf: *mut u8, num_shards: u32, shard_array_off: u32) -> *mut u64 {
+        if num_shards == 0 {
+            buf.add(BUF_OFF_FREE_STACK) as *mut u64
+        } else {
+            let shard_idx = core::arch::nvptx::_block_idx_x() as u32 % num_shards;
+            let entry_off = shard_entry_offset(shard_array_off as usize, shard_idx);
+            buf.add(entry_off + SHARD_OFF_FREE_STACK) as *mut u64
+        }
+    }
+
+    /// Get the ready stack pointer for the current block's shard (or global if unsharded).
+    #[inline(always)]
+    pub unsafe fn get_ready_stack_ptr(buf: *mut u8, num_shards: u32, shard_array_off: u32) -> *mut u64 {
+        if num_shards == 0 {
+            buf.add(BUF_OFF_READY_STACK) as *mut u64
+        } else {
+            let shard_idx = core::arch::nvptx::_block_idx_x() as u32 % num_shards;
+            let entry_off = shard_entry_offset(shard_array_off as usize, shard_idx);
+            buf.add(entry_off + SHARD_OFF_READY_STACK) as *mut u64
+        }
+    }
+
+    // ================================================================
+    // Core stack operations
+    // ================================================================
+
     /// Pop a packet from the free stack. Returns packet index or NULL_INDEX.
     #[inline(always)]
     pub unsafe fn hc_pop_free(buf: *mut u8) -> u16 {
-        let free_ptr = buf.add(BUF_OFF_FREE_STACK) as *mut u64;
+        let (num_shards, shard_array_off, _) = read_shard_info(buf as *const u8);
+        let free_ptr = get_free_stack_ptr(buf, num_shards, shard_array_off);
+        hc_pop_free_from(buf, free_ptr, num_shards, shard_array_off)
+    }
+
+    /// Pop a packet from a specific free stack pointer.
+    #[inline(always)]
+    unsafe fn hc_pop_free_from(buf: *mut u8, free_ptr: *mut u64, num_shards: u32, shard_array_off: u32) -> u16 {
         loop {
             let old_head = sys_load_acquire_u64(free_ptr as *const u64);
             let idx = tagged_index(old_head);
             if idx == NULL_INDEX {
                 return NULL_INDEX;
             }
-            let pkt = buf.add(packet_offset(idx));
+            let pkt_off = if num_shards == 0 {
+                packet_offset(idx)
+            } else {
+                packet_offset_sharded(idx, shard_array_off as usize, num_shards)
+            };
+            let pkt = buf.add(pkt_off);
             let next = core::ptr::read_volatile(pkt.add(PKT_OFF_NEXT) as *const u64);
             if sys_cas_u64(free_ptr, old_head, next) == old_head {
                 return idx;
@@ -66,7 +134,19 @@ pub mod hostcall {
     /// Push a packet onto a tagged-pointer stack (free or ready).
     #[inline(always)]
     pub unsafe fn hc_push(stack_ptr: *mut u64, buf: *mut u8, pkt_idx: u16) {
-        let pkt = buf.add(packet_offset(pkt_idx));
+        let (num_shards, shard_array_off, _) = read_shard_info(buf as *const u8);
+        hc_push_with(stack_ptr, buf, pkt_idx, num_shards, shard_array_off);
+    }
+
+    /// Push with pre-computed sharding info.
+    #[inline(always)]
+    unsafe fn hc_push_with(stack_ptr: *mut u64, buf: *mut u8, pkt_idx: u16, num_shards: u32, shard_array_off: u32) {
+        let pkt_off = if num_shards == 0 {
+            packet_offset(pkt_idx)
+        } else {
+            packet_offset_sharded(pkt_idx, shard_array_off as usize, num_shards)
+        };
+        let pkt = buf.add(pkt_off);
         loop {
             let old_head = sys_load_acquire_u64(stack_ptr as *const u64);
             core::ptr::write_volatile(pkt.add(PKT_OFF_NEXT) as *mut u64, old_head);
@@ -81,10 +161,16 @@ pub mod hostcall {
     /// Release a packet back to the free stack.
     #[inline(always)]
     pub unsafe fn gpu_hostcall_release(buf: *mut u8, pkt: *mut u8) {
+        let (num_shards, shard_array_off, _) = read_shard_info(buf as *const u8);
         let pkt_offset_bytes = (pkt as usize) - (buf as usize);
-        let idx = ((pkt_offset_bytes - BUFFER_HEADER_SIZE) / PACKET_SIZE) as u16;
-        let free_ptr = buf.add(BUF_OFF_FREE_STACK) as *mut u64;
-        hc_push(free_ptr, buf, idx);
+        let packet_base = if num_shards == 0 {
+            BUFFER_HEADER_SIZE
+        } else {
+            shard_array_off as usize + (num_shards as usize) * SHARD_ENTRY_SIZE
+        };
+        let idx = ((pkt_offset_bytes - packet_base) / PACKET_SIZE) as u16;
+        let free_ptr = get_free_stack_ptr(buf, num_shards, shard_array_off);
+        hc_push_with(free_ptr, buf, idx, num_shards, shard_array_off);
     }
 
     /// Maximum spin iterations before declaring timeout.
@@ -102,13 +188,22 @@ pub mod hostcall {
         service: u32,
         fill_payload: impl FnOnce(*mut u8),
     ) -> (*mut u8, bool) {
+        let (num_shards, shard_array_off, _) = read_shard_info(buf as *const u8);
+        let free_ptr = get_free_stack_ptr(buf, num_shards, shard_array_off);
+        let ready_ptr = get_ready_stack_ptr(buf, num_shards, shard_array_off);
+
         // Step 1: Pop free packet
-        let pkt_idx = hc_pop_free(buf);
+        let pkt_idx = hc_pop_free_from(buf, free_ptr, num_shards, shard_array_off);
         if pkt_idx == NULL_INDEX {
             return (core::ptr::null_mut(), false);
         }
 
-        let pkt = buf.add(packet_offset(pkt_idx));
+        let pkt_off = if num_shards == 0 {
+            packet_offset(pkt_idx)
+        } else {
+            packet_offset_sharded(pkt_idx, shard_array_off as usize, num_shards)
+        };
+        let pkt = buf.add(pkt_off);
 
         // Step 2: Fill packet header
         let mask = activemask();
@@ -122,11 +217,10 @@ pub mod hostcall {
         // Step 4: Mark packet as filled (release store ensures all prior writes visible)
         sys_store_release_u32(pkt.add(PKT_OFF_CONTROL) as *mut u32, CONTROL_FILLED);
 
-        // Step 5: Push to ready stack
-        let ready_ptr = buf.add(BUF_OFF_READY_STACK) as *mut u64;
-        hc_push(ready_ptr, buf, pkt_idx);
+        // Step 5: Push to ready stack (shard-local or global)
+        hc_push_with(ready_ptr, buf, pkt_idx, num_shards, shard_array_off);
 
-        // Step 6: Ring doorbell
+        // Step 6: Ring doorbell (always global)
         sys_fetch_add_u64(buf.add(BUF_OFF_DOORBELL) as *mut u64, 1);
 
         // Step 7: Spin-wait for host response
@@ -142,8 +236,7 @@ pub mod hostcall {
             spins += 1;
             if spins >= GPU_MAX_SPIN {
                 // Timeout — return packet to free stack
-                let free_ptr = buf.add(BUF_OFF_FREE_STACK) as *mut u64;
-                hc_push(free_ptr, buf, pkt_idx);
+                hc_push_with(free_ptr, buf, pkt_idx, num_shards, shard_array_off);
                 return (core::ptr::null_mut(), false);
             }
         }
@@ -155,12 +248,21 @@ pub mod hostcall {
     /// Returns true on success.
     #[inline(always)]
     pub unsafe fn gpu_hostcall_print(buf: *mut u8, msg: *const u8, msg_len: u32) -> bool {
-        let pkt_idx = hc_pop_free(buf);
+        let (num_shards, shard_array_off, _) = read_shard_info(buf as *const u8);
+        let free_ptr = get_free_stack_ptr(buf, num_shards, shard_array_off);
+        let ready_ptr = get_ready_stack_ptr(buf, num_shards, shard_array_off);
+
+        let pkt_idx = hc_pop_free_from(buf, free_ptr, num_shards, shard_array_off);
         if pkt_idx == NULL_INDEX {
             return false;
         }
 
-        let pkt = buf.add(packet_offset(pkt_idx));
+        let pkt_off = if num_shards == 0 {
+            packet_offset(pkt_idx)
+        } else {
+            packet_offset_sharded(pkt_idx, shard_array_off as usize, num_shards)
+        };
+        let pkt = buf.add(pkt_off);
 
         let mask = activemask();
         core::ptr::write_volatile(pkt.add(PKT_OFF_ACTIVE_MASK) as *mut u32, mask);
@@ -184,8 +286,7 @@ pub mod hostcall {
 
         sys_store_release_u32(pkt.add(PKT_OFF_CONTROL) as *mut u32, CONTROL_FILLED);
 
-        let ready_ptr = buf.add(BUF_OFF_READY_STACK) as *mut u64;
-        hc_push(ready_ptr, buf, pkt_idx);
+        hc_push_with(ready_ptr, buf, pkt_idx, num_shards, shard_array_off);
 
         sys_fetch_add_u64(buf.add(BUF_OFF_DOORBELL) as *mut u64, 1);
 
@@ -205,8 +306,7 @@ pub mod hostcall {
             }
         }
 
-        let free_ptr = buf.add(BUF_OFF_FREE_STACK) as *mut u64;
-        hc_push(free_ptr, buf, pkt_idx);
+        hc_push_with(free_ptr, buf, pkt_idx, num_shards, shard_array_off);
 
         success
     }
@@ -426,10 +526,38 @@ pub mod panic {
 
     /// Send a panic message via hostcall. Best-effort: if pool is exhausted or
     /// timeout occurs, returns without sending. Never panics itself.
+    /// Supports both legacy (unsharded) and per-block sharded buffers.
     #[inline(never)]
     pub unsafe fn send_panic_hostcall(buf: *mut u8, msg: &[u8]) {
+        // Read sharding info
+        let num_shards = core::ptr::read_volatile(buf.add(BUF_OFF_NUM_SHARDS) as *const u32);
+        let shard_array_off;
+        let free_ptr: *mut u64;
+        let ready_ptr: *mut u64;
+
+        if num_shards == 0 {
+            free_ptr = buf.add(BUF_OFF_FREE_STACK) as *mut u64;
+            ready_ptr = buf.add(BUF_OFF_READY_STACK) as *mut u64;
+            shard_array_off = BUFFER_HEADER_SIZE as u32;
+        } else {
+            shard_array_off = core::ptr::read_volatile(buf.add(BUF_OFF_SHARD_ARRAY_OFF) as *const u32);
+            let shard_idx = core::arch::nvptx::_block_idx_x() as u32 % num_shards;
+            let entry_off = shard_entry_offset(shard_array_off as usize, shard_idx);
+            free_ptr = buf.add(entry_off + SHARD_OFF_FREE_STACK) as *mut u64;
+            ready_ptr = buf.add(entry_off + SHARD_OFF_READY_STACK) as *mut u64;
+        }
+
+        /// Inline helper — compute packet byte offset supporting both layouts.
+        #[inline(always)]
+        unsafe fn panic_pkt_off(_buf: *const u8, idx: u16, num_shards: u32, shard_array_off: u32) -> usize {
+            if num_shards == 0 {
+                packet_offset(idx)
+            } else {
+                packet_offset_sharded(idx, shard_array_off as usize, num_shards)
+            }
+        }
+
         // Pop a free packet
-        let free_ptr = buf.add(BUF_OFF_FREE_STACK) as *mut u64;
         let pkt_idx;
         loop {
             let old_head = sys_load_acquire_u64(free_ptr as *const u64);
@@ -437,7 +565,7 @@ pub mod panic {
             if idx == NULL_INDEX {
                 return; // Pool exhausted — can't send panic message
             }
-            let pkt = buf.add(packet_offset(idx));
+            let pkt = buf.add(panic_pkt_off(buf, idx, num_shards, shard_array_off));
             let next = core::ptr::read_volatile(pkt.add(PKT_OFF_NEXT) as *const u64);
             if sys_cas_u64(free_ptr, old_head, next) == old_head {
                 pkt_idx = idx;
@@ -445,7 +573,7 @@ pub mod panic {
             }
         }
 
-        let pkt = buf.add(packet_offset(pkt_idx));
+        let pkt = buf.add(panic_pkt_off(buf, pkt_idx, num_shards, shard_array_off));
 
         // Fill packet header
         let mask = activemask();
@@ -476,8 +604,7 @@ pub mod panic {
         // Mark filled and push to ready stack
         sys_store_release_u32(pkt.add(PKT_OFF_CONTROL) as *mut u32, CONTROL_FILLED);
 
-        let ready_ptr = buf.add(BUF_OFF_READY_STACK) as *mut u64;
-        // Push inline (avoid calling hc_push which is in hostcall module)
+        // Push inline to ready stack
         loop {
             let old_head = sys_load_acquire_u64(ready_ptr as *const u64);
             core::ptr::write_volatile(pkt.add(PKT_OFF_NEXT) as *mut u64, old_head);
@@ -488,7 +615,7 @@ pub mod panic {
             }
         }
 
-        // Ring doorbell
+        // Ring doorbell (always global)
         sys_fetch_add_u64(buf.add(BUF_OFF_DOORBELL) as *mut u64, 1);
 
         // Spin-wait for response (with timeout)
@@ -562,6 +689,7 @@ pub mod prelude {
 
     pub use crate::hostcall::{
         gpu_hostcall_print, gpu_hostcall_release, gpu_hostcall_request, hc_pop_free, hc_push,
+        read_shard_info, pkt_offset, get_free_stack_ptr, get_ready_stack_ptr,
         GPU_MAX_SPIN,
     };
 

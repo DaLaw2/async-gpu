@@ -2903,6 +2903,9 @@ fn main() -> Result<()> {
     // Bulk data transfer test (large-payload.3)
     run_bulk_io_test(Arc::clone(&dev))?;
 
+    // Per-block sharding test (per-block-sharding.2)
+    run_sharded_hostcall_test(Arc::clone(&dev))?;
+
     // GPU panic handler test (gpu-panic.2) — MUST BE LAST
     // since trap instruction calls process::exit(0)
     run_panic_test(Arc::clone(&dev))?;
@@ -3030,6 +3033,102 @@ fn run_bulk_io_test(dev: Arc<CudaDevice>) -> Result<()> {
     println!(
         "  bulk_io_test: PASSED! (wrote {} bytes, read {} bytes, {:?})",
         bytes_written, bytes_read, elapsed
+    );
+    Ok(())
+}
+
+/// Per-block sharding test: use sharded buffer with multi-block print kernel.
+fn run_sharded_hostcall_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Per-block sharding test (per-block-sharding.2) ---");
+
+    use std::sync::{Arc as StdArc, Mutex};
+
+    let num_blocks: u32 = 4;
+    let pkts_per_shard: u32 = 4;
+    let hc_buf = hostcall::HostcallBuffer::new_sharded(num_blocks, pkts_per_shard)?;
+    let dev_ptr = hc_buf.dev_ptr;
+
+    println!(
+        "  Sharded buffer: {} shards × {} pkts/shard = {} total packets, {} bytes",
+        hc_buf.num_shards, hc_buf.pkts_per_shard, hc_buf.num_packets, hc_buf.size
+    );
+
+    let messages: StdArc<Mutex<Vec<String>>> = StdArc::new(Mutex::new(Vec::new()));
+    let messages_clone = StdArc::clone(&messages);
+
+    let (count_host_ptr, count_dev_ptr) = unsafe { alloc_mapped_u32(&dev)? };
+    unsafe { std::ptr::write_volatile(count_host_ptr, 0u32) };
+
+    let hc_buf_ref = StdArc::new(hc_buf);
+    let hc_buf_listener = StdArc::clone(&hc_buf_ref);
+    let listener_handle = std::thread::spawn(move || {
+        hc_buf_listener.listen(|msg| {
+            let s = String::from_utf8_lossy(msg).to_string();
+            println!("  [HOST] GPU says (sharded): \"{}\"", s);
+            messages_clone.lock().unwrap().push(s);
+        });
+    });
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "kernel_sharded", &["sharded_print_test"]);
+    let f = dev.get_func("kernel_sharded", "sharded_print_test")
+        .ok_or(GpuHostError::KernelNotFound("sharded_print_test"))?;
+
+    let cfg = LaunchConfig {
+        grid_dim: (num_blocks, 1, 1),
+        block_dim: (32, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    println!(
+        "  Launching hostcall_print_multi ({} blocks × 32 threads, sharded)...",
+        num_blocks
+    );
+    unsafe {
+        f.launch(cfg, (dev_ptr as u64, count_dev_ptr as u64))?;
+    }
+
+    dev.synchronize()?;
+    println!("  Kernel completed.");
+
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    hc_buf_ref.signal_shutdown();
+    listener_handle.join().unwrap();
+
+    let success_count = unsafe { std::ptr::read_volatile(count_host_ptr) };
+    unsafe { free_mapped_mem(count_host_ptr)? };
+
+    let received = messages.lock().unwrap();
+    println!(
+        "  Results: {} blocks succeeded, {} messages received",
+        success_count,
+        received.len()
+    );
+
+    if success_count != num_blocks {
+        return Err(GpuHostError::Verification {
+            test: "sharded_hostcall",
+            detail: format!(
+                "expected {} successes, got {}",
+                num_blocks, success_count
+            ),
+        });
+    }
+    if received.len() != num_blocks as usize {
+        return Err(GpuHostError::Verification {
+            test: "sharded_hostcall",
+            detail: format!(
+                "expected {} messages, got {}",
+                num_blocks,
+                received.len()
+            ),
+        });
+    }
+
+    println!("  sharded_hostcall: PASSED!");
+    println!(
+        "    {} blocks with per-block sharding, all printed successfully",
+        num_blocks
     );
     Ok(())
 }

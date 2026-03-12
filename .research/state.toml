@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 73      # Monotonic counter, incremented after each completed phase
-completed_tasks = 72
+total_cycles = 75      # Monotonic counter, incremented after each completed phase
+completed_tasks = 74
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
 current_task_id = ""
-last_summary = "large-payload DONE (design+impl+test). per-block-sharding.1 design done (shard array, per-block free/ready stacks). clean-example.1 design done (hello-gpu with build.rs). Next: implement both."
+last_summary = "per-block-sharding.2 DONE: sharding implemented in gpu-protocol/gpu-runtime/gpu-host, 4-block sharded test PASSES. clean-example.2 also done. Next: per-block-sharding.3 benchmark, then brainstorm."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 15
@@ -1739,7 +1739,7 @@ id = "per-block-sharding.2"
 theme = "per-block-sharding"
 title = "Implement per-block sharding"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["per-block-sharding.1"]
 spawned_by = "user"
 research_questions = [
@@ -1783,7 +1783,7 @@ id = "clean-example.2"
 theme = "clean-example"
 title = "Implement hello-gpu example"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["clean-example.1"]
 spawned_by = "user"
 research_questions = [

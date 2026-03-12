@@ -125,6 +125,10 @@ pub struct HostcallBuffer {
     pub dev_ptr: sys::CUdeviceptr,
     pub size: usize,
     pub num_packets: u16,
+    /// Number of shards (0 = legacy unsharded mode).
+    pub num_shards: u32,
+    /// Packets assigned to each shard (only meaningful when num_shards > 0).
+    pub pkts_per_shard: u32,
     /// Sideband buffer for bulk data transfer (>56 bytes).
     pub sideband_host_ptr: *mut u8,
     pub sideband_dev_ptr: sys::CUdeviceptr,
@@ -140,18 +144,55 @@ unsafe impl Sync for HostcallBuffer {}
 impl HostcallBuffer {
     /// Allocate and initialize a hostcall buffer with `num_packets` packet slots
     /// and a default-sized sideband buffer (1MB) for bulk data transfer.
+    /// Legacy (unsharded) mode.
     ///
     /// Uses cuMemHostAlloc with DEVICEMAP|PORTABLE flags for GPU-CPU shared access.
     pub fn new(num_packets: u16) -> Result<Self, HostcallError> {
         Self::new_with_sideband(num_packets, DEFAULT_SIDEBAND_SIZE)
     }
 
-    /// Allocate a hostcall buffer with custom sideband size.
+    /// Allocate a legacy (unsharded) hostcall buffer with custom sideband size.
     pub fn new_with_sideband(
         num_packets: u16,
         sideband_data_size: usize,
     ) -> Result<Self, HostcallError> {
-        let size = buffer_size(num_packets);
+        Self::alloc_internal(num_packets, 0, 0, sideband_data_size)
+    }
+
+    /// Allocate a sharded hostcall buffer with `num_shards` shards.
+    ///
+    /// Each shard gets `pkts_per_shard` packets. Total packets = num_shards * pkts_per_shard.
+    /// Each CUDA block uses shard `blockIdx.x % num_shards`.
+    pub fn new_sharded(
+        num_shards: u32,
+        pkts_per_shard: u32,
+    ) -> Result<Self, HostcallError> {
+        Self::new_sharded_with_sideband(num_shards, pkts_per_shard, DEFAULT_SIDEBAND_SIZE)
+    }
+
+    /// Allocate a sharded hostcall buffer with custom sideband size.
+    pub fn new_sharded_with_sideband(
+        num_shards: u32,
+        pkts_per_shard: u32,
+        sideband_data_size: usize,
+    ) -> Result<Self, HostcallError> {
+        let total_packets = num_shards * pkts_per_shard;
+        assert!(total_packets <= 0xFFFE, "too many packets (max 65534)");
+        Self::alloc_internal(total_packets as u16, num_shards, pkts_per_shard, sideband_data_size)
+    }
+
+    /// Internal allocation — handles both legacy and sharded modes.
+    fn alloc_internal(
+        num_packets: u16,
+        num_shards: u32,
+        pkts_per_shard: u32,
+        sideband_data_size: usize,
+    ) -> Result<Self, HostcallError> {
+        let size = if num_shards == 0 {
+            buffer_size(num_packets)
+        } else {
+            buffer_size_sharded(num_packets, num_shards)
+        };
         let cu = unsafe { cuda_lib() };
         let flags = sys::CU_MEMHOSTALLOC_DEVICEMAP | sys::CU_MEMHOSTALLOC_PORTABLE;
 
@@ -198,7 +239,6 @@ impl HostcallBuffer {
         // Zero-initialize sideband and set capacity
         unsafe {
             std::ptr::write_bytes(sb_host_ptr as *mut u8, 0, sideband_total);
-            // Set capacity field in sideband header
             let cap_ptr =
                 (sb_host_ptr as *mut u8).add(SIDEBAND_OFF_CAPACITY) as *mut u64;
             std::ptr::write_volatile(cap_ptr, sideband_data_size as u64);
@@ -209,6 +249,8 @@ impl HostcallBuffer {
             dev_ptr,
             size,
             num_packets,
+            num_shards,
+            pkts_per_shard,
             sideband_host_ptr: sb_host_ptr as *mut u8,
             sideband_dev_ptr: sb_dev_ptr,
             sideband_size: sideband_total,
@@ -220,40 +262,105 @@ impl HostcallBuffer {
     }
 
     /// Initialize the hostcall buffer: set up free stack, ready stack, etc.
+    /// Handles both legacy (num_shards == 0) and sharded modes.
     fn init(&self) {
         let base = self.host_ptr;
         unsafe {
-            // Header fields
-            let free_stack = base.add(BUF_OFF_FREE_STACK) as *mut u64;
-            let ready_stack = base.add(BUF_OFF_READY_STACK) as *mut u64;
+            // Common header fields
             let doorbell = base.add(BUF_OFF_DOORBELL) as *mut u64;
             let shutdown = base.add(BUF_OFF_SHUTDOWN) as *mut u32;
             let num_packets_field = base.add(BUF_OFF_NUM_PACKETS) as *mut u32;
             let warp_size_field = base.add(BUF_OFF_WARP_SIZE) as *mut u32;
+            let num_shards_field = base.add(BUF_OFF_NUM_SHARDS) as *mut u32;
+            let pkts_per_shard_field = base.add(BUF_OFF_PKTS_PER_SHARD) as *mut u32;
+            let shard_array_off_field = base.add(BUF_OFF_SHARD_ARRAY_OFF) as *mut u32;
 
-            // Initialize header
-            std::ptr::write_volatile(ready_stack, null_tagged());
             std::ptr::write_volatile(doorbell, 0u64);
             std::ptr::write_volatile(shutdown, 0u32);
             std::ptr::write_volatile(num_packets_field, self.num_packets as u32);
             std::ptr::write_volatile(warp_size_field, WARP_SIZE);
+            std::ptr::write_volatile(num_shards_field, self.num_shards);
+            std::ptr::write_volatile(pkts_per_shard_field, self.pkts_per_shard);
+            std::ptr::write_volatile(
+                shard_array_off_field,
+                BUFFER_HEADER_SIZE as u32,
+            );
 
-            // Build the free stack: chain all packets as a linked list.
-            // free_stack → packet[0] → packet[1] → ... → packet[N-1] → NULL
-            for i in 0..self.num_packets {
-                let pkt = base.add(packet_offset(i));
-                let next_tagged = if i + 1 < self.num_packets {
-                    make_tagged(0, i + 1)
-                } else {
-                    null_tagged()
-                };
-                std::ptr::write_volatile(pkt.add(PKT_OFF_NEXT) as *mut u64, next_tagged);
-                // Clear control
-                std::ptr::write_volatile(pkt.add(PKT_OFF_CONTROL) as *mut u32, 0);
+            if self.num_shards == 0 {
+                // Legacy mode: single global free/ready stack
+                let free_stack = base.add(BUF_OFF_FREE_STACK) as *mut u64;
+                let ready_stack = base.add(BUF_OFF_READY_STACK) as *mut u64;
+                std::ptr::write_volatile(ready_stack, null_tagged());
+
+                for i in 0..self.num_packets {
+                    let pkt = base.add(packet_offset(i));
+                    let next_tagged = if i + 1 < self.num_packets {
+                        make_tagged(0, i + 1)
+                    } else {
+                        null_tagged()
+                    };
+                    std::ptr::write_volatile(
+                        pkt.add(PKT_OFF_NEXT) as *mut u64,
+                        next_tagged,
+                    );
+                    std::ptr::write_volatile(pkt.add(PKT_OFF_CONTROL) as *mut u32, 0);
+                }
+
+                std::ptr::write_volatile(free_stack, make_tagged(0, 0));
+            } else {
+                // Sharded mode: per-shard free/ready stacks
+                let shard_array_off = BUFFER_HEADER_SIZE;
+
+                // Global stacks empty (not used in sharded mode)
+                std::ptr::write_volatile(
+                    base.add(BUF_OFF_FREE_STACK) as *mut u64,
+                    null_tagged(),
+                );
+                std::ptr::write_volatile(
+                    base.add(BUF_OFF_READY_STACK) as *mut u64,
+                    null_tagged(),
+                );
+
+                for s in 0..self.num_shards {
+                    let base_pkt = s * self.pkts_per_shard;
+                    let entry_off =
+                        shard_entry_offset(shard_array_off, s);
+
+                    // Chain packets within this shard
+                    for i in 0..self.pkts_per_shard {
+                        let pkt_idx = (base_pkt + i) as u16;
+                        let pkt = base.add(packet_offset_sharded(
+                            pkt_idx,
+                            shard_array_off,
+                            self.num_shards,
+                        ));
+                        let next_tagged = if i + 1 < self.pkts_per_shard {
+                            make_tagged(0, (base_pkt + i + 1) as u16)
+                        } else {
+                            null_tagged()
+                        };
+                        std::ptr::write_volatile(
+                            pkt.add(PKT_OFF_NEXT) as *mut u64,
+                            next_tagged,
+                        );
+                        std::ptr::write_volatile(
+                            pkt.add(PKT_OFF_CONTROL) as *mut u32,
+                            0,
+                        );
+                    }
+
+                    // Set shard free_stack head
+                    std::ptr::write_volatile(
+                        base.add(entry_off + SHARD_OFF_FREE_STACK) as *mut u64,
+                        make_tagged(0, base_pkt as u16),
+                    );
+                    // Set shard ready_stack to empty
+                    std::ptr::write_volatile(
+                        base.add(entry_off + SHARD_OFF_READY_STACK) as *mut u64,
+                        null_tagged(),
+                    );
+                }
             }
-
-            // Set free_stack head to packet[0] with tag 0
-            std::ptr::write_volatile(free_stack, make_tagged(0, 0));
         }
     }
 
@@ -272,9 +379,19 @@ impl HostcallBuffer {
         unsafe { &*(self.host_ptr.add(BUF_OFF_SHUTDOWN) as *const AtomicU32) }
     }
 
-    /// Get pointer to a packet by index.
+    /// Get pointer to a packet by index. Handles both legacy and sharded layouts.
     fn packet_ptr(&self, index: u16) -> *mut u8 {
-        unsafe { self.host_ptr.add(packet_offset(index)) }
+        unsafe {
+            if self.num_shards == 0 {
+                self.host_ptr.add(packet_offset(index))
+            } else {
+                self.host_ptr.add(packet_offset_sharded(
+                    index,
+                    BUFFER_HEADER_SIZE,
+                    self.num_shards,
+                ))
+            }
+        }
     }
 
     /// Signal shutdown to the GPU.
@@ -337,74 +454,85 @@ impl HostcallBuffer {
                 last_doorbell = current_doorbell;
                 idle_spins = 0;
 
-                let ready_head =
-                    self.ready_stack().swap(null_tagged(), Ordering::AcqRel);
-                if tagged_index(ready_head) == NULL_INDEX {
-                    continue;
-                }
+                // Drain all ready stacks (1 global or N shard stacks)
+                let stacks_to_scan = if self.num_shards == 0 { 1 } else { self.num_shards };
+                for s in 0..stacks_to_scan {
+                    let ready_head = if self.num_shards == 0 {
+                        self.ready_stack().swap(null_tagged(), Ordering::AcqRel)
+                    } else {
+                        let entry_off = shard_entry_offset(BUFFER_HEADER_SIZE, s);
+                        let shard_ready = unsafe {
+                            &*(self.host_ptr.add(entry_off + SHARD_OFF_READY_STACK) as *const AtomicU64)
+                        };
+                        shard_ready.swap(null_tagged(), Ordering::AcqRel)
+                    };
+                    if tagged_index(ready_head) == NULL_INDEX {
+                        continue;
+                    }
 
-                let mut current = ready_head;
-                while tagged_index(current) != NULL_INDEX {
-                    let idx = tagged_index(current);
-                    let pkt = self.packet_ptr(idx);
+                    let mut current = ready_head;
+                    while tagged_index(current) != NULL_INDEX {
+                        let idx = tagged_index(current);
+                        let pkt = self.packet_ptr(idx);
 
-                    unsafe {
-                        let next = std::ptr::read_volatile(
-                            pkt.add(PKT_OFF_NEXT) as *const u64,
-                        );
+                        unsafe {
+                            let next = std::ptr::read_volatile(
+                                pkt.add(PKT_OFF_NEXT) as *const u64,
+                            );
 
-                        let control =
-                            &*(pkt.add(PKT_OFF_CONTROL) as *const AtomicU32);
-                        let ctrl = control.load(Ordering::Acquire);
-                        if ctrl & CONTROL_FILLED == 0 {
+                            let control =
+                                &*(pkt.add(PKT_OFF_CONTROL) as *const AtomicU32);
+                            let ctrl = control.load(Ordering::Acquire);
+                            if ctrl & CONTROL_FILLED == 0 {
+                                current = next;
+                                continue;
+                            }
+
+                            let service = std::ptr::read_volatile(
+                                pkt.add(PKT_OFF_SERVICE) as *const u32,
+                            );
+
+                            match service {
+                                // Fast path — handle inline, set CONTROL_READY immediately
+                                SERVICE_NOP => {
+                                    control.store(CONTROL_READY, Ordering::Release);
+                                }
+                                SERVICE_PRINT => {
+                                    self.handle_print(pkt, &mut on_print);
+                                    control.store(CONTROL_READY, Ordering::Release);
+                                }
+                                SERVICE_TIME => {
+                                    let has_error = self.handle_time(pkt);
+                                    let flags = if has_error {
+                                        CONTROL_READY | CONTROL_ERROR
+                                    } else {
+                                        CONTROL_READY
+                                    };
+                                    control.store(flags, Ordering::Release);
+                                }
+                                SERVICE_PANIC => {
+                                    self.handle_panic(pkt);
+                                    control.store(CONTROL_READY, Ordering::Release);
+                                }
+                                // Slow path — offload to I/O thread
+                                SERVICE_OPEN | SERVICE_WRITE | SERVICE_READ
+                                | SERVICE_CLOSE | SERVICE_STDIN
+                                | SERVICE_BULK_WRITE | SERVICE_BULK_READ => {
+                                    let _ = io_tx.send(IoRequest {
+                                        pkt_idx: idx,
+                                        service,
+                                    });
+                                }
+                                _ => {
+                                    control.store(
+                                        CONTROL_READY | CONTROL_ERROR,
+                                        Ordering::Release,
+                                    );
+                                }
+                            }
+
                             current = next;
-                            continue;
                         }
-
-                        let service = std::ptr::read_volatile(
-                            pkt.add(PKT_OFF_SERVICE) as *const u32,
-                        );
-
-                        match service {
-                            // Fast path — handle inline, set CONTROL_READY immediately
-                            SERVICE_NOP => {
-                                control.store(CONTROL_READY, Ordering::Release);
-                            }
-                            SERVICE_PRINT => {
-                                self.handle_print(pkt, &mut on_print);
-                                control.store(CONTROL_READY, Ordering::Release);
-                            }
-                            SERVICE_TIME => {
-                                let has_error = self.handle_time(pkt);
-                                let flags = if has_error {
-                                    CONTROL_READY | CONTROL_ERROR
-                                } else {
-                                    CONTROL_READY
-                                };
-                                control.store(flags, Ordering::Release);
-                            }
-                            SERVICE_PANIC => {
-                                self.handle_panic(pkt);
-                                control.store(CONTROL_READY, Ordering::Release);
-                            }
-                            // Slow path — offload to I/O thread
-                            SERVICE_OPEN | SERVICE_WRITE | SERVICE_READ
-                            | SERVICE_CLOSE | SERVICE_STDIN
-                            | SERVICE_BULK_WRITE | SERVICE_BULK_READ => {
-                                let _ = io_tx.send(IoRequest {
-                                    pkt_idx: idx,
-                                    service,
-                                });
-                            }
-                            _ => {
-                                control.store(
-                                    CONTROL_READY | CONTROL_ERROR,
-                                    Ordering::Release,
-                                );
-                            }
-                        }
-
-                        current = next;
                     }
                 }
             }

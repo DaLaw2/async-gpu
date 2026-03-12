@@ -1185,3 +1185,53 @@ pub unsafe extern "ptx-kernel" fn bulk_io_test(
         core::ptr::write_volatile(result.add(0), 1); // Overall success
     }
 }
+
+// ============================================================
+// Sharding-aware print test — uses gpu-runtime's hostcall path
+// ============================================================
+
+/// Print a message via gpu-runtime's `gpu_hostcall_print` which auto-detects
+/// sharded vs legacy buffers. Thread 0 of each block prints "Shard N".
+/// Increments `success_count` atomically on success.
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn sharded_print_test(
+    buf: *mut u8,
+    success_count: *mut u32,
+) {
+    let thread_x = nvptx::_thread_idx_x() as u32;
+    let block_x = nvptx::_block_idx_x() as u32;
+
+    if thread_x != 0 {
+        return;
+    }
+
+    gpu_runtime::panic::gpu_panic_init(buf);
+
+    // Format: "Shard N" with block index
+    let mut msg_buf: [u8; 16] = [0u8; 16];
+    msg_buf[0] = b'S';
+    msg_buf[1] = b'h';
+    msg_buf[2] = b'a';
+    msg_buf[3] = b'r';
+    msg_buf[4] = b'd';
+    msg_buf[5] = b' ';
+    let mut n = block_x;
+    let mut pos = 6;
+    if n >= 100 {
+        msg_buf[pos] = b'0' + (n / 100) as u8;
+        pos += 1;
+        n %= 100;
+    }
+    if block_x >= 10 {
+        msg_buf[pos] = b'0' + (n / 10) as u8;
+        pos += 1;
+        n %= 10;
+    }
+    msg_buf[pos] = b'0' + n as u8;
+    pos += 1;
+
+    let ok = gpu_runtime::hostcall::gpu_hostcall_print(buf, msg_buf.as_ptr(), pos as u32);
+    if ok {
+        gpu_atomics::sys_fetch_add_u32(success_count, 1);
+    }
+}

@@ -1,5 +1,5 @@
---- std/src/sys/fs/mod.rs.orig
-+++ std/src/sys/fs/mod.rs
+--- a/std/src/sys/fs/mod.rs
++++ b/std/src/sys/fs/mod.rs
 @@ -45,6 +45,10 @@
          mod vexos;
          use vexos as imp;

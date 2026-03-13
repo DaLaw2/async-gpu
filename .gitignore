@@ -8,6 +8,7 @@ examples/*/host/target/
 .DS_Store
 Thumbs.db
 patched-std/
+scripts/pre-push.sh
 query.bin
 vecdb.bin
 queries.bin

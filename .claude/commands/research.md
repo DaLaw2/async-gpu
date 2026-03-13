@@ -179,9 +179,8 @@ After each task:
 
 ### Step do.save
 After the batch is complete:
-1. **Regenerate std patches** (if patched-std/ was modified): Run `bash std-patches/gen-patches.sh` to update patches, apply.sh, and PATCHES.md. Include generated files in commit.
-2. **Local CI lint**: Run `bash scripts/ci-lint.sh` BEFORE committing. Fix all failures first.
-3. **Commit + push**: one commit per task, or batch commit if tasks are small.
+1. **Pre-push check**: Run `bash scripts/pre-push.sh` BEFORE committing. This regenerates std patches (if patched-std/ was modified) and runs local CI lint. Fix all failures first. Include generated patch files in commit.
+2. **Commit + push**: one commit per task, or batch commit if tasks are small.
 4. **CI check**: After push, run `gh run list --limit 1` to verify CI triggered. If the latest run shows `failure`, run `gh run view <id> --log-failed | tail -30` to diagnose. Fix CI-breaking issues before proceeding.
 5. Update `last_summary` in state.toml
 

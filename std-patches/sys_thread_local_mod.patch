@@ -1,5 +1,5 @@
---- std/src/sys/thread_local/mod.rs.orig
-+++ std/src/sys/thread_local/mod.rs
+--- a/std/src/sys/thread_local/mod.rs
++++ b/std/src/sys/thread_local/mod.rs
 @@ -30,6 +30,7 @@
          target_os = "zkvm",
          target_os = "trusty",

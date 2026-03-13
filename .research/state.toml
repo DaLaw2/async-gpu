@@ -4,22 +4,22 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 174     # Monotonic counter, incremented after each completed phase
-completed_tasks = 174
+total_cycles = 175     # Monotonic counter, incremented after each completed phase
+completed_tasks = 175
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = ""
-last_summary = "mma-fix.3 done (MMA 1.8x faster but f16 precision insufficient). kv-cache.1 design done. repo-cleanup.2/.3 done (async-io + vector-math examples). 3 themes completed (mma-fix, repo-cleanup). Next: kv-cache.2 (implement) or host-sdk.3."
+current_task_id = "kv-cache.3"
+last_summary = "kv-cache.2 done: flash_attention_kv kernel verified (0 error vs reference). Now kv-cache.3: full 12-layer KV-cached generation loop."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 44
+brainstorm_seq = 45
 review_seq = 5
 
 # Brainstorm trigger control
-last_brainstorm_at_completed = 171
+last_brainstorm_at_completed = 174
 brainstorm_interval = 3
 
 # ============================================================
@@ -32,10 +32,10 @@ title = "GPU Inference Performance Optimization"
 status = "active"
 priority = "high"
 success_criteria = [
-    "Tensor Core MMA kernel (mma.sync.aligned.m16n8k16) produces correct GEMM results for all GPT-2 dimensions (768x768, 768x2304, 768x3072, 3072x768)",
-    "MMA-based inference matches f32 FMA inference output (top-5 agreement for 3+ prompts)",
     "KV cache eliminates redundant recomputation — only new token passes through model per step",
     "Per-token generation latency < 20ms (down from ~143ms)",
+    "BF16/TF32 MMA inference matches f32 FMA output (top-5 agreement for 3+ prompts)",
+    "Mixed precision pipeline: GEMM via Tensor Core, everything else f32",
 ]
 
 [[epics]]
@@ -96,9 +96,21 @@ success_criteria = [
 ]
 
 [[themes]]
+id = "mixed-precision"
+title = "BF16/TF32 mixed precision Tensor Core inference"
+status = "active"
+spawned_by = "bs45"
+epic = "gpu-perf"
+goal = "Implement BF16 or TF32 MMA GEMM that matches f32 FMA inference quality"
+success_criteria = [
+    "BF16 or TF32 MMA GEMM matches gemm_f32 within acceptable tolerance for all GPT-2 dims",
+    "Mixed-precision inference produces same top-5 tokens as f32 FMA for 3+ prompts",
+]
+
+[[themes]]
 id = "host-sdk"
 title = "Extract reusable host-side SDK library from gpu-host"
-status = "active"
+status = "parked"
 spawned_by = "bs38"
 epic = "public-api"
 goal = "Extract a library crate from gpu-host that provides clean API for kernel management, hostcall runtime, and memory management"
@@ -176,7 +188,7 @@ id = "kv-cache.2"
 theme = "kv-cache"
 title = "Implement KV cache for single-layer attention"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["kv-cache.1"]
 spawned_by = "bs43"
 research_questions = [
@@ -189,7 +201,7 @@ id = "kv-cache.3"
 theme = "kv-cache"
 title = "Full 12-layer KV-cached inference"
 kind = "experiment"
-status = "pending"
+status = "active"
 depends_on = ["kv-cache.2"]
 spawned_by = "bs43"
 research_questions = [
@@ -238,6 +250,35 @@ research_questions = [
     "What is the simplest compute-focused example that demonstrates GPU kernels?",
 ]
 
+# --- mixed-precision (gpu-perf) ---
+
+[[tasks]]
+id = "mixed-precision.1"
+theme = "mixed-precision"
+title = "BF16 MMA GEMM kernel implementation"
+kind = "experiment"
+status = "pending"
+depends_on = []
+spawned_by = "bs45"
+research_questions = [
+    "Does sm_86 support mma.sync with bf16 inputs?",
+    "Does BF16 MMA GEMM match gemm_f32 within acceptable tolerance for GPT-2 dims?",
+    "What is the speedup vs f32 FMA and vs f16 MMA?",
+]
+
+[[tasks]]
+id = "mixed-precision.2"
+theme = "mixed-precision"
+title = "BF16 mixed-precision inference validation"
+kind = "experiment"
+status = "pending"
+depends_on = ["mixed-precision.1"]
+spawned_by = "bs45"
+research_questions = [
+    "Does BF16 MMA inference produce same top-5 tokens as f32 FMA for 3+ prompts?",
+    "What is the per-token latency with BF16 MMA vs f32 FMA?",
+]
+
 # --- host-sdk (public-api) ---
 
 [[tasks]]
@@ -256,6 +297,17 @@ research_questions = [
 # ============================================================
 # Brainstorms (last 3 only — older brainstorms archived)
 # ============================================================
+
+[[brainstorms]]
+seq = 45
+at_cycle = 174
+trigger = "User request: add mixed-precision/BF16 to gpu-perf epic, prioritize KV cache"
+level = "quick"
+new_tasks_spawned = ["mixed-precision.1", "mixed-precision.2"]
+new_themes_spawned = ["mixed-precision"]
+themes_parked = ["host-sdk"]
+themes_completed = []
+key_insight = "Added mixed-precision theme (BF16 MMA) to gpu-perf. Parked host-sdk (host-sdk.3 blocked by missing host-sdk.2). Priority: kv-cache.2 first, then mixed-precision.1."
 
 [[brainstorms]]
 seq = 44

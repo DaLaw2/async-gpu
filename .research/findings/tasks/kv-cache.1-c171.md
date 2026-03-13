@@ -27,18 +27,18 @@ Both trivially fit in 10GB+ VRAM (< 1%).
 **Confidence**: high
 
 ### Q: What kernel changes are needed for cache-append and cached attention?
-A: Three new kernel variants required:
+A: Mostly reuse existing kernels with minor modifications:
 
-1. **`flash_attention_cached`**: Q shape `[n_heads][1][d_head]` (single token),
-   K/V shape `[n_heads][cached_len][d_head]`. Only computes attention for new
-   position against all cached positions. Simpler than full flash_attention —
-   no tile loop over Q rows, just iterate K/V tiles.
+1. **`flash_attention`**: Add a `kv_len` parameter so Q length and K/V length
+   can differ. Currently assumes Q, K, V all share the same `seq_len`. For
+   cached generation, Q has 1 row while K/V have `cached_len` rows. This is
+   the only kernel that truly needs modification.
 
-2. **`append_kv_cache`**: Write new K/V vectors into cache at position `filled_len`.
-   Simple copy kernel: `grid_dim = (ceil(n_heads*d_head/256), 1, 1)`.
+2. **`append_kv_cache`**: NOT a new kernel — host-side `cuMemcpyDtoD` can copy
+   new K/V vectors into the cache at the correct offset. Trivial.
 
-3. **`split_qkv_single`**: Split [1][2304] QKV output into Q[12][64], K[12][64],
-   V[12][64] for a single token position. Simpler variant of existing split_qkv.
+3. **`split_qkv`**: Already accepts `seq_len` parameter. Pass `seq=1` for
+   single-token generation. No modification needed.
 
 **Confidence**: high
 

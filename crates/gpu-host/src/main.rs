@@ -70,6 +70,10 @@ fn main() -> Result<()> {
                 tests_inference::run_mma_forward_test(Arc::clone(&dev))?;
                 return Ok(());
             }
+            "kv_cache" => {
+                tests_transformer::run_kv_cache_attention_test(Arc::clone(&dev))?;
+                return Ok(());
+            }
             _ => println!("Unknown ONLY_TEST={only}, running all tests"),
         }
     }

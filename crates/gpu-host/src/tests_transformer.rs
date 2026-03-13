@@ -1952,3 +1952,168 @@ pub(crate) fn run_transformer_layer_test(dev: Arc<CudaDevice>) -> Result<()> {
         })
     }
 }
+
+/// KV cache test (kv-cache.2): validate flash_attention_kv against flash_attention.
+///
+/// Compares two approaches for computing attention at position N-1:
+/// 1. Reference: full flash_attention(Q[0..N], K[0..N], V[0..N]), take row N-1
+/// 2. Cached: flash_attention_kv(Q[N-1], K_cache[0..N], V_cache[0..N]), take row 0
+///
+/// They should produce identical output for the last position.
+pub(crate) fn run_kv_cache_attention_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- KV cache attention test (kv-cache.2) ---");
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "kv_cache", &["flash_attention", "flash_attention_kv"]);
+    let f_attn = dev
+        .get_func("kv_cache", "flash_attention")
+        .ok_or(GpuHostError::KernelNotFound("flash_attention"))?;
+    let f_attn_kv = dev
+        .get_func("kv_cache", "flash_attention_kv")
+        .ok_or(GpuHostError::KernelNotFound("flash_attention_kv"))?;
+
+    let (status_host_ptr, status_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 1)? };
+
+    const N_HEADS: u32 = 12;
+    const D_HEAD: u32 = 64;
+    const SEQ_LEN: u32 = 32; // full sequence length
+    let total = (N_HEADS * SEQ_LEN * D_HEAD) as usize;
+
+    // Generate deterministic Q, K, V
+    let mut q_data = vec![0.0f32; total];
+    let mut k_data = vec![0.0f32; total];
+    let mut v_data = vec![0.0f32; total];
+    for i in 0..total {
+        q_data[i] = ((i * 7 + 3) % 100) as f32 * 0.01 - 0.5;
+        k_data[i] = ((i * 11 + 7) % 100) as f32 * 0.01 - 0.5;
+        v_data[i] = ((i * 13 + 11) % 100) as f32 * 0.01 - 0.5;
+    }
+
+    let q_dev = dev.htod_sync_copy(&q_data)?;
+    let k_dev = dev.htod_sync_copy(&k_data)?;
+    let v_dev = dev.htod_sync_copy(&v_data)?;
+
+    // --- Reference: full flash_attention ---
+    let mut ref_out_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(total)?;
+    let n_q_tiles = SEQ_LEN.div_ceil(32);
+    unsafe {
+        f_attn.clone().launch(
+            LaunchConfig {
+                grid_dim: (N_HEADS, n_q_tiles, 1),
+                block_dim: (32, 1, 1),
+                shared_mem_bytes: 2 * 32 * 64 * 4,
+            },
+            (
+                &q_dev,
+                &k_dev,
+                &v_dev,
+                &mut ref_out_dev,
+                SEQ_LEN,
+                D_HEAD,
+                1u32, // causal
+                status_dev_ptr,
+            ),
+        )?;
+    }
+    dev.synchronize()?;
+
+    let ref_out: Vec<f32> = dev.dtoh_sync_copy(&ref_out_dev)?;
+
+    // Extract reference output for last position (SEQ_LEN-1) across all heads
+    let last_pos = (SEQ_LEN - 1) as usize;
+    let mut ref_last = vec![0.0f32; (N_HEADS * D_HEAD) as usize];
+    for h in 0..N_HEADS as usize {
+        let head_off = h * SEQ_LEN as usize * D_HEAD as usize;
+        let row_off = head_off + last_pos * D_HEAD as usize;
+        for d in 0..D_HEAD as usize {
+            ref_last[h * D_HEAD as usize + d] = ref_out[row_off + d];
+        }
+    }
+
+    // --- Cached: flash_attention_kv with q_len=1 ---
+    // Q: only the last position, shape [N_HEADS, 1, D_HEAD]
+    let q_single_size = (N_HEADS * D_HEAD) as usize;
+    let mut q_single = vec![0.0f32; q_single_size];
+    for h in 0..N_HEADS as usize {
+        let src_off = h * SEQ_LEN as usize * D_HEAD as usize + last_pos * D_HEAD as usize;
+        let dst_off = h * D_HEAD as usize;
+        q_single[dst_off..dst_off + D_HEAD as usize]
+            .copy_from_slice(&q_data[src_off..src_off + D_HEAD as usize]);
+    }
+
+    let q_single_dev = dev.htod_sync_copy(&q_single)?;
+    // K and V cache = full K, V (same as reference)
+    let mut kv_out_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(q_single_size)?;
+
+    unsafe {
+        f_attn_kv.clone().launch(
+            LaunchConfig {
+                grid_dim: (N_HEADS, 1, 1), // q_len=1, so 1 Q tile
+                block_dim: (32, 1, 1),
+                shared_mem_bytes: 2 * 32 * 64 * 4,
+            },
+            (
+                &q_single_dev,
+                &k_dev, // full KV cache
+                &v_dev, // full KV cache
+                &mut kv_out_dev,
+                1u32,    // q_len = 1
+                SEQ_LEN, // kv_len = full cache
+                D_HEAD,
+                1u32,            // causal
+                last_pos as u32, // q_offset = position of this query in full sequence
+                status_dev_ptr,
+            ),
+        )?;
+    }
+    dev.synchronize()?;
+
+    let kv_out: Vec<f32> = dev.dtoh_sync_copy(&kv_out_dev)?;
+
+    // --- Compare ---
+    let mut max_err: f32 = 0.0;
+    let mut mismatches = 0u32;
+    for h in 0..N_HEADS as usize {
+        for d in 0..D_HEAD as usize {
+            let idx = h * D_HEAD as usize + d;
+            let diff = (ref_last[idx] - kv_out[idx]).abs();
+            if diff > max_err {
+                max_err = diff;
+            }
+            if diff > 1e-4 {
+                if mismatches < 5 {
+                    println!(
+                        "  MISMATCH h={h} d={d}: ref={:.6} kv={:.6} diff={:.6}",
+                        ref_last[idx], kv_out[idx], diff
+                    );
+                }
+                mismatches += 1;
+            }
+        }
+    }
+
+    println!("  max |ref - cached| = {max_err:.6}");
+    println!("  mismatches (>1e-4): {mismatches} / {}", N_HEADS * D_HEAD);
+    println!(
+        "  ref_last[0..4] = [{:.6}, {:.6}, {:.6}, {:.6}]",
+        ref_last[0], ref_last[1], ref_last[2], ref_last[3]
+    );
+    println!(
+        "  kv_out[0..4]   = [{:.6}, {:.6}, {:.6}, {:.6}]",
+        kv_out[0], kv_out[1], kv_out[2], kv_out[3]
+    );
+
+    unsafe {
+        free_mapped_mem(status_host_ptr)?;
+    }
+
+    if mismatches > 0 {
+        return Err(GpuHostError::Verification {
+            test: "kv_cache_attention",
+            detail: format!("{mismatches} mismatches, max_err={max_err:.6}"),
+        });
+    }
+
+    println!("  KV cache attention — PASSED");
+    Ok(())
+}

@@ -541,6 +541,219 @@ pub unsafe extern "ptx-kernel" fn flash_attention(
     }
 }
 
+/// FlashAttention with separate Q length and KV length — for KV-cached generation.
+///
+/// Identical algorithm to `flash_attention`, but Q and K/V can have different lengths.
+/// Q layout: [n_heads, q_len, d_head] — typically q_len=1 for autoregressive generation
+/// K/V layout: [n_heads, kv_len, d_head] — the full KV cache (all previous + current token)
+/// Out layout: [n_heads, q_len, d_head]
+///
+/// grid_dim = (n_heads, ceil(q_len/32), 1)
+/// block_dim = (32, 1, 1)
+/// Shared memory: k_tile[32][64] + v_tile[32][64] = 16384 bytes
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn flash_attention_kv(
+    q_global: *const f32,
+    k_global: *const f32,
+    v_global: *const f32,
+    out_global: *mut f32,
+    q_len: u32,
+    kv_len: u32,
+    d_head: u32,
+    causal_mask: u32,
+    // For causal masking with KV cache: the Q row offset in the full sequence.
+    // e.g., if we've cached 10 tokens and are generating token 11, q_offset=10
+    // so that Q row 0 maps to global position 10 for masking purposes.
+    q_offset: u32,
+    status: *mut u32,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let head = nvptx::_block_idx_x() as u32;
+        let q_tile_idx: u32;
+        core::arch::asm!("mov.u32 {r}, %ctaid.y;", r = out(reg32) q_tile_idx);
+
+        let my_row = q_tile_idx * 32 + tid; // local Q row index (0..q_len-1)
+        let my_global_row = my_row + q_offset; // global position for causal masking
+
+        // Head offsets: Q uses q_len stride, K/V use kv_len stride
+        let q_head = q_global.add((head * q_len * d_head) as usize);
+        let k_head = k_global.add((head * kv_len * d_head) as usize);
+        let v_head = v_global.add((head * kv_len * d_head) as usize);
+        let out_head = out_global.add((head * q_len * d_head) as usize);
+
+        let scale = 1.0 / gpu_sqrtf(d_head as f32);
+
+        let smem = get_dynamic_smem_ptr() as *mut f32;
+        let k_tile = smem;
+        let v_tile = smem.add(2048);
+
+        // Load Q row into registers
+        let mut q_row: [f32; 64] = [0.0; 64];
+        if my_row < q_len {
+            let mut d = 0u32;
+            while d < d_head {
+                q_row[d as usize] = *q_head.add((my_row * d_head + d) as usize);
+                d += 1;
+            }
+        }
+
+        let mut m: f32 = -1.0e38;
+        let mut l: f32 = 0.0;
+        let mut o_acc: [f32; 64] = [0.0; 64];
+
+        let n_kv_tiles = (kv_len + 31) / 32;
+
+        let mut t = 0u32;
+        while t < n_kv_tiles {
+            let kv_col_start = t * 32;
+
+            // Causal early exit: if entire KV tile is after all Q positions
+            if causal_mask != 0 && kv_col_start > q_offset + q_tile_idx * 32 + 31 {
+                break;
+            }
+
+            let tile_size = if kv_col_start + 32 <= kv_len {
+                32u32
+            } else {
+                kv_len - kv_col_start
+            };
+
+            // Cooperative load K tile
+            {
+                let global_kv_row = kv_col_start + tid;
+                let mut d = 0u32;
+                while d < d_head {
+                    let val = if global_kv_row < kv_len {
+                        *k_head.add((global_kv_row * d_head + d) as usize)
+                    } else {
+                        0.0
+                    };
+                    *k_tile.add((tid * d_head + d) as usize) = val;
+                    d += 1;
+                }
+            }
+
+            // Cooperative load V tile
+            {
+                let global_kv_row = kv_col_start + tid;
+                let mut d = 0u32;
+                while d < d_head {
+                    let val = if global_kv_row < kv_len {
+                        *v_head.add((global_kv_row * d_head + d) as usize)
+                    } else {
+                        0.0
+                    };
+                    *v_tile.add((tid * d_head + d) as usize) = val;
+                    d += 1;
+                }
+            }
+
+            crate::helpers::bar_sync();
+
+            if my_row < q_len {
+                let mut tile_max: f32 = -1.0e38;
+                let mut scores: [f32; 32] = [0.0; 32];
+
+                let mut c = 0u32;
+                while c < tile_size {
+                    let kv_col = kv_col_start + c;
+
+                    if causal_mask != 0 && kv_col > my_global_row {
+                        scores[c as usize] = -1.0e38;
+                    } else {
+                        let mut dot: f32 = 0.0;
+                        let mut d = 0u32;
+                        while d < d_head {
+                            dot += q_row[d as usize] * *k_tile.add((c * d_head + d) as usize);
+                            d += 1;
+                        }
+                        let s = dot * scale;
+                        scores[c as usize] = s;
+                        if s > tile_max {
+                            tile_max = s;
+                        }
+                    }
+                    c += 1;
+                }
+
+                c = tile_size;
+                while c < 32 {
+                    scores[c as usize] = -1.0e38;
+                    c += 1;
+                }
+
+                let m_new = if tile_max > m { tile_max } else { m };
+
+                let mut row_sum: f32 = 0.0;
+                let mut exp_scores: [f32; 32] = [0.0; 32];
+                c = 0;
+                while c < tile_size {
+                    let e = gpu_exp_f32(scores[c as usize] - m_new);
+                    exp_scores[c as usize] = e;
+                    row_sum += e;
+                    c += 1;
+                }
+
+                let correction = gpu_exp_f32(m - m_new);
+
+                let mut d = 0u32;
+                while d < d_head {
+                    o_acc[d as usize] = o_acc[d as usize] * correction;
+                    d += 1;
+                }
+
+                c = 0;
+                while c < tile_size {
+                    let p = exp_scores[c as usize];
+                    if p > 0.0 {
+                        let mut d = 0u32;
+                        while d < d_head {
+                            o_acc[d as usize] += p * *v_tile.add((c * d_head + d) as usize);
+                            d += 1;
+                        }
+                    }
+                    c += 1;
+                }
+
+                l = l * correction + row_sum;
+                m = m_new;
+            }
+
+            crate::helpers::bar_sync();
+            t += 1;
+        }
+
+        // Final normalization
+        if my_row < q_len && l > 0.0 {
+            let inv_l = 1.0 / l;
+            let mut d = 0u32;
+            while d < d_head {
+                *out_head.add((my_row * d_head + d) as usize) = o_acc[d as usize] * inv_l;
+                d += 1;
+            }
+        }
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (
+            q_global, k_global, v_global, out_global, q_len, kv_len, d_head, causal_mask,
+            q_offset,
+        );
+    }
+
+    if tid == 0 {
+        let _prev: u32;
+        core::arch::asm!(
+            "atom.global.add.u32 {prev}, [{addr}], 1;",
+            prev = out(reg32) _prev,
+            addr = in(reg64) status,
+        );
+    }
+}
+
 // ============================================================
 // Token + positional embedding kernel (full-inference.1)
 // ============================================================

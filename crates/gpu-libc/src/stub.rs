@@ -30,37 +30,8 @@ pub unsafe extern "C" fn _exit(_status: c_int) -> ! {
 }
 
 // ============================================================
-// I/O stubs (will be replaced by hostcall implementations)
+// I/O stubs (remaining stubs — open/write/read/close moved to hostcall_io.rs)
 // ============================================================
-
-/// Write to a file descriptor. Stub returns ENOSYS.
-/// Real implementation will use hostcall.
-#[no_mangle]
-pub unsafe extern "C" fn write(_fd: c_int, _buf: *const c_void, _count: size_t) -> ssize_t {
-    set_errno(ENOSYS);
-    -1
-}
-
-/// Read from a file descriptor. Stub returns ENOSYS.
-#[no_mangle]
-pub unsafe extern "C" fn read(_fd: c_int, _buf: *mut c_void, _count: size_t) -> ssize_t {
-    set_errno(ENOSYS);
-    -1
-}
-
-/// Open a file. Stub returns ENOSYS.
-#[no_mangle]
-pub unsafe extern "C" fn open(_pathname: *const c_char, _flags: c_int, _mode: mode_t) -> c_int {
-    set_errno(ENOSYS);
-    -1
-}
-
-/// Close a file descriptor. Stub returns ENOSYS.
-#[no_mangle]
-pub unsafe extern "C" fn close(_fd: c_int) -> c_int {
-    set_errno(ENOSYS);
-    -1
-}
 
 /// Seek in a file. Stub returns ENOSYS.
 #[no_mangle]

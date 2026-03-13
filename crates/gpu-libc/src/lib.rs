@@ -18,6 +18,7 @@ mod types;
 pub mod memory;
 pub mod string;
 pub mod stub;
+pub mod hostcall_io;
 mod errno;
 
 pub use types::*;
@@ -27,4 +28,5 @@ pub use errno::*;
 pub use memory::{malloc, calloc, free, realloc, posix_memalign, gpu_heap_init};
 pub use memory::{memcpy, memset, memcmp, memmove};
 pub use string::{strlen, strcmp, strncmp};
-pub use stub::{abort, write, read, open, close};
+pub use stub::abort;
+pub use hostcall_io::{gpu_libc_io_init, open, write, read, close};

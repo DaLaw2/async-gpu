@@ -10,6 +10,8 @@ description = "Minimal libc shim layer for GPU: stubs + device-side implementati
 crate-type = ["rlib"]
 
 [dependencies]
+gpu-runtime = { path = "../gpu-runtime" }
+gpu-protocol = { path = "../gpu-protocol" }
 
 [profile.release]
 panic = "abort"

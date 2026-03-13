@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 186     # Monotonic counter, incremented after each completed phase
-completed_tasks = 185
+total_cycles = 188     # Monotonic counter, incremented after each completed phase
+completed_tasks = 187
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "gpu-error-propagation.4"
-last_summary = "gpu-error-propagation theme COMPLETE (4/4 tasks). GpuError + GpuKernelResult types, Result-based hostcall API, host-side check_kernel_result(), panic→result buffer. std-migration.1 also done. Next: std-migration.2, std-fs.2+3."
+current_task_id = "std-fs.2"
+last_summary = "Batch complete: std-migration.1+2, gpu-error-propagation.1-4, std-fs.2. Patched-std updated, Result-based hostcall, gpu-libc I/O via hostcall. gpu-error-propagation theme DONE. Next: std-fs.3 (OnceLock fix), std-migration.3, std-fs.4."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 48
@@ -529,7 +529,7 @@ id = "std-migration.2"
 theme = "std-migration"
 title = "Factor shared hostcall protocol into std-compatible library"
 kind = "design"
-status = "pending"
+status = "done"
 depends_on = ["std-migration.1"]
 spawned_by = "bs48"
 research_questions = [
@@ -570,7 +570,7 @@ id = "std-fs.2"
 theme = "std-fs"
 title = "Implement gpu-libc open/read/write/close via hostcall (replace stubs)"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["std-fs.1"]
 spawned_by = "bs48"
 research_questions = [

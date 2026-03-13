@@ -121,3 +121,12 @@ Record important technical decisions here as they emerge from research.
 - **Output write**: `d0→D[warp_m*16+group][warp_n*8+lane*2]`, `d1→D[warp_m*16+group][warp_n*8+lane*2+1]`, `d2→D[warp_m*16+group+8][warp_n*8+lane*2]`, `d3→D[warp_m*16+group+8][warp_n*8+lane*2+1]`.
 - **Alternatives**: (a) Keep row-major B and accept A×B^T semantics (confusing). (b) Transpose B in shared memory after loading (extra bar_sync + complexity). (c) Store B column-major globally and load directly (chosen — simplest and cleanest).
 - **Sources**: gemm-scale.1-c1
+
+### ADR-012: Weight Loading via Pre-allocated Device Buffers
+
+- **Decision**: Model weights are pre-loaded to device memory via `cudarc::htod_sync_copy()` before kernel launch. Kernel receives weight pointers as launch parameters — no hostcall streaming.
+- **Context**: For inference, weights are static and known before kernel execution. Pre-allocation is simpler, faster (no per-layer round-trip latency), and leverages existing cudarc infrastructure. Hostcall streaming would add unnecessary complexity for data that doesn't change during execution.
+- **What happens if violated**: Hostcall-based weight loading would incur per-layer latency (shared memory protocol overhead) and complicate the kernel with I/O logic that belongs on the host side.
+- **Trade-offs**: Pre-allocation is less "autonomous" than hostcall streaming, but for inference the weights are deterministic inputs, not runtime decisions. The kernel's autonomy is in its compute graph execution, not data loading.
+- **Buffer layout**: Each weight tensor is a separate `CudaSlice<T>` on the host side, passed as raw pointer to the kernel. GEMM weights use column-major packed f16x2 format (per ADR-011). Bias/gamma/beta are plain f32 arrays.
+- **Sources**: transformer-layer.5-c1

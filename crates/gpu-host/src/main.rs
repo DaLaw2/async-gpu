@@ -187,6 +187,12 @@ fn main() -> Result<()> {
     // GELU test (transformer-layer.2)
     tests_compute::run_gelu_test(Arc::clone(&dev))?;
 
+    // Attention test (transformer-layer.3)
+    tests_compute::run_attention_test(Arc::clone(&dev))?;
+
+    // FFN block test (transformer-layer.4)
+    tests_compute::run_ffn_test(Arc::clone(&dev))?;
+
     // GPU panic handler test (gpu-panic.2) — MUST BE LAST
     // since trap instruction calls process::exit(0)
     tests_pipeline::run_panic_test(Arc::clone(&dev))?;

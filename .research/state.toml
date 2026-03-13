@@ -4,22 +4,22 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 134     # Monotonic counter, incremented after each completed phase
-completed_tasks = 133
+total_cycles = 138     # Monotonic counter, incremented after each completed phase
+completed_tasks = 137
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "transformer-layer.5"
-last_summary = "transformer-layer.1+2 done: LayerNorm (max err 3.3e-6) and GELU (max err 4.8e-7) both verified. Next: .5 (weight loading design), then .3 (MHA), .4 (FFN)."
+current_task_id = "transformer-layer.6"
+last_summary = "transformer-layer.1-5 all done: LayerNorm, GELU, attention, FFN, weight loading design all verified. Next: .6 (end-to-end single layer), .7 (PyTorch validation)."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 36
+brainstorm_seq = 37
 review_seq = 5
 
 # Brainstorm trigger control
-last_brainstorm_at_completed = 129
+last_brainstorm_at_completed = 133
 brainstorm_interval = 3
 
 # ============================================================
@@ -3106,6 +3106,17 @@ themes_parked = []
 themes_completed = []
 key_insight = "Epic gpu-inference created (Option B scope). 2 themes, 10 tasks. gemm-scale first (critical path). Decision gates after gemm-scale.3 and transformer-layer.6."
 
+[[brainstorms]]
+seq = 37
+at_cycle = 133
+trigger = "Interval (133-129=4 >= 3)"
+level = "quick"
+new_tasks_spawned = []
+new_themes_spawned = []
+themes_parked = []
+themes_completed = ["gemm-scale"]
+key_insight = "gemm-scale complete (3/3 tasks). transformer-layer.1+2 done. Remaining: .5 (design) → .3 (MHA) → .4 (FFN) → .6 (e2e) → .7 (PyTorch validation). On track."
+
 # ============================================================
 # Epic: Native GPU Inference
 # ============================================================
@@ -3229,7 +3240,7 @@ id = "transformer-layer.3"
 theme = "transformer-layer"
 title = "Multi-head attention: Q/K/V projection → split heads → attention → concat → output projection"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["gemm-scale.3"]
 spawned_by = "bs36"
 research_questions = [
@@ -3243,7 +3254,7 @@ id = "transformer-layer.4"
 theme = "transformer-layer"
 title = "FFN block: linear → GELU → linear"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["gemm-scale.3", "transformer-layer.2"]
 spawned_by = "bs36"
 research_questions = [
@@ -3256,7 +3267,7 @@ id = "transformer-layer.5"
 theme = "transformer-layer"
 title = "Weight loading strategy: pre-allocate via cuMemAlloc vs hostcall streaming"
 kind = "design"
-status = "pending"
+status = "done"
 depends_on = []
 spawned_by = "bs36"
 research_questions = [

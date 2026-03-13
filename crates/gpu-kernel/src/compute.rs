@@ -2485,3 +2485,216 @@ pub unsafe extern "ptx-kernel" fn gelu_forward(
         );
     }
 }
+
+// ============================================================
+// Scaled Dot-Product Attention kernel (transformer-layer.3)
+// ============================================================
+
+/// Single-head scaled dot-product attention (f32, small seq):
+/// output[seq][d_head] = softmax(Q[seq][d_head] × K^T[d_head][seq] / sqrt(d_head)) × V[seq][d_head]
+///
+/// grid_dim = (n_heads, 1, 1), block_dim = (32, 1, 1).
+/// Each block (1 warp) processes one attention head.
+/// Q, K, V are laid out as [n_heads][seq_len][d_head] f32 (already projected & split).
+/// Output: [n_heads][seq_len][d_head] f32.
+/// Constraint: seq_len <= 32 (one thread per query position).
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn attention_head(
+    q_global: *const f32,   // [n_heads][seq_len][d_head]
+    k_global: *const f32,   // [n_heads][seq_len][d_head]
+    v_global: *const f32,   // [n_heads][seq_len][d_head]
+    out_global: *mut f32,   // [n_heads][seq_len][d_head]
+    seq_len: u32,
+    d_head: u32,
+    status: *mut u32,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let head = nvptx::_block_idx_x() as u32;
+        let head_offset = head * seq_len * d_head;
+
+        if tid >= seq_len {
+            // Still participate in warp-level operations, but skip writes.
+            // For simplicity, just return — seq_len should equal 32 or be < 32.
+            return;
+        }
+
+        let q_head = q_global.add(head_offset as usize);
+        let k_head = k_global.add(head_offset as usize);
+        let v_head = v_global.add(head_offset as usize);
+        let out_head = out_global.add(head_offset as usize);
+
+        // This thread handles query row `tid` (one row of seq_len).
+        // Step 1: Compute attention scores = Q[tid] · K[j]^T / sqrt(d_head)
+        //         for j = 0..seq_len
+        let scale = 1.0 / gpu_sqrtf(d_head as f32);
+        let smem = get_dynamic_smem_ptr() as *mut f32;
+        // smem layout: [seq_len * seq_len] for scores, then [seq_len * d_head] for V cache
+        // But with seq=32 and d_head=64, that's 32*32 + 32*64 = 3072 f32 = 12KB — fits.
+
+        // Compute scores for this query row
+        let scores = smem.add((tid * seq_len) as usize); // my row in score matrix
+        let mut j = 0u32;
+        while j < seq_len {
+            let mut dot: f32 = 0.0;
+            let mut d = 0u32;
+            while d < d_head {
+                dot += *q_head.add((tid * d_head + d) as usize)
+                    * *k_head.add((j * d_head + d) as usize);
+                d += 1;
+            }
+            *scores.add(j as usize) = dot * scale;
+            j += 1;
+        }
+
+        // Step 2: Softmax over scores[tid][0..seq_len]
+        // Find max
+        let mut max_val: f32 = *scores.add(0);
+        j = 1;
+        while j < seq_len {
+            let v = *scores.add(j as usize);
+            if v > max_val {
+                max_val = v;
+            }
+            j += 1;
+        }
+        // Exp and sum
+        let mut sum_exp: f32 = 0.0;
+        j = 0;
+        while j < seq_len {
+            let e = gpu_exp_f32(*scores.add(j as usize) - max_val);
+            *scores.add(j as usize) = e;
+            sum_exp += e;
+            j += 1;
+        }
+        // Normalize
+        let inv_sum = 1.0 / sum_exp;
+        j = 0;
+        while j < seq_len {
+            *scores.add(j as usize) = *scores.add(j as usize) * inv_sum;
+            j += 1;
+        }
+
+        // Step 3: Output = attention_weights × V
+        // out[tid][d] = sum_j weights[tid][j] * V[j][d]
+        let mut d = 0u32;
+        while d < d_head {
+            let mut acc: f32 = 0.0;
+            j = 0;
+            while j < seq_len {
+                acc += *scores.add(j as usize) * *v_head.add((j * d_head + d) as usize);
+                j += 1;
+            }
+            *out_head.add((tid * d_head + d) as usize) = acc;
+            d += 1;
+        }
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (q_global, k_global, v_global, out_global, seq_len, d_head);
+    }
+
+    if tid == 0 {
+        let _prev: u32;
+        core::arch::asm!(
+            "atom.global.add.u32 {prev}, [{addr}], 1;",
+            prev = out(reg32) _prev,
+            addr = in(reg64) status,
+        );
+    }
+}
+
+// ============================================================
+// Bias-add kernel (transformer-layer.4 helper)
+// ============================================================
+
+/// Add bias to a 2D matrix in-place: data[i][j] += bias[j]
+///
+/// grid_dim = (ceil(total/256), 1, 1), block_dim = (256, 1, 1).
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn bias_add(
+    data: *mut f32,
+    bias: *const f32,
+    n_cols: u32,
+    total: u32,
+    status: *mut u32,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let block_x = nvptx::_block_idx_x() as u32;
+        let global_id = block_x * 256 + tid;
+
+        if global_id < total {
+            let col = global_id % n_cols;
+            let val = *data.add(global_id as usize) + *bias.add(col as usize);
+            *data.add(global_id as usize) = val;
+        }
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (data, bias, n_cols, total);
+    }
+
+    if tid == 0 {
+        let _prev: u32;
+        core::arch::asm!(
+            "atom.global.add.u32 {prev}, [{addr}], 1;",
+            prev = out(reg32) _prev,
+            addr = in(reg64) status,
+        );
+    }
+}
+
+// ============================================================
+// f32 → f16x2 pack kernel (transformer-layer.4 helper)
+// ============================================================
+
+/// Pack f32 row-major [M][K] → f16x2 row-major [M][K/2] u32.
+/// K must be even. Each thread packs one pair.
+///
+/// grid_dim = (ceil(total_pairs/256), 1, 1), block_dim = (256, 1, 1).
+/// total_pairs = M * K / 2.
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn f32_to_f16x2_pack(
+    input: *const f32,
+    output: *mut u32,
+    total_pairs: u32,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let block_x = nvptx::_block_idx_x() as u32;
+        let global_id = block_x * 256 + tid;
+
+        if global_id < total_pairs {
+            let idx = global_id * 2;
+            let v0 = *input.add(idx as usize);
+            let v1 = *input.add((idx + 1) as usize);
+            // f32 → f16 via PTX cvt instruction
+            let h0: u32;
+            let h1: u32;
+            core::arch::asm!(
+                "cvt.rn.f16.f32 {h}, {f};",
+                h = out(reg32) h0,
+                f = in(reg32) v0,
+            );
+            core::arch::asm!(
+                "cvt.rn.f16.f32 {h}, {f};",
+                h = out(reg32) h1,
+                f = in(reg32) v1,
+            );
+            // Pack: lo | (hi << 16)
+            let packed = (h0 & 0xFFFF) | (h1 << 16);
+            *output.add(global_id as usize) = packed;
+        }
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (input, output, total_pairs);
+    }
+}

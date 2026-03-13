@@ -209,6 +209,9 @@ fn main() -> Result<()> {
     // Transformer layer test (transformer-layer.6)
     tests_compute::run_transformer_layer_test(Arc::clone(&dev))?;
 
+    // 12-layer GPT-2 forward pass (full-inference.2)
+    tests_compute::run_full_forward_test(Arc::clone(&dev))?;
+
     // GPT-2 model weight loading test (model-loading.3)
     {
         let model_path = std::path::Path::new("../../models/model.safetensors");

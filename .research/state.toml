@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 140     # Monotonic counter, incremented after each completed phase
-completed_tasks = 139
+total_cycles = 147     # Monotonic counter, incremented after each completed phase
+completed_tasks = 146
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.select"
+current_step = "do.execute"
 current_task_id = ""
-last_summary = "BS38 deep brainstorm done. Two new epics: Public API (host-sdk starts now, rest deferred) + gpu-inference reset (5 new themes: precision-fix, model-loading, tokenizer, attention-scale, full-inference). Strict decision gates: PyTorch reference at rtol=0.01, no relaxation."
+last_summary = "Phase 1 batch: host-sdk.1+.2 done (GpuRuntime + MappedBuffer), attention-scale.1+.2 done (causal mask works, max_err=1e-8), precision-fix.1 done (4 f16 roundtrips, FFN GEMM2 worst), model-loading.1 done (safetensors format analyzed), tokenizer.1 done (tiktoken-rs recommended)."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 38
@@ -3346,7 +3346,7 @@ id = "host-sdk.1"
 theme = "host-sdk"
 title = "API surface design — what types/traits/functions are public"
 kind = "design"
-status = "pending"
+status = "done"
 depends_on = []
 spawned_by = "bs38"
 research_questions = [
@@ -3360,7 +3360,7 @@ id = "host-sdk.2"
 theme = "host-sdk"
 title = "Extract GpuDevice + KernelBuilder + HostcallRuntime from test code"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["host-sdk.1"]
 spawned_by = "bs38"
 research_questions = [
@@ -3455,7 +3455,7 @@ id = "precision-fix.1"
 theme = "precision-fix"
 title = "Profile per-stage error to identify worst f16 quantization points"
 kind = "investigation"
-status = "pending"
+status = "done"
 depends_on = []
 spawned_by = "bs38"
 research_questions = [
@@ -3528,7 +3528,7 @@ id = "model-loading.1"
 theme = "model-loading"
 title = "Analyze GPT-2 safetensors format — tensor names, shapes, dtypes"
 kind = "investigation"
-status = "pending"
+status = "done"
 depends_on = []
 spawned_by = "bs38"
 research_questions = [
@@ -3601,7 +3601,7 @@ id = "tokenizer.1"
 theme = "tokenizer"
 title = "Analyze GPT-2 tokenizer files (vocab.json, merges.txt)"
 kind = "investigation"
-status = "pending"
+status = "done"
 depends_on = []
 spawned_by = "bs38"
 research_questions = [
@@ -3658,7 +3658,7 @@ id = "attention-scale.1"
 theme = "attention-scale"
 title = "Survey approaches — tiled attention, FlashAttention, multi-block"
 kind = "investigation"
-status = "pending"
+status = "done"
 depends_on = []
 spawned_by = "bs38"
 research_questions = [
@@ -3672,7 +3672,7 @@ id = "attention-scale.2"
 theme = "attention-scale"
 title = "Implement causal mask in current attention kernel (seq<=32)"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = []
 spawned_by = "bs38"
 research_questions = [

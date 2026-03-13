@@ -2498,6 +2498,7 @@ pub unsafe extern "ptx-kernel" fn gelu_forward(
 /// Q, K, V are laid out as [n_heads][seq_len][d_head] f32 (already projected & split).
 /// Output: [n_heads][seq_len][d_head] f32.
 /// Constraint: seq_len <= 32 (one thread per query position).
+/// causal_mask: 0 = no mask (bidirectional), 1 = causal (mask future positions).
 #[no_mangle]
 pub unsafe extern "ptx-kernel" fn attention_head(
     q_global: *const f32,   // [n_heads][seq_len][d_head]
@@ -2506,6 +2507,7 @@ pub unsafe extern "ptx-kernel" fn attention_head(
     out_global: *mut f32,   // [n_heads][seq_len][d_head]
     seq_len: u32,
     d_head: u32,
+    causal_mask: u32,       // 0 = no mask, 1 = causal
     status: *mut u32,
 ) {
     let tid = nvptx::_thread_idx_x() as u32;
@@ -2531,26 +2533,32 @@ pub unsafe extern "ptx-kernel" fn attention_head(
         //         for j = 0..seq_len
         let scale = 1.0 / gpu_sqrtf(d_head as f32);
         let smem = get_dynamic_smem_ptr() as *mut f32;
-        // smem layout: [seq_len * seq_len] for scores, then [seq_len * d_head] for V cache
-        // But with seq=32 and d_head=64, that's 32*32 + 32*64 = 3072 f32 = 12KB — fits.
+        // smem layout: [seq_len * seq_len] for scores
+        // With seq=32, that's 32*32 = 1024 f32 = 4KB — fits.
 
         // Compute scores for this query row
         let scores = smem.add((tid * seq_len) as usize); // my row in score matrix
         let mut j = 0u32;
         while j < seq_len {
-            let mut dot: f32 = 0.0;
-            let mut d = 0u32;
-            while d < d_head {
-                dot += *q_head.add((tid * d_head + d) as usize)
-                    * *k_head.add((j * d_head + d) as usize);
-                d += 1;
+            // Apply causal mask: positions j > tid get -inf (will become 0 after softmax)
+            if causal_mask != 0 && j > tid {
+                // Use a large negative value instead of -inf to avoid NaN in exp
+                *scores.add(j as usize) = -1.0e38_f32;
+            } else {
+                let mut dot: f32 = 0.0;
+                let mut d = 0u32;
+                while d < d_head {
+                    dot += *q_head.add((tid * d_head + d) as usize)
+                        * *k_head.add((j * d_head + d) as usize);
+                    d += 1;
+                }
+                *scores.add(j as usize) = dot * scale;
             }
-            *scores.add(j as usize) = dot * scale;
             j += 1;
         }
 
         // Step 2: Softmax over scores[tid][0..seq_len]
-        // Find max
+        // Find max (only over non-masked positions, but -1e38 won't be max)
         let mut max_val: f32 = *scores.add(0);
         j = 1;
         while j < seq_len {
@@ -2593,7 +2601,7 @@ pub unsafe extern "ptx-kernel" fn attention_head(
     }
     #[cfg(not(target_arch = "nvptx64"))]
     {
-        let _ = (q_global, k_global, v_global, out_global, seq_len, d_head);
+        let _ = (q_global, k_global, v_global, out_global, seq_len, d_head, causal_mask);
     }
 
     if tid == 0 {

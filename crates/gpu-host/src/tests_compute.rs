@@ -1806,6 +1806,7 @@ pub(crate) fn run_attention_test(dev: Arc<CudaDevice>) -> Result<()> {
         shared_mem_bytes: SEQ_LEN * SEQ_LEN * 4, // score matrix
     };
 
+    // Test 1: Bidirectional attention (causal_mask = 0) — backward compatibility
     unsafe {
         f.clone().launch(
             cfg,
@@ -1816,6 +1817,7 @@ pub(crate) fn run_attention_test(dev: Arc<CudaDevice>) -> Result<()> {
                 &mut out_dev,
                 SEQ_LEN,
                 D_HEAD,
+                0u32, // no causal mask
                 status_dev_ptr,
             ),
         )?;
@@ -1830,7 +1832,7 @@ pub(crate) fn run_attention_test(dev: Arc<CudaDevice>) -> Result<()> {
 
     let out_host: Vec<f32> = dev.dtoh_sync_copy(&out_dev)?;
 
-    // CPU reference
+    // CPU reference (bidirectional)
     let mut mismatches = 0;
     let mut max_err: f32 = 0.0;
     let scale = 1.0 / (D_HEAD as f32).sqrt();
@@ -1842,7 +1844,6 @@ pub(crate) fn run_attention_test(dev: Arc<CudaDevice>) -> Result<()> {
         let v_h = &v[offset..offset + SEQ_LEN as usize * D_HEAD as usize];
 
         for i in 0..SEQ_LEN as usize {
-            // Compute scores[i][j] = Q[i] · K[j] / sqrt(d_head)
             let mut scores: Vec<f32> = vec![0.0; SEQ_LEN as usize];
             for j in 0..SEQ_LEN as usize {
                 let mut dot: f32 = 0.0;
@@ -1852,13 +1853,11 @@ pub(crate) fn run_attention_test(dev: Arc<CudaDevice>) -> Result<()> {
                 scores[j] = dot * scale;
             }
 
-            // Softmax
             let max_s = scores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
             let exp_s: Vec<f32> = scores.iter().map(|s| (s - max_s).exp()).collect();
             let sum_exp: f32 = exp_s.iter().sum();
             let weights: Vec<f32> = exp_s.iter().map(|e| e / sum_exp).collect();
 
-            // Output[i][d] = sum_j weights[j] * V[j][d]
             for d in 0..D_HEAD as usize {
                 let mut acc: f32 = 0.0;
                 for j in 0..SEQ_LEN as usize {
@@ -1881,20 +1880,124 @@ pub(crate) fn run_attention_test(dev: Arc<CudaDevice>) -> Result<()> {
         }
     }
 
-    unsafe {
-        free_mapped_mem(status_host_ptr)?;
+    println!(
+        "  Bidirectional attention {N_HEADS} heads, seq={SEQ_LEN}: max_err={max_err:.8}, mismatches={mismatches}"
+    );
+    if mismatches > 0 {
+        unsafe { free_mapped_mem(status_host_ptr)? };
+        return Err(GpuHostError::Verification {
+            test: "attention_head (bidirectional)",
+            detail: format!("{mismatches} mismatches"),
+        });
     }
 
+    // Test 2: Causal attention (causal_mask = 1) — GPT-2 style
+    unsafe { std::ptr::write_volatile(status_host_ptr, 0u32) };
+    let mut out_dev_causal: CudaSlice<f32> = dev.alloc_zeros::<f32>(total)?;
+
+    unsafe {
+        f.launch(
+            cfg,
+            (
+                &q_dev,
+                &k_dev,
+                &v_dev,
+                &mut out_dev_causal,
+                SEQ_LEN,
+                D_HEAD,
+                1u32, // causal mask
+                status_dev_ptr,
+            ),
+        )?;
+    }
+    dev.synchronize()?;
+
+    let out_causal: Vec<f32> = dev.dtoh_sync_copy(&out_dev_causal)?;
+
+    // CPU reference with causal mask
+    let mut causal_mismatches = 0;
+    let mut causal_max_err: f32 = 0.0;
+
+    for h in 0..N_HEADS {
+        let offset = h * SEQ_LEN as usize * D_HEAD as usize;
+        let q_h = &q[offset..offset + SEQ_LEN as usize * D_HEAD as usize];
+        let k_h = &k[offset..offset + SEQ_LEN as usize * D_HEAD as usize];
+        let v_h = &v[offset..offset + SEQ_LEN as usize * D_HEAD as usize];
+
+        for i in 0..SEQ_LEN as usize {
+            let mut scores: Vec<f32> = vec![0.0; SEQ_LEN as usize];
+            for j in 0..SEQ_LEN as usize {
+                if j > i {
+                    // Causal mask: future positions get -inf
+                    scores[j] = -1.0e38_f32;
+                } else {
+                    let mut dot: f32 = 0.0;
+                    for d in 0..D_HEAD as usize {
+                        dot += q_h[i * D_HEAD as usize + d] * k_h[j * D_HEAD as usize + d];
+                    }
+                    scores[j] = dot * scale;
+                }
+            }
+
+            let max_s = scores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+            let exp_s: Vec<f32> = scores.iter().map(|s| (s - max_s).exp()).collect();
+            let sum_exp: f32 = exp_s.iter().sum();
+            let weights: Vec<f32> = exp_s.iter().map(|e| e / sum_exp).collect();
+
+            for d in 0..D_HEAD as usize {
+                let mut acc: f32 = 0.0;
+                for j in 0..SEQ_LEN as usize {
+                    acc += weights[j] * v_h[j * D_HEAD as usize + d];
+                }
+                let got = out_causal[offset + i * D_HEAD as usize + d];
+                let err = (got - acc).abs();
+                if err > causal_max_err {
+                    causal_max_err = err;
+                }
+                if err > 1e-3 {
+                    if causal_mismatches < 5 {
+                        println!(
+                            "  CAUSAL MISMATCH h={h} i={i} d={d}: got={got} expected={acc} err={err}"
+                        );
+                    }
+                    causal_mismatches += 1;
+                }
+            }
+        }
+    }
+
+    unsafe { free_mapped_mem(status_host_ptr)? };
+
     println!(
-        "  Attention {N_HEADS} heads, seq={SEQ_LEN}, d_head={D_HEAD}: max_err={max_err:.8}, mismatches={mismatches}"
+        "  Causal attention {N_HEADS} heads, seq={SEQ_LEN}: max_err={causal_max_err:.8}, mismatches={causal_mismatches}"
     );
-    if mismatches == 0 {
-        println!("  Attention — PASSED");
+
+    // Verify causal output differs from bidirectional (except position 0 which should be same)
+    let mut causal_differs = false;
+    for i in 0..total {
+        if (out_host[i] - out_causal[i]).abs() > 1e-6 {
+            causal_differs = true;
+            break;
+        }
+    }
+    println!(
+        "  Causal vs bidirectional: {}",
+        if causal_differs {
+            "outputs differ (expected)"
+        } else {
+            "outputs identical (UNEXPECTED)"
+        }
+    );
+
+    if causal_mismatches == 0 && causal_differs {
+        println!("  Attention (bidirectional + causal) — PASSED");
         Ok(())
     } else {
         Err(GpuHostError::Verification {
             test: "attention_head",
-            detail: format!("{mismatches} mismatches"),
+            detail: format!(
+                "causal_mismatches={causal_mismatches}, causal_differs={causal_differs}"
+            ),
         })
     }
 }
@@ -2541,7 +2644,16 @@ pub(crate) fn run_transformer_layer_test(dev: Arc<CudaDevice>) -> Result<()> {
                 block_dim: (32, 1, 1),
                 shared_mem_bytes: SEQ * SEQ * 4,
             },
-            (&q_dev, &k_dev, &v_dev, &mut attn_out_dev, SEQ, D_HEAD, sd4),
+            (
+                &q_dev,
+                &k_dev,
+                &v_dev,
+                &mut attn_out_dev,
+                SEQ,
+                D_HEAD,
+                0u32,
+                sd4,
+            ),
         )?;
     }
     dev.synchronize()?;

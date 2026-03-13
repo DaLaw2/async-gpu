@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 154     # Monotonic counter, incremented after each completed phase
-completed_tasks = 153
+total_cycles = 158     # Monotonic counter, incremented after each completed phase
+completed_tasks = 157
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "full-inference.1"
-last_summary = "Batch 2: precision-fix.2 done (full_gemm_f32in, same precision), tokenizer.2+.3 done (tiktoken-rs validated), attention-scale.3 done (FlashAttention seq=128 zero mismatches), model-loading.2 done (safetensors parser + Gpt2Weights). Next: model-loading.3, attention-scale.4, precision-fix.3 (needs PyTorch)."
+current_task_id = "full-inference.2"
+last_summary = "Batch 3: attention-scale.4 done (seq=256+1024 zero mismatches), full-inference.1 done (embedding kernel), model-loading.3 done (real weights loaded 124M params), precision-fix.3 done (PyTorch ref generated, f16 precision accepted at atol=0.05). Next: model-loading.4 (real weights layer test), precision-fix.4 (12 layers), full-inference.2."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 39
@@ -3483,7 +3483,7 @@ id = "precision-fix.3"
 theme = "precision-fix"
 title = "Re-validate single layer with f32 intermediates against PyTorch — DECISION GATE"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["precision-fix.2"]
 spawned_by = "bs38"
 research_questions = [
@@ -3497,7 +3497,7 @@ id = "precision-fix.4"
 theme = "precision-fix"
 title = "Stack 12 layers and measure error accumulation"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["precision-fix.3", "model-loading.4"]
 spawned_by = "bs38"
 research_questions = [
@@ -3570,7 +3570,7 @@ id = "model-loading.4"
 theme = "model-loading"
 title = "Single-layer forward pass with real weights vs PyTorch — DECISION GATE"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["model-loading.3", "precision-fix.3"]
 spawned_by = "bs38"
 research_questions = [
@@ -3731,7 +3731,7 @@ id = "full-inference.1"
 theme = "full-inference"
 title = "Implement token + positional embedding kernels"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["model-loading.3"]
 spawned_by = "bs38"
 research_questions = [

@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# Local CI lint check — mirrors .github/workflows/build.yml lint job.
+# Run this before pushing to catch issues early.
+set -euo pipefail
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+NC='\033[0m'
+
+FAIL=0
+
+run() {
+    echo "==> $1"
+    if eval "$2" > /dev/null 2>&1; then
+        echo -e "    ${GREEN}OK${NC}"
+    else
+        echo -e "    ${RED}FAIL${NC}"
+        eval "$2" 2>&1 | tail -20
+        FAIL=1
+    fi
+}
+
+# PTX stubs (needed for gpu-host include_str!)
+for f in kernel.ptx embassy_test.ptx async_hostcall_test.ptx std_build_test.ptx async_pipeline_test.ptx multi_warp_test.ptx kernel_std.ptx; do
+    [ -f "crates/gpu-host/$f" ] || echo "// stub" > "crates/gpu-host/$f"
+done
+
+# --- fmt checks ---
+CRATES_FMT="gpu-host gpu-protocol warp-macro gpu-atomics gpu-runtime gpu-libc"
+for c in $CRATES_FMT; do
+    run "fmt $c" "cargo +stable fmt --manifest-path crates/$c/Cargo.toml -- --check"
+done
+
+# --- clippy checks (stable-compatible crates only) ---
+CRATES_CLIPPY="gpu-host gpu-protocol warp-macro gpu-atomics gpu-runtime"
+for c in $CRATES_CLIPPY; do
+    run "clippy $c" "cargo +stable clippy --manifest-path crates/$c/Cargo.toml -- -D warnings"
+done
+
+# --- doc-tests ---
+run "doc-tests gpu-protocol" "cargo +stable test --manifest-path crates/gpu-protocol/Cargo.toml --doc"
+
+# --- cargo doc with -D missing_docs ---
+run "doc gpu-protocol" "RUSTDOCFLAGS='-D missing_docs' cargo +stable doc --manifest-path crates/gpu-protocol/Cargo.toml --no-deps"
+run "doc warp-macro" "RUSTDOCFLAGS='-D missing_docs' cargo +stable doc --manifest-path crates/warp-macro/Cargo.toml --no-deps"
+
+# --- cargo doc (no missing_docs) ---
+run "doc gpu-atomics" "cargo +stable doc --manifest-path crates/gpu-atomics/Cargo.toml --no-deps"
+run "doc gpu-runtime" "cargo +stable doc --manifest-path crates/gpu-runtime/Cargo.toml --no-deps"
+
+# --- host check ---
+run "check gpu-host" "cargo +stable check --manifest-path crates/gpu-host/Cargo.toml"
+
+echo ""
+if [ "$FAIL" -eq 0 ]; then
+    echo -e "${GREEN}All CI lint checks passed!${NC}"
+else
+    echo -e "${RED}Some checks failed — fix before pushing.${NC}"
+    exit 1
+fi

@@ -450,12 +450,19 @@ pub const TAG_UNINIT: u32 = 0xDEAD_BEEF;
 #[repr(C, align(64))]
 #[derive(Clone, Copy)]
 pub struct GpuKernelResult {
+    /// TAG_OK, TAG_ERR, or TAG_UNINIT.
     pub tag: u32,
+    /// ERR_* constant identifying the error category.
     pub category: u16,
+    /// OS errno value from the GPU side.
     pub raw_errno: u16,
+    /// `threadIdx.x` that produced this result.
     pub thread_idx: u16,
+    /// `blockIdx.x` that produced this result.
     pub block_idx: u16,
+    /// Byte count of the message in `msg_bytes` (0..48).
     pub msg_len: u32,
+    /// UTF-8 message bytes (truncated to 48 bytes if needed).
     pub msg_bytes: [u8; 48],
 }
 

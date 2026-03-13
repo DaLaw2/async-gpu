@@ -2062,6 +2062,7 @@ pub(crate) fn run_kv_cache_attention_test(dev: Arc<CudaDevice>) -> Result<()> {
                 D_HEAD,
                 1u32,            // causal
                 last_pos as u32, // q_offset = position of this query in full sequence
+                SEQ_LEN,         // kv_stride = same as kv_len (packed)
                 status_dev_ptr,
             ),
         )?;

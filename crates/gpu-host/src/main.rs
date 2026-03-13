@@ -74,6 +74,10 @@ fn main() -> Result<()> {
                 tests_transformer::run_kv_cache_attention_test(Arc::clone(&dev))?;
                 return Ok(());
             }
+            "kv_gen" => {
+                tests_inference::run_kv_cached_generation_test(Arc::clone(&dev))?;
+                return Ok(());
+            }
             _ => println!("Unknown ONLY_TEST={only}, running all tests"),
         }
     }

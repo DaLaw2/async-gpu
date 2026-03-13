@@ -565,6 +565,10 @@ pub unsafe extern "ptx-kernel" fn flash_attention_kv(
     // e.g., if we've cached 10 tokens and are generating token 11, q_offset=10
     // so that Q row 0 maps to global position 10 for masking purposes.
     q_offset: u32,
+    // Stride for K/V head offsets. When K/V come from a pre-allocated cache with
+    // max_seq slots, kv_stride = max_seq even though kv_len < max_seq.
+    // Set kv_stride = kv_len when K/V are packed contiguously.
+    kv_stride: u32,
     status: *mut u32,
 ) {
     let tid = nvptx::_thread_idx_x() as u32;
@@ -578,10 +582,10 @@ pub unsafe extern "ptx-kernel" fn flash_attention_kv(
         let my_row = q_tile_idx * 32 + tid; // local Q row index (0..q_len-1)
         let my_global_row = my_row + q_offset; // global position for causal masking
 
-        // Head offsets: Q uses q_len stride, K/V use kv_len stride
+        // Head offsets: Q uses q_len stride, K/V use kv_stride stride
         let q_head = q_global.add((head * q_len * d_head) as usize);
-        let k_head = k_global.add((head * kv_len * d_head) as usize);
-        let v_head = v_global.add((head * kv_len * d_head) as usize);
+        let k_head = k_global.add((head * kv_stride * d_head) as usize);
+        let v_head = v_global.add((head * kv_stride * d_head) as usize);
         let out_head = out_global.add((head * q_len * d_head) as usize);
 
         let scale = 1.0 / gpu_sqrtf(d_head as f32);
@@ -740,7 +744,7 @@ pub unsafe extern "ptx-kernel" fn flash_attention_kv(
     {
         let _ = (
             q_global, k_global, v_global, out_global, q_len, kv_len, d_head, causal_mask,
-            q_offset,
+            q_offset, kv_stride,
         );
     }
 
@@ -1037,6 +1041,45 @@ pub unsafe extern "ptx-kernel" fn f32_to_f16x2_pack(
 ///
 /// grid_dim = (ceil(total_elems / 256), 1, 1), block_dim = (256, 1, 1).
 /// start_offset: first element to zero (e.g., actual_seq * d_model).
+// ============================================================
+// KV cache append kernel (kv-cache.3)
+// ============================================================
+
+/// Copies a single token's K or V data from a padded source buffer into the KV cache.
+///
+/// Source layout: [n_heads, src_seq_stride, d_head] — we read row 0 of each head.
+/// Cache layout: [n_heads, max_seq, d_head] — we write at `write_pos` of each head.
+///
+/// Launch with grid = (n_heads * d_head).div_ceil(256), block = 256.
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn kv_cache_append(
+    src: *const f32,
+    cache: *mut f32,
+    n_heads: u32,
+    src_seq_stride: u32,
+    max_seq: u32,
+    d_head: u32,
+    write_pos: u32,
+    _status: *mut u32,
+) {
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let gid = nvptx::_block_idx_x() as u32 * 256 + nvptx::_thread_idx_x() as u32;
+        let total = n_heads * d_head;
+        if gid < total {
+            let head = gid / d_head;
+            let d = gid % d_head;
+            let src_idx = head * src_seq_stride * d_head + d; // row 0 of each head
+            let dst_idx = head * max_seq * d_head + write_pos * d_head + d;
+            *cache.add(dst_idx as usize) = *src.add(src_idx as usize);
+        }
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (src, cache, n_heads, src_seq_stride, max_seq, d_head, write_pos, _status);
+    }
+}
+
 /// total_elems: total buffer size.
 #[no_mangle]
 pub unsafe extern "ptx-kernel" fn zero_pad(buffer: *mut f32, start_offset: u32, total_elems: u32) {

@@ -1,5 +1,5 @@
 //! Full GPT-2 inference tests: 12-layer forward pass, greedy generation,
-//! f32 forward pass, CPU f64 reference.
+//! f32 forward pass, CPU f64 reference, KV-cached generation.
 
 use std::sync::Arc;
 
@@ -3732,5 +3732,1630 @@ pub(crate) fn run_cpu_f64_reference_test() -> Result<()> {
     );
 
     println!("  CPU f64 reference forward pass — PASSED");
+    Ok(())
+}
+
+/// kv-cache.3: Full 12-layer KV-cached autoregressive generation.
+///
+/// Phase 1 (prefill): process full prompt through 12 layers, populate KV cache.
+/// Phase 2 (decode): generate tokens one at a time using cached K/V.
+/// Compares output tokens against non-cached generation to verify correctness.
+pub(crate) fn run_kv_cached_generation_test(dev: Arc<CudaDevice>) -> Result<()> {
+    let model_path = std::path::Path::new("../../models/model.safetensors");
+    if !model_path.exists() {
+        println!("\n--- Skipping KV-cached generation (models/model.safetensors not found) ---");
+        return Ok(());
+    }
+
+    println!("\n--- KV-cached autoregressive generation (kv-cache.3) ---");
+
+    let weights =
+        gpu_host::model::load_gpt2_weights(model_path).map_err(|e| GpuHostError::Verification {
+            test: "kv_cached_generation",
+            detail: format!("weight loading: {e}"),
+        })?;
+
+    let tokenizer =
+        gpu_host::tokenizer::Gpt2Tokenizer::new().map_err(|e| GpuHostError::Verification {
+            test: "kv_cached_generation",
+            detail: format!("tokenizer: {e}"),
+        })?;
+
+    const D_MODEL: u32 = 768;
+    const N_HEADS: u32 = 12;
+    const D_HEAD: u32 = 64;
+    const D_FFN: u32 = 3072;
+    const EPS: f32 = 1e-5;
+    let dm = D_MODEL as usize;
+
+    // Full sequence length (same as non-cached test)
+    const MAX_SEQ: u32 = 128;
+    // Padded sequence length for decode-phase GEMM (minimum tile size)
+    const SEQ_STEP: u32 = 32;
+
+    let total_full = (MAX_SEQ * D_MODEL) as usize;
+    let head_total_full = (N_HEADS * MAX_SEQ * D_HEAD) as usize;
+    let total_step = (SEQ_STEP * D_MODEL) as usize;
+    let head_total_step = (N_HEADS * SEQ_STEP * D_HEAD) as usize;
+
+    fn to_col_major(w: &[f32], k: usize, n: usize) -> Vec<f32> {
+        let mut cm = vec![0.0f32; k * n];
+        for row in 0..k {
+            for col in 0..n {
+                cm[col * k + row] = w[row * n + col];
+            }
+        }
+        cm
+    }
+
+    // Load PTX with all required kernels
+    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
+    let _ = dev.load_ptx(
+        ptx,
+        "kvcache",
+        &[
+            "embedding_lookup",
+            "layer_norm",
+            "gemm_f32",
+            "bias_add",
+            "split_qkv",
+            "flash_attention",
+            "flash_attention_kv",
+            "concat_heads",
+            "gelu_forward",
+            "elementwise_add",
+            "zero_pad",
+            "kv_cache_append",
+        ],
+    );
+
+    macro_rules! get_fn {
+        ($name:expr) => {
+            dev.get_func("kvcache", $name)
+                .ok_or(GpuHostError::KernelNotFound($name))?
+        };
+    }
+
+    let f_embed = get_fn!("embedding_lookup");
+    let f_ln = get_fn!("layer_norm");
+    let f_gemm = get_fn!("gemm_f32");
+    let f_bias = get_fn!("bias_add");
+    let f_split = get_fn!("split_qkv");
+    let f_attn = get_fn!("flash_attention");
+    let f_attn_kv = get_fn!("flash_attention_kv");
+    let f_concat = get_fn!("concat_heads");
+    let f_gelu = get_fn!("gelu_forward");
+    let f_add = get_fn!("elementwise_add");
+    let f_zero = get_fn!("zero_pad");
+    let f_kv_append = get_fn!("kv_cache_append");
+
+    let (status_host_ptr, status_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 1)? };
+
+    // Upload embedding tables
+    let wte_dev = dev.htod_sync_copy(&weights.wte)?;
+    let wpe_dev = dev.htod_sync_copy(&weights.wpe)?;
+
+    // Upload layer weights
+    struct LayerWeightsGpu {
+        ln1_g: CudaSlice<f32>,
+        ln1_b: CudaSlice<f32>,
+        w_qkv: CudaSlice<f32>,
+        b_qkv: CudaSlice<f32>,
+        w_proj: CudaSlice<f32>,
+        b_proj: CudaSlice<f32>,
+        ln2_g: CudaSlice<f32>,
+        ln2_b: CudaSlice<f32>,
+        w_fc: CudaSlice<f32>,
+        b_fc: CudaSlice<f32>,
+        w_fc_proj: CudaSlice<f32>,
+        b_fc_proj: CudaSlice<f32>,
+    }
+
+    let mut gpu_layers: Vec<LayerWeightsGpu> = Vec::with_capacity(12);
+    for layer in weights.layers.iter() {
+        let w_qkv_cm = to_col_major(&layer.c_attn_weight, 768, 2304);
+        let w_proj_cm = to_col_major(&layer.c_proj_weight, 768, 768);
+        let w_fc_cm = to_col_major(&layer.mlp_fc_weight, 768, 3072);
+        let w_fc_proj_cm = to_col_major(&layer.mlp_proj_weight, 3072, 768);
+
+        gpu_layers.push(LayerWeightsGpu {
+            ln1_g: dev.htod_sync_copy(&layer.ln_1.weight)?,
+            ln1_b: dev.htod_sync_copy(&layer.ln_1.bias)?,
+            w_qkv: dev.htod_sync_copy(&w_qkv_cm)?,
+            b_qkv: dev.htod_sync_copy(&layer.c_attn_bias)?,
+            w_proj: dev.htod_sync_copy(&w_proj_cm)?,
+            b_proj: dev.htod_sync_copy(&layer.c_proj_bias)?,
+            ln2_g: dev.htod_sync_copy(&layer.ln_2.weight)?,
+            ln2_b: dev.htod_sync_copy(&layer.ln_2.bias)?,
+            w_fc: dev.htod_sync_copy(&w_fc_cm)?,
+            b_fc: dev.htod_sync_copy(&layer.mlp_fc_bias)?,
+            w_fc_proj: dev.htod_sync_copy(&w_fc_proj_cm)?,
+            b_fc_proj: dev.htod_sync_copy(&layer.mlp_proj_bias)?,
+        });
+    }
+
+    let ln_f_g_dev = dev.htod_sync_copy(&weights.ln_f.weight)?;
+    let ln_f_b_dev = dev.htod_sync_copy(&weights.ln_f.bias)?;
+
+    let gemm_shared = (32 * 16 + 16 * 16) * 4;
+
+    // ============================
+    // Step 1: Non-cached reference generation (one prompt)
+    // ============================
+    let prompt = "The capital of France is";
+    let prompt_tokens = tokenizer.encode(prompt);
+    let prompt_len = prompt_tokens.len();
+    let max_new_tokens: usize = 50usize.min(MAX_SEQ as usize - prompt_len);
+
+    println!("  Prompt: \"{prompt}\" ({prompt_len} tokens), generating {max_new_tokens}");
+
+    // --- Non-cached reference run ---
+    println!("  [Phase 1] Non-cached reference...");
+    let ref_start = std::time::Instant::now();
+    let reference_tokens = {
+        let mut hidden_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(total_full)?;
+        let mut ln_out_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(total_full)?;
+        let mut qkv_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>((MAX_SEQ * 2304) as usize)?;
+        let mut q_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(head_total_full)?;
+        let mut k_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(head_total_full)?;
+        let mut v_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(head_total_full)?;
+        let mut attn_out_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(head_total_full)?;
+        let mut concat_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(total_full)?;
+        let mut proj_out_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(total_full)?;
+        let mut ffn_hidden_dev: CudaSlice<f32> =
+            dev.alloc_zeros::<f32>((MAX_SEQ * D_FFN) as usize)?;
+        let mut gelu_out_dev: CudaSlice<f32> =
+            dev.alloc_zeros::<f32>((MAX_SEQ * D_FFN) as usize)?;
+        let mut ffn_out_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(total_full)?;
+
+        let n_q_tiles = (MAX_SEQ as usize).div_ceil(32) as u32;
+        let mut tokens: Vec<u32> = prompt_tokens.clone();
+        let mut generated: Vec<u32> = Vec::new();
+
+        for _step in 0..max_new_tokens {
+            let actual_seq = tokens.len();
+            let mut token_ids_padded = tokens.clone();
+            token_ids_padded.resize(MAX_SEQ as usize, 0);
+            let token_ids_dev = dev.htod_sync_copy(&token_ids_padded)?;
+
+            unsafe {
+                f_embed.clone().launch(
+                    LaunchConfig {
+                        grid_dim: ((total_full as u32).div_ceil(256), 1, 1),
+                        block_dim: (256, 1, 1),
+                        shared_mem_bytes: 0,
+                    },
+                    (
+                        &wte_dev,
+                        &wpe_dev,
+                        &token_ids_dev,
+                        &mut hidden_dev,
+                        MAX_SEQ,
+                        D_MODEL,
+                        status_dev_ptr,
+                    ),
+                )?;
+            }
+            dev.synchronize()?;
+
+            let pad_start = (actual_seq as u32) * D_MODEL;
+            let pad_count = total_full as u32 - pad_start;
+            if pad_count > 0 {
+                unsafe {
+                    f_zero.clone().launch(
+                        LaunchConfig {
+                            grid_dim: (pad_count.div_ceil(256), 1, 1),
+                            block_dim: (256, 1, 1),
+                            shared_mem_bytes: 0,
+                        },
+                        (&mut hidden_dev, pad_start, total_full as u32),
+                    )?;
+                }
+                dev.synchronize()?;
+            }
+
+            for layer_idx in 0..12u32 {
+                let lw = &gpu_layers[layer_idx as usize];
+
+                unsafe {
+                    f_ln.clone().launch(
+                        LaunchConfig {
+                            grid_dim: (MAX_SEQ, 1, 1),
+                            block_dim: (32, 1, 1),
+                            shared_mem_bytes: 0,
+                        },
+                        (
+                            &hidden_dev,
+                            &mut ln_out_dev,
+                            &lw.ln1_g,
+                            &lw.ln1_b,
+                            D_MODEL,
+                            EPS,
+                            status_dev_ptr,
+                        ),
+                    )?;
+                }
+                dev.synchronize()?;
+
+                unsafe {
+                    f_gemm.clone().launch(
+                        LaunchConfig {
+                            grid_dim: (MAX_SEQ / 32, 2304 / 16, 1),
+                            block_dim: (128, 1, 1),
+                            shared_mem_bytes: gemm_shared,
+                        },
+                        (
+                            &ln_out_dev,
+                            &lw.w_qkv,
+                            &mut qkv_dev,
+                            D_MODEL,
+                            2304u32,
+                            status_dev_ptr,
+                        ),
+                    )?;
+                }
+                dev.synchronize()?;
+
+                let total_qkv = MAX_SEQ * 2304;
+                unsafe {
+                    f_bias.clone().launch(
+                        LaunchConfig {
+                            grid_dim: (total_qkv.div_ceil(256), 1, 1),
+                            block_dim: (256, 1, 1),
+                            shared_mem_bytes: 0,
+                        },
+                        (&mut qkv_dev, &lw.b_qkv, 2304u32, total_qkv, status_dev_ptr),
+                    )?;
+                }
+                dev.synchronize()?;
+
+                unsafe {
+                    f_split.clone().launch(
+                        LaunchConfig {
+                            grid_dim: ((head_total_full as u32).div_ceil(256), 1, 1),
+                            block_dim: (256, 1, 1),
+                            shared_mem_bytes: 0,
+                        },
+                        (
+                            &qkv_dev, &mut q_dev, &mut k_dev, &mut v_dev, MAX_SEQ, N_HEADS, D_HEAD,
+                        ),
+                    )?;
+                }
+                dev.synchronize()?;
+
+                unsafe {
+                    f_attn.clone().launch(
+                        LaunchConfig {
+                            grid_dim: (N_HEADS, n_q_tiles, 1),
+                            block_dim: (32, 1, 1),
+                            shared_mem_bytes: 2 * 32 * 64 * 4,
+                        },
+                        (
+                            &q_dev,
+                            &k_dev,
+                            &v_dev,
+                            &mut attn_out_dev,
+                            MAX_SEQ,
+                            D_HEAD,
+                            1u32,
+                            status_dev_ptr,
+                        ),
+                    )?;
+                }
+                dev.synchronize()?;
+
+                unsafe {
+                    f_concat.clone().launch(
+                        LaunchConfig {
+                            grid_dim: ((total_full as u32).div_ceil(256), 1, 1),
+                            block_dim: (256, 1, 1),
+                            shared_mem_bytes: 0,
+                        },
+                        (&attn_out_dev, &mut concat_dev, MAX_SEQ, N_HEADS, D_HEAD),
+                    )?;
+                }
+                dev.synchronize()?;
+
+                unsafe {
+                    f_gemm.clone().launch(
+                        LaunchConfig {
+                            grid_dim: (MAX_SEQ / 32, D_MODEL / 16, 1),
+                            block_dim: (128, 1, 1),
+                            shared_mem_bytes: gemm_shared,
+                        },
+                        (
+                            &concat_dev,
+                            &lw.w_proj,
+                            &mut proj_out_dev,
+                            D_MODEL,
+                            D_MODEL,
+                            status_dev_ptr,
+                        ),
+                    )?;
+                }
+                dev.synchronize()?;
+
+                unsafe {
+                    f_bias.clone().launch(
+                        LaunchConfig {
+                            grid_dim: ((total_full as u32).div_ceil(256), 1, 1),
+                            block_dim: (256, 1, 1),
+                            shared_mem_bytes: 0,
+                        },
+                        (
+                            &mut proj_out_dev,
+                            &lw.b_proj,
+                            D_MODEL,
+                            total_full as u32,
+                            status_dev_ptr,
+                        ),
+                    )?;
+                }
+                dev.synchronize()?;
+
+                unsafe {
+                    f_add.clone().launch(
+                        LaunchConfig {
+                            grid_dim: ((total_full as u32).div_ceil(256), 1, 1),
+                            block_dim: (256, 1, 1),
+                            shared_mem_bytes: 0,
+                        },
+                        (&mut hidden_dev, &proj_out_dev, total_full as u32),
+                    )?;
+                    if pad_count > 0 {
+                        f_zero.clone().launch(
+                            LaunchConfig {
+                                grid_dim: (pad_count.div_ceil(256), 1, 1),
+                                block_dim: (256, 1, 1),
+                                shared_mem_bytes: 0,
+                            },
+                            (&mut hidden_dev, pad_start, total_full as u32),
+                        )?;
+                    }
+                }
+                dev.synchronize()?;
+
+                unsafe {
+                    f_ln.clone().launch(
+                        LaunchConfig {
+                            grid_dim: (MAX_SEQ, 1, 1),
+                            block_dim: (32, 1, 1),
+                            shared_mem_bytes: 0,
+                        },
+                        (
+                            &hidden_dev,
+                            &mut ln_out_dev,
+                            &lw.ln2_g,
+                            &lw.ln2_b,
+                            D_MODEL,
+                            EPS,
+                            status_dev_ptr,
+                        ),
+                    )?;
+                }
+                dev.synchronize()?;
+
+                unsafe {
+                    f_gemm.clone().launch(
+                        LaunchConfig {
+                            grid_dim: (MAX_SEQ / 32, D_FFN / 16, 1),
+                            block_dim: (128, 1, 1),
+                            shared_mem_bytes: gemm_shared,
+                        },
+                        (
+                            &ln_out_dev,
+                            &lw.w_fc,
+                            &mut ffn_hidden_dev,
+                            D_MODEL,
+                            D_FFN,
+                            status_dev_ptr,
+                        ),
+                    )?;
+                }
+                dev.synchronize()?;
+
+                let total_ffn = MAX_SEQ * D_FFN;
+                unsafe {
+                    f_bias.clone().launch(
+                        LaunchConfig {
+                            grid_dim: (total_ffn.div_ceil(256), 1, 1),
+                            block_dim: (256, 1, 1),
+                            shared_mem_bytes: 0,
+                        },
+                        (
+                            &mut ffn_hidden_dev,
+                            &lw.b_fc,
+                            D_FFN,
+                            total_ffn,
+                            status_dev_ptr,
+                        ),
+                    )?;
+                }
+                dev.synchronize()?;
+
+                unsafe {
+                    f_gelu.clone().launch(
+                        LaunchConfig {
+                            grid_dim: (total_ffn.div_ceil(256), 1, 1),
+                            block_dim: (256, 1, 1),
+                            shared_mem_bytes: 0,
+                        },
+                        (
+                            &ffn_hidden_dev,
+                            &mut gelu_out_dev,
+                            total_ffn,
+                            status_dev_ptr,
+                        ),
+                    )?;
+                }
+                dev.synchronize()?;
+
+                unsafe {
+                    f_gemm.clone().launch(
+                        LaunchConfig {
+                            grid_dim: (MAX_SEQ / 32, D_MODEL / 16, 1),
+                            block_dim: (128, 1, 1),
+                            shared_mem_bytes: gemm_shared,
+                        },
+                        (
+                            &gelu_out_dev,
+                            &lw.w_fc_proj,
+                            &mut ffn_out_dev,
+                            D_FFN,
+                            D_MODEL,
+                            status_dev_ptr,
+                        ),
+                    )?;
+                }
+                dev.synchronize()?;
+
+                unsafe {
+                    f_bias.clone().launch(
+                        LaunchConfig {
+                            grid_dim: ((total_full as u32).div_ceil(256), 1, 1),
+                            block_dim: (256, 1, 1),
+                            shared_mem_bytes: 0,
+                        },
+                        (
+                            &mut ffn_out_dev,
+                            &lw.b_fc_proj,
+                            D_MODEL,
+                            total_full as u32,
+                            status_dev_ptr,
+                        ),
+                    )?;
+                }
+                dev.synchronize()?;
+
+                unsafe {
+                    f_add.clone().launch(
+                        LaunchConfig {
+                            grid_dim: ((total_full as u32).div_ceil(256), 1, 1),
+                            block_dim: (256, 1, 1),
+                            shared_mem_bytes: 0,
+                        },
+                        (&mut hidden_dev, &ffn_out_dev, total_full as u32),
+                    )?;
+                    if pad_count > 0 {
+                        f_zero.clone().launch(
+                            LaunchConfig {
+                                grid_dim: (pad_count.div_ceil(256), 1, 1),
+                                block_dim: (256, 1, 1),
+                                shared_mem_bytes: 0,
+                            },
+                            (&mut hidden_dev, pad_start, total_full as u32),
+                        )?;
+                    }
+                }
+                dev.synchronize()?;
+            }
+
+            // Final LayerNorm
+            unsafe {
+                f_ln.clone().launch(
+                    LaunchConfig {
+                        grid_dim: (MAX_SEQ, 1, 1),
+                        block_dim: (32, 1, 1),
+                        shared_mem_bytes: 0,
+                    },
+                    (
+                        &hidden_dev,
+                        &mut ln_out_dev,
+                        &ln_f_g_dev,
+                        &ln_f_b_dev,
+                        D_MODEL,
+                        EPS,
+                        status_dev_ptr,
+                    ),
+                )?;
+            }
+            dev.synchronize()?;
+
+            let output: Vec<f32> = dev.dtoh_sync_copy(&ln_out_dev)?;
+            let last_pos = actual_seq - 1;
+            let hidden_vec = &output[last_pos * dm..(last_pos + 1) * dm];
+
+            if hidden_vec.iter().any(|v| v.is_nan()) {
+                break;
+            }
+
+            // CPU LM head
+            let vocab_size = 50257;
+            let mut best_logit = f32::NEG_INFINITY;
+            let mut best_token: u32 = 0;
+            for v in 0..vocab_size {
+                let wte_row = &weights.wte[v * dm..(v + 1) * dm];
+                let mut dot = 0.0f32;
+                for d in 0..dm {
+                    dot += hidden_vec[d] * wte_row[d];
+                }
+                if dot > best_logit {
+                    best_logit = dot;
+                    best_token = v as u32;
+                }
+            }
+
+            generated.push(best_token);
+            tokens.push(best_token);
+            if best_token == 50256 {
+                break;
+            }
+        }
+        generated
+    };
+    let ref_elapsed = ref_start.elapsed();
+    println!(
+        "    Reference: {} tokens in {:.1}ms ({:.1}ms/tok)",
+        reference_tokens.len(),
+        ref_elapsed.as_secs_f64() * 1000.0,
+        ref_elapsed.as_secs_f64() * 1000.0 / reference_tokens.len().max(1) as f64,
+    );
+
+    // ============================
+    // Step 2: KV-cached generation
+    // ============================
+    println!("  [Phase 2] KV-cached generation...");
+    let cached_start = std::time::Instant::now();
+    let cached_tokens = {
+        // Prefill buffers (full sequence)
+        let mut hidden_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(total_full)?;
+        let mut ln_out_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(total_full)?;
+        let mut qkv_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>((MAX_SEQ * 2304) as usize)?;
+        let mut q_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(head_total_full)?;
+        let mut k_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(head_total_full)?;
+        let mut v_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(head_total_full)?;
+        let mut attn_out_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(head_total_full)?;
+        let mut concat_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(total_full)?;
+        let mut proj_out_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(total_full)?;
+        let mut ffn_hidden_dev: CudaSlice<f32> =
+            dev.alloc_zeros::<f32>((MAX_SEQ * D_FFN) as usize)?;
+        let mut gelu_out_dev: CudaSlice<f32> =
+            dev.alloc_zeros::<f32>((MAX_SEQ * D_FFN) as usize)?;
+        let mut ffn_out_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(total_full)?;
+
+        // Decode-phase buffers (SEQ_STEP-padded for GEMM)
+        let mut hidden_step_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(total_step)?;
+        let mut ln_out_step_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(total_step)?;
+        let mut qkv_step_dev: CudaSlice<f32> =
+            dev.alloc_zeros::<f32>((SEQ_STEP * 2304) as usize)?;
+        let mut q_step_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(head_total_step)?;
+        let mut k_step_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(head_total_step)?;
+        let mut v_step_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(head_total_step)?;
+        let mut attn_kv_out_dev: CudaSlice<f32> =
+            dev.alloc_zeros::<f32>((N_HEADS * D_HEAD) as usize)?;
+        let mut concat_step_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(total_step)?;
+        let mut proj_step_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(total_step)?;
+        let mut ffn_hidden_step_dev: CudaSlice<f32> =
+            dev.alloc_zeros::<f32>((SEQ_STEP * D_FFN) as usize)?;
+        let mut gelu_step_dev: CudaSlice<f32> =
+            dev.alloc_zeros::<f32>((SEQ_STEP * D_FFN) as usize)?;
+        let mut ffn_step_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(total_step)?;
+
+        // KV cache: 12 layers × [n_heads, MAX_SEQ, d_head] for K and V
+        let cache_size = (N_HEADS * MAX_SEQ * D_HEAD) as usize;
+        let mut k_caches: Vec<CudaSlice<f32>> = Vec::with_capacity(12);
+        let mut v_caches: Vec<CudaSlice<f32>> = Vec::with_capacity(12);
+        for _ in 0..12 {
+            k_caches.push(dev.alloc_zeros::<f32>(cache_size)?);
+            v_caches.push(dev.alloc_zeros::<f32>(cache_size)?);
+        }
+
+        let n_q_tiles_full = (MAX_SEQ as usize).div_ceil(32) as u32;
+        let mut tokens: Vec<u32> = prompt_tokens.clone();
+        let mut generated: Vec<u32> = Vec::new();
+
+        for step in 0..max_new_tokens {
+            let actual_seq = tokens.len();
+
+            if step == 0 {
+                // ===== PREFILL: process full prompt =====
+                let mut token_ids_padded = tokens.clone();
+                token_ids_padded.resize(MAX_SEQ as usize, 0);
+                let token_ids_dev = dev.htod_sync_copy(&token_ids_padded)?;
+
+                unsafe {
+                    f_embed.clone().launch(
+                        LaunchConfig {
+                            grid_dim: ((total_full as u32).div_ceil(256), 1, 1),
+                            block_dim: (256, 1, 1),
+                            shared_mem_bytes: 0,
+                        },
+                        (
+                            &wte_dev,
+                            &wpe_dev,
+                            &token_ids_dev,
+                            &mut hidden_dev,
+                            MAX_SEQ,
+                            D_MODEL,
+                            status_dev_ptr,
+                        ),
+                    )?;
+                }
+                dev.synchronize()?;
+
+                let pad_start = (actual_seq as u32) * D_MODEL;
+                let pad_count = total_full as u32 - pad_start;
+                if pad_count > 0 {
+                    unsafe {
+                        f_zero.clone().launch(
+                            LaunchConfig {
+                                grid_dim: (pad_count.div_ceil(256), 1, 1),
+                                block_dim: (256, 1, 1),
+                                shared_mem_bytes: 0,
+                            },
+                            (&mut hidden_dev, pad_start, total_full as u32),
+                        )?;
+                    }
+                    dev.synchronize()?;
+                }
+
+                for layer_idx in 0..12u32 {
+                    let lw = &gpu_layers[layer_idx as usize];
+
+                    unsafe {
+                        f_ln.clone().launch(
+                            LaunchConfig {
+                                grid_dim: (MAX_SEQ, 1, 1),
+                                block_dim: (32, 1, 1),
+                                shared_mem_bytes: 0,
+                            },
+                            (
+                                &hidden_dev,
+                                &mut ln_out_dev,
+                                &lw.ln1_g,
+                                &lw.ln1_b,
+                                D_MODEL,
+                                EPS,
+                                status_dev_ptr,
+                            ),
+                        )?;
+                    }
+                    dev.synchronize()?;
+
+                    unsafe {
+                        f_gemm.clone().launch(
+                            LaunchConfig {
+                                grid_dim: (MAX_SEQ / 32, 2304 / 16, 1),
+                                block_dim: (128, 1, 1),
+                                shared_mem_bytes: gemm_shared,
+                            },
+                            (
+                                &ln_out_dev,
+                                &lw.w_qkv,
+                                &mut qkv_dev,
+                                D_MODEL,
+                                2304u32,
+                                status_dev_ptr,
+                            ),
+                        )?;
+                    }
+                    dev.synchronize()?;
+
+                    let total_qkv = MAX_SEQ * 2304;
+                    unsafe {
+                        f_bias.clone().launch(
+                            LaunchConfig {
+                                grid_dim: (total_qkv.div_ceil(256), 1, 1),
+                                block_dim: (256, 1, 1),
+                                shared_mem_bytes: 0,
+                            },
+                            (&mut qkv_dev, &lw.b_qkv, 2304u32, total_qkv, status_dev_ptr),
+                        )?;
+                    }
+                    dev.synchronize()?;
+
+                    unsafe {
+                        f_split.clone().launch(
+                            LaunchConfig {
+                                grid_dim: ((head_total_full as u32).div_ceil(256), 1, 1),
+                                block_dim: (256, 1, 1),
+                                shared_mem_bytes: 0,
+                            },
+                            (
+                                &qkv_dev, &mut q_dev, &mut k_dev, &mut v_dev, MAX_SEQ, N_HEADS,
+                                D_HEAD,
+                            ),
+                        )?;
+                    }
+                    dev.synchronize()?;
+
+                    // Save K and V to cache: both have layout [n_heads, MAX_SEQ, d_head]
+                    // so a direct copy works (same layout and stride).
+                    let k_host: Vec<f32> = dev.dtoh_sync_copy(&k_dev)?;
+                    let v_host: Vec<f32> = dev.dtoh_sync_copy(&v_dev)?;
+                    dev.htod_copy_into(k_host, &mut k_caches[layer_idx as usize])?;
+                    dev.htod_copy_into(v_host, &mut v_caches[layer_idx as usize])?;
+
+                    unsafe {
+                        f_attn.clone().launch(
+                            LaunchConfig {
+                                grid_dim: (N_HEADS, n_q_tiles_full, 1),
+                                block_dim: (32, 1, 1),
+                                shared_mem_bytes: 2 * 32 * 64 * 4,
+                            },
+                            (
+                                &q_dev,
+                                &k_dev,
+                                &v_dev,
+                                &mut attn_out_dev,
+                                MAX_SEQ,
+                                D_HEAD,
+                                1u32,
+                                status_dev_ptr,
+                            ),
+                        )?;
+                    }
+                    dev.synchronize()?;
+
+                    unsafe {
+                        f_concat.clone().launch(
+                            LaunchConfig {
+                                grid_dim: ((total_full as u32).div_ceil(256), 1, 1),
+                                block_dim: (256, 1, 1),
+                                shared_mem_bytes: 0,
+                            },
+                            (&attn_out_dev, &mut concat_dev, MAX_SEQ, N_HEADS, D_HEAD),
+                        )?;
+                    }
+                    dev.synchronize()?;
+
+                    unsafe {
+                        f_gemm.clone().launch(
+                            LaunchConfig {
+                                grid_dim: (MAX_SEQ / 32, D_MODEL / 16, 1),
+                                block_dim: (128, 1, 1),
+                                shared_mem_bytes: gemm_shared,
+                            },
+                            (
+                                &concat_dev,
+                                &lw.w_proj,
+                                &mut proj_out_dev,
+                                D_MODEL,
+                                D_MODEL,
+                                status_dev_ptr,
+                            ),
+                        )?;
+                    }
+                    dev.synchronize()?;
+
+                    unsafe {
+                        f_bias.clone().launch(
+                            LaunchConfig {
+                                grid_dim: ((total_full as u32).div_ceil(256), 1, 1),
+                                block_dim: (256, 1, 1),
+                                shared_mem_bytes: 0,
+                            },
+                            (
+                                &mut proj_out_dev,
+                                &lw.b_proj,
+                                D_MODEL,
+                                total_full as u32,
+                                status_dev_ptr,
+                            ),
+                        )?;
+                    }
+                    dev.synchronize()?;
+
+                    unsafe {
+                        f_add.clone().launch(
+                            LaunchConfig {
+                                grid_dim: ((total_full as u32).div_ceil(256), 1, 1),
+                                block_dim: (256, 1, 1),
+                                shared_mem_bytes: 0,
+                            },
+                            (&mut hidden_dev, &proj_out_dev, total_full as u32),
+                        )?;
+                        if pad_count > 0 {
+                            f_zero.clone().launch(
+                                LaunchConfig {
+                                    grid_dim: (pad_count.div_ceil(256), 1, 1),
+                                    block_dim: (256, 1, 1),
+                                    shared_mem_bytes: 0,
+                                },
+                                (&mut hidden_dev, pad_start, total_full as u32),
+                            )?;
+                        }
+                    }
+                    dev.synchronize()?;
+
+                    unsafe {
+                        f_ln.clone().launch(
+                            LaunchConfig {
+                                grid_dim: (MAX_SEQ, 1, 1),
+                                block_dim: (32, 1, 1),
+                                shared_mem_bytes: 0,
+                            },
+                            (
+                                &hidden_dev,
+                                &mut ln_out_dev,
+                                &lw.ln2_g,
+                                &lw.ln2_b,
+                                D_MODEL,
+                                EPS,
+                                status_dev_ptr,
+                            ),
+                        )?;
+                    }
+                    dev.synchronize()?;
+
+                    unsafe {
+                        f_gemm.clone().launch(
+                            LaunchConfig {
+                                grid_dim: (MAX_SEQ / 32, D_FFN / 16, 1),
+                                block_dim: (128, 1, 1),
+                                shared_mem_bytes: gemm_shared,
+                            },
+                            (
+                                &ln_out_dev,
+                                &lw.w_fc,
+                                &mut ffn_hidden_dev,
+                                D_MODEL,
+                                D_FFN,
+                                status_dev_ptr,
+                            ),
+                        )?;
+                    }
+                    dev.synchronize()?;
+
+                    let total_ffn = MAX_SEQ * D_FFN;
+                    unsafe {
+                        f_bias.clone().launch(
+                            LaunchConfig {
+                                grid_dim: (total_ffn.div_ceil(256), 1, 1),
+                                block_dim: (256, 1, 1),
+                                shared_mem_bytes: 0,
+                            },
+                            (
+                                &mut ffn_hidden_dev,
+                                &lw.b_fc,
+                                D_FFN,
+                                total_ffn,
+                                status_dev_ptr,
+                            ),
+                        )?;
+                    }
+                    dev.synchronize()?;
+
+                    unsafe {
+                        f_gelu.clone().launch(
+                            LaunchConfig {
+                                grid_dim: (total_ffn.div_ceil(256), 1, 1),
+                                block_dim: (256, 1, 1),
+                                shared_mem_bytes: 0,
+                            },
+                            (
+                                &ffn_hidden_dev,
+                                &mut gelu_out_dev,
+                                total_ffn,
+                                status_dev_ptr,
+                            ),
+                        )?;
+                    }
+                    dev.synchronize()?;
+
+                    unsafe {
+                        f_gemm.clone().launch(
+                            LaunchConfig {
+                                grid_dim: (MAX_SEQ / 32, D_MODEL / 16, 1),
+                                block_dim: (128, 1, 1),
+                                shared_mem_bytes: gemm_shared,
+                            },
+                            (
+                                &gelu_out_dev,
+                                &lw.w_fc_proj,
+                                &mut ffn_out_dev,
+                                D_FFN,
+                                D_MODEL,
+                                status_dev_ptr,
+                            ),
+                        )?;
+                    }
+                    dev.synchronize()?;
+
+                    unsafe {
+                        f_bias.clone().launch(
+                            LaunchConfig {
+                                grid_dim: ((total_full as u32).div_ceil(256), 1, 1),
+                                block_dim: (256, 1, 1),
+                                shared_mem_bytes: 0,
+                            },
+                            (
+                                &mut ffn_out_dev,
+                                &lw.b_fc_proj,
+                                D_MODEL,
+                                total_full as u32,
+                                status_dev_ptr,
+                            ),
+                        )?;
+                    }
+                    dev.synchronize()?;
+
+                    unsafe {
+                        f_add.clone().launch(
+                            LaunchConfig {
+                                grid_dim: ((total_full as u32).div_ceil(256), 1, 1),
+                                block_dim: (256, 1, 1),
+                                shared_mem_bytes: 0,
+                            },
+                            (&mut hidden_dev, &ffn_out_dev, total_full as u32),
+                        )?;
+                        if pad_count > 0 {
+                            f_zero.clone().launch(
+                                LaunchConfig {
+                                    grid_dim: (pad_count.div_ceil(256), 1, 1),
+                                    block_dim: (256, 1, 1),
+                                    shared_mem_bytes: 0,
+                                },
+                                (&mut hidden_dev, pad_start, total_full as u32),
+                            )?;
+                        }
+                    }
+                    dev.synchronize()?;
+                }
+
+                // Final LayerNorm
+                unsafe {
+                    f_ln.clone().launch(
+                        LaunchConfig {
+                            grid_dim: (MAX_SEQ, 1, 1),
+                            block_dim: (32, 1, 1),
+                            shared_mem_bytes: 0,
+                        },
+                        (
+                            &hidden_dev,
+                            &mut ln_out_dev,
+                            &ln_f_g_dev,
+                            &ln_f_b_dev,
+                            D_MODEL,
+                            EPS,
+                            status_dev_ptr,
+                        ),
+                    )?;
+                }
+                dev.synchronize()?;
+
+                let output: Vec<f32> = dev.dtoh_sync_copy(&ln_out_dev)?;
+                let last_pos = actual_seq - 1;
+                let hidden_vec = &output[last_pos * dm..(last_pos + 1) * dm];
+
+                if hidden_vec.iter().any(|v| v.is_nan()) {
+                    break;
+                }
+
+                // Also save the last-position hidden state for decode continuation
+                let mut hidden_1tok = vec![0.0f32; dm];
+                hidden_1tok.copy_from_slice(hidden_vec);
+
+                // LM head (CPU)
+                let vocab_size = 50257;
+                let mut best_logit = f32::NEG_INFINITY;
+                let mut best_token: u32 = 0;
+                for v in 0..vocab_size {
+                    let wte_row = &weights.wte[v * dm..(v + 1) * dm];
+                    let mut dot = 0.0f32;
+                    for d in 0..dm {
+                        dot += hidden_vec[d] * wte_row[d];
+                    }
+                    if dot > best_logit {
+                        best_logit = dot;
+                        best_token = v as u32;
+                    }
+                }
+
+                generated.push(best_token);
+                tokens.push(best_token);
+
+                // Save the last-position hidden state from the full forward pass
+                // for carrying into decode steps. We need the pre-final-LN hidden state.
+                let prefill_hidden: Vec<f32> = dev.dtoh_sync_copy(&hidden_dev)?;
+                let last_hidden = &prefill_hidden[last_pos * dm..(last_pos + 1) * dm];
+                // We'll use this as the starting state for tracking the hidden state
+                // across decode steps. But actually, for the decode phase, we re-embed
+                // the new token and process it fresh through 12 layers — the hidden state
+                // doesn't carry across steps. Only KV cache carries across.
+                let _ = last_hidden;
+
+                if best_token == 50256 {
+                    break;
+                }
+            } else {
+                // ===== DECODE: process single new token using KV cache =====
+                let new_token = tokens[actual_seq - 1];
+                let position = (actual_seq - 1) as u32; // 0-indexed position
+
+                // CPU embedding for single token: wte[token] + wpe[position]
+                let mut embed_vec = vec![0.0f32; total_step];
+                for d in 0..dm {
+                    embed_vec[d] = weights.wte[new_token as usize * dm + d]
+                        + weights.wpe[position as usize * dm + d];
+                }
+                // Rest of 32-padded buffer stays zero
+                dev.htod_copy_into(embed_vec, &mut hidden_step_dev)?;
+
+                for layer_idx in 0..12u32 {
+                    let lw = &gpu_layers[layer_idx as usize];
+
+                    // LayerNorm (only row 0 has data, but LN is per-row so padding rows are fine)
+                    unsafe {
+                        f_ln.clone().launch(
+                            LaunchConfig {
+                                grid_dim: (SEQ_STEP, 1, 1),
+                                block_dim: (32, 1, 1),
+                                shared_mem_bytes: 0,
+                            },
+                            (
+                                &hidden_step_dev,
+                                &mut ln_out_step_dev,
+                                &lw.ln1_g,
+                                &lw.ln1_b,
+                                D_MODEL,
+                                EPS,
+                                status_dev_ptr,
+                            ),
+                        )?;
+                    }
+                    dev.synchronize()?;
+
+                    // QKV GEMM: [32, 768] × [768, 2304] → [32, 2304]
+                    unsafe {
+                        f_gemm.clone().launch(
+                            LaunchConfig {
+                                grid_dim: (SEQ_STEP / 32, 2304 / 16, 1),
+                                block_dim: (128, 1, 1),
+                                shared_mem_bytes: gemm_shared,
+                            },
+                            (
+                                &ln_out_step_dev,
+                                &lw.w_qkv,
+                                &mut qkv_step_dev,
+                                D_MODEL,
+                                2304u32,
+                                status_dev_ptr,
+                            ),
+                        )?;
+                    }
+                    dev.synchronize()?;
+
+                    // QKV bias
+                    let total_qkv_step = SEQ_STEP * 2304;
+                    unsafe {
+                        f_bias.clone().launch(
+                            LaunchConfig {
+                                grid_dim: (total_qkv_step.div_ceil(256), 1, 1),
+                                block_dim: (256, 1, 1),
+                                shared_mem_bytes: 0,
+                            },
+                            (
+                                &mut qkv_step_dev,
+                                &lw.b_qkv,
+                                2304u32,
+                                total_qkv_step,
+                                status_dev_ptr,
+                            ),
+                        )?;
+                    }
+                    dev.synchronize()?;
+
+                    // Split QKV (produces [12, 32, 64] for q, k, v)
+                    unsafe {
+                        f_split.clone().launch(
+                            LaunchConfig {
+                                grid_dim: ((head_total_step as u32).div_ceil(256), 1, 1),
+                                block_dim: (256, 1, 1),
+                                shared_mem_bytes: 0,
+                            },
+                            (
+                                &qkv_step_dev,
+                                &mut q_step_dev,
+                                &mut k_step_dev,
+                                &mut v_step_dev,
+                                SEQ_STEP,
+                                N_HEADS,
+                                D_HEAD,
+                            ),
+                        )?;
+                    }
+                    dev.synchronize()?;
+
+                    // Append new K/V to cache (row 0 from [12, 32, 64] → cache position)
+                    let kv_elems = N_HEADS * D_HEAD;
+                    unsafe {
+                        f_kv_append.clone().launch(
+                            LaunchConfig {
+                                grid_dim: (kv_elems.div_ceil(256), 1, 1),
+                                block_dim: (256, 1, 1),
+                                shared_mem_bytes: 0,
+                            },
+                            (
+                                &k_step_dev,
+                                &mut k_caches[layer_idx as usize],
+                                N_HEADS,
+                                SEQ_STEP,
+                                MAX_SEQ,
+                                D_HEAD,
+                                position, // write_pos = actual position of new token
+                                status_dev_ptr,
+                            ),
+                        )?;
+                        f_kv_append.clone().launch(
+                            LaunchConfig {
+                                grid_dim: (kv_elems.div_ceil(256), 1, 1),
+                                block_dim: (256, 1, 1),
+                                shared_mem_bytes: 0,
+                            },
+                            (
+                                &v_step_dev,
+                                &mut v_caches[layer_idx as usize],
+                                N_HEADS,
+                                SEQ_STEP,
+                                MAX_SEQ,
+                                D_HEAD,
+                                position,
+                                status_dev_ptr,
+                            ),
+                        )?;
+                    }
+                    dev.synchronize()?;
+
+                    // Flash attention with KV cache: q(1 token) vs full cache
+                    // flash_attention_kv(q, k, v, out, q_len, kv_len, d_head, causal, q_offset, status)
+                    // q: [n_heads, 1, d_head] — we use row 0 from q_step_dev [n_heads, 32, d_head]
+                    // For q_len=1, we need q data at [h * 1 * d_head + 0 * d_head + d]
+                    // But q_step_dev has [h * 32 * d_head + 0 * d_head + d] layout.
+                    // We need to repack q from stride=32 to stride=1.
+                    // Use kv_cache_append in reverse: copy from [12, 32, 64] row 0 to a compact [12, 1, 64] buffer.
+                    // Actually, we can reuse kv_cache_append — it reads row 0 from src and writes to write_pos in dst.
+                    // Create a compact q buffer [12, 1, 64]:
+                    let q_compact_size = (N_HEADS * D_HEAD) as usize;
+                    let mut q_compact_dev: CudaSlice<f32> =
+                        dev.alloc_zeros::<f32>(q_compact_size)?;
+                    unsafe {
+                        f_kv_append.clone().launch(
+                            LaunchConfig {
+                                grid_dim: (kv_elems.div_ceil(256), 1, 1),
+                                block_dim: (256, 1, 1),
+                                shared_mem_bytes: 0,
+                            },
+                            (
+                                &q_step_dev,
+                                &mut q_compact_dev,
+                                N_HEADS,
+                                SEQ_STEP, // src stride
+                                1u32,     // dst max_seq (compact)
+                                D_HEAD,
+                                0u32, // write at position 0
+                                status_dev_ptr,
+                            ),
+                        )?;
+                    }
+                    dev.synchronize()?;
+
+                    // flash_attention_kv: q_len=1, kv_len=actual_seq
+                    unsafe {
+                        f_attn_kv.clone().launch(
+                            LaunchConfig {
+                                grid_dim: (N_HEADS, 1, 1), // 1 q-tile (1 token)
+                                block_dim: (32, 1, 1),
+                                shared_mem_bytes: 2 * 32 * 64 * 4,
+                            },
+                            (
+                                &q_compact_dev,
+                                &k_caches[layer_idx as usize],
+                                &v_caches[layer_idx as usize],
+                                &mut attn_kv_out_dev,
+                                1u32,              // q_len
+                                actual_seq as u32, // kv_len (valid entries)
+                                D_HEAD,
+                                1u32,     // causal mask
+                                position, // q_offset for causal masking
+                                MAX_SEQ,  // kv_stride (cache allocated with MAX_SEQ)
+                                status_dev_ptr,
+                            ),
+                        )?;
+                    }
+                    dev.synchronize()?;
+
+                    // Concat heads: attn_kv_out [12, 1, 64] → [1, 768]
+                    // concat_heads expects [n_heads, seq_len, d_head] → [seq_len, n_heads * d_head]
+                    // For seq_len=1, output is [1, 768]. But we need it in a 32-padded buffer
+                    // for the next GEMM.
+                    // First concat into a compact buffer, then pad.
+                    let mut concat_1tok: CudaSlice<f32> = dev.alloc_zeros::<f32>(dm)?;
+                    unsafe {
+                        f_concat.clone().launch(
+                            LaunchConfig {
+                                grid_dim: ((dm as u32).div_ceil(256), 1, 1),
+                                block_dim: (256, 1, 1),
+                                shared_mem_bytes: 0,
+                            },
+                            (&attn_kv_out_dev, &mut concat_1tok, 1u32, N_HEADS, D_HEAD),
+                        )?;
+                    }
+                    dev.synchronize()?;
+
+                    // Copy 1-token concat into 32-padded buffer (first row only)
+                    // Zero the step buffer first, then copy row 0
+                    unsafe {
+                        f_zero.clone().launch(
+                            LaunchConfig {
+                                grid_dim: ((total_step as u32).div_ceil(256), 1, 1),
+                                block_dim: (256, 1, 1),
+                                shared_mem_bytes: 0,
+                            },
+                            (&mut concat_step_dev, 0u32, total_step as u32),
+                        )?;
+                    }
+                    dev.synchronize()?;
+
+                    // Copy 768 floats from concat_1tok to row 0 of concat_step_dev
+                    let concat_host: Vec<f32> = dev.dtoh_sync_copy(&concat_1tok)?;
+                    let mut concat_padded = vec![0.0f32; total_step];
+                    concat_padded[..dm].copy_from_slice(&concat_host);
+                    dev.htod_copy_into(concat_padded, &mut concat_step_dev)?;
+
+                    // Output projection GEMM: [32, 768] × [768, 768] → [32, 768]
+                    unsafe {
+                        f_gemm.clone().launch(
+                            LaunchConfig {
+                                grid_dim: (SEQ_STEP / 32, D_MODEL / 16, 1),
+                                block_dim: (128, 1, 1),
+                                shared_mem_bytes: gemm_shared,
+                            },
+                            (
+                                &concat_step_dev,
+                                &lw.w_proj,
+                                &mut proj_step_dev,
+                                D_MODEL,
+                                D_MODEL,
+                                status_dev_ptr,
+                            ),
+                        )?;
+                    }
+                    dev.synchronize()?;
+
+                    // Projection bias
+                    unsafe {
+                        f_bias.clone().launch(
+                            LaunchConfig {
+                                grid_dim: ((total_step as u32).div_ceil(256), 1, 1),
+                                block_dim: (256, 1, 1),
+                                shared_mem_bytes: 0,
+                            },
+                            (
+                                &mut proj_step_dev,
+                                &lw.b_proj,
+                                D_MODEL,
+                                total_step as u32,
+                                status_dev_ptr,
+                            ),
+                        )?;
+                    }
+                    dev.synchronize()?;
+
+                    // Residual add (only affects row 0 meaningfully)
+                    unsafe {
+                        f_add.clone().launch(
+                            LaunchConfig {
+                                grid_dim: ((total_step as u32).div_ceil(256), 1, 1),
+                                block_dim: (256, 1, 1),
+                                shared_mem_bytes: 0,
+                            },
+                            (&mut hidden_step_dev, &proj_step_dev, total_step as u32),
+                        )?;
+                    }
+                    dev.synchronize()?;
+
+                    // Zero padding rows (rows 1..31)
+                    let step_pad_start = D_MODEL;
+                    let step_pad_count = total_step as u32 - step_pad_start;
+                    unsafe {
+                        f_zero.clone().launch(
+                            LaunchConfig {
+                                grid_dim: (step_pad_count.div_ceil(256), 1, 1),
+                                block_dim: (256, 1, 1),
+                                shared_mem_bytes: 0,
+                            },
+                            (&mut hidden_step_dev, step_pad_start, total_step as u32),
+                        )?;
+                    }
+                    dev.synchronize()?;
+
+                    // LayerNorm2
+                    unsafe {
+                        f_ln.clone().launch(
+                            LaunchConfig {
+                                grid_dim: (SEQ_STEP, 1, 1),
+                                block_dim: (32, 1, 1),
+                                shared_mem_bytes: 0,
+                            },
+                            (
+                                &hidden_step_dev,
+                                &mut ln_out_step_dev,
+                                &lw.ln2_g,
+                                &lw.ln2_b,
+                                D_MODEL,
+                                EPS,
+                                status_dev_ptr,
+                            ),
+                        )?;
+                    }
+                    dev.synchronize()?;
+
+                    // FFN up: [32, 768] × [768, 3072]
+                    unsafe {
+                        f_gemm.clone().launch(
+                            LaunchConfig {
+                                grid_dim: (SEQ_STEP / 32, D_FFN / 16, 1),
+                                block_dim: (128, 1, 1),
+                                shared_mem_bytes: gemm_shared,
+                            },
+                            (
+                                &ln_out_step_dev,
+                                &lw.w_fc,
+                                &mut ffn_hidden_step_dev,
+                                D_MODEL,
+                                D_FFN,
+                                status_dev_ptr,
+                            ),
+                        )?;
+                    }
+                    dev.synchronize()?;
+
+                    let total_ffn_step = SEQ_STEP * D_FFN;
+                    unsafe {
+                        f_bias.clone().launch(
+                            LaunchConfig {
+                                grid_dim: (total_ffn_step.div_ceil(256), 1, 1),
+                                block_dim: (256, 1, 1),
+                                shared_mem_bytes: 0,
+                            },
+                            (
+                                &mut ffn_hidden_step_dev,
+                                &lw.b_fc,
+                                D_FFN,
+                                total_ffn_step,
+                                status_dev_ptr,
+                            ),
+                        )?;
+                    }
+                    dev.synchronize()?;
+
+                    // GELU
+                    unsafe {
+                        f_gelu.clone().launch(
+                            LaunchConfig {
+                                grid_dim: (total_ffn_step.div_ceil(256), 1, 1),
+                                block_dim: (256, 1, 1),
+                                shared_mem_bytes: 0,
+                            },
+                            (
+                                &ffn_hidden_step_dev,
+                                &mut gelu_step_dev,
+                                total_ffn_step,
+                                status_dev_ptr,
+                            ),
+                        )?;
+                    }
+                    dev.synchronize()?;
+
+                    // FFN down: [32, 3072] × [3072, 768]
+                    unsafe {
+                        f_gemm.clone().launch(
+                            LaunchConfig {
+                                grid_dim: (SEQ_STEP / 32, D_MODEL / 16, 1),
+                                block_dim: (128, 1, 1),
+                                shared_mem_bytes: gemm_shared,
+                            },
+                            (
+                                &gelu_step_dev,
+                                &lw.w_fc_proj,
+                                &mut ffn_step_dev,
+                                D_FFN,
+                                D_MODEL,
+                                status_dev_ptr,
+                            ),
+                        )?;
+                    }
+                    dev.synchronize()?;
+
+                    // FFN bias
+                    unsafe {
+                        f_bias.clone().launch(
+                            LaunchConfig {
+                                grid_dim: ((total_step as u32).div_ceil(256), 1, 1),
+                                block_dim: (256, 1, 1),
+                                shared_mem_bytes: 0,
+                            },
+                            (
+                                &mut ffn_step_dev,
+                                &lw.b_fc_proj,
+                                D_MODEL,
+                                total_step as u32,
+                                status_dev_ptr,
+                            ),
+                        )?;
+                    }
+                    dev.synchronize()?;
+
+                    // Residual 2
+                    unsafe {
+                        f_add.clone().launch(
+                            LaunchConfig {
+                                grid_dim: ((total_step as u32).div_ceil(256), 1, 1),
+                                block_dim: (256, 1, 1),
+                                shared_mem_bytes: 0,
+                            },
+                            (&mut hidden_step_dev, &ffn_step_dev, total_step as u32),
+                        )?;
+                    }
+                    dev.synchronize()?;
+
+                    // Zero padding rows
+                    unsafe {
+                        f_zero.clone().launch(
+                            LaunchConfig {
+                                grid_dim: (step_pad_count.div_ceil(256), 1, 1),
+                                block_dim: (256, 1, 1),
+                                shared_mem_bytes: 0,
+                            },
+                            (&mut hidden_step_dev, step_pad_start, total_step as u32),
+                        )?;
+                    }
+                    dev.synchronize()?;
+                }
+
+                // Final LayerNorm (only 1 row matters but run all SEQ_STEP rows)
+                unsafe {
+                    f_ln.clone().launch(
+                        LaunchConfig {
+                            grid_dim: (SEQ_STEP, 1, 1),
+                            block_dim: (32, 1, 1),
+                            shared_mem_bytes: 0,
+                        },
+                        (
+                            &hidden_step_dev,
+                            &mut ln_out_step_dev,
+                            &ln_f_g_dev,
+                            &ln_f_b_dev,
+                            D_MODEL,
+                            EPS,
+                            status_dev_ptr,
+                        ),
+                    )?;
+                }
+                dev.synchronize()?;
+
+                // Download row 0 only
+                let output: Vec<f32> = dev.dtoh_sync_copy(&ln_out_step_dev)?;
+                let hidden_vec = &output[..dm];
+
+                if hidden_vec.iter().any(|v| v.is_nan()) {
+                    println!("    Step {step}: NaN detected in decode phase!");
+                    break;
+                }
+
+                // CPU LM head
+                let vocab_size = 50257;
+                let mut best_logit = f32::NEG_INFINITY;
+                let mut best_token: u32 = 0;
+                for v in 0..vocab_size {
+                    let wte_row = &weights.wte[v * dm..(v + 1) * dm];
+                    let mut dot = 0.0f32;
+                    for d in 0..dm {
+                        dot += hidden_vec[d] * wte_row[d];
+                    }
+                    if dot > best_logit {
+                        best_logit = dot;
+                        best_token = v as u32;
+                    }
+                }
+
+                generated.push(best_token);
+                tokens.push(best_token);
+                if best_token == 50256 {
+                    break;
+                }
+            }
+        }
+        generated
+    };
+    let cached_elapsed = cached_start.elapsed();
+
+    println!(
+        "    Cached:    {} tokens in {:.1}ms ({:.1}ms/tok)",
+        cached_tokens.len(),
+        cached_elapsed.as_secs_f64() * 1000.0,
+        cached_elapsed.as_secs_f64() * 1000.0 / cached_tokens.len().max(1) as f64,
+    );
+
+    // ============================
+    // Compare reference vs cached
+    // ============================
+    println!("  [Phase 3] Comparing outputs...");
+    let ref_text = tokenizer
+        .decode(&reference_tokens)
+        .unwrap_or_else(|_| "<decode error>".to_string());
+    let cached_text = tokenizer
+        .decode(&cached_tokens)
+        .unwrap_or_else(|_| "<decode error>".to_string());
+
+    println!("    Reference: \"{ref_text}\"");
+    println!("    Cached:    \"{cached_text}\"");
+
+    let min_len = reference_tokens.len().min(cached_tokens.len());
+    let mut first_mismatch: Option<usize> = None;
+    for i in 0..min_len {
+        if reference_tokens[i] != cached_tokens[i] {
+            first_mismatch = Some(i);
+            break;
+        }
+    }
+
+    let match_count = first_mismatch.unwrap_or(min_len);
+    println!(
+        "    Token match: {}/{} (ref={}, cached={})",
+        match_count,
+        min_len,
+        reference_tokens.len(),
+        cached_tokens.len()
+    );
+
+    if let Some(pos) = first_mismatch {
+        let ref_tok_str = tokenizer
+            .decode(&[reference_tokens[pos]])
+            .unwrap_or_else(|_| "?".to_string());
+        let cached_tok_str = tokenizer
+            .decode(&[cached_tokens[pos]])
+            .unwrap_or_else(|_| "?".to_string());
+        println!(
+            "    First mismatch at step {pos}: ref=\"{ref_tok_str}\" vs cached=\"{cached_tok_str}\""
+        );
+    }
+
+    // Calculate speedup
+    let ref_ms_per_tok = ref_elapsed.as_secs_f64() * 1000.0 / reference_tokens.len().max(1) as f64;
+    let cached_ms_per_tok =
+        cached_elapsed.as_secs_f64() * 1000.0 / cached_tokens.len().max(1) as f64;
+    let speedup = ref_ms_per_tok / cached_ms_per_tok;
+    println!(
+        "    Speedup: {speedup:.2}x ({ref_ms_per_tok:.1}ms → {cached_ms_per_tok:.1}ms per token)"
+    );
+
+    unsafe {
+        free_mapped_mem(status_host_ptr)?;
+    }
+
+    // Pass criteria: all tokens match for 50+ tokens
+    if match_count < 50.min(max_new_tokens) {
+        return Err(GpuHostError::Verification {
+            test: "kv_cached_generation",
+            detail: format!(
+                "only {match_count} tokens matched (need 50+). First mismatch at step {}",
+                first_mismatch.unwrap_or(0)
+            ),
+        });
+    }
+
+    println!("  KV-cached generation — PASSED ({match_count} tokens match, {speedup:.2}x speedup)");
     Ok(())
 }

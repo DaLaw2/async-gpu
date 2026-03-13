@@ -41,6 +41,9 @@ const ASYNC_PIPELINE_PTX: &str = include_str!("../async_pipeline_test.ptx");
 // Multi-warp scaling test PTX — compiled from crates/multi-warp-test with fat LTO
 const MULTI_WARP_PTX: &str = include_str!("../multi_warp_test.ptx");
 
+// Kernel-std PTX — compiled from crates/gpu-kernel-std with -Zbuild-std=std + patched std
+const KERNEL_STD_PTX: &str = include_str!("../kernel_std.ptx");
+
 fn main() -> Result<()> {
     println!("=== GPU Kernel Execution Test ===\n");
 
@@ -88,6 +91,14 @@ fn main() -> Result<()> {
             }
             "tf32" => {
                 tests_gemm::run_tf32_gemm_test(Arc::clone(&dev))?;
+                return Ok(());
+            }
+            "std_fs" => {
+                tests_std::run_std_file_io_test(Arc::clone(&dev))?;
+                return Ok(());
+            }
+            "std_pipeline" => {
+                tests_std::run_std_pipeline_test(Arc::clone(&dev))?;
                 return Ok(());
             }
             _ => println!("Unknown ONLY_TEST={only}, running all tests"),
@@ -323,6 +334,12 @@ fn main() -> Result<()> {
 
     // PAL stdin routing test (std-pal.2)
     tests_std::run_std_stdin_test(Arc::clone(&dev))?;
+
+    // std::fs File I/O test (std-fs.4)
+    tests_std::run_std_file_io_test(Arc::clone(&dev))?;
+
+    // std pipeline test (std-migration.3)
+    tests_std::run_std_pipeline_test(Arc::clone(&dev))?;
 
     // Multi-warp scaling test (product.3)
     tests_scaling::run_multi_warp_test(Arc::clone(&dev))?;

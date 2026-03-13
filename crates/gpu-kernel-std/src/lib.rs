@@ -102,3 +102,152 @@ pub unsafe extern "ptx-kernel" fn std_alloc_stress_test(buf: *mut u8) {
     }
     println!("Alloc stress test complete — 5 rounds of alloc/drop");
 }
+
+/// Test kernel: std::fs::File create + write + read via hostcall.
+///
+/// Demonstrates real std::fs on GPU — File::create(), write_all(), File::open(),
+/// read_to_string(). Errors are proper std::io::Error with errno propagation.
+#[unsafe(no_mangle)]
+pub unsafe extern "ptx-kernel" fn std_file_io_test(buf: *mut u8) {
+    stdio_init(buf);
+
+    // Also initialize gpu-libc I/O for the libc→hostcall bridge
+    gpu_libc::gpu_libc_io_init(buf);
+
+    use std::fs::File;
+    use std::io::Write;
+    use std::io::Read;
+
+    let path = "gpu_std_test.txt";
+
+    // Create and write
+    let create_result = File::create(path);
+    match create_result {
+        Ok(mut f) => {
+            let msg = b"Hello from std::fs on GPU!\n";
+            match f.write_all(msg) {
+                Ok(()) => println!("[OK] write_all: {} bytes", msg.len()),
+                Err(e) => println!("[ERR] write_all: {}", e),
+            }
+            // f is dropped here → close() via hostcall
+        }
+        Err(e) => {
+            println!("[ERR] File::create: {}", e);
+            return;
+        }
+    }
+
+    // Open and read back
+    let open_result = File::open(path);
+    match open_result {
+        Ok(mut f) => {
+            let mut contents = Vec::new();
+            match f.read_to_end(&mut contents) {
+                Ok(n) => {
+                    println!("[OK] read_to_end: {} bytes", n);
+                    match core::str::from_utf8(&contents) {
+                        Ok(s) => println!("[OK] content: {}", s.trim()),
+                        Err(_) => println!("[ERR] content not valid UTF-8"),
+                    }
+                }
+                Err(e) => println!("[ERR] read_to_end: {}", e),
+            }
+        }
+        Err(e) => {
+            println!("[ERR] File::open: {}", e);
+            return;
+        }
+    }
+
+    println!("[DONE] std::fs file I/O test complete");
+}
+
+// ============================================================
+// std-migration.3: Async pipeline kernel using std + Result + ?
+// ============================================================
+
+/// Multi-step pipeline using std types and ? operator for error propagation.
+///
+/// Demonstrates that a GPU kernel can use idiomatic Rust error handling:
+/// - std::fs::File with ? operator
+/// - std::io::{Read, Write} traits
+/// - Vec<u8> for dynamic buffers
+/// - format!() for message construction
+/// - Result<(), std::io::Error> return type
+///
+/// Pipeline: generate data → write file → read file → verify → report
+fn std_pipeline_inner() -> Result<(), std::io::Error> {
+    use std::fs::File;
+    use std::io::{Read, Write};
+
+    // Step 1: Generate data using std types
+    let mut data = Vec::new();
+    for i in 0u32..10 {
+        let line = format!("line {}: value={}\n", i, i * i);
+        data.extend_from_slice(line.as_bytes());
+    }
+    println!("[PIPE] Generated {} bytes of data", data.len());
+
+    // Step 2: Write to file via hostcall (uses ? for error propagation)
+    let path = "gpu_pipeline_test.txt";
+    {
+        let mut f = File::create(path)?;
+        f.write_all(&data)?;
+    } // f dropped → close
+    println!("[PIPE] Wrote {} bytes to {}", data.len(), path);
+
+    // Step 3: Read back via hostcall (uses ? for error propagation)
+    let mut readback = Vec::new();
+    {
+        let mut f = File::open(path)?;
+        f.read_to_end(&mut readback)?;
+    }
+    println!("[PIPE] Read {} bytes from {}", readback.len(), path);
+
+    // Step 4: Verify content matches
+    if readback.len() != data.len() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "length mismatch",
+        ));
+    }
+    let mut mismatches = 0u32;
+    for i in 0..data.len() {
+        if data[i] != readback[i] {
+            mismatches += 1;
+        }
+    }
+    if mismatches > 0 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "content mismatch",
+        ));
+    }
+
+    // Step 5: Parse and compute — demonstrate Vec + string processing
+    let text = core::str::from_utf8(&readback).map_err(|_| {
+        std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid UTF-8")
+    })?;
+    let line_count = text.lines().count();
+    println!("[PIPE] Verified: {} lines, {} bytes, 0 mismatches", line_count, data.len());
+
+    Ok(())
+}
+
+/// Test kernel: multi-step pipeline with std types and ? error propagation.
+///
+/// This kernel demonstrates the combination of:
+/// - Real Rust std on GPU (Vec, String, format!, std::fs, std::io)
+/// - Idiomatic error handling with ? operator
+/// - Multi-step I/O pipeline (generate → write → read → verify)
+/// - Proper std::io::Error propagation from GPU to host
+#[unsafe(no_mangle)]
+pub unsafe extern "ptx-kernel" fn std_pipeline_test(buf: *mut u8) {
+    stdio_init(buf);
+    gpu_libc::gpu_libc_io_init(buf);
+
+    match std_pipeline_inner() {
+        Ok(()) => println!("[DONE] std pipeline test PASSED"),
+        Err(e) => println!("[ERR] std pipeline test FAILED: {}", e),
+    }
+}

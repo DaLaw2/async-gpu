@@ -368,6 +368,164 @@ pub(crate) fn run_dynamic_alloc_test(dev: Arc<CudaDevice>) -> Result<()> {
     Ok(())
 }
 
+/// Test: std::fs File I/O on GPU via hostcall (std-fs.4).
+///
+/// Launches std_file_io_test kernel from gpu-kernel-std which uses
+/// std::fs::File::create() + write_all() + File::open() + read_to_end().
+pub(crate) fn run_std_file_io_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- std-fs.4: std::fs File I/O on GPU via hostcall ---");
+
+    use std::sync::Arc as StdArc;
+    use std::sync::Mutex;
+
+    let hc_buf = hostcall::HostcallBuffer::new(4)?;
+    let dev_ptr = hc_buf.dev_ptr;
+
+    let messages: StdArc<Mutex<Vec<String>>> = StdArc::new(Mutex::new(Vec::new()));
+    let messages_clone = StdArc::clone(&messages);
+
+    let hc_buf_ref = StdArc::new(hc_buf);
+    let hc_buf_listener = StdArc::clone(&hc_buf_ref);
+    let listener_handle = std::thread::spawn(move || {
+        hc_buf_listener.listen(|msg| {
+            let s = String::from_utf8_lossy(msg).to_string();
+            println!("  [HOST] GPU stdout: \"{s}\"");
+            messages_clone.lock().unwrap().push(s);
+        });
+    });
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_STD_PTX);
+    let _ = dev.load_ptx(ptx, "kernel_std", &["std_file_io_test"]);
+    let f = dev
+        .get_func("kernel_std", "std_file_io_test")
+        .ok_or(GpuHostError::KernelNotFound("std_file_io_test"))?;
+
+    let cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (1, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    println!("  Launching std_file_io_test...");
+    unsafe {
+        f.launch(cfg, (dev_ptr,))?;
+    }
+    dev.synchronize()?;
+    std::thread::sleep(std::time::Duration::from_millis(200));
+
+    hc_buf_ref.signal_shutdown();
+    listener_handle.join().unwrap();
+
+    // Check GPU stdout messages for success markers
+    let received = messages.lock().unwrap();
+    let has_write_ok = received.iter().any(|m| m.contains("[OK] write_all"));
+    let has_read_ok = received.iter().any(|m| m.contains("[OK] read_to_end"));
+    let has_done = received.iter().any(|m| m.contains("[DONE]"));
+    let has_err = received.iter().any(|m| m.contains("[ERR]"));
+
+    if has_err {
+        let errs: Vec<_> = received.iter().filter(|m| m.contains("[ERR]")).collect();
+        return Err(GpuHostError::Verification {
+            test: "std_file_io_test",
+            detail: format!("kernel reported errors: {:?}", errs),
+        });
+    }
+
+    if !has_write_ok || !has_read_ok || !has_done {
+        return Err(GpuHostError::Verification {
+            test: "std_file_io_test",
+            detail: format!(
+                "missing success markers: write_ok={has_write_ok}, read_ok={has_read_ok}, done={has_done}"
+            ),
+        });
+    }
+
+    // Clean up test file
+    let _ = std::fs::remove_file("gpu_std_test.txt");
+
+    println!("  std_file_io_test: PASSED!");
+    println!("    std::fs::File::create() → hostcall OPEN");
+    println!("    file.write_all() → hostcall WRITE");
+    println!("    std::fs::File::open() + read_to_end() → hostcall READ");
+    println!("    File I/O errors → std::io::Error with errno");
+
+    Ok(())
+}
+
+/// Test: multi-step pipeline with std types and ? error propagation (std-migration.3).
+pub(crate) fn run_std_pipeline_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- std-migration.3: std pipeline (Vec + format! + File + ? operator) ---");
+
+    use std::sync::Arc as StdArc;
+    use std::sync::Mutex;
+
+    let hc_buf = hostcall::HostcallBuffer::new(4)?;
+    let dev_ptr = hc_buf.dev_ptr;
+
+    let messages: StdArc<Mutex<Vec<String>>> = StdArc::new(Mutex::new(Vec::new()));
+    let messages_clone = StdArc::clone(&messages);
+
+    let hc_buf_ref = StdArc::new(hc_buf);
+    let hc_buf_listener = StdArc::clone(&hc_buf_ref);
+    let listener_handle = std::thread::spawn(move || {
+        hc_buf_listener.listen(|msg| {
+            let s = String::from_utf8_lossy(msg).to_string();
+            println!("  [HOST] GPU stdout: \"{s}\"");
+            messages_clone.lock().unwrap().push(s);
+        });
+    });
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_STD_PTX);
+    let _ = dev.load_ptx(ptx, "kernel_std", &["std_pipeline_test"]);
+    let f = dev
+        .get_func("kernel_std", "std_pipeline_test")
+        .ok_or(GpuHostError::KernelNotFound("std_pipeline_test"))?;
+
+    let cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (1, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    println!("  Launching std_pipeline_test...");
+    unsafe {
+        f.launch(cfg, (dev_ptr,))?;
+    }
+    dev.synchronize()?;
+    std::thread::sleep(std::time::Duration::from_millis(200));
+
+    hc_buf_ref.signal_shutdown();
+    listener_handle.join().unwrap();
+
+    let received = messages.lock().unwrap();
+    let has_done = received.iter().any(|m| m.contains("[DONE]"));
+    let has_err = received.iter().any(|m| m.contains("[ERR]"));
+
+    if has_err {
+        let errs: Vec<_> = received.iter().filter(|m| m.contains("[ERR]")).collect();
+        return Err(GpuHostError::Verification {
+            test: "std_pipeline_test",
+            detail: format!("kernel reported errors: {:?}", errs),
+        });
+    }
+
+    if !has_done {
+        return Err(GpuHostError::Verification {
+            test: "std_pipeline_test",
+            detail: "missing [DONE] marker".to_string(),
+        });
+    }
+
+    // Clean up
+    let _ = std::fs::remove_file("gpu_pipeline_test.txt");
+
+    println!("  std_pipeline_test: PASSED!");
+    println!("    Vec + format! + std::fs::File + ? operator working on GPU");
+    println!("    Multi-step pipeline: generate → write → read → verify");
+
+    Ok(())
+}
+
 /// Test: stdin via std::io::stdin() PAL routing (std-pal.2).
 pub(crate) fn run_std_stdin_test(dev: Arc<CudaDevice>) -> Result<()> {
     println!("\n--- std-pal.2: PAL stdin routing (std::io::stdin via hostcall) ---");

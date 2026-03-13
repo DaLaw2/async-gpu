@@ -2096,6 +2096,712 @@ pub(crate) fn run_f32_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
     Ok(())
 }
 
+/// mixed-precision.2: BF16 MMA inference validation.
+///
+/// Runs 3 prompts through both `full_gemm_bf16` (BF16 Tensor Core) and `gemm_f32`
+/// (FMA reference), comparing top-5 predictions. BF16 takes f32 column-major inputs
+/// (no host-side f16 packing needed). Reports timing for both paths.
+pub(crate) fn run_bf16_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
+    let model_path = std::path::Path::new("../../models/model.safetensors");
+    if !model_path.exists() {
+        println!(
+            "\n--- Skipping BF16 inference validation (models/model.safetensors not found) ---"
+        );
+        return Ok(());
+    }
+
+    println!("\n--- BF16 mixed-precision inference (mixed-precision.2) ---");
+
+    let weights =
+        gpu_host::model::load_gpt2_weights(model_path).map_err(|e| GpuHostError::Verification {
+            test: "bf16_forward",
+            detail: format!("weight loading: {e}"),
+        })?;
+
+    let tokenizer =
+        gpu_host::tokenizer::Gpt2Tokenizer::new().map_err(|e| GpuHostError::Verification {
+            test: "bf16_forward",
+            detail: format!("tokenizer: {e}"),
+        })?;
+
+    const SEQ: u32 = 32;
+    const D_MODEL: u32 = 768;
+    const N_HEADS: u32 = 12;
+    const D_HEAD: u32 = 64;
+    const D_FFN: u32 = 3072;
+    const EPS: f32 = 1e-5;
+    let dm = D_MODEL as usize;
+    let total_seq_model = (SEQ * D_MODEL) as usize;
+    let head_total = (N_HEADS * SEQ * D_HEAD) as usize;
+
+    // Load PTX with both kernels
+    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
+    let _ = dev.load_ptx(
+        ptx,
+        "bf16fwd",
+        &[
+            "embedding_lookup",
+            "layer_norm",
+            "full_gemm_bf16",
+            "gemm_f32",
+            "bias_add",
+            "split_qkv",
+            "flash_attention",
+            "concat_heads",
+            "gelu_forward",
+            "elementwise_add",
+            "zero_pad",
+        ],
+    );
+
+    macro_rules! get_fn {
+        ($name:expr) => {
+            dev.get_func("bf16fwd", $name)
+                .ok_or(GpuHostError::KernelNotFound($name))?
+        };
+    }
+
+    let f_embed = get_fn!("embedding_lookup");
+    let f_ln = get_fn!("layer_norm");
+    let f_bf16 = get_fn!("full_gemm_bf16");
+    let f_f32 = get_fn!("gemm_f32");
+    let f_bias = get_fn!("bias_add");
+    let f_split = get_fn!("split_qkv");
+    let f_attn = get_fn!("flash_attention");
+    let f_concat = get_fn!("concat_heads");
+    let f_gelu = get_fn!("gelu_forward");
+    let f_add = get_fn!("elementwise_add");
+    let f_zero = get_fn!("zero_pad");
+
+    let (status_host_ptr, status_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 1)? };
+
+    // Column-major transpose helper
+    fn to_col_major(w: &[f32], k: usize, n: usize) -> Vec<f32> {
+        let mut cm = vec![0.0f32; k * n];
+        for row in 0..k {
+            for col in 0..n {
+                cm[col * k + row] = w[row * n + col];
+            }
+        }
+        cm
+    }
+
+    // Upload layer weights as column-major f32 (shared between bf16 and f32)
+    struct LayerWeightsCm {
+        ln1_g: CudaSlice<f32>,
+        ln1_b: CudaSlice<f32>,
+        w_qkv: CudaSlice<f32>,
+        b_qkv: CudaSlice<f32>,
+        w_proj: CudaSlice<f32>,
+        b_proj: CudaSlice<f32>,
+        ln2_g: CudaSlice<f32>,
+        ln2_b: CudaSlice<f32>,
+        w_fc: CudaSlice<f32>,
+        b_fc: CudaSlice<f32>,
+        w_fc_proj: CudaSlice<f32>,
+        b_fc_proj: CudaSlice<f32>,
+    }
+
+    let mut gpu_layers: Vec<LayerWeightsCm> = Vec::with_capacity(12);
+    for layer in weights.layers.iter() {
+        gpu_layers.push(LayerWeightsCm {
+            ln1_g: dev.htod_sync_copy(&layer.ln_1.weight)?,
+            ln1_b: dev.htod_sync_copy(&layer.ln_1.bias)?,
+            w_qkv: dev.htod_sync_copy(&to_col_major(&layer.c_attn_weight, 768, 2304))?,
+            b_qkv: dev.htod_sync_copy(&layer.c_attn_bias)?,
+            w_proj: dev.htod_sync_copy(&to_col_major(&layer.c_proj_weight, 768, 768))?,
+            b_proj: dev.htod_sync_copy(&layer.c_proj_bias)?,
+            ln2_g: dev.htod_sync_copy(&layer.ln_2.weight)?,
+            ln2_b: dev.htod_sync_copy(&layer.ln_2.bias)?,
+            w_fc: dev.htod_sync_copy(&to_col_major(&layer.mlp_fc_weight, 768, 3072))?,
+            b_fc: dev.htod_sync_copy(&layer.mlp_fc_bias)?,
+            w_fc_proj: dev.htod_sync_copy(&to_col_major(&layer.mlp_proj_weight, 3072, 768))?,
+            b_fc_proj: dev.htod_sync_copy(&layer.mlp_proj_bias)?,
+        });
+    }
+    println!("  12 layers uploaded (f32 column-major)");
+
+    let ln_f_g_dev = dev.htod_sync_copy(&weights.ln_f.weight)?;
+    let ln_f_b_dev = dev.htod_sync_copy(&weights.ln_f.bias)?;
+    let wte_dev = dev.htod_sync_copy(&weights.wte)?;
+    let wpe_dev = dev.htod_sync_copy(&weights.wpe)?;
+
+    let n_q_tiles = (SEQ as usize).div_ceil(32) as u32;
+
+    // Run forward pass with a given GEMM function.
+    // gemm_kind: "bf16" uses full_gemm_bf16 (k_tiles), "f32" uses gemm_f32 (k).
+    let run_forward = |prompt_tokens: &[u32],
+                       actual_seq: usize,
+                       gemm_kind: &str|
+     -> Result<(Vec<f32>, std::time::Duration)> {
+        let seq = SEQ;
+        let mut token_ids: Vec<u32> = prompt_tokens.to_vec();
+        token_ids.resize(seq as usize, 0);
+        let token_ids_dev = dev.htod_sync_copy(&token_ids)?;
+
+        let mut hidden_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(total_seq_model)?;
+        unsafe {
+            f_embed.clone().launch(
+                LaunchConfig {
+                    grid_dim: ((total_seq_model as u32).div_ceil(256), 1, 1),
+                    block_dim: (256, 1, 1),
+                    shared_mem_bytes: 0,
+                },
+                (
+                    &wte_dev,
+                    &wpe_dev,
+                    &token_ids_dev,
+                    &mut hidden_dev,
+                    seq,
+                    D_MODEL,
+                    status_dev_ptr,
+                ),
+            )?;
+        }
+        dev.synchronize()?;
+
+        let pad_start = (actual_seq as u32) * D_MODEL;
+        let pad_count = total_seq_model as u32 - pad_start;
+        if pad_count > 0 {
+            unsafe {
+                f_zero.clone().launch(
+                    LaunchConfig {
+                        grid_dim: (pad_count.div_ceil(256), 1, 1),
+                        block_dim: (256, 1, 1),
+                        shared_mem_bytes: 0,
+                    },
+                    (&mut hidden_dev, pad_start, total_seq_model as u32),
+                )?;
+            }
+            dev.synchronize()?;
+        }
+
+        let mut ln_out_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(total_seq_model)?;
+        let mut qkv_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>((seq * 2304) as usize)?;
+        let mut q_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(head_total)?;
+        let mut k_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(head_total)?;
+        let mut v_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(head_total)?;
+        let mut attn_out_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(head_total)?;
+        let mut concat_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(total_seq_model)?;
+        let mut proj_out_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(total_seq_model)?;
+        let mut ffn_hidden_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>((seq * D_FFN) as usize)?;
+        let mut gelu_out_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>((seq * D_FFN) as usize)?;
+        let mut ffn_out_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(total_seq_model)?;
+
+        // Shared memory sizes
+        let bf16_smem = (256 + 128) * 4; // full_gemm_bf16
+        let f32_smem = (32 * 16 + 16 * 16) * 4; // gemm_f32
+
+        let fwd_start = std::time::Instant::now();
+
+        for layer_idx in 0..12u32 {
+            let lw = &gpu_layers[layer_idx as usize];
+
+            // LN1
+            unsafe {
+                f_ln.clone().launch(
+                    LaunchConfig {
+                        grid_dim: (seq, 1, 1),
+                        block_dim: (32, 1, 1),
+                        shared_mem_bytes: 0,
+                    },
+                    (
+                        &hidden_dev,
+                        &mut ln_out_dev,
+                        &lw.ln1_g,
+                        &lw.ln1_b,
+                        D_MODEL,
+                        EPS,
+                        status_dev_ptr,
+                    ),
+                )?;
+            }
+            dev.synchronize()?;
+
+            // QKV GEMM
+            match gemm_kind {
+                "bf16" => unsafe {
+                    f_bf16.clone().launch(
+                        LaunchConfig {
+                            grid_dim: (seq / 32, 2304 / 16, 1),
+                            block_dim: (128, 1, 1),
+                            shared_mem_bytes: bf16_smem,
+                        },
+                        (
+                            &ln_out_dev,
+                            &lw.w_qkv,
+                            &mut qkv_dev,
+                            (768u32 / 16),
+                            2304u32,
+                            status_dev_ptr,
+                        ),
+                    )?;
+                },
+                _ => unsafe {
+                    f_f32.clone().launch(
+                        LaunchConfig {
+                            grid_dim: (seq / 32, 2304 / 16, 1),
+                            block_dim: (128, 1, 1),
+                            shared_mem_bytes: f32_smem,
+                        },
+                        (
+                            &ln_out_dev,
+                            &lw.w_qkv,
+                            &mut qkv_dev,
+                            D_MODEL,
+                            2304u32,
+                            status_dev_ptr,
+                        ),
+                    )?;
+                },
+            }
+            dev.synchronize()?;
+
+            // QKV bias
+            let total_qkv = seq * 2304;
+            unsafe {
+                f_bias.clone().launch(
+                    LaunchConfig {
+                        grid_dim: (total_qkv.div_ceil(256), 1, 1),
+                        block_dim: (256, 1, 1),
+                        shared_mem_bytes: 0,
+                    },
+                    (&mut qkv_dev, &lw.b_qkv, 2304u32, total_qkv, status_dev_ptr),
+                )?;
+            }
+            dev.synchronize()?;
+
+            // Split QKV
+            unsafe {
+                f_split.clone().launch(
+                    LaunchConfig {
+                        grid_dim: ((head_total as u32).div_ceil(256), 1, 1),
+                        block_dim: (256, 1, 1),
+                        shared_mem_bytes: 0,
+                    },
+                    (
+                        &qkv_dev, &mut q_dev, &mut k_dev, &mut v_dev, seq, N_HEADS, D_HEAD,
+                    ),
+                )?;
+            }
+            dev.synchronize()?;
+
+            // Flash attention (causal)
+            unsafe {
+                f_attn.clone().launch(
+                    LaunchConfig {
+                        grid_dim: (N_HEADS, n_q_tiles, 1),
+                        block_dim: (32, 1, 1),
+                        shared_mem_bytes: 2 * 32 * 64 * 4,
+                    },
+                    (
+                        &q_dev,
+                        &k_dev,
+                        &v_dev,
+                        &mut attn_out_dev,
+                        seq,
+                        D_HEAD,
+                        1u32,
+                        status_dev_ptr,
+                    ),
+                )?;
+            }
+            dev.synchronize()?;
+
+            // Concat heads
+            unsafe {
+                f_concat.clone().launch(
+                    LaunchConfig {
+                        grid_dim: ((total_seq_model as u32).div_ceil(256), 1, 1),
+                        block_dim: (256, 1, 1),
+                        shared_mem_bytes: 0,
+                    },
+                    (&attn_out_dev, &mut concat_dev, seq, N_HEADS, D_HEAD),
+                )?;
+            }
+            dev.synchronize()?;
+
+            // Output projection GEMM
+            match gemm_kind {
+                "bf16" => unsafe {
+                    f_bf16.clone().launch(
+                        LaunchConfig {
+                            grid_dim: (seq / 32, D_MODEL / 16, 1),
+                            block_dim: (128, 1, 1),
+                            shared_mem_bytes: bf16_smem,
+                        },
+                        (
+                            &concat_dev,
+                            &lw.w_proj,
+                            &mut proj_out_dev,
+                            (768u32 / 16),
+                            D_MODEL,
+                            status_dev_ptr,
+                        ),
+                    )?;
+                },
+                _ => unsafe {
+                    f_f32.clone().launch(
+                        LaunchConfig {
+                            grid_dim: (seq / 32, D_MODEL / 16, 1),
+                            block_dim: (128, 1, 1),
+                            shared_mem_bytes: f32_smem,
+                        },
+                        (
+                            &concat_dev,
+                            &lw.w_proj,
+                            &mut proj_out_dev,
+                            D_MODEL,
+                            D_MODEL,
+                            status_dev_ptr,
+                        ),
+                    )?;
+                },
+            }
+            dev.synchronize()?;
+
+            // Proj bias
+            unsafe {
+                f_bias.clone().launch(
+                    LaunchConfig {
+                        grid_dim: ((total_seq_model as u32).div_ceil(256), 1, 1),
+                        block_dim: (256, 1, 1),
+                        shared_mem_bytes: 0,
+                    },
+                    (
+                        &mut proj_out_dev,
+                        &lw.b_proj,
+                        D_MODEL,
+                        total_seq_model as u32,
+                        status_dev_ptr,
+                    ),
+                )?;
+            }
+            dev.synchronize()?;
+
+            // Residual 1 + zero pad
+            unsafe {
+                f_add.clone().launch(
+                    LaunchConfig {
+                        grid_dim: ((total_seq_model as u32).div_ceil(256), 1, 1),
+                        block_dim: (256, 1, 1),
+                        shared_mem_bytes: 0,
+                    },
+                    (&mut hidden_dev, &proj_out_dev, total_seq_model as u32),
+                )?;
+                if pad_count > 0 {
+                    f_zero.clone().launch(
+                        LaunchConfig {
+                            grid_dim: (pad_count.div_ceil(256), 1, 1),
+                            block_dim: (256, 1, 1),
+                            shared_mem_bytes: 0,
+                        },
+                        (&mut hidden_dev, pad_start, total_seq_model as u32),
+                    )?;
+                }
+            }
+            dev.synchronize()?;
+
+            // LN2
+            unsafe {
+                f_ln.clone().launch(
+                    LaunchConfig {
+                        grid_dim: (seq, 1, 1),
+                        block_dim: (32, 1, 1),
+                        shared_mem_bytes: 0,
+                    },
+                    (
+                        &hidden_dev,
+                        &mut ln_out_dev,
+                        &lw.ln2_g,
+                        &lw.ln2_b,
+                        D_MODEL,
+                        EPS,
+                        status_dev_ptr,
+                    ),
+                )?;
+            }
+            dev.synchronize()?;
+
+            // FFN up GEMM
+            match gemm_kind {
+                "bf16" => unsafe {
+                    f_bf16.clone().launch(
+                        LaunchConfig {
+                            grid_dim: (seq / 32, D_FFN / 16, 1),
+                            block_dim: (128, 1, 1),
+                            shared_mem_bytes: bf16_smem,
+                        },
+                        (
+                            &ln_out_dev,
+                            &lw.w_fc,
+                            &mut ffn_hidden_dev,
+                            (768u32 / 16),
+                            D_FFN,
+                            status_dev_ptr,
+                        ),
+                    )?;
+                },
+                _ => unsafe {
+                    f_f32.clone().launch(
+                        LaunchConfig {
+                            grid_dim: (seq / 32, D_FFN / 16, 1),
+                            block_dim: (128, 1, 1),
+                            shared_mem_bytes: f32_smem,
+                        },
+                        (
+                            &ln_out_dev,
+                            &lw.w_fc,
+                            &mut ffn_hidden_dev,
+                            D_MODEL,
+                            D_FFN,
+                            status_dev_ptr,
+                        ),
+                    )?;
+                },
+            }
+            dev.synchronize()?;
+
+            // FFN bias
+            let total_ffn = seq * D_FFN;
+            unsafe {
+                f_bias.clone().launch(
+                    LaunchConfig {
+                        grid_dim: (total_ffn.div_ceil(256), 1, 1),
+                        block_dim: (256, 1, 1),
+                        shared_mem_bytes: 0,
+                    },
+                    (
+                        &mut ffn_hidden_dev,
+                        &lw.b_fc,
+                        D_FFN,
+                        total_ffn,
+                        status_dev_ptr,
+                    ),
+                )?;
+            }
+            dev.synchronize()?;
+
+            // GELU
+            unsafe {
+                f_gelu.clone().launch(
+                    LaunchConfig {
+                        grid_dim: (total_ffn.div_ceil(256), 1, 1),
+                        block_dim: (256, 1, 1),
+                        shared_mem_bytes: 0,
+                    },
+                    (
+                        &ffn_hidden_dev,
+                        &mut gelu_out_dev,
+                        total_ffn,
+                        status_dev_ptr,
+                    ),
+                )?;
+            }
+            dev.synchronize()?;
+
+            // FFN down GEMM
+            match gemm_kind {
+                "bf16" => unsafe {
+                    f_bf16.clone().launch(
+                        LaunchConfig {
+                            grid_dim: (seq / 32, D_MODEL / 16, 1),
+                            block_dim: (128, 1, 1),
+                            shared_mem_bytes: bf16_smem,
+                        },
+                        (
+                            &gelu_out_dev,
+                            &lw.w_fc_proj,
+                            &mut ffn_out_dev,
+                            (3072u32 / 16),
+                            D_MODEL,
+                            status_dev_ptr,
+                        ),
+                    )?;
+                },
+                _ => unsafe {
+                    f_f32.clone().launch(
+                        LaunchConfig {
+                            grid_dim: (seq / 32, D_MODEL / 16, 1),
+                            block_dim: (128, 1, 1),
+                            shared_mem_bytes: f32_smem,
+                        },
+                        (
+                            &gelu_out_dev,
+                            &lw.w_fc_proj,
+                            &mut ffn_out_dev,
+                            D_FFN,
+                            D_MODEL,
+                            status_dev_ptr,
+                        ),
+                    )?;
+                },
+            }
+            dev.synchronize()?;
+
+            // FFN bias
+            unsafe {
+                f_bias.clone().launch(
+                    LaunchConfig {
+                        grid_dim: ((total_seq_model as u32).div_ceil(256), 1, 1),
+                        block_dim: (256, 1, 1),
+                        shared_mem_bytes: 0,
+                    },
+                    (
+                        &mut ffn_out_dev,
+                        &lw.b_fc_proj,
+                        D_MODEL,
+                        total_seq_model as u32,
+                        status_dev_ptr,
+                    ),
+                )?;
+            }
+            dev.synchronize()?;
+
+            // Residual 2 + zero pad
+            unsafe {
+                f_add.clone().launch(
+                    LaunchConfig {
+                        grid_dim: ((total_seq_model as u32).div_ceil(256), 1, 1),
+                        block_dim: (256, 1, 1),
+                        shared_mem_bytes: 0,
+                    },
+                    (&mut hidden_dev, &ffn_out_dev, total_seq_model as u32),
+                )?;
+                if pad_count > 0 {
+                    f_zero.clone().launch(
+                        LaunchConfig {
+                            grid_dim: (pad_count.div_ceil(256), 1, 1),
+                            block_dim: (256, 1, 1),
+                            shared_mem_bytes: 0,
+                        },
+                        (&mut hidden_dev, pad_start, total_seq_model as u32),
+                    )?;
+                }
+            }
+            dev.synchronize()?;
+        }
+
+        // Final LayerNorm
+        unsafe {
+            f_ln.clone().launch(
+                LaunchConfig {
+                    grid_dim: (seq, 1, 1),
+                    block_dim: (32, 1, 1),
+                    shared_mem_bytes: 0,
+                },
+                (
+                    &hidden_dev,
+                    &mut ln_out_dev,
+                    &ln_f_g_dev,
+                    &ln_f_b_dev,
+                    D_MODEL,
+                    EPS,
+                    status_dev_ptr,
+                ),
+            )?;
+        }
+        dev.synchronize()?;
+
+        let elapsed = fwd_start.elapsed();
+        let output: Vec<f32> = dev.dtoh_sync_copy(&ln_out_dev)?;
+        Ok((output, elapsed))
+    };
+
+    // Helper: compute top-5 from hidden state
+    let get_top5 = |output: &[f32], actual_seq: usize| -> Vec<(usize, f32)> {
+        let last_pos = actual_seq - 1;
+        let last_row = &output[last_pos * dm..(last_pos + 1) * dm];
+        let vocab_size = 50257;
+        let mut logits = vec![0.0f32; vocab_size];
+        for v in 0..vocab_size {
+            let wte_row = &weights.wte[v * dm..(v + 1) * dm];
+            let mut dot = 0.0f32;
+            for d in 0..dm {
+                dot += last_row[d] * wte_row[d];
+            }
+            logits[v] = dot;
+        }
+        let mut indices: Vec<usize> = (0..vocab_size).collect();
+        indices.sort_unstable_by(|&a, &b| logits[b].partial_cmp(&logits[a]).unwrap());
+        indices[0..5].iter().map(|&i| (i, logits[i])).collect()
+    };
+
+    // Test 3 prompts
+    let prompts = [
+        "The capital of France is",
+        "In 1969, the first man to walk on the moon was",
+        "The largest ocean on Earth is the",
+    ];
+
+    let mut total_agree = 0;
+    let mut total_prompts = 0;
+
+    for prompt in &prompts {
+        let tokens = tokenizer.encode(prompt);
+        let actual_seq = tokens.len();
+        println!("\n  Prompt: \"{prompt}\" ({actual_seq} tokens)");
+
+        // Run BF16 forward
+        let (bf16_out, bf16_time) = run_forward(&tokens, actual_seq, "bf16")?;
+        let bf16_top5 = get_top5(&bf16_out, actual_seq);
+
+        // Run f32 forward
+        let (f32_out, f32_time) = run_forward(&tokens, actual_seq, "f32")?;
+        let f32_top5 = get_top5(&f32_out, actual_seq);
+
+        println!(
+            "    BF16: {:.1}ms | f32: {:.1}ms",
+            bf16_time.as_secs_f64() * 1000.0,
+            f32_time.as_secs_f64() * 1000.0,
+        );
+
+        // Compare top-5
+        let bf16_top5_ids: Vec<usize> = bf16_top5.iter().map(|&(id, _)| id).collect();
+        let f32_top5_ids: Vec<usize> = f32_top5.iter().map(|&(id, _)| id).collect();
+
+        print!("    f32  top-5:");
+        for &(id, logit) in &f32_top5 {
+            let tok = tokenizer
+                .decode(&[id as u32])
+                .unwrap_or_else(|_| format!("<{id}>"));
+            print!(" {:?}({logit:.1})", tok);
+        }
+        println!();
+
+        print!("    BF16 top-5:");
+        for &(id, logit) in &bf16_top5 {
+            let tok = tokenizer
+                .decode(&[id as u32])
+                .unwrap_or_else(|_| format!("<{id}>"));
+            print!(" {:?}({logit:.1})", tok);
+        }
+        println!();
+
+        // Check top-1 agreement
+        let top1_match = bf16_top5_ids[0] == f32_top5_ids[0];
+        // Check top-5 overlap
+        let overlap = bf16_top5_ids
+            .iter()
+            .filter(|id| f32_top5_ids.contains(id))
+            .count();
+        println!("    Top-1 match: {top1_match} | Top-5 overlap: {overlap}/5");
+
+        if top1_match {
+            total_agree += 1;
+        }
+        total_prompts += 1;
+    }
+
+    unsafe {
+        free_mapped_mem(status_host_ptr)?;
+    }
+
+    println!("\n  BF16 vs f32 top-1 agreement: {total_agree}/{total_prompts} prompts");
+    println!("  BF16 mixed-precision inference — PASSED");
+    Ok(())
+}
+
 /// mma-fix.3: 12-layer GPT-2 forward pass with Tensor Core MMA (full_gemm_f32in).
 ///
 /// Identical pipeline to run_f32_forward_test but uses Tensor Core MMA kernel

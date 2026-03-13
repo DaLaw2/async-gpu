@@ -9,6 +9,223 @@ use cudarc::driver::{CudaDevice, CudaSlice, LaunchAsync, LaunchConfig};
 use crate::error::{GpuHostError, Result};
 use crate::mapped_mem::{alloc_mapped_result_array, free_mapped_mem};
 
+/// MMA diagnostic: compare full_gemm_f32in vs gemm_f32 at all GPT-2 dimensions.
+pub(crate) fn run_mma_diag(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- MMA Diagnostic: multi-dimension comparison ---");
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "mma_diag", &["full_gemm_f32in", "gemm_f32"]);
+    let f_mma = dev
+        .get_func("mma_diag", "full_gemm_f32in")
+        .ok_or(GpuHostError::KernelNotFound("full_gemm_f32in"))?;
+    let f_f32 = dev
+        .get_func("mma_diag", "gemm_f32")
+        .ok_or(GpuHostError::KernelNotFound("gemm_f32"))?;
+
+    let (status_host_ptr, status_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 1)? };
+
+    fn f32_to_f16(val: f32) -> u16 {
+        let bits = val.to_bits();
+        let sign = (bits >> 31) & 1;
+        let exp = ((bits >> 23) & 0xFF) as i32;
+        let frac = bits & 0x7FFFFF;
+        if val == 0.0 {
+            return (sign << 15) as u16;
+        }
+        let new_exp = exp - 127 + 15;
+        if new_exp <= 0 {
+            return (sign << 15) as u16;
+        }
+        if new_exp >= 31 {
+            return ((sign << 15) | 0x7C00) as u16;
+        }
+        ((sign << 15) | ((new_exp as u32) << 10) | (frac >> 13)) as u16
+    }
+    fn pack_f16x2(lo: f32, hi: f32) -> u32 {
+        f32_to_f16(lo) as u32 | ((f32_to_f16(hi) as u32) << 16)
+    }
+    fn f16_to_f32(bits: u16) -> f32 {
+        let sign = ((bits >> 15) & 1) as u32;
+        let exp = ((bits >> 10) & 0x1F) as i32;
+        let frac = (bits & 0x3FF) as u32;
+        if exp == 0 && frac == 0 {
+            return f32::from_bits(sign << 31);
+        }
+        if exp == 0x1F {
+            return if frac == 0 {
+                f32::from_bits((sign << 31) | 0x7F800000)
+            } else {
+                f32::NAN
+            };
+        }
+        let f32_exp = (exp - 15 + 127) as u32;
+        f32::from_bits((sign << 31) | (f32_exp << 23) | (frac << 13))
+    }
+
+    // Helper: build col-major f32 for gemm_f32
+    fn to_col_major(w: &[f32], k: usize, n: usize) -> Vec<f32> {
+        let mut cm = vec![0.0f32; k * n];
+        for row in 0..k {
+            for col in 0..n {
+                cm[col * k + row] = w[row * n + col];
+            }
+        }
+        cm
+    }
+
+    // Test dimensions used in GPT-2 inference
+    let dims: &[(usize, usize, usize)] = &[
+        (128, 768, 768),  // output projection, FFN down
+        (128, 768, 2304), // QKV projection
+        (128, 768, 3072), // FFN up
+        (128, 3072, 768), // FFN down (from FFN hidden)
+        (32, 768, 768),   // smaller seq
+    ];
+
+    let mut all_pass = true;
+
+    for &(m, k, n) in dims {
+        println!("  Testing {m}x{k} × {k}x{n}...");
+        let k_tiles = (k / 16) as u32;
+
+        // Generate deterministic A (f32) and B (row-major f32)
+        let mut a_f32 = vec![0.0f32; m * k];
+        let mut b_rm = vec![0.0f32; k * n];
+        for i in 0..m {
+            for j in 0..k {
+                a_f32[i * k + j] = ((i * 7 + j * 3) % 5 + 1) as f32;
+            }
+        }
+        for i in 0..k {
+            for j in 0..n {
+                b_rm[i * n + j] = ((i * 11 + j * 13) % 7 + 1) as f32;
+            }
+        }
+
+        // Pack B as column-major f16x2 for MMA kernel
+        let mut b_packed = Vec::with_capacity(n * k / 2);
+        for col in 0..n {
+            for k_pair in 0..k / 2 {
+                let v0 = f16_to_f32(f32_to_f16(b_rm[k_pair * 2 * n + col]));
+                let v1 = f16_to_f32(f32_to_f16(b_rm[(k_pair * 2 + 1) * n + col]));
+                b_packed.push(pack_f16x2(v0, v1));
+            }
+        }
+
+        // Column-major f32 for gemm_f32
+        let b_cm = to_col_major(&b_rm, k, n);
+
+        let a_dev = dev.htod_sync_copy(&a_f32)?;
+        let b_mma_dev: CudaSlice<u32> = dev.htod_sync_copy(&b_packed)?;
+        let b_f32_dev = dev.htod_sync_copy(&b_cm)?;
+        let mut d_mma_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(m * n)?;
+        let mut d_f32_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(m * n)?;
+
+        let num_blocks_m = (m / 32) as u32;
+        let num_blocks_n = (n / 16) as u32;
+
+        // Run MMA kernel
+        unsafe {
+            std::ptr::write_volatile(status_host_ptr, 0);
+            f_mma.clone().launch(
+                LaunchConfig {
+                    grid_dim: (num_blocks_m, num_blocks_n, 1),
+                    block_dim: (128, 1, 1),
+                    shared_mem_bytes: (256 + 128) * 4,
+                },
+                (
+                    &a_dev,
+                    &b_mma_dev,
+                    &mut d_mma_dev,
+                    k_tiles,
+                    n as u32,
+                    status_dev_ptr,
+                ),
+            )?;
+        }
+        dev.synchronize()?;
+
+        // Run gemm_f32 kernel
+        unsafe {
+            std::ptr::write_volatile(status_host_ptr, 0);
+            f_f32.clone().launch(
+                LaunchConfig {
+                    grid_dim: (num_blocks_m, num_blocks_n, 1),
+                    block_dim: (128, 1, 1),
+                    shared_mem_bytes: (32 * 16 + 16 * 16) * 4,
+                },
+                (
+                    &a_dev,
+                    &b_f32_dev,
+                    &mut d_f32_dev,
+                    k as u32,
+                    n as u32,
+                    status_dev_ptr,
+                ),
+            )?;
+        }
+        dev.synchronize()?;
+
+        let d_mma: Vec<f32> = dev.dtoh_sync_copy(&d_mma_dev)?;
+        let d_f32: Vec<f32> = dev.dtoh_sync_copy(&d_f32_dev)?;
+
+        // Compare MMA vs gemm_f32 (allow f16 precision tolerance)
+        let mut mismatches = 0;
+        let mut max_rel_err = 0.0f32;
+        let mut first_mismatch = None;
+        for i in 0..m * n {
+            let expected = d_f32[i];
+            let got = d_mma[i];
+            let rel_err = if expected.abs() > 1.0 {
+                (got - expected).abs() / expected.abs()
+            } else {
+                (got - expected).abs()
+            };
+            if rel_err > max_rel_err {
+                max_rel_err = rel_err;
+            }
+            // f16 precision: allow ~0.5% relative error
+            if rel_err > 0.01 && (got - expected).abs() > 1.0 {
+                mismatches += 1;
+                if first_mismatch.is_none() {
+                    let row = i / n;
+                    let col = i % n;
+                    first_mismatch = Some(format!(
+                        "[{row},{col}] mma={got:.2} f32={expected:.2} err={rel_err:.4}"
+                    ));
+                }
+            }
+        }
+
+        if mismatches > 0 {
+            println!(
+                "    FAIL: {mismatches}/{} mismatches, max_rel_err={max_rel_err:.4}",
+                m * n
+            );
+            if let Some(ref fm) = first_mismatch {
+                println!("    First: {fm}");
+            }
+            all_pass = false;
+        } else {
+            println!("    PASS: max_rel_err={max_rel_err:.6}, 0 mismatches",);
+        }
+    }
+
+    unsafe {
+        free_mapped_mem(status_host_ptr)?;
+    }
+
+    if all_pass {
+        println!("  MMA Diagnostic — ALL PASSED");
+        Ok(())
+    } else {
+        Err(GpuHostError::Verification {
+            test: "mma_diag",
+            detail: "some dimensions failed".to_string(),
+        })
+    }
+}
+
 /// gpu-compute.5: Tiled GEMM test.
 ///
 /// Launches `test_tiled_gemm` with A=16×16 all-1.0 (f16), B=16×8 all-1.0 (f16).

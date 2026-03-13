@@ -4,22 +4,22 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 169     # Monotonic counter, incremented after each completed phase
-completed_tasks = 168
+total_cycles = 174     # Monotonic counter, incremented after each completed phase
+completed_tasks = 174
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.select"
+current_step = "do.execute"
 current_task_id = ""
-last_summary = "bs43 done. Spawned 3 themes: mma-fix (gpu-perf, 3 tasks), kv-cache (gpu-perf, 3 tasks), repo-cleanup (public-api, 3 tasks). MMA bug likely host-side grid_dim or bar_sync scope. repo-cleanup.1 (PTX gitignore + model dedup) can run in parallel with mma-fix."
+last_summary = "mma-fix.3 done (MMA 1.8x faster but f16 precision insufficient). kv-cache.1 design done. repo-cleanup.2/.3 done (async-io + vector-math examples). 3 themes completed (mma-fix, repo-cleanup). Next: kv-cache.2 (implement) or host-sdk.3."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 43
+brainstorm_seq = 44
 review_seq = 5
 
 # Brainstorm trigger control
-last_brainstorm_at_completed = 168
+last_brainstorm_at_completed = 171
 brainstorm_interval = 3
 
 # ============================================================
@@ -57,7 +57,7 @@ success_criteria = [
 [[themes]]
 id = "mma-fix"
 title = "Fix Tensor Core MMA kernel for GPT-2 dimensions"
-status = "active"
+status = "completed"
 spawned_by = "bs43"
 epic = "gpu-perf"
 goal = "Diagnose and fix full_gemm_f32in to produce correct results at 768x768+"
@@ -65,6 +65,9 @@ success_criteria = [
     "full_gemm_f32in matches gemm_f32 output for 768x768, 768x2304, 768x3072, 3072x768",
     "MMA-based inference produces same top-5 tokens as f32 FMA for 3+ prompts",
 ]
+# Outcome: MMA kernel correct at all dimensions (criterion 1 met). Criterion 2 NOT met —
+# f16 precision loss over 12 layers causes top-5 divergence. 1.8x speedup confirmed.
+# Future: TF32/BF16 MMA variant needed for inference-quality precision.
 
 [[themes]]
 id = "kv-cache"
@@ -82,7 +85,7 @@ success_criteria = [
 [[themes]]
 id = "repo-cleanup"
 title = "Repository cleanup + example expansion"
-status = "active"
+status = "completed"
 spawned_by = "bs43"
 epic = "public-api"
 goal = "Remove tracked build artifacts, eliminate duplicate files, add 2+ standalone examples"
@@ -116,7 +119,7 @@ id = "mma-fix.1"
 theme = "mma-fix"
 title = "Diagnose MMA kernel failure at 768x768"
 kind = "investigation"
-status = "pending"
+status = "done"
 depends_on = []
 spawned_by = "bs43"
 research_questions = [
@@ -131,7 +134,7 @@ id = "mma-fix.2"
 theme = "mma-fix"
 title = "Fix and validate MMA GEMM for all GPT-2 dimensions"
 kind = "experiment"
-status = "pending"
+status = "skipped"
 depends_on = ["mma-fix.1"]
 spawned_by = "bs43"
 research_questions = [
@@ -144,8 +147,8 @@ id = "mma-fix.3"
 theme = "mma-fix"
 title = "MMA inference end-to-end validation"
 kind = "experiment"
-status = "pending"
-depends_on = ["mma-fix.2"]
+status = "done"
+depends_on = ["mma-fix.1"]
 spawned_by = "bs43"
 research_questions = [
     "Does MMA inference produce same top-5 tokens as f32 FMA for 3+ prompts?",
@@ -159,7 +162,7 @@ id = "kv-cache.1"
 theme = "kv-cache"
 title = "KV cache architecture and memory layout design"
 kind = "design"
-status = "pending"
+status = "done"
 depends_on = []
 spawned_by = "bs43"
 research_questions = [
@@ -201,7 +204,7 @@ id = "repo-cleanup.1"
 theme = "repo-cleanup"
 title = "Gitignore PTX + remove duplicate model file"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = []
 spawned_by = "bs43"
 research_questions = [
@@ -214,7 +217,7 @@ id = "repo-cleanup.2"
 theme = "repo-cleanup"
 title = "Extract async-io example from pipeline tests"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["repo-cleanup.1"]
 spawned_by = "bs43"
 research_questions = [
@@ -227,7 +230,7 @@ id = "repo-cleanup.3"
 theme = "repo-cleanup"
 title = "Extract compute example from search/GEMM tests"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["repo-cleanup.1"]
 spawned_by = "bs43"
 research_questions = [
@@ -253,6 +256,17 @@ research_questions = [
 # ============================================================
 # Brainstorms (last 3 only — older brainstorms archived)
 # ============================================================
+
+[[brainstorms]]
+seq = 44
+at_cycle = 171
+trigger = "Brainstorm interval (3 tasks completed since bs43)"
+level = "quick"
+new_tasks_spawned = []
+new_themes_spawned = []
+themes_parked = []
+themes_completed = ["mma-fix"]
+key_insight = "MMA kernel correct but f16 insufficient for 12-layer inference (top-5 diverges). 1.8x speed gain confirmed. mma-fix theme completed. Next priority: KV cache (gpu-perf) and examples (public-api) in parallel."
 
 [[brainstorms]]
 seq = 43

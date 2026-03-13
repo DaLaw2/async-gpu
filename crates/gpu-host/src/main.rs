@@ -62,6 +62,14 @@ fn main() -> Result<()> {
                 tests_inference::run_cpu_f64_reference_test()?;
                 return Ok(());
             }
+            "mma_diag" => {
+                tests_gemm::run_mma_diag(Arc::clone(&dev))?;
+                return Ok(());
+            }
+            "mma_fwd" => {
+                tests_inference::run_mma_forward_test(Arc::clone(&dev))?;
+                return Ok(());
+            }
             _ => println!("Unknown ONLY_TEST={only}, running all tests"),
         }
     }

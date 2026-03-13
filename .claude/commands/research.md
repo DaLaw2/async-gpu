@@ -179,9 +179,10 @@ After each task:
 
 ### Step do.save
 After the batch is complete:
-1. **Commit + push**: one commit per task, or batch commit if tasks are small.
-2. **CI check**: After push, run `gh run list --limit 1` to verify CI triggered. If the latest run shows `failure`, run `gh run view <id> --log-failed | tail -30` to diagnose. Fix CI-breaking issues (missing PTX stubs, API mismatches in examples, etc.) before proceeding.
-3. Update `last_summary` in state.toml
+1. **Local CI lint**: Run `bash scripts/ci-lint.sh` BEFORE committing. Fix all failures first.
+2. **Commit + push**: one commit per task, or batch commit if tasks are small.
+3. **CI check**: After push, run `gh run list --limit 1` to verify CI triggered. If the latest run shows `failure`, run `gh run view <id> --log-failed | tail -30` to diagnose. Fix CI-breaking issues before proceeding.
+4. Update `last_summary` in state.toml
 
 ### Step do.route
 Decide what to do next:

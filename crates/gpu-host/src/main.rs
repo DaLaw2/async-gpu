@@ -4,12 +4,15 @@ mod hostcall;
 mod mapped_mem;
 mod tests_basic;
 mod tests_benchmark;
-mod tests_compute;
+mod tests_gemm;
 mod tests_hostcall;
+mod tests_inference;
 mod tests_pipeline;
 mod tests_scaling;
+mod tests_search;
 mod tests_std;
 mod tests_tokenizer;
+mod tests_transformer;
 mod tests_warp;
 
 use cudarc::driver::CudaDevice;
@@ -129,13 +132,13 @@ fn main() -> Result<()> {
     tests_warp::run_hybrid_stress_test(Arc::clone(&dev))?;
 
     // f32 math validation (ml-workload.1)
-    tests_compute::run_f32_math_test(Arc::clone(&dev))?;
+    tests_search::run_f32_math_test(Arc::clone(&dev))?;
 
     // Vector similarity search (ml-workload.2)
-    tests_compute::run_vector_search_test(Arc::clone(&dev))?;
+    tests_search::run_vector_search_test(Arc::clone(&dev))?;
 
     // Batch vector search (ml-workload.3)
-    tests_compute::run_batch_search_test(Arc::clone(&dev))?;
+    tests_search::run_batch_search_test(Arc::clone(&dev))?;
 
     // File transform pipeline (async-pipeline.1+2)
     tests_pipeline::run_file_transform_test(Arc::clone(&dev))?;
@@ -153,70 +156,73 @@ fn main() -> Result<()> {
     tests_pipeline::run_autonomous_pipeline_test(Arc::clone(&dev))?;
 
     // Tensor Core MMA test (gpu-compute.3)
-    tests_compute::run_mma_test(Arc::clone(&dev))?;
+    tests_search::run_mma_test(Arc::clone(&dev))?;
 
     // Shared memory + bar.sync test (gpu-compute.4)
-    tests_compute::run_shared_memory_test(Arc::clone(&dev))?;
+    tests_search::run_shared_memory_test(Arc::clone(&dev))?;
 
     // Tiled GEMM test (gpu-compute.5)
-    tests_compute::run_tiled_gemm_test(Arc::clone(&dev))?;
+    tests_gemm::run_tiled_gemm_test(Arc::clone(&dev))?;
 
     // MMA fragment mapping test (gpu-pipeline.1)
-    tests_compute::run_mma_mapped_test(Arc::clone(&dev))?;
+    tests_search::run_mma_mapped_test(Arc::clone(&dev))?;
 
     // Softmax test (gpu-compute.6)
-    tests_compute::run_softmax_test(Arc::clone(&dev))?;
+    tests_gemm::run_softmax_test(Arc::clone(&dev))?;
 
     // Multi-tile GEMM test (gpu-pipeline.2)
-    tests_compute::run_multi_tile_gemm_test(Arc::clone(&dev))?;
+    tests_gemm::run_multi_tile_gemm_test(Arc::clone(&dev))?;
 
     // GEMM + softmax pipeline test (gpu-pipeline.3)
-    tests_compute::run_gemm_softmax_pipeline_test(Arc::clone(&dev))?;
+    tests_gemm::run_gemm_softmax_pipeline_test(Arc::clone(&dev))?;
 
     // Multi-warp GEMM test (gemm-scale.1)
-    tests_compute::run_multi_warp_gemm_test(Arc::clone(&dev))?;
+    tests_gemm::run_multi_warp_gemm_test(Arc::clone(&dev))?;
 
     // Multi-block GEMM test (gemm-scale.2)
-    tests_compute::run_multi_block_gemm_test(Arc::clone(&dev))?;
+    tests_gemm::run_multi_block_gemm_test(Arc::clone(&dev))?;
 
     // Full GEMM 768x768 test (gemm-scale.3)
-    tests_compute::run_full_gemm_test(Arc::clone(&dev))?;
+    tests_gemm::run_full_gemm_test(Arc::clone(&dev))?;
 
     // Full GEMM f32-input test (precision-fix.2)
-    tests_compute::run_full_gemm_f32in_test(Arc::clone(&dev))?;
+    tests_gemm::run_full_gemm_f32in_test(Arc::clone(&dev))?;
 
     // LayerNorm test (transformer-layer.1)
-    tests_compute::run_layer_norm_test(Arc::clone(&dev))?;
+    tests_transformer::run_layer_norm_test(Arc::clone(&dev))?;
 
     // GELU test (transformer-layer.2)
-    tests_compute::run_gelu_test(Arc::clone(&dev))?;
+    tests_transformer::run_gelu_test(Arc::clone(&dev))?;
 
     // Attention test (transformer-layer.3)
-    tests_compute::run_attention_test(Arc::clone(&dev))?;
+    tests_transformer::run_attention_test(Arc::clone(&dev))?;
 
     // FlashAttention test (attention-scale.3)
-    tests_compute::run_flash_attention_test(Arc::clone(&dev))?;
+    tests_transformer::run_flash_attention_test(Arc::clone(&dev))?;
 
     // FlashAttention scaling test (attention-scale.4)
-    tests_compute::run_flash_attention_scale_test(Arc::clone(&dev))?;
+    tests_transformer::run_flash_attention_scale_test(Arc::clone(&dev))?;
 
     // Embedding lookup test (full-inference.1)
-    tests_compute::run_embedding_test(Arc::clone(&dev))?;
+    tests_transformer::run_embedding_test(Arc::clone(&dev))?;
 
     // FFN block test (transformer-layer.4)
-    tests_compute::run_ffn_test(Arc::clone(&dev))?;
+    tests_transformer::run_ffn_test(Arc::clone(&dev))?;
 
     // Transformer layer test (transformer-layer.6)
-    tests_compute::run_transformer_layer_test(Arc::clone(&dev))?;
+    tests_transformer::run_transformer_layer_test(Arc::clone(&dev))?;
 
     // 12-layer GPT-2 forward pass (full-inference.2) + LM head (full-inference.3)
-    tests_compute::run_full_forward_test(Arc::clone(&dev))?;
+    tests_inference::run_full_forward_test(Arc::clone(&dev))?;
 
     // Greedy autoregressive generation (full-inference.4)
-    tests_compute::run_generation_test(Arc::clone(&dev))?;
+    tests_inference::run_generation_test(Arc::clone(&dev))?;
 
     // f32 GEMM forward pass (full-inference.6)
-    tests_compute::run_f32_forward_test(Arc::clone(&dev))?;
+    tests_inference::run_f32_forward_test(Arc::clone(&dev))?;
+
+    // CPU f64 reference forward pass (full-inference.8+9+10)
+    tests_inference::run_cpu_f64_reference_test()?;
 
     // GPT-2 model weight loading test (model-loading.3)
     {

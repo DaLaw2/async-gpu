@@ -140,8 +140,15 @@ pub unsafe extern "ptx-kernel" fn gelu_forward(
             let coeff: f32 = 0.044715;
             let inner = sqrt_2_over_pi * (x + coeff * x * x * x);
             // tanh via exp: tanh(z) = 1 - 2/(exp(2z)+1)
-            let exp_2z = gpu_exp_f32(2.0 * inner);
-            let tanh_val = (exp_2z - 1.0) / (exp_2z + 1.0);
+            // Clamp to prevent exp overflow: tanh(10) = 1.0 in f32
+            let tanh_val = if inner > 10.0 {
+                1.0f32
+            } else if inner < -10.0 {
+                -1.0f32
+            } else {
+                let exp_2z = gpu_exp_f32(2.0 * inner);
+                (exp_2z - 1.0) / (exp_2z + 1.0)
+            };
             let result = x * 0.5 * (1.0 + tanh_val);
             *output.add(global_id as usize) = result;
         }

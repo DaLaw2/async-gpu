@@ -47,6 +47,25 @@ fn main() -> Result<()> {
     let dev = CudaDevice::new(0).map_err(GpuHostError::CudaInit)?;
     println!("CUDA device initialized successfully");
 
+    // Quick filter: ONLY_TEST=generation to skip to generation test
+    if let Ok(only) = std::env::var("ONLY_TEST") {
+        match only.as_str() {
+            "generation" => {
+                tests_inference::run_generation_test(Arc::clone(&dev))?;
+                return Ok(());
+            }
+            "forward" => {
+                tests_inference::run_f32_forward_test(Arc::clone(&dev))?;
+                return Ok(());
+            }
+            "cpu_ref" => {
+                tests_inference::run_cpu_f64_reference_test()?;
+                return Ok(());
+            }
+            _ => println!("Unknown ONLY_TEST={only}, running all tests"),
+        }
+    }
+
     tests_basic::run_write_thread_idx(Arc::clone(&dev))?;
     tests_basic::run_vector_add(Arc::clone(&dev))?;
     tests_basic::run_asm_smoke_tests(Arc::clone(&dev))?;

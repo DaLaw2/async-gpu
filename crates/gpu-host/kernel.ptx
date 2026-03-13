@@ -85,44 +85,44 @@
 	.param .b64 _RNvNtCs6QfAnmJhjdZ_11gpu_runtime5panic19send_panic_hostcall_param_2
 )
 ;
-.global .align 1 .b8 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_0[15] = {115, 114, 99, 92, 99, 111, 109, 112, 117, 116, 101, 46, 114, 115};
-.global .align 1 .b8 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_2[16] = {87, 97, 114, 112, 77, 117, 108, 116, 105, 91, 49, 47, 51, 93, 58, 32};
-.global .align 1 .b8 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_3[21] = {72, 69, 76, 76, 79, 95, 70, 82, 79, 77, 95, 51, 50, 95, 76, 65, 78, 69, 83, 33, 33};
-.global .align 1 .b8 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_4[16] = {87, 97, 114, 112, 77, 117, 108, 116, 105, 91, 50, 47, 51, 93, 58, 32};
-.global .align 1 .b8 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_5[20] = {83, 69, 67, 79, 78, 68, 95, 67, 65, 76, 76, 95, 87, 79, 82, 75, 73, 78, 71, 33};
-.global .align 1 .b8 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_6[16] = {87, 97, 114, 112, 77, 117, 108, 116, 105, 91, 51, 47, 51, 93, 58, 32};
-.global .align 1 .b8 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_7[19] = {80, 73, 80, 69, 76, 73, 78, 69, 95, 67, 79, 77, 80, 76, 69, 84, 69, 33, 33};
-.global .align 1 .b8 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_8[15] = {115, 114, 99, 92, 104, 101, 108, 112, 101, 114, 115, 46, 114, 115};
-.global .align 8 .u64 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_9[3] = {generic(anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_8), 14, 107374182815};
-.global .align 1 .b8 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_10[53] = {68, 58, 92, 67, 111, 100, 101, 92, 82, 117, 115, 116, 92, 97, 115, 121, 110, 99, 95, 103, 112, 117, 92, 99, 114, 97, 116, 101, 115, 92, 103, 112, 117, 45, 114, 117, 110, 116, 105, 109, 101, 92, 115, 114, 99, 92, 108, 105, 98, 46, 114, 115};
-.global .align 8 .u64 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_11[3] = {generic(anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_10), 52, 73014444602};
-.global .align 1 .b8 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_12[14] = {115, 116, 114, 101, 115, 115, 58, 32, 112, 104, 97, 115, 101, 49};
-.global .align 1 .b8 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_13[14] = {115, 116, 114, 101, 115, 115, 58, 32, 112, 104, 97, 115, 101, 50};
-.global .align 1 .b8 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_14[14] = {115, 116, 114, 101, 115, 115, 58, 32, 112, 104, 97, 115, 101, 51};
-.global .align 1 .b8 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_15[12] = {87, 97, 114, 112, 70, 117, 116, 117, 114, 101, 58, 32};
-.global .align 1 .b8 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_16[13] = {104, 121, 98, 114, 105, 100, 58, 32, 115, 116, 97, 114, 116};
-.global .align 1 .b8 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_17[12] = {104, 121, 98, 114, 105, 100, 58, 32, 100, 111, 110, 101};
-.global .align 1 .b8 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_18[14] = {112, 105, 112, 101, 108, 105, 110, 101, 58, 32, 100, 111, 110, 101};
-.global .align 8 .u64 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_19[6] = {0, 64, 8, _RNvXs0_NtCs6QfAnmJhjdZ_11gpu_runtime5panicNtB5_8PanicBufNtNtCs9yDKPPKA7vZ_4core3fmt5Write9write_str, _RNvYNtNtCs6QfAnmJhjdZ_11gpu_runtime5panic8PanicBufNtNtCs9yDKPPKA7vZ_4core3fmt5Write10write_charCshxqQX6JOaug_10gpu_kernel, _RNvYNtNtCs6QfAnmJhjdZ_11gpu_runtime5panic8PanicBufNtNtCs9yDKPPKA7vZ_4core3fmt5Write9write_fmtCshxqQX6JOaug_10gpu_kernel};
-.global .align 8 .u64 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_20[3] = {generic(anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_0), 14, 98784250906};
+.global .align 1 .b8 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_1[16] = {87, 97, 114, 112, 77, 117, 108, 116, 105, 91, 49, 47, 51, 93, 58, 32};
+.global .align 1 .b8 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_2[21] = {72, 69, 76, 76, 79, 95, 70, 82, 79, 77, 95, 51, 50, 95, 76, 65, 78, 69, 83, 33, 33};
+.global .align 1 .b8 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_3[16] = {87, 97, 114, 112, 77, 117, 108, 116, 105, 91, 50, 47, 51, 93, 58, 32};
+.global .align 1 .b8 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_4[20] = {83, 69, 67, 79, 78, 68, 95, 67, 65, 76, 76, 95, 87, 79, 82, 75, 73, 78, 71, 33};
+.global .align 1 .b8 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_5[16] = {87, 97, 114, 112, 77, 117, 108, 116, 105, 91, 51, 47, 51, 93, 58, 32};
+.global .align 1 .b8 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_6[19] = {80, 73, 80, 69, 76, 73, 78, 69, 95, 67, 79, 77, 80, 76, 69, 84, 69, 33, 33};
+.global .align 1 .b8 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_7[15] = {115, 114, 99, 92, 104, 101, 108, 112, 101, 114, 115, 46, 114, 115};
+.global .align 8 .u64 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_8[3] = {generic(anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_7), 14, 107374182815};
+.global .align 1 .b8 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_9[53] = {68, 58, 92, 67, 111, 100, 101, 92, 82, 117, 115, 116, 92, 97, 115, 121, 110, 99, 95, 103, 112, 117, 92, 99, 114, 97, 116, 101, 115, 92, 103, 112, 117, 45, 114, 117, 110, 116, 105, 109, 101, 92, 115, 114, 99, 92, 108, 105, 98, 46, 114, 115};
+.global .align 8 .u64 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_10[3] = {generic(anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_9), 52, 73014444602};
+.global .align 1 .b8 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_11[14] = {115, 116, 114, 101, 115, 115, 58, 32, 112, 104, 97, 115, 101, 49};
+.global .align 1 .b8 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_12[14] = {115, 116, 114, 101, 115, 115, 58, 32, 112, 104, 97, 115, 101, 50};
+.global .align 1 .b8 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_13[14] = {115, 116, 114, 101, 115, 115, 58, 32, 112, 104, 97, 115, 101, 51};
+.global .align 1 .b8 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_14[12] = {87, 97, 114, 112, 70, 117, 116, 117, 114, 101, 58, 32};
+.global .align 1 .b8 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_15[13] = {104, 121, 98, 114, 105, 100, 58, 32, 115, 116, 97, 114, 116};
+.global .align 1 .b8 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_16[12] = {104, 121, 98, 114, 105, 100, 58, 32, 100, 111, 110, 101};
+.global .align 1 .b8 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_17[14] = {112, 105, 112, 101, 108, 105, 110, 101, 58, 32, 100, 111, 110, 101};
+.global .align 8 .u64 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_18[6] = {0, 64, 8, _RNvXs0_NtCs6QfAnmJhjdZ_11gpu_runtime5panicNtB5_8PanicBufNtNtCs9yDKPPKA7vZ_4core3fmt5Write9write_str, _RNvYNtNtCs6QfAnmJhjdZ_11gpu_runtime5panic8PanicBufNtNtCs9yDKPPKA7vZ_4core3fmt5Write10write_charCshxqQX6JOaug_10gpu_kernel, _RNvYNtNtCs6QfAnmJhjdZ_11gpu_runtime5panic8PanicBufNtNtCs9yDKPPKA7vZ_4core3fmt5Write9write_fmtCshxqQX6JOaug_10gpu_kernel};
+.global .align 1 .b8 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_19[27] = {115, 114, 99, 92, 99, 111, 109, 112, 117, 116, 101, 95, 116, 114, 97, 110, 115, 102, 111, 114, 109, 101, 114, 46, 114, 115};
+.global .align 8 .u64 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_20[3] = {generic(anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_19), 26, 98784248431};
 .global .align 1 .b8 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_21[24] = {115, 114, 99, 92, 104, 111, 115, 116, 99, 97, 108, 108, 95, 107, 101, 114, 110, 101, 108, 115, 46, 114, 115};
-.global .align 8 .u64 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_22[3] = {generic(anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_0), 14, 90194316441};
-.global .align 8 .u64 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_23[3] = {generic(anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_0), 14, 98784251034};
-.global .align 8 .u64 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_24[3] = {generic(anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_0), 14, 98784250858};
-.global .align 8 .u64 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_25[3] = {generic(anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_0), 14, 124554054556};
-.global .align 8 .u64 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_26[3] = {generic(anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_0), 14, 124554054560};
-.global .align 8 .u64 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_27[3] = {generic(anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_0), 14, 176093662100};
-.global .align 8 .u64 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_28[3] = {generic(anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_0), 14, 176093662088};
-.global .align 8 .u64 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_29[3] = {generic(anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_0), 14, 107374185329};
-.global .align 8 .u64 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_30[3] = {generic(anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_0), 14, 154618825580};
-.global .align 8 .u64 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_31[3] = {generic(anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_0), 14, 107374185318};
-.global .align 8 .u64 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_32[3] = {generic(anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_0), 14, 90194316215};
-.global .align 8 .u64 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_33[3] = {generic(anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_0), 14, 73014446874};
+.global .align 8 .u64 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_22[3] = {generic(anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_19), 26, 90194313966};
+.global .align 8 .u64 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_23[3] = {generic(anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_19), 26, 98784248559};
+.global .align 8 .u64 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_24[3] = {generic(anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_19), 26, 98784248383};
+.global .align 8 .u64 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_25[3] = {generic(anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_19), 26, 124554052075};
+.global .align 8 .u64 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_26[3] = {generic(anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_19), 26, 124554052079};
+.global .align 8 .u64 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_27[3] = {generic(anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_19), 26, 176093659619};
+.global .align 8 .u64 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_28[3] = {generic(anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_19), 26, 176093659607};
+.global .align 8 .u64 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_29[3] = {generic(anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_19), 26, 107374182848};
+.global .align 8 .u64 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_30[3] = {generic(anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_19), 26, 154618823100};
+.global .align 8 .u64 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_31[3] = {generic(anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_19), 26, 107374182838};
+.global .align 8 .u64 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_32[3] = {generic(anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_19), 26, 279172874756};
+.global .align 8 .u64 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_33[3] = {generic(anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_19), 26, 73014444394};
 .global .align 1 .b8 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_34[28] = {116, 101, 115, 116, 32, 112, 97, 110, 105, 99, 32, 102, 114, 111, 109, 32, 71, 80, 85, 32, 116, 104, 114, 101, 97, 100, 32, 48};
 .global .align 8 .u64 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_35[3] = {generic(anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_21), 23, 21474837010};
-.global .align 8 .u64 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_36[3] = {generic(anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_0), 14, 90194316391};
-.global .align 8 .u64 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_37[3] = {generic(anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_0), 14, 98784250984};
-.global .align 8 .u64 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_38[3] = {generic(anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_0), 14, 103079218281};
+.global .align 8 .u64 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_36[3] = {generic(anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_19), 26, 90194313916};
+.global .align 8 .u64 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_37[3] = {generic(anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_19), 26, 98784248509};
+.global .align 8 .u64 anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_38[3] = {generic(anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_19), 26, 103079215806};
 .global .align 1 .b8 anon_$_af48c5f1e1d0ec32796cfd54da966a15_$_14[55] = {32, 105, 110, 100, 101, 120, 32, 111, 117, 116, 32, 111, 102, 32, 98, 111, 117, 110, 100, 115, 58, 32, 116, 104, 101, 32, 108, 101, 110, 32, 105, 115, 32, 192, 18, 32, 98, 117, 116, 32, 116, 104, 101, 32, 105, 110, 100, 101, 120, 32, 105, 115, 32, 192};
 .global .align 1 .b8 anon_$_af48c5f1e1d0ec32796cfd54da966a15_$_25[25] = {97, 116, 116, 101, 109, 112, 116, 32, 116, 111, 32, 100, 105, 118, 105, 100, 101, 32, 98, 121, 32, 122, 101, 114, 111};
 .global .align 1 .b8 anon_$_af48c5f1e1d0ec32796cfd54da966a15_$_27[57] = {97, 116, 116, 101, 109, 112, 116, 32, 116, 111, 32, 99, 97, 108, 99, 117, 108, 97, 116, 101, 32, 116, 104, 101, 32, 114, 101, 109, 97, 105, 110, 100, 101, 114, 32, 119, 105, 116, 104, 32, 97, 32, 100, 105, 118, 105, 115, 111, 114, 32, 111, 102, 32, 122, 101, 114, 111};
@@ -166,7 +166,7 @@
 	st.local.b64 	[%rd2], 0;
 	st.local.b64 	[%rd1+16], 1610612768;
 	st.local.b64 	[%rd1], %rd6;
-	mov.b64 	%rd9, anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_19;
+	mov.b64 	%rd9, anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_18;
 	cvta.global.u64 	%rd10, %rd9;
 	st.local.b64 	[%rd1+8], %rd10;
 	{ // callseq 0, 0
@@ -239,7 +239,7 @@ $L__BB1_6:
 	.param .b64 	param1;
 	.param .b64 	param2;
 	st.param.b64 	[param0], %rd2;
-	mov.b64 	%rd8, anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_11;
+	mov.b64 	%rd8, anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_10;
 	cvta.global.u64 	%rd9, %rd8;
 	st.param.b64 	[param2], %rd9;
 	st.param.b64 	[param1], 56;
@@ -831,7 +831,7 @@ $L__BB3_13:
 	.param .b64 	param1;
 	.param .b64 	param2;
 	st.param.b64 	[param0], %rd3;
-	mov.b64 	%rd8, anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_11;
+	mov.b64 	%rd8, anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_10;
 	cvta.global.u64 	%rd9, %rd8;
 	st.param.b64 	[param2], %rd9;
 	st.param.b64 	[param1], 56;
@@ -932,7 +932,7 @@ $L__BB4_12:
 	add.s64 	%rd29, %rd17, %rd28;
 	st.local.b64 	[%rd2+16], 1610612768;
 	st.local.b64 	[%rd2], %rd16;
-	mov.b64 	%rd30, anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_19;
+	mov.b64 	%rd30, anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_18;
 	cvta.global.u64 	%rd31, %rd30;
 	st.local.b64 	[%rd2+8], %rd31;
 	ld.b64 	%rd32, [%rd29];
@@ -1059,7 +1059,7 @@ $L__BB4_38:
 	st.local.b32 	[%rd1+16], %r17;
 	st.local.v2.b16 	[%rd1+20], {%rs19, %rs20};
 	st.local.b64 	[%rd1], %rd16;
-	mov.b64 	%rd53, anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_19;
+	mov.b64 	%rd53, anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_18;
 	cvta.global.u64 	%rd54, %rd53;
 	st.local.b64 	[%rd1+8], %rd54;
 	ld.b64 	%rd55, [%rd52];
@@ -1118,7 +1118,7 @@ $L__BB4_43:
 	.param .b64 	param1;
 	.param .b64 	param2;
 	st.param.b64 	[param0], %rd6;
-	mov.b64 	%rd63, anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_11;
+	mov.b64 	%rd63, anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_10;
 	cvta.global.u64 	%rd64, %rd63;
 	st.param.b64 	[param2], %rd64;
 	st.param.b64 	[param1], 56;
@@ -1134,7 +1134,7 @@ $L__BB4_44:
 	.param .b64 	param1;
 	.param .b64 	param2;
 	st.param.b64 	[param0], %rd9;
-	mov.b64 	%rd41, anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_11;
+	mov.b64 	%rd41, anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_10;
 	cvta.global.u64 	%rd42, %rd41;
 	st.param.b64 	[param2], %rd42;
 	st.param.b64 	[param1], 56;
@@ -1150,7 +1150,7 @@ $L__BB4_42:
 	.param .b64 	param1;
 	.param .b64 	param2;
 	st.param.b64 	[param0], %rd4;
-	mov.b64 	%rd23, anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_11;
+	mov.b64 	%rd23, anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_10;
 	cvta.global.u64 	%rd24, %rd23;
 	st.param.b64 	[param2], %rd24;
 	st.param.b64 	[param1], 56;
@@ -16401,7 +16401,7 @@ $L__BB16_1:
 	// end inline asm
 	mov.u32 	%r2, %ctaid.x;
 	cvt.u64.u32 	%rd4, %r12;
-	mov.b64 	%rd121, anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_18;
+	mov.b64 	%rd121, anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_17;
 	add.s64 	%rd5, %rd121, %rd4;
 	mov.u32 	%r3, %tid.x;
 	add.s64 	%rd6, %rd118, 16;
@@ -19919,52 +19919,61 @@ $L__BB20_6:
 	.param .u64 .ptr .align 1 gelu_forward_param_3
 )
 {
-	.reg .pred 	%p<3>;
+	.reg .pred 	%p<5>;
 	.reg .b32 	%r<22>;
-	.reg .b64 	%rd<9>;
+	.reg .b64 	%rd<11>;
 
-	ld.param.b64 	%rd3, [gelu_forward_param_0];
-	cvta.to.global.u64 	%rd1, %rd3;
-	ld.param.b64 	%rd4, [gelu_forward_param_1];
-	cvta.to.global.u64 	%rd2, %rd4;
-	ld.param.b32 	%r3, [gelu_forward_param_2];
+	ld.param.b64 	%rd4, [gelu_forward_param_0];
+	cvta.to.global.u64 	%rd1, %rd4;
+	ld.param.b64 	%rd5, [gelu_forward_param_1];
+	cvta.to.global.u64 	%rd2, %rd5;
+	ld.param.b32 	%r5, [gelu_forward_param_2];
 	mov.u32 	%r1, %tid.x;
-	mov.u32 	%r4, %ctaid.x;
-	shl.b32 	%r5, %r4, 8;
-	add.s32 	%r2, %r5, %r1;
-	setp.lt.u32 	%p1, %r2, %r3;
+	mov.u32 	%r6, %ctaid.x;
+	shl.b32 	%r7, %r6, 8;
+	add.s32 	%r2, %r7, %r1;
+	setp.lt.u32 	%p1, %r2, %r5;
 	@%p1 bra 	$L__BB21_4;
 	bra.uni 	$L__BB21_1;
 $L__BB21_4:
-	mul.wide.u32 	%rd5, %r2, 4;
-	add.s64 	%rd6, %rd1, %rd5;
-	ld.global.b32 	%r8, [%rd6];
-	mul.rn.f32 	%r9, %r8, 0f3D372713;
-	mul.rn.f32 	%r10, %r8, %r9;
-	mul.rn.f32 	%r11, %r8, %r10;
-	add.rn.f32 	%r12, %r8, %r11;
-	mul.rn.f32 	%r13, %r12, 0f3F4C422A;
-	add.rn.f32 	%r14, %r13, %r13;
-	mul.rn.f32 	%r7, %r14, 0f3FB8AA3B;
+	cvt.u64.u32 	%rd3, %r2;
+	mul.wide.u32 	%rd6, %r2, 4;
+	add.s64 	%rd7, %rd1, %rd6;
+	ld.global.b32 	%r3, [%rd7];
+	mul.rn.f32 	%r8, %r3, 0f3D372713;
+	mul.rn.f32 	%r9, %r3, %r8;
+	mul.rn.f32 	%r10, %r3, %r9;
+	add.rn.f32 	%r11, %r3, %r10;
+	mul.rn.f32 	%r4, %r11, 0f3F4C422A;
+	setp.gt.f32 	%p2, %r4, 0f41200000;
+	mov.b32 	%r21, 0f40000000;
+	@%p2 bra 	$L__BB21_7;
+	setp.lt.f32 	%p3, %r4, 0fC1200000;
+	mov.b32 	%r21, 0f00000000;
+	@%p3 bra 	$L__BB21_7;
+	add.rn.f32 	%r14, %r4, %r4;
+	mul.rn.f32 	%r13, %r14, 0f3FB8AA3B;
 	// begin inline asm
-	ex2.approx.f32 %r6, %r7;
+	ex2.approx.f32 %r12, %r13;
 	// end inline asm
-	add.rn.f32 	%r15, %r6, 0fBF800000;
-	add.rn.f32 	%r16, %r6, 0f3F800000;
+	add.rn.f32 	%r15, %r12, 0fBF800000;
+	add.rn.f32 	%r16, %r12, 0f3F800000;
 	div.rn.f32 	%r17, %r15, %r16;
-	mul.rn.f32 	%r18, %r8, 0f3F000000;
-	add.rn.f32 	%r19, %r17, 0f3F800000;
-	mul.rn.f32 	%r20, %r18, %r19;
-	add.s64 	%rd7, %rd2, %rd5;
-	st.global.b32 	[%rd7], %r20;
+	add.rn.f32 	%r21, %r17, 0f3F800000;
+$L__BB21_7:
+	mul.rn.f32 	%r18, %r3, 0f3F000000;
+	mul.rn.f32 	%r19, %r18, %r21;
+	shl.b64 	%rd8, %rd3, 2;
+	add.s64 	%rd9, %rd2, %rd8;
+	st.global.b32 	[%rd9], %r19;
 $L__BB21_1:
-	setp.eq.b32 	%p2, %r1, 0;
-	@%p2 bra 	$L__BB21_2;
+	setp.eq.b32 	%p4, %r1, 0;
+	@%p4 bra 	$L__BB21_2;
 	bra.uni 	$L__BB21_3;
 $L__BB21_2:
-	ld.param.b64 	%rd8, [gelu_forward_param_3];
+	ld.param.b64 	%rd10, [gelu_forward_param_3];
 	// begin inline asm
-	atom.global.add.u32 %r21, [%rd8], 1;
+	atom.global.add.u32 %r20, [%rd10], 1;
 	// end inline asm
 $L__BB21_3:
 	ret;
@@ -24731,14 +24740,14 @@ $L__BB28_85:
 	// end inline asm
 	mov.u32 	%r2, %ctaid.x;
 	cvt.u64.u32 	%rd3, %r8;
-	mov.b64 	%rd46, anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_17;
+	mov.b64 	%rd46, anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_16;
 	add.s64 	%rd4, %rd46, %rd3;
 	mov.u32 	%r3, %tid.x;
 	add.s64 	%rd5, %rd42, 16;
 	mad.lo.s32 	%r4, %r8, %r8, 1;
 	mul.wide.u32 	%rd47, %r8, 4;
 	add.s64 	%rd6, %rd44, %rd47;
-	mov.b64 	%rd48, anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_16;
+	mov.b64 	%rd48, anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_15;
 	add.s64 	%rd7, %rd48, %rd3;
 	mov.b16 	%rs5, -1;
 	mov.b32 	%r9, 0;
@@ -25336,7 +25345,7 @@ $L__BB29_87:
 	// end inline asm
 	mov.u32 	%r2, %ctaid.x;
 	cvt.u64.u32 	%rd3, %r14;
-	mov.b64 	%rd64, anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_14;
+	mov.b64 	%rd64, anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_13;
 	add.s64 	%rd4, %rd64, %rd3;
 	mov.u32 	%r3, %tid.x;
 	add.s64 	%rd5, %rd60, 16;
@@ -25345,7 +25354,7 @@ $L__BB29_87:
 	or.b32 	%r5, %r14, -559087616;
 	mul.wide.u32 	%rd65, %r14, 4;
 	add.s64 	%rd6, %rd62, %rd65;
-	mov.b64 	%rd66, anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_13;
+	mov.b64 	%rd66, anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_12;
 	add.s64 	%rd7, %rd66, %rd3;
 	mul.lo.s32 	%r17, %r14, 100;
 	add.s32 	%r18, %r17, -1;
@@ -25356,7 +25365,7 @@ $L__BB29_87:
 	cvt.u32.u64 	%r19, %rd70;
 	mad.lo.s32 	%r20, %r14, 200, %r19;
 	or.b32 	%r6, %r20, 1;
-	mov.b64 	%rd71, anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_12;
+	mov.b64 	%rd71, anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_11;
 	add.s64 	%rd8, %rd71, %rd3;
 	add.s32 	%r7, %r16, 49;
 	and.b32 	%r8, %r4, 6;
@@ -28680,7 +28689,7 @@ $L__BB36_191:
 	.param .b64 	param1;
 	.param .b64 	param2;
 	st.param.b64 	[param0], %rd395;
-	mov.b64 	%rd343, anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_9;
+	mov.b64 	%rd343, anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_8;
 	cvta.global.u64 	%rd344, %rd343;
 	st.param.b64 	[param2], %rd344;
 	st.param.b64 	[param1], 56;
@@ -39159,19 +39168,19 @@ $L__BB65_191:
 	// end inline asm
 	mov.u32 	%r1, %ctaid.x;
 	cvt.u64.u32 	%rd3, %r7;
-	mov.b64 	%rd64, anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_6;
+	mov.b64 	%rd64, anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_5;
 	add.s64 	%rd4, %rd64, %rd3;
-	mov.b64 	%rd65, anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_7;
+	mov.b64 	%rd65, anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_6;
 	add.s64 	%rd5, %rd65, %rd3;
 	mov.u32 	%r2, %tid.x;
 	add.s64 	%rd6, %rd62, 16;
-	mov.b64 	%rd66, anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_4;
+	mov.b64 	%rd66, anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_3;
 	add.s64 	%rd7, %rd66, %rd3;
-	mov.b64 	%rd67, anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_5;
+	mov.b64 	%rd67, anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_4;
 	add.s64 	%rd8, %rd67, %rd3;
-	mov.b64 	%rd68, anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_2;
+	mov.b64 	%rd68, anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_1;
 	add.s64 	%rd9, %rd68, %rd3;
-	mov.b64 	%rd69, anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_3;
+	mov.b64 	%rd69, anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_2;
 	add.s64 	%rd10, %rd69, %rd3;
 	mov.b16 	%rs10, -1;
 	mov.b32 	%r8, 0;
@@ -40046,7 +40055,7 @@ $L__BB66_125:
 	// end inline asm
 	mov.u32 	%r1, %ctaid.x;
 	cvt.u64.u32 	%rd3, %r5;
-	mov.b64 	%rd26, anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_15;
+	mov.b64 	%rd26, anon_$_1f4fad5702405775b0c2ff41b1f4e277_$_14;
 	add.s64 	%rd4, %rd26, %rd3;
 	add.s32 	%r7, %r5, 12;
 	cvt.u64.u32 	%rd5, %r7;

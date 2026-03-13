@@ -260,3 +260,110 @@ kind = "design"
 status = "done"
 depends_on = []
 spawned_by = "user"
+
+# --- host-sdk (public-api) — archived at cycle 204 ---
+
+[[tasks]]
+id = "host-sdk.2"
+theme = "host-sdk"
+title = "Extract reusable API types from gpu-host"
+kind = "design"
+status = "done"
+depends_on = []
+spawned_by = "bs47"
+
+[[tasks]]
+id = "host-sdk.3"
+theme = "host-sdk"
+title = "Standalone example using SDK as library dependency"
+kind = "experiment"
+status = "done"
+depends_on = ["host-sdk.2"]
+spawned_by = "bs38"
+
+[[tasks]]
+id = "host-sdk.4"
+theme = "host-sdk"
+title = "Two additional examples (async-io, compute) with documentation"
+kind = "experiment"
+status = "done"
+depends_on = ["host-sdk.2"]
+spawned_by = "bs47"
+
+[[tasks]]
+id = "host-sdk.5"
+theme = "host-sdk"
+title = "Automate build system — single cargo command"
+kind = "experiment"
+status = "done"
+depends_on = ["host-sdk.2"]
+spawned_by = "bs47"
+
+# --- workspace-consolidation (codebase-health) — archived at cycle 204 ---
+
+[[tasks]]
+id = "workspace.1"
+theme = "workspace-consolidation"
+title = "Consolidate all crates into single Cargo workspace"
+kind = "experiment"
+status = "done"
+depends_on = []
+spawned_by = "user"
+
+[[tasks]]
+id = "workspace.2"
+theme = "workspace-consolidation"
+title = "Deduplicate .cargo/config.toml across kernel crates"
+kind = "experiment"
+status = "done"
+depends_on = ["workspace.1"]
+spawned_by = "user"
+
+[[tasks]]
+id = "workspace.3"
+theme = "workspace-consolidation"
+title = "Single-source nightly toolchain version"
+kind = "experiment"
+status = "done"
+depends_on = ["workspace.1"]
+spawned_by = "user"
+
+# --- build-automation (codebase-health) — archived at cycle 204 ---
+
+[[tasks]]
+id = "build-auto.1"
+theme = "build-automation"
+title = "Auto-generate PTX stub list from crate scan"
+kind = "experiment"
+status = "done"
+depends_on = []
+spawned_by = "user"
+
+[[tasks]]
+id = "build-auto.2"
+theme = "build-automation"
+title = "Single-source CI: generate build.yml from ci-lint.sh or shared config"
+kind = "design"
+status = "done"
+depends_on = ["build-auto.1"]
+spawned_by = "user"
+
+# --- docs (codebase-health) — archived at cycle 204 ---
+
+[[tasks]]
+id = "docs.1"
+theme = "docs"
+title = "Rewrite README.md to reflect current project state"
+kind = "experiment"
+status = "done"
+depends_on = []
+spawned_by = "user"
+
+[[tasks]]
+id = "docs.2"
+theme = "docs"
+title = "Add doc-comments to undocumented public APIs"
+kind = "experiment"
+status = "done"
+depends_on = []
+spawned_by = "user"

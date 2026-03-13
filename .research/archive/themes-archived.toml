@@ -62,3 +62,33 @@ title = "Research workflow improvements for routine tasks"
 status = "completed"
 spawned_by = "user"
 epic = "codebase-health"
+
+# --- Archived at cycle 204 ---
+
+[[themes]]
+id = "host-sdk"
+title = "Extract reusable host-side SDK library from gpu-host"
+status = "completed"
+spawned_by = "bs38"
+epic = "public-api"
+
+[[themes]]
+id = "workspace-consolidation"
+title = "Consolidate workspace, configs, and toolchain version"
+status = "completed"
+spawned_by = "user"
+epic = "codebase-health"
+
+[[themes]]
+id = "build-automation"
+title = "Build system automation — PTX stubs, CI sync"
+status = "completed"
+spawned_by = "user"
+epic = "codebase-health"
+
+[[themes]]
+id = "docs"
+title = "Documentation — README, API docs, architecture"
+status = "completed"
+spawned_by = "user"
+epic = "codebase-health"

@@ -11,15 +11,15 @@ status = "running"     # ready | running | blocked | completed
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = ""
-last_summary = "mixed-precision.2 done: BF16 inference 0/3 top-1 match vs f32 (same as f16). 30% faster (24ms vs 35ms). mixed-precision theme criteria: 1/2 met (GEMM OK, inference NOT). Next: brainstorm to assess theme completion and plan next steps."
+current_task_id = "tf32-mma.1"
+last_summary = "bs47 standard: un-parked host-sdk, spawned tf32-mma theme (decision gate for gpu-perf criteria 3+4). Next: tf32-mma.1 (TF32 MMA kernel), then host-sdk.2 (API design)."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 46
+brainstorm_seq = 47
 review_seq = 5
 
 # Brainstorm trigger control
-last_brainstorm_at_completed = 177
+last_brainstorm_at_completed = 178
 brainstorm_interval = 3
 
 # ============================================================
@@ -98,7 +98,7 @@ success_criteria = [
 [[themes]]
 id = "mixed-precision"
 title = "BF16/TF32 mixed precision Tensor Core inference"
-status = "active"
+status = "completed"
 spawned_by = "bs45"
 epic = "gpu-perf"
 goal = "Implement BF16 or TF32 MMA GEMM that matches f32 FMA inference quality"
@@ -106,11 +106,14 @@ success_criteria = [
     "BF16 or TF32 MMA GEMM matches gemm_f32 within acceptable tolerance for all GPT-2 dims",
     "Mixed-precision inference produces same top-5 tokens as f32 FMA for 3+ prompts",
 ]
+# Outcome: Criterion 1 MET (bf16 vs f16 max divergence 0.2042). Criterion 2 NOT MET —
+# bf16 (7-bit mantissa) causes top-5 divergence over 12 layers, same as f16 (10-bit).
+# BF16 is 30% faster than f32 FMA. TF32 (19-bit) would be needed for inference quality.
 
 [[themes]]
 id = "host-sdk"
 title = "Extract reusable host-side SDK library from gpu-host"
-status = "parked"
+status = "active"
 spawned_by = "bs38"
 epic = "public-api"
 goal = "Extract a library crate from gpu-host that provides clean API for kernel management, hostcall runtime, and memory management"
@@ -118,6 +121,18 @@ success_criteria = [
     "gpu-host exports a library crate with public GpuDevice + KernelBuilder + HostcallRuntime types",
     "A standalone example can use gpu-host as a library dependency",
     "All existing tests continue to pass",
+]
+
+[[themes]]
+id = "tf32-mma"
+title = "TF32 Tensor Core MMA experiment"
+status = "active"
+spawned_by = "bs47"
+epic = "gpu-perf"
+goal = "Test whether TF32 MMA (10-bit mantissa, f32 exponent) provides sufficient precision for 12-layer inference"
+success_criteria = [
+    "TF32 MMA GEMM matches gemm_f32 within acceptable tolerance for GPT-2 dims",
+    "TF32 inference produces same top-5 tokens as f32 FMA for 3+ prompts (decision gate)",
 ]
 
 # ============================================================
@@ -294,9 +309,91 @@ research_questions = [
     "Does the example work from a clean workspace setup?",
 ]
 
+# --- tf32-mma (gpu-perf) ---
+
+[[tasks]]
+id = "tf32-mma.1"
+theme = "tf32-mma"
+title = "TF32 MMA GEMM kernel (m16n8k8)"
+kind = "experiment"
+status = "active"
+depends_on = []
+spawned_by = "bs47"
+research_questions = [
+    "Does sm_86 support mma.sync with .tf32 qualifier?",
+    "Does TF32 MMA GEMM match gemm_f32 within acceptable tolerance for GPT-2 dims?",
+    "How does TF32 precision compare to bf16 and f16 MMA?",
+]
+
+[[tasks]]
+id = "tf32-mma.2"
+theme = "tf32-mma"
+title = "TF32 inference validation (decision gate)"
+kind = "experiment"
+status = "pending"
+depends_on = ["tf32-mma.1"]
+spawned_by = "bs47"
+research_questions = [
+    "Does TF32 MMA inference produce same top-5 as f32 FMA for 3+ prompts?",
+    "Decision gate: if fails, park gpu-perf criteria 3+4",
+]
+
+# --- host-sdk (public-api) ---
+
+[[tasks]]
+id = "host-sdk.2"
+theme = "host-sdk"
+title = "Extract reusable API types from gpu-host"
+kind = "design"
+status = "pending"
+depends_on = []
+spawned_by = "bs47"
+research_questions = [
+    "What types should be public: GpuDevice, KernelBuilder, HostcallRuntime?",
+    "Can gpu-host be both a lib crate and a bin crate?",
+    "What is the minimal public API surface?",
+]
+
+[[tasks]]
+id = "host-sdk.4"
+theme = "host-sdk"
+title = "Two additional examples (async-io, compute) with documentation"
+kind = "experiment"
+status = "pending"
+depends_on = ["host-sdk.2"]
+spawned_by = "bs47"
+research_questions = [
+    "What is the simplest async-io example demonstrating GPU file access?",
+    "What is the simplest compute example demonstrating GPU kernel execution?",
+]
+
+[[tasks]]
+id = "host-sdk.5"
+theme = "host-sdk"
+title = "Automate build system — single cargo command"
+kind = "experiment"
+status = "pending"
+depends_on = ["host-sdk.2"]
+spawned_by = "bs47"
+research_questions = [
+    "Can a build.rs compile the kernel PTX automatically?",
+    "How to handle the nightly + nvptx64 toolchain requirement?",
+]
+
 # ============================================================
 # Brainstorms (last 3 only — older brainstorms archived)
 # ============================================================
+
+[[brainstorms]]
+seq = 47
+at_cycle = 178
+trigger = "All themes completed/parked, no active tasks in either epic"
+level = "standard"
+new_tasks_spawned = ["tf32-mma.1", "tf32-mma.2", "host-sdk.2", "host-sdk.4", "host-sdk.5"]
+new_themes_spawned = ["tf32-mma"]
+themes_parked = []
+themes_completed = ["mixed-precision"]
+key_insight = "mixed-precision complete (1/2 criteria). bf16/f16 both fail 12-layer inference. TF32 (10-bit mantissa like f16) is bounded experiment — decision gate for gpu-perf criteria 3+4. Un-parked host-sdk for public-api (user wants reusable utilities)."
 
 [[brainstorms]]
 seq = 46

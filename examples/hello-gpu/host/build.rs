@@ -21,11 +21,7 @@ fn main() {
     // the child build. We also clear RUSTC and RUSTFLAGS for the same reason.
     // The kernel's .cargo/config.toml and rust-toolchain.toml handle everything.
     let status = Command::new("cargo")
-        .args([
-            "+nightly-2026-03-11",
-            "build",
-            "--release",
-        ])
+        .args(["+nightly-2026-03-11", "build", "--release"])
         .current_dir(&kernel_dir)
         .env_remove("CARGO")
         .env_remove("RUSTC")
@@ -37,7 +33,23 @@ fn main() {
         .expect("Failed to run cargo for kernel compilation. Is nightly-2026-03-11 installed?");
 
     if !status.success() {
-        panic!("Kernel PTX compilation failed");
+        // During `cargo clippy` or `cargo check`, the kernel toolchain may not
+        // be available.  Fall back to a previously-built PTX if one exists so
+        // that the host crate can still be checked without the full kernel
+        // build pipeline.
+        let ptx_fallback = kernel_dir
+            .join("target")
+            .join("nvptx64-nvidia-cuda")
+            .join("release")
+            .join("hello_gpu_kernel.ptx");
+        if ptx_fallback.exists() {
+            eprintln!(
+                "cargo:warning=Kernel compilation failed; using cached PTX at {:?}",
+                ptx_fallback
+            );
+        } else {
+            panic!("Kernel PTX compilation failed and no cached PTX found");
+        }
     }
 
     // Find the generated PTX file

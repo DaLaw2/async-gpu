@@ -2,11 +2,18 @@
 name = "gpu-host"
 version = "0.1.0"
 edition = "2021"
+description = "Host-side GPU runtime: kernel management, hostcall communication, pinned memory"
+
+[[bin]]
+name = "gpu-host"
+required-features = ["gpt2"]
+
+[features]
+default = ["gpt2"]
+gpt2 = ["dep:safetensors", "dep:tiktoken-rs"]
 
 [dependencies]
 cudarc = { version = "0.12", features = ["cuda-12060"] }
 gpu-protocol = { path = "../gpu-protocol" }
-safetensors = "0.7"
-tiktoken-rs = "0.6"
-
-
+safetensors = { version = "0.7", optional = true }
+tiktoken-rs = { version = "0.6", optional = true }

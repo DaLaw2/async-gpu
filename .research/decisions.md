@@ -141,3 +141,13 @@ Record important technical decisions here as they emerge from research.
 - **Layout**: `[tag:u32][category:u16][errno:u16][thread_idx:u16][block_idx:u16][msg_len:u32][msg:48B]` = 64 bytes.
 - **Alternatives**: (a) Embed in hostcall buffer header — breaks protocol, not composable. (b) Hostcall error channel — adds latency, trap still kills context. (c) Global error buffer — not composable with concurrent launches.
 - **Sources**: gpu-error-propagation.1-c181
+
+## ADR-011: gpu-host as library + binary with feature-gated model/tokenizer
+
+- **Date**: 2026-03-14
+- **Status**: accepted (implemented in host-sdk.2)
+- **Context**: gpu-host was a binary-only crate with test runner. Users need it as a reusable library for kernel management, hostcall, and memory. Model/tokenizer are GPT-2-specific, not core SDK.
+- **Decision**: gpu-host is both library (lib.rs) and binary (main.rs). Core modules (runtime, memory, hostcall, error) always available. model/tokenizer gated behind `feature = "gpt2"` (default-on). Convenience re-exports at crate root: `GpuRuntime`, `HostcallBuffer`, `MappedBuffer`, `GpuHostError`.
+- **Rationale**: (1) Library consumers get lean SDK without GPT-2 deps. (2) Binary test runner still works with default features. (3) No breaking changes — existing usage unchanged. (4) Re-exports reduce import verbosity.
+- **Alternatives**: (a) Separate crate — duplicates code, harder to maintain. (b) No feature gates — forces safetensors+tiktoken on all consumers.
+- **Sources**: host-sdk.2-c193

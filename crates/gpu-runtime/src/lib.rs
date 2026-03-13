@@ -279,9 +279,7 @@ pub mod hostcall {
             if ctrl & CONTROL_READY != 0 {
                 if ctrl & CONTROL_ERROR != 0 {
                     // Host reported an error — decode from payload slot 0
-                    let slot0 = core::ptr::read_volatile(
-                        pkt.add(PKT_OFF_PAYLOAD) as *const u64,
-                    );
+                    let slot0 = core::ptr::read_volatile(pkt.add(PKT_OFF_PAYLOAD) as *const u64);
                     // Release packet before returning error
                     hc_push_with(free_ptr, buf, pkt_idx, num_shards, shard_array_off);
                     return Err(GpuError::from_encoded(slot0));
@@ -1043,9 +1041,7 @@ pub mod prelude {
     };
 
     // --- Error types ---
-    pub use gpu_protocol::{
-        GpuError, GpuKernelResult, TAG_ERR, TAG_OK, TAG_UNINIT,
-    };
+    pub use gpu_protocol::{GpuError, GpuKernelResult, TAG_ERR, TAG_OK, TAG_UNINIT};
 
     // --- Commonly needed protocol constants ---
     pub use gpu_protocol::{

@@ -9,26 +9,18 @@ completed_tasks = 168
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
-current_mode = "think"
-current_step = "think.triage"
+current_mode = "do"
+current_step = "do.select"
 current_task_id = ""
-last_summary = "gpu-inference epic completed. full-inference theme completed. New gpu-perf epic created (MMA kernel fix, KV cache). public-api epic active. Next: brainstorm to spawn themes/tasks for gpu-perf."
+last_summary = "bs43 done. Spawned 3 themes: mma-fix (gpu-perf, 3 tasks), kv-cache (gpu-perf, 3 tasks), repo-cleanup (public-api, 3 tasks). MMA bug likely host-side grid_dim or bar_sync scope. repo-cleanup.1 (PTX gitignore + model dedup) can run in parallel with mma-fix."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 42
+brainstorm_seq = 43
 review_seq = 5
 
 # Brainstorm trigger control
 last_brainstorm_at_completed = 168
 brainstorm_interval = 3
-
-# ============================================================
-# File Naming Convention
-# ============================================================
-# Brainstorm:  brainstorm/bs{seq}-{role}.md, bs{seq}-synthesis.md
-# Task:        tasks/{task_id}-c{cycle}.md     (e.g., tasks/toolchain.1-c3.md)
-# Review:      reviews/rv{seq}-{task_id}-{role}.md, rv{seq}-{task_id}-synthesis.md
-# Rework:      new task ID with .{n} suffix    (e.g., toolchain.4.1)
 
 # ============================================================
 # Epics (active only — completed epics archived in archive/)
@@ -63,6 +55,44 @@ success_criteria = [
 # ============================================================
 
 [[themes]]
+id = "mma-fix"
+title = "Fix Tensor Core MMA kernel for GPT-2 dimensions"
+status = "active"
+spawned_by = "bs43"
+epic = "gpu-perf"
+goal = "Diagnose and fix full_gemm_f32in to produce correct results at 768x768+"
+success_criteria = [
+    "full_gemm_f32in matches gemm_f32 output for 768x768, 768x2304, 768x3072, 3072x768",
+    "MMA-based inference produces same top-5 tokens as f32 FMA for 3+ prompts",
+]
+
+[[themes]]
+id = "kv-cache"
+title = "KV cache for efficient autoregressive generation"
+status = "active"
+spawned_by = "bs43"
+epic = "gpu-perf"
+goal = "Implement KV cache to eliminate redundant recomputation in generation loop"
+success_criteria = [
+    "Per-step forward pass only processes new token (not full sequence)",
+    "KV-cached output matches non-cached output for 50+ tokens",
+    "Per-token latency < 20ms",
+]
+
+[[themes]]
+id = "repo-cleanup"
+title = "Repository cleanup + example expansion"
+status = "active"
+spawned_by = "bs43"
+epic = "public-api"
+goal = "Remove tracked build artifacts, eliminate duplicate files, add 2+ standalone examples"
+success_criteria = [
+    "No PTX files tracked in git",
+    "No duplicate model files",
+    "At least 3 working examples (including hello-gpu) with documentation",
+]
+
+[[themes]]
 id = "host-sdk"
 title = "Extract reusable host-side SDK library from gpu-host"
 status = "active"
@@ -78,6 +108,134 @@ success_criteria = [
 # ============================================================
 # Tasks (pending/active only — done tasks archived)
 # ============================================================
+
+# --- mma-fix (gpu-perf) ---
+
+[[tasks]]
+id = "mma-fix.1"
+theme = "mma-fix"
+title = "Diagnose MMA kernel failure at 768x768"
+kind = "investigation"
+status = "pending"
+depends_on = []
+spawned_by = "bs43"
+research_questions = [
+    "Does full_gemm (f16x2 input) also fail at 768x768, or only full_gemm_f32in?",
+    "Is the host-side grid_dim.y correctly set for large N?",
+    "Does bar_sync() generate block-level or warp-level sync?",
+    "What do shared memory contents look like for tile (0,0) vs (0,1)?",
+]
+
+[[tasks]]
+id = "mma-fix.2"
+theme = "mma-fix"
+title = "Fix and validate MMA GEMM for all GPT-2 dimensions"
+kind = "experiment"
+status = "pending"
+depends_on = ["mma-fix.1"]
+spawned_by = "bs43"
+research_questions = [
+    "Does the fix produce correct results for 768x768, 768x2304, 768x3072, 3072x768?",
+    "Does the fix match gemm_f32 reference within atol=0.1 (f16 precision)?",
+]
+
+[[tasks]]
+id = "mma-fix.3"
+theme = "mma-fix"
+title = "MMA inference end-to-end validation"
+kind = "experiment"
+status = "pending"
+depends_on = ["mma-fix.2"]
+spawned_by = "bs43"
+research_questions = [
+    "Does MMA inference produce same top-5 tokens as f32 FMA for 3+ prompts?",
+    "What is the per-token latency with MMA vs f32 FMA?",
+]
+
+# --- kv-cache (gpu-perf) ---
+
+[[tasks]]
+id = "kv-cache.1"
+theme = "kv-cache"
+title = "KV cache architecture and memory layout design"
+kind = "design"
+status = "pending"
+depends_on = []
+spawned_by = "bs43"
+research_questions = [
+    "What is the optimal device-side buffer layout for 12-layer KV cache?",
+    "How much GPU memory is needed for max_seq=128 vs 1024?",
+    "What kernel changes are needed for cache-append and cached attention?",
+]
+
+[[tasks]]
+id = "kv-cache.2"
+theme = "kv-cache"
+title = "Implement KV cache for single-layer attention"
+kind = "experiment"
+status = "pending"
+depends_on = ["kv-cache.1"]
+spawned_by = "bs43"
+research_questions = [
+    "Does cached attention output match non-cached for a single layer?",
+    "What is the latency improvement for single-layer cached vs non-cached?",
+]
+
+[[tasks]]
+id = "kv-cache.3"
+theme = "kv-cache"
+title = "Full 12-layer KV-cached inference"
+kind = "experiment"
+status = "pending"
+depends_on = ["kv-cache.2"]
+spawned_by = "bs43"
+research_questions = [
+    "Does 12-layer cached output match non-cached for 50+ tokens?",
+    "What is the per-token latency with KV cache?",
+]
+
+# --- repo-cleanup (public-api) ---
+
+[[tasks]]
+id = "repo-cleanup.1"
+theme = "repo-cleanup"
+title = "Gitignore PTX + remove duplicate model file"
+kind = "experiment"
+status = "pending"
+depends_on = []
+spawned_by = "bs43"
+research_questions = [
+    "Are any PTX files referenced by path in code that would break after git rm --cached?",
+    "Which model path does inference code reference — root or crate-local?",
+]
+
+[[tasks]]
+id = "repo-cleanup.2"
+theme = "repo-cleanup"
+title = "Extract async-io example from pipeline tests"
+kind = "experiment"
+status = "pending"
+depends_on = ["repo-cleanup.1"]
+spawned_by = "bs43"
+research_questions = [
+    "Can the file transform pipeline become a standalone example using gpu-host public API?",
+    "What minimal kernel subset is needed for the example?",
+]
+
+[[tasks]]
+id = "repo-cleanup.3"
+theme = "repo-cleanup"
+title = "Extract compute example from search/GEMM tests"
+kind = "experiment"
+status = "pending"
+depends_on = ["repo-cleanup.1"]
+spawned_by = "bs43"
+research_questions = [
+    "Can vector search or GEMM become a standalone example?",
+    "What is the simplest compute-focused example that demonstrates GPU kernels?",
+]
+
+# --- host-sdk (public-api) ---
 
 [[tasks]]
 id = "host-sdk.3"
@@ -97,15 +255,15 @@ research_questions = [
 # ============================================================
 
 [[brainstorms]]
-seq = 40
-at_cycle = 161
-trigger = "Interval (9 tasks since last brainstorm) + decision gate full-inference.5"
+seq = 43
+at_cycle = 169
+trigger = "New gpu-perf epic + user requests cleanup/examples + Product Ready"
 level = "standard"
-new_tasks_spawned = ["full-inference.5.1", "full-inference.6"]
-new_themes_spawned = []
+new_tasks_spawned = ["mma-fix.1", "mma-fix.2", "mma-fix.3", "kv-cache.1", "kv-cache.2", "kv-cache.3", "repo-cleanup.1", "repo-cleanup.2", "repo-cleanup.3"]
+new_themes_spawned = ["mma-fix", "kv-cache", "repo-cleanup"]
 themes_parked = []
 themes_completed = []
-key_insight = "MMA already uses f32 accumulation — NaN comes from f16 range overflow (>65504) during cvt.rn.f16.f32 input conversion, not f16 accumulation. Pure f32 GEMM is fastest path to certainty. Decision gate deferred until f32 GEMM validates precision hypothesis. GPT-2 small may not predict 'Paris' even in PyTorch — need reference output."
+key_insight = "MMA bug likely host-side grid_dim or bar_sync scope, not fragment indexing. KV cache design can parallel with MMA fix. repo-cleanup (PTX gitignore + model dedup + examples) is independent work."
 
 [[brainstorms]]
 seq = 42

@@ -48,6 +48,7 @@ pub struct CannedStdin {
 }
 
 impl CannedStdin {
+    /// Create a `CannedStdin` that returns `data` on first read, then EOF.
     pub fn new(data: Vec<u8>) -> Self {
         Self {
             data,
@@ -124,17 +125,23 @@ impl std::error::Error for HostcallError {}
 
 /// Hostcall buffer handle with both host and device pointers.
 pub struct HostcallBuffer {
+    /// Host-side pointer to the pinned hostcall buffer.
     pub host_ptr: *mut u8,
+    /// Device-side pointer to the hostcall buffer (for kernel launch args).
     pub dev_ptr: sys::CUdeviceptr,
+    /// Total size of the hostcall buffer in bytes.
     pub size: usize,
+    /// Number of packet slots in the buffer.
     pub num_packets: u16,
     /// Number of shards (0 = legacy unsharded mode).
     pub num_shards: u32,
     /// Packets assigned to each shard (only meaningful when num_shards > 0).
     pub pkts_per_shard: u32,
-    /// Sideband buffer for bulk data transfer (>56 bytes).
+    /// Host-side pointer to the sideband buffer for bulk data transfer (>56 bytes).
     pub sideband_host_ptr: *mut u8,
+    /// Device-side pointer to the sideband buffer (for kernel launch args).
     pub sideband_dev_ptr: sys::CUdeviceptr,
+    /// Total size of the sideband buffer in bytes.
     pub sideband_size: usize,
 }
 

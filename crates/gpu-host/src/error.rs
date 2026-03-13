@@ -19,9 +19,19 @@ pub enum GpuHostError {
     /// GPU kernel function not found in loaded PTX module.
     KernelNotFound(&'static str),
     /// Test verification failed (expected value mismatch).
-    Verification { test: &'static str, detail: String },
+    Verification {
+        /// Name of the test that failed.
+        test: &'static str,
+        /// Description of the mismatch.
+        detail: String,
+    },
     /// Operation timed out waiting for GPU response.
-    Timeout { test: &'static str, detail: String },
+    Timeout {
+        /// Name of the test that timed out.
+        test: &'static str,
+        /// Description of the timeout context.
+        detail: String,
+    },
     /// Hostcall buffer allocation error.
     Hostcall(crate::hostcall::HostcallError),
     /// GPU kernel returned an error via the result buffer.

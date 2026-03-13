@@ -10,8 +10,8 @@
 //! - [`error`] — Error types ([`GpuHostError`])
 //!
 //! # Optional modules (feature-gated)
-//! - [`model`] — GPT-2 weight loading from safetensors (feature = `gpt2`)
-//! - [`tokenizer`] — GPT-2 BPE tokenizer (feature = `gpt2`)
+//! - `model` — GPT-2 weight loading from safetensors (feature = `gpt2`)
+//! - `tokenizer` — GPT-2 BPE tokenizer (feature = `gpt2`)
 
 #![allow(clippy::needless_range_loop)]
 

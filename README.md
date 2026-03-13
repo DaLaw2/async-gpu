@@ -37,36 +37,97 @@ The `#[warp_async]` proc macro compiles this into a warp-cooperative state machi
 
 ### Prerequisites
 
-- [Rust](https://rustup.rs/) (nightly toolchain auto-installed via `rust-toolchain.toml`)
-- NVIDIA GPU (SM 70+) with CUDA driver
+- [Rust](https://rustup.rs/) with nightly toolchain: `rustup toolchain install nightly-2026-03-11`
+- nvptx64 target: `rustup target add nvptx64-nvidia-cuda --toolchain nightly-2026-03-11`
+- Rust nightly src (for `-Zbuild-std`): `rustup component add rust-src --toolchain nightly-2026-03-11`
+- NVIDIA GPU (SM 70+) with CUDA 12.x driver
 
-### Run
+### Run an Example
+
+Each example is self-contained with automated PTX compilation via `build.rs`:
 
 ```bash
 git clone https://github.com/DaLaw2/async-gpu.git
 cd async-gpu
-./run-hello-gpu.sh        # Linux/macOS
-run-hello-gpu.bat          # Windows
+
+# Hello GPU — vector add, GPU print, file I/O, bulk transfer
+cargo run --manifest-path examples/hello-gpu/host/Cargo.toml
+
+# Async I/O — multi-file write pipeline + read-transform-write
+cargo run --manifest-path examples/async-io/host/Cargo.toml
+
+# Vector Math — SAXPY, dot product, softmax (pure GPU compute)
+cargo run --manifest-path examples/vector-math/host/Cargo.toml
 ```
 
-One command. The build script compiles the GPU kernel to PTX, builds the host binary, and runs four demos: vector addition, GPU-to-host print, file I/O from GPU, and bulk sideband transfer.
-
 <details>
-<summary>Manual build (or run the full test suite)</summary>
+<summary>Run the full test suite (includes GPT-2 inference)</summary>
 
 ```bash
-# Build all GPU kernels
-cd crates/gpu-kernel
-cargo build --release
+# Build all GPU kernels (requires nightly toolchain)
+bash scripts/ci-lint.sh
 
-# Copy PTX to host crate
-cp target/nvptx64-nvidia-cuda/release/gpu_kernel.ptx ../gpu-host/kernel.ptx
-
-# Run the full test suite
-cd ../gpu-host
+# Run the full test suite (downloads GPT-2 weights on first run)
+cd crates/gpu-host
 cargo run --release
 ```
 </details>
+
+## Examples
+
+All examples use the **gpu-host SDK** — three core types for GPU programming:
+
+| Type | Purpose |
+|------|---------|
+| `GpuRuntime` | Device init, PTX loading, kernel launch, data transfer |
+| `HostcallBuffer` | GPU-host RPC communication (print, file I/O, stdin) |
+| `MappedBuffer<T>` | RAII pinned device-mapped memory (auto-freed on drop) |
+
+### hello-gpu — Hostcall Basics
+
+Four demos: vector addition (pure compute), GPU-to-host print, file write from GPU, and bulk sideband read.
+
+### async-io — Multi-Step File I/O
+
+Write pipeline: GPU creates 3 files in sequence. Transform pipeline: GPU reads a file, uppercases on-device, writes result — all from one kernel launch.
+
+### vector-math — Pure GPU Compute
+
+SAXPY, dot product (GPU multiply + CPU reduce), and softmax (multi-pass GPU-CPU cooperation with numerically stable exp via PTX `ex2.approx.ftz.f32`).
+
+## Real Rust `std` on GPU
+
+GPU kernels can use **actual Rust standard library** types and traits — not custom wrappers:
+
+```rust
+// This runs on the GPU, using real std
+use std::io::BufRead;
+
+println!("[GPU] Hello from Rust std on GPU!");
+
+let mut data = Vec::new();
+for i in 0..10 {
+    data.push(format!("item-{}", i));
+}
+
+let file = std::fs::File::create("gpu_output.txt")?;
+std::io::Write::write_all(&mut &file, b"Written from GPU")?;
+
+let line = std::io::stdin().lock().lines().next().unwrap()?;
+println!("[GPU] Read from stdin: {}", line);
+```
+
+This works via a **patched std** (`-Zbuild-std=std`) with a CUDA platform adaptation layer (PAL) that routes `sys` calls through the hostcall protocol. The `gpu-libc` crate provides the libc shim.
+
+**What works**: `println!`, `format!`, `Vec`, `String`, `Box`, `std::fs::File` (create/read/write), `std::io::stdin().read_line()`, `?` operator with `std::io::Error`.
+
+## GPU Error Handling
+
+GPU kernels can use `?` and return `Result<T, E>` to the host:
+
+- Hostcall errors propagate as `Result`, not panic
+- Host receives structured error info (error type + message)
+- `std::io` and `std::fs` errors produce proper `std::io::Error`
 
 ## Demos
 
@@ -95,68 +156,41 @@ A single kernel launch where the GPU self-coordinates an 8-step I/O pipeline + p
 
 ```
 --- Vector Similarity Search ---
-  [HOST] BULK READ: fd=1 51208 bytes read   (100 vectors × 128 dims)
+  [HOST] BULK READ: fd=1 51208 bytes read   (100 vectors x 128 dims)
   [HOST] BULK READ: fd=2 516 bytes read     (query vector)
   [HOST] BULK WRITE: fd=3 84 bytes written  (top-K results)
   Elapsed: 6.434ms
-    rank 1: id=42 score=1.0000   ← exact match
+    rank 1: id=42 score=1.0000   <- exact match
     rank 2: id=82 score=0.2103
     rank 3: id=18 score=0.0913
 ```
 
 ### GPT-2 Inference (124M Parameters)
 
-End-to-end transformer inference on GPU — real HuggingFace weights, custom BPE tokenizer, 12 transformer layers, greedy autoregressive generation. All compute kernels written in pure Rust with inline PTX assembly.
+End-to-end transformer inference — real HuggingFace weights, custom BPE tokenizer, 12 transformer layers, KV-cached autoregressive generation. All compute kernels in pure Rust with inline PTX.
 
 ```
---- Greedy autoregressive generation ---
-  [1/3] Prompt: "The capital of France is" → 5 tokens, generating 50
+--- Greedy autoregressive generation (with KV cache) ---
+  [1/3] Prompt: "The capital of France is" -> 5 tokens, generating 50
   Generated: " the capital of the French Republic, and the capital of
   the French Republic is the capital of the French Republic..."
-  Time: 7148ms total, 143ms/token
-  PASSED (50 tokens, no NaN)
-
-  [2/3] Prompt: "Once upon a time, there was a" → 8 tokens, generating 50
-  Generated: " man who was a man of great wealth and power. He was a
-  man of great wealth and power..."
-  Time: 7077ms total, 142ms/token
-  PASSED (50 tokens, no NaN)
-
-  [3/3] Prompt: "The meaning of life is" → 5 tokens, generating 50
-  Generated: " not the same as the meaning of death. The meaning of
-  life is not the same as the meaning of death..."
-  Time: 7140ms total, 143ms/token
+  Time: 3400ms total, 68ms/token  (2.07x faster with KV cache)
   PASSED (50 tokens, no NaN)
 ```
 
-Pipeline: token embedding → 12× (LayerNorm → Multi-Head FlashAttention → FFN with GELU → residual connections) → final LayerNorm → LM head (CPU). Greedy decoding generates coherent English at 143ms/token (f32 FMA, no KV cache, full recompute each step). Single-layer output matches CPU f64 reference within atol=0.01.
+Pipeline: token embedding -> 12x (LayerNorm -> Multi-Head FlashAttention with KV cache -> FFN with GELU -> residual connections) -> final LayerNorm -> LM head (CPU). KV cache eliminates redundant recomputation — only the new token passes through the model per generation step.
 
 GPU compute kernels — all in Rust inline PTX, no CUDA C++ or cuBLAS:
 
 | Kernel | Implementation |
 |--------|---------------|
-| **GEMM** | Pure f32 FMA with shared memory tiling, column-major weights. Handles arbitrary dimensions (768×768, 768×2304, 768×3072). |
-| **FlashAttention** | Tiled attention with online softmax (numerically stable), causal masking, multi-head support. Scales to seq=128+. |
+| **GEMM** | Pure f32 FMA with shared memory tiling, column-major weights. Handles arbitrary dimensions (768x768, 768x2304, 768x3072). |
+| **FlashAttention** | Tiled attention with online softmax (numerically stable), causal masking, multi-head support, KV cache. |
 | **LayerNorm** | Shared-memory parallel reduction for mean + variance, per-element affine transform. |
 | **GELU** | Numerically stable tanh approximation with overflow clamping via `ex2.approx.f32` PTX. |
 | **Softmax** | Shared-memory max reduction + exp-sum reduction, numerically stable. |
 | **Embedding** | Token + positional embedding lookup with element-wise addition. |
-
-### GPU-Driven Multi-Step Pipeline with Branching
-
-The GPU autonomously chooses processing paths based on parameters and hostcall results:
-
-```
---- Autonomous Pipeline (Mode 1: read + classify) ---
-    [GPU] auto: start
-  [HOST] FILE OPEN: "gpu_autonomous.txt" flags=0 -> fd=1
-  [HOST] FILE READ: fd=1 21 bytes read
-  [HOST] FILE CLOSE: fd=1 closed
-    [GPU] auto: large-payload          ← GPU decided: 21 bytes > 10
-    [GPU] auto: done
-```
-
-Three modes: file write pipeline (3 hostcall steps), read + classify (4 steps + GPU-decided branch), roundtrip verification (6 steps + GPU-decided verify). All generated from `#[warp_async]` with `match` + `if/else`.
+| **KV Cache** | Append-only cache for key/value tensors, avoids recomputing past tokens. |
 
 ## How It Works
 
@@ -164,18 +198,21 @@ Three modes: file write pipeline (3 hostcall steps), read + classify (4 steps + 
 +------------------------------------------------------+
 |  GPU Kernel (nvptx64, Rust nightly)                  |
 |                                                      |
-|  #[warp_async]  ──►  WarpFuture state machine        |
+|  use std::{fs, io, vec};  // real Rust std on GPU    |
+|  #[warp_async]  -->  WarpFuture state machine        |
 |    match/if/loop       (auto-generated)              |
-|         │                                            |
+|         |                                            |
 |  gpu-runtime: hostcall helpers, WarpFuture trait      |
 |  gpu-atomics: inline PTX (CAS, shfl, activemask)     |
 |  gpu-protocol: packet layout, service IDs             |
-|         │                                            |
-|  ───────┼──── CUDA mapped memory ────────────────    |
-|         │                                            |
-|  Host CPU                                            |
-|  hostcall listener: poll buffer, serve I/O            |
-|  Services: print, file, bulk read/write, panic, ...   |
+|  gpu-libc: libc shim (routes sys calls to hostcall)   |
+|         |                                            |
+|  ---------- CUDA mapped memory ----------------      |
+|         |                                            |
+|  Host CPU (gpu-host SDK)                             |
+|  GpuRuntime: device init, PTX loading, kernel launch  |
+|  HostcallBuffer: poll buffer, serve I/O requests      |
+|  MappedBuffer<T>: RAII pinned device-mapped memory    |
 +------------------------------------------------------+
 ```
 
@@ -204,37 +241,38 @@ Transforms sequential Rust code with `warp_*!()` calls into a `WarpFuture` state
 
 All 32 lanes always agree on the current state — warp convergence is maintained by construction.
 
-### WarpFuture: Warp-Cooperative Async
+## Crate Map
 
-All 32 GPU lanes in a warp share a single state machine:
+```
+crates/
+  gpu-host/          Host-side SDK: GpuRuntime, HostcallBuffer, MappedBuffer
+                     Also contains GPT-2 inference binary (feature-gated)
+  gpu-protocol/      Shared constants: packet layout, service IDs, error codes
+  gpu-runtime/       GPU-side facade: hostcall helpers, WarpFuture trait, sideband I/O
+  gpu-atomics/       System-scope GPU atomics via inline PTX (CAS, shfl, activemask)
+  gpu-libc/          Minimal libc shim for GPU: routes sys calls to hostcall
+  gpu-critical-section/  No-op critical-section impl for GPU Embassy executor
+  warp-macro/        #[warp_async] proc macro (generates WarpFuture state machines)
+  gpu-kernel/        Main GPU kernel crate (68 kernels: compute, hostcall, pipeline)
+  gpu-kernel-std/    GPU kernels using patched Rust std (println!, Vec, File, stdin)
 
-- **I/O phases**: Cooperative hostcall — one packet per warp, not 32
-- **Compute phases**: Each lane works independently on its data slice
-- **Reconvergence**: `syncwarp()` ensures all lanes rejoin before the next I/O phase
-
-### GPU Compute Kernels
-
-All compute is written in Rust with inline PTX assembly — no CUDA C++, no cuBLAS:
-
-| Kernel | Implementation |
-|--------|---------------|
-| **GEMM** | Pure f32 FMA with shared memory tiling, column-major weights. Also: Tensor Core `mma.sync.aligned.m16n8k16` variant (currently under debugging for dimension-dependent precision issues). |
-| **FlashAttention** | Tiled attention with online softmax, causal masking, multi-head support. Scales to seq=128+. |
-| **LayerNorm** | Shared-memory parallel reduction for mean + variance, per-element affine transform. |
-| **GELU** | Numerically stable tanh approximation with overflow clamping via `ex2.approx.f32` PTX instruction. |
-| **Softmax** | Shared-memory max reduction + exp-sum reduction, numerically stable. |
-| **Embedding** | Token + positional embedding lookup with element-wise addition. |
+examples/
+  hello-gpu/         4 demos: vector_add, print, file I/O, bulk transfer
+  async-io/          Multi-file write pipeline + read-transform-write
+  vector-math/       SAXPY, dot product, softmax (pure compute, no hostcall)
+```
 
 ## Capabilities
 
 | Category | What works |
 |----------|-----------|
-| **I/O from GPU** | `println!()`, file open/read/write/close, bulk sideband transfer |
+| **I/O from GPU** | `println!()`, `std::fs::File`, `std::io::stdin()`, bulk sideband transfer |
+| **Std library** | `Vec`, `String`, `Box`, `format!()`, `?` operator — real Rust std via patched PAL |
+| **Error handling** | `Result<T, E>` propagation from GPU to host, `std::io::Error` |
 | **Async runtime** | Embassy executor on GPU, `futures::join!()`, per-thread and per-warp executors |
-| **Std library** | `Vec`, `String`, `format!()` via patched std with hostcall-backed libc shim |
 | **Warp-cooperative** | `#[warp_async]` with if/else, loop/break, match, nested control flow |
-| **Compute** | GEMM (f32 FMA + Tensor Core MMA), FlashAttention, LayerNorm, GELU, softmax — all in Rust inline PTX |
-| **Inference** | GPT-2 small (124M params): tokenize → embed → 12 transformer layers → greedy generation (50+ tokens, 3 prompts validated, matches CPU f64 reference) |
+| **Compute** | GEMM (f32 FMA), FlashAttention, LayerNorm, GELU, softmax — all in Rust inline PTX |
+| **Inference** | GPT-2 small (124M params) with KV cache: 68ms/token (2.07x speedup) |
 | **Scaling** | Multi-block with per-block sharding, 512+ concurrent threads |
 | **Safety** | GPU panic handler with visible `[GPU PANIC]` messages via hostcall |
 
@@ -248,17 +286,13 @@ Hostcall round-trip latency (RTX 3060, SM 86):
 | 32 (1 warp) | ~1.1 ms | 20-23K calls/s |
 | 128 (4 warps) | ~5-6 ms | ~14K calls/s |
 
-Per-block sharding reduces CAS contention at higher thread counts. Latency is dominated by host I/O processing, not the protocol itself.
-
 GPT-2 inference (RTX 3060, SM 86):
 
 | Metric | f32 FMA |
 |--------|---------|
-| 12-layer forward pass (seq=5) | ~143ms |
-| Per-token generation (greedy) | ~143ms/token |
-| 50-token generation (3 prompts) | ~7.1s each |
-
-Currently using pure f32 FMA GEMM (no KV cache, full recompute each step). Tensor Core MMA variant under development for 8-16x GEMM speedup.
+| 12-layer forward pass (seq=5) | ~35ms |
+| Per-token generation (with KV cache) | ~68ms/token |
+| 50-token generation (3 prompts) | ~3.4s each |
 
 <details>
 <summary>Reproduce</summary>
@@ -277,9 +311,8 @@ Numbers vary by ~30% between runs depending on GPU load.
 - **NVIDIA only**: `nvptx64-nvidia-cuda` target, SM 70+ GPU required
 - **Hostcall latency**: ~20-100 us round-trip, not suitable for per-element I/O in hot loops
 - **Uniform I/O**: `#[warp_async]` requires all 32 lanes to execute the same I/O sequence
-- **Limited std**: File I/O, print, Vec, String work; networking and threading are stubbed
-- **No KV cache**: GPT-2 generation recomputes all layers per token (~143ms/token)
-- **f32 only**: Tensor Core MMA kernel has dimension-dependent bugs; using f32 FMA fallback
+- **Partial std**: File I/O, print, Vec, String, stdin work; networking and threading are stubbed
+- **f32 only**: Tensor Core MMA has precision issues with reduced formats; using f32 FMA
 
 ## Acknowledgements
 

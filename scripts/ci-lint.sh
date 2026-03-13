@@ -41,6 +41,7 @@ done
 run "doc-tests gpu-protocol" "cargo +stable test --manifest-path crates/gpu-protocol/Cargo.toml --doc"
 
 # --- cargo doc with -D missing_docs ---
+run "doc gpu-host" "RUSTDOCFLAGS='-D missing_docs' cargo +stable doc --manifest-path crates/gpu-host/Cargo.toml --lib --no-default-features --no-deps"
 run "doc gpu-protocol" "RUSTDOCFLAGS='-D missing_docs' cargo +stable doc --manifest-path crates/gpu-protocol/Cargo.toml --no-deps"
 run "doc warp-macro" "RUSTDOCFLAGS='-D missing_docs' cargo +stable doc --manifest-path crates/warp-macro/Cargo.toml --no-deps"
 

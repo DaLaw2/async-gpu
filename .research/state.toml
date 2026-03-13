@@ -4,18 +4,18 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 197     # Monotonic counter, incremented after each completed phase
-completed_tasks = 196
+total_cycles = 199     # Monotonic counter, incremented after each completed phase
+completed_tasks = 198
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.save"
+current_step = "do.execute"
 current_task_id = ""
-last_summary = "host-sdk theme COMPLETE (5/5 tasks). All 3 examples (hello-gpu, async-io, vector-math) use SDK. async-io kernel updated to Result API. CI lint covers all examples. public-api: 3/4 criteria met (1=lib, 2=example, 3=build). Next: workspace/docs tasks."
+last_summary = "docs theme COMPLETE (2/2 tasks). README rewritten (Quick Start, crate map, std on GPU, KV cache perf). Doc-comments added to gpu-host public API, -D missing_docs enforced in CI. Next: build-auto.1 or workspace.1."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 49
+brainstorm_seq = 50
 review_seq = 5
 
 # Brainstorm trigger control (event-driven, no fixed interval)
@@ -142,7 +142,7 @@ success_criteria = [
 [[themes]]
 id = "docs"
 title = "Documentation — README, API docs, architecture"
-status = "active"
+status = "completed"
 spawned_by = "user"
 epic = "codebase-health"
 goal = "README reflects current state, public APIs documented"
@@ -287,7 +287,7 @@ id = "docs.1"
 theme = "docs"
 title = "Rewrite README.md to reflect current project state"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = []
 spawned_by = "user"
 research_questions = [
@@ -301,7 +301,7 @@ id = "docs.2"
 theme = "docs"
 title = "Add doc-comments to undocumented public APIs"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = []
 spawned_by = "user"
 research_questions = [
@@ -312,6 +312,17 @@ research_questions = [
 # ============================================================
 # Brainstorms (last 3 only — older brainstorms archived)
 # ============================================================
+
+[[brainstorms]]
+seq = 50
+at_cycle = 197
+trigger = "host-sdk theme completed, assess remaining epics and task priorities"
+level = "quick"
+new_tasks_spawned = []
+new_themes_spawned = []
+themes_parked = []
+themes_completed = ["host-sdk"]
+key_insight = "host-sdk complete (5/5 tasks). public-api nearly done (3-4/4 criteria). real-std+gpu-error pending user close. Remaining work: codebase-health (workspace, build-auto, docs). Priority: docs.1+docs.2 (quick wins) → build-auto.1 → workspace.1 (biggest effort)."
 
 [[brainstorms]]
 seq = 49
@@ -334,14 +345,3 @@ new_themes_spawned = ["gpu-error-propagation", "std-migration", "std-fs"]
 themes_parked = []
 themes_completed = []
 key_insight = "std-build-test already proves patched std works. Gap: gpu-kernel doesn't use it, gpu-libc stubs return ENOSYS, error handling nonexistent. Strategy: error propagation first (unblocks Result in std), then selective std migration (new crate, not all 65+ kernels), then fs via gpu-libc hostcall."
-
-[[brainstorms]]
-seq = 47
-at_cycle = 178
-trigger = "All themes completed/parked, no active tasks in either epic"
-level = "standard"
-new_tasks_spawned = ["tf32-mma.1", "tf32-mma.2", "host-sdk.2", "host-sdk.4", "host-sdk.5"]
-new_themes_spawned = ["tf32-mma"]
-themes_parked = []
-themes_completed = ["mixed-precision"]
-key_insight = "mixed-precision complete (1/2 criteria). bf16/f16 both fail 12-layer inference. TF32 (10-bit mantissa like f16) is bounded experiment — decision gate for gpu-perf criteria 3+4. Un-parked host-sdk for public-api (user wants reusable utilities)."

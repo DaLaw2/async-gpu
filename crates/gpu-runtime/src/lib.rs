@@ -295,6 +295,65 @@ pub mod hostcall {
         }
     }
 
+    /// Submit a hostcall request with a longer spin-wait timeout.
+    ///
+    /// Identical to [`gpu_hostcall_request`] but uses `max_spin` iterations instead
+    /// of the default `GPU_MAX_SPIN`. Useful for blocking host operations like stdin
+    /// that may take longer to complete due to I/O thread routing.
+    #[inline(always)]
+    pub unsafe fn gpu_hostcall_request_with_timeout(
+        buf: *mut u8,
+        service: u32,
+        max_spin: u32,
+        fill_payload: impl FnOnce(*mut u8),
+    ) -> Result<*mut u8, GpuError> {
+        let (num_shards, shard_array_off, _) = read_shard_info(buf as *const u8);
+        let free_ptr = get_free_stack_ptr(buf, num_shards, shard_array_off);
+        let ready_ptr = get_ready_stack_ptr(buf, num_shards, shard_array_off);
+
+        let pkt_idx = hc_pop_free_from(buf, free_ptr, num_shards, shard_array_off);
+        if pkt_idx == NULL_INDEX {
+            return Err(GpuError::pool_exhausted());
+        }
+
+        let pkt_off = if num_shards == 0 {
+            packet_offset(pkt_idx)
+        } else {
+            packet_offset_sharded(pkt_idx, shard_array_off as usize, num_shards)
+        };
+        let pkt = buf.add(pkt_off);
+
+        let mask = activemask();
+        core::ptr::write_volatile(pkt.add(PKT_OFF_ACTIVE_MASK) as *mut u32, mask);
+        core::ptr::write_volatile(pkt.add(PKT_OFF_SERVICE) as *mut u32, service);
+        sys_store_release_u32(pkt.add(PKT_OFF_CONTROL) as *mut u32, 0);
+
+        fill_payload(pkt.add(PKT_OFF_PAYLOAD));
+
+        sys_store_release_u32(pkt.add(PKT_OFF_CONTROL) as *mut u32, CONTROL_FILLED);
+        hc_push_with(ready_ptr, buf, pkt_idx, num_shards, shard_array_off);
+        sys_fetch_add_u64(buf.add(BUF_OFF_DOORBELL) as *mut u64, 1);
+
+        let control_ptr = pkt.add(PKT_OFF_CONTROL) as *const u32;
+        let mut spins: u32 = 0;
+        loop {
+            let ctrl = sys_spin_load_acquire_u32(control_ptr);
+            if ctrl & CONTROL_READY != 0 {
+                if ctrl & CONTROL_ERROR != 0 {
+                    let slot0 = core::ptr::read_volatile(pkt.add(PKT_OFF_PAYLOAD) as *const u64);
+                    hc_push_with(free_ptr, buf, pkt_idx, num_shards, shard_array_off);
+                    return Err(GpuError::from_encoded(slot0));
+                }
+                return Ok(pkt);
+            }
+            spins += 1;
+            if spins >= max_spin {
+                hc_push_with(free_ptr, buf, pkt_idx, num_shards, shard_array_off);
+                return Err(GpuError::timeout());
+            }
+        }
+    }
+
     /// Send a PRINT hostcall with a short message (max 56 bytes).
     /// Returns `Ok(())` on success, `Err(GpuError)` on pool exhaustion or timeout.
     #[inline(always)]

@@ -1,0 +1,64 @@
+# Archived completed themes — moved from state.toml at cycle 193
+
+[[themes]]
+id = "mma-fix"
+title = "Fix Tensor Core MMA kernel for GPT-2 dimensions"
+status = "completed"
+spawned_by = "bs43"
+epic = "gpu-perf"
+
+[[themes]]
+id = "kv-cache"
+title = "KV cache for efficient autoregressive generation"
+status = "completed"
+spawned_by = "bs43"
+epic = "gpu-perf"
+
+[[themes]]
+id = "repo-cleanup"
+title = "Repository cleanup + example expansion"
+status = "completed"
+spawned_by = "bs43"
+epic = "public-api"
+
+[[themes]]
+id = "mixed-precision"
+title = "BF16/TF32 mixed precision Tensor Core inference"
+status = "completed"
+spawned_by = "bs45"
+epic = "gpu-perf"
+
+[[themes]]
+id = "tf32-mma"
+title = "TF32 Tensor Core MMA experiment"
+status = "completed"
+spawned_by = "bs47"
+epic = "gpu-perf"
+
+[[themes]]
+id = "gpu-error-propagation"
+title = "GPU→host error propagation via output buffer convention"
+status = "completed"
+spawned_by = "bs48"
+epic = "gpu-error"
+
+[[themes]]
+id = "std-migration"
+title = "Migrate hostcall/IO kernels to use patched std"
+status = "completed"
+spawned_by = "bs48"
+epic = "real-std"
+
+[[themes]]
+id = "std-fs"
+title = "std::fs on GPU via hostcall with proper error handling"
+status = "completed"
+spawned_by = "bs48"
+epic = "real-std"
+
+[[themes]]
+id = "workflow-improvement"
+title = "Research workflow improvements for routine tasks"
+status = "completed"
+spawned_by = "user"
+epic = "codebase-health"

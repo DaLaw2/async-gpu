@@ -1,0 +1,44 @@
+# Archived brainstorms — moved from state.toml at cycle 193
+# Keeping last 3 (bs47, bs48, bs49) in state.toml
+
+[[brainstorms]]
+seq = 41
+at_cycle = 163
+trigger = "User demanded autonomous iteration + generation produces garbage text"
+level = "deep"
+key_insight = "Stop waiting for PyTorch. Self-diagnose: (1) WebFetch confirms GPT-2 predicts Paris, (2) weight transpose is #1 suspect (Conv1D [in,out] common bug), (3) per-layer diagnostics find where semantics are lost, (4) LM head position audit. Model limitation <5% — top-5 being function words is pathological."
+
+[[brainstorms]]
+seq = 42
+at_cycle = 167
+trigger = "Brainstorm interval (4 tasks completed since last bs)"
+level = "standard"
+key_insight = "GPU inference now correct (gemm_f32 matches CPU f64). NaN at step 22 is next blocker — online softmax is the fix. 4 themes completed. 'Paris' criterion unreachable (model limitation), suggest user revision."
+
+[[brainstorms]]
+seq = 43
+at_cycle = 169
+trigger = "New gpu-perf epic + user requests cleanup/examples + Product Ready"
+level = "standard"
+key_insight = "MMA bug likely host-side grid_dim or bar_sync scope, not fragment indexing. KV cache design can parallel with MMA fix. repo-cleanup (PTX gitignore + model dedup + examples) is independent work."
+
+[[brainstorms]]
+seq = 44
+at_cycle = 171
+trigger = "Brainstorm interval (3 tasks completed since bs43)"
+level = "quick"
+key_insight = "MMA kernel correct but f16 insufficient for 12-layer inference (top-5 diverges). 1.8x speed gain confirmed. mma-fix theme completed. Next priority: KV cache (gpu-perf) and examples (public-api) in parallel."
+
+[[brainstorms]]
+seq = 45
+at_cycle = 174
+trigger = "User request: add mixed-precision/BF16 to gpu-perf epic, prioritize KV cache"
+level = "quick"
+key_insight = "Added mixed-precision theme (BF16 MMA) to gpu-perf. Parked host-sdk (host-sdk.3 blocked by missing host-sdk.2). Priority: kv-cache.2 first, then mixed-precision.1."
+
+[[brainstorms]]
+seq = 46
+at_cycle = 177
+trigger = "Brainstorm interval (3 tasks completed since bs45)"
+level = "quick"
+key_insight = "mixed-precision.1 done: BF16≈F16 precision (max divergence 0.2042). Proceed with mixed-precision.2 (inference validation). Expect same outcome as f16 MMA inference (top-5 divergence). public-api epic needs attention after mixed-precision completes."

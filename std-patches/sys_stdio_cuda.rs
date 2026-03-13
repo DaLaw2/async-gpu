@@ -64,7 +64,11 @@ impl io::Write for Stderr {
     }
 }
 
-pub const STDIN_BUF_SIZE: usize = 0;
+// BufReader capacity for stdin. Must be non-zero or BufReader::fill_buf()
+// reads into an empty slice and immediately returns EOF.
+// 128 bytes is reasonable — hostcall transfers max 56 bytes per request,
+// so BufReader will issue multiple underlying reads for longer lines.
+pub const STDIN_BUF_SIZE: usize = 128;
 
 pub fn is_ebadf(_err: &io::Error) -> bool {
     false

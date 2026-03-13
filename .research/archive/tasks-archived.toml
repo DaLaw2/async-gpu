@@ -1,0 +1,262 @@
+# Archived done/skipped tasks — moved from state.toml at cycle 193
+
+# --- mma-fix (gpu-perf) ---
+
+[[tasks]]
+id = "mma-fix.1"
+theme = "mma-fix"
+title = "Diagnose MMA kernel failure at 768x768"
+kind = "investigation"
+status = "done"
+depends_on = []
+spawned_by = "bs43"
+
+[[tasks]]
+id = "mma-fix.2"
+theme = "mma-fix"
+title = "Fix and validate MMA GEMM for all GPT-2 dimensions"
+kind = "experiment"
+status = "skipped"
+depends_on = ["mma-fix.1"]
+spawned_by = "bs43"
+
+[[tasks]]
+id = "mma-fix.3"
+theme = "mma-fix"
+title = "MMA inference end-to-end validation"
+kind = "experiment"
+status = "done"
+depends_on = ["mma-fix.1"]
+spawned_by = "bs43"
+
+# --- kv-cache (gpu-perf) ---
+
+[[tasks]]
+id = "kv-cache.1"
+theme = "kv-cache"
+title = "KV cache architecture and memory layout design"
+kind = "design"
+status = "done"
+depends_on = []
+spawned_by = "bs43"
+
+[[tasks]]
+id = "kv-cache.2"
+theme = "kv-cache"
+title = "Implement KV cache for single-layer attention"
+kind = "experiment"
+status = "done"
+depends_on = ["kv-cache.1"]
+spawned_by = "bs43"
+
+[[tasks]]
+id = "kv-cache.3"
+theme = "kv-cache"
+title = "Full 12-layer KV-cached inference"
+kind = "experiment"
+status = "done"
+depends_on = ["kv-cache.2"]
+spawned_by = "bs43"
+
+# --- repo-cleanup (public-api) ---
+
+[[tasks]]
+id = "repo-cleanup.1"
+theme = "repo-cleanup"
+title = "Gitignore PTX + remove duplicate model file"
+kind = "experiment"
+status = "done"
+depends_on = []
+spawned_by = "bs43"
+
+[[tasks]]
+id = "repo-cleanup.2"
+theme = "repo-cleanup"
+title = "Extract async-io example from pipeline tests"
+kind = "experiment"
+status = "done"
+depends_on = ["repo-cleanup.1"]
+spawned_by = "bs43"
+
+[[tasks]]
+id = "repo-cleanup.3"
+theme = "repo-cleanup"
+title = "Extract compute example from search/GEMM tests"
+kind = "experiment"
+status = "done"
+depends_on = ["repo-cleanup.1"]
+spawned_by = "bs43"
+
+# --- mixed-precision (gpu-perf) ---
+
+[[tasks]]
+id = "mixed-precision.1"
+theme = "mixed-precision"
+title = "BF16 MMA GEMM kernel implementation"
+kind = "experiment"
+status = "done"
+depends_on = []
+spawned_by = "bs45"
+
+[[tasks]]
+id = "mixed-precision.2"
+theme = "mixed-precision"
+title = "BF16 mixed-precision inference validation"
+kind = "experiment"
+status = "done"
+depends_on = ["mixed-precision.1"]
+spawned_by = "bs45"
+
+# --- tf32-mma (gpu-perf) ---
+
+[[tasks]]
+id = "tf32-mma.1"
+theme = "tf32-mma"
+title = "TF32 MMA GEMM kernel (m16n8k8)"
+kind = "experiment"
+status = "done"
+depends_on = []
+spawned_by = "bs47"
+
+[[tasks]]
+id = "tf32-mma.2"
+theme = "tf32-mma"
+title = "TF32 inference validation (decision gate)"
+kind = "experiment"
+status = "done"
+depends_on = ["tf32-mma.1"]
+spawned_by = "bs47"
+
+# --- gpu-error-propagation (gpu-error) ---
+
+[[tasks]]
+id = "gpu-error-propagation.1"
+theme = "gpu-error-propagation"
+title = "Design GpuKernelResult ABI + error buffer layout"
+kind = "design"
+status = "done"
+depends_on = []
+spawned_by = "bs48"
+
+[[tasks]]
+id = "gpu-error-propagation.2"
+theme = "gpu-error-propagation"
+title = "Implement GPU-side error checking in hostcall helpers"
+kind = "experiment"
+status = "done"
+depends_on = ["gpu-error-propagation.1"]
+spawned_by = "bs48"
+
+[[tasks]]
+id = "gpu-error-propagation.3"
+theme = "gpu-error-propagation"
+title = "Implement host-side error extraction from kernel result buffer"
+kind = "experiment"
+status = "done"
+depends_on = ["gpu-error-propagation.1"]
+spawned_by = "bs48"
+
+[[tasks]]
+id = "gpu-error-propagation.4"
+theme = "gpu-error-propagation"
+title = "Non-destructive panic handler (error buffer + cooperative exit)"
+kind = "experiment"
+status = "done"
+depends_on = ["gpu-error-propagation.1"]
+spawned_by = "bs48"
+
+# --- std-migration (real-std) ---
+
+[[tasks]]
+id = "std-migration.1"
+theme = "std-migration"
+title = "Create gpu-kernel-std crate + verify println/Vec/format work"
+kind = "experiment"
+status = "done"
+depends_on = []
+spawned_by = "bs48"
+
+[[tasks]]
+id = "std-migration.2"
+theme = "std-migration"
+title = "Factor shared hostcall protocol into std-compatible library"
+kind = "design"
+status = "done"
+depends_on = ["std-migration.1"]
+spawned_by = "bs48"
+
+[[tasks]]
+id = "std-migration.3"
+theme = "std-migration"
+title = "Port async pipeline kernels to gpu-kernel-std with Result types"
+kind = "experiment"
+status = "done"
+depends_on = ["std-migration.2", "gpu-error-propagation.2"]
+spawned_by = "bs48"
+
+[[tasks]]
+id = "std-migration.4"
+theme = "std-migration"
+title = "Verify stdin().read_line() end-to-end on GPU"
+kind = "experiment"
+status = "done"
+depends_on = ["std-fs.3"]
+spawned_by = "bs49"
+
+# --- std-fs (real-std + gpu-error) ---
+
+[[tasks]]
+id = "std-fs.1"
+theme = "std-fs"
+title = "Add SERVICE_FS_* hostcall services + host-side handlers"
+kind = "experiment"
+status = "done"
+depends_on = []
+spawned_by = "bs48"
+
+[[tasks]]
+id = "std-fs.2"
+theme = "std-fs"
+title = "Implement gpu-libc open/read/write/close via hostcall (replace stubs)"
+kind = "experiment"
+status = "done"
+depends_on = ["std-fs.1"]
+spawned_by = "bs48"
+
+[[tasks]]
+id = "std-fs.3"
+theme = "std-fs"
+title = "Fix OnceLock for stdin path (spinlock replacement)"
+kind = "experiment"
+status = "done"
+depends_on = ["std-migration.1"]
+spawned_by = "bs48"
+
+[[tasks]]
+id = "std-fs.4"
+theme = "std-fs"
+title = "End-to-end: File::create + write_all + read with error handling"
+kind = "experiment"
+status = "done"
+depends_on = ["std-fs.2", "std-fs.3", "gpu-error-propagation.2"]
+spawned_by = "bs48"
+
+[[tasks]]
+id = "std-fs.5"
+theme = "std-fs"
+title = "Verify std::io::Error mapping for file-not-found and permission errors"
+kind = "experiment"
+status = "done"
+depends_on = ["std-fs.4"]
+spawned_by = "bs49"
+
+# --- workflow-improvement (codebase-health) ---
+
+[[tasks]]
+id = "workflow.1"
+theme = "workflow-improvement"
+title = "/maintain skill created — event-driven housekeeping"
+kind = "design"
+status = "done"
+depends_on = []
+spawned_by = "user"

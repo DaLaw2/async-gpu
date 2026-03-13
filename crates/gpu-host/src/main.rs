@@ -101,6 +101,10 @@ fn main() -> Result<()> {
                 tests_std::run_std_pipeline_test(Arc::clone(&dev))?;
                 return Ok(());
             }
+            "std_stdin" => {
+                tests_std::run_std_stdin_readline_test(Arc::clone(&dev))?;
+                return Ok(());
+            }
             _ => println!("Unknown ONLY_TEST={only}, running all tests"),
         }
     }
@@ -340,6 +344,9 @@ fn main() -> Result<()> {
 
     // std pipeline test (std-migration.3)
     tests_std::run_std_pipeline_test(Arc::clone(&dev))?;
+
+    // stdin().read_line() e2e test (std-migration.4)
+    tests_std::run_std_stdin_readline_test(Arc::clone(&dev))?;
 
     // Multi-warp scaling test (product.3)
     tests_scaling::run_multi_warp_test(Arc::clone(&dev))?;

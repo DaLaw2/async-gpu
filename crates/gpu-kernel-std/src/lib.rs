@@ -38,12 +38,50 @@ pub fn gpu_stdout_write(buf: *const u8, len: usize) -> usize {
 }
 
 /// External function called by std's CUDA PAL Stdin::read().
-/// Currently returns 0 (EOF) — stdin support to be added when gpu-runtime
-/// exposes a stdin hostcall function.
+/// Routes through gpu-runtime's hostcall SERVICE_STDIN implementation.
 #[unsafe(no_mangle)]
-pub fn gpu_stdin_read(_out_buf: *mut u8, _max_len: usize) -> usize {
-    // TODO: implement via gpu-runtime hostcall when SERVICE_STDIN is exposed
-    0
+pub fn gpu_stdin_read(out_buf: *mut u8, max_len: usize) -> usize {
+    use gpu_runtime::prelude::{PKT_OFF_PAYLOAD, SERVICE_STDIN};
+
+    let hc_buf = STDIO_HOSTCALL_BUF.load(AtomicOrdering::Relaxed) as *mut u8;
+    if hc_buf.is_null() || out_buf.is_null() || max_len == 0 {
+        return 0;
+    }
+    // SERVICE_STDIN payload slots 1-7 = 56 bytes max
+    const STDIN_MAX: usize = 56;
+    let request_len = core::cmp::min(max_len, STDIN_MAX) as u32;
+
+    // Stdin is blocking on host — use extended timeout (100M spins vs default 10M)
+    const STDIN_MAX_SPIN: u32 = 100_000_000;
+    let pkt = match unsafe {
+        gpu_runtime::hostcall::gpu_hostcall_request_with_timeout(
+            hc_buf,
+            SERVICE_STDIN,
+            STDIN_MAX_SPIN,
+            |payload| {
+                // Slot 0: max bytes to read
+                core::ptr::write_volatile(payload as *mut u64, request_len as u64);
+            },
+        )
+    } {
+        Ok(p) => p,
+        Err(_) => return 0,
+    };
+
+    let bytes_read = unsafe {
+        let slot0 = core::ptr::read_volatile(pkt.add(PKT_OFF_PAYLOAD) as *const u64);
+        let src = pkt.add(PKT_OFF_PAYLOAD).add(8); // slots 1-7
+        let copy_len = core::cmp::min(slot0, request_len as u64) as usize;
+        let mut i = 0usize;
+        while i < copy_len {
+            *out_buf.add(i) = core::ptr::read_volatile(src.add(i));
+            i += 1;
+        }
+        gpu_runtime::hostcall::gpu_hostcall_release(hc_buf, pkt);
+        copy_len
+    };
+
+    bytes_read
 }
 
 /// Set the hostcall buffer pointer for stdio. Must be called at kernel entry.
@@ -115,8 +153,8 @@ pub unsafe extern "ptx-kernel" fn std_file_io_test(buf: *mut u8) {
     gpu_libc::gpu_libc_io_init(buf);
 
     use std::fs::File;
-    use std::io::Write;
     use std::io::Read;
+    use std::io::Write;
 
     let path = "gpu_std_test.txt";
 
@@ -241,11 +279,14 @@ fn std_pipeline_inner() -> Result<(), std::io::Error> {
     }
 
     // Step 5: Parse and compute — demonstrate Vec + string processing
-    let text = core::str::from_utf8(&readback).map_err(|_| {
-        std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid UTF-8")
-    })?;
+    let text = core::str::from_utf8(&readback)
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid UTF-8"))?;
     let line_count = text.lines().count();
-    println!("[PIPE] Verified: {} lines, {} bytes, 0 mismatches", line_count, data.len());
+    println!(
+        "[PIPE] Verified: {} lines, {} bytes, 0 mismatches",
+        line_count,
+        data.len()
+    );
 
     Ok(())
 }
@@ -265,5 +306,39 @@ pub unsafe extern "ptx-kernel" fn std_pipeline_test(buf: *mut u8) {
     match std_pipeline_inner() {
         Ok(()) => println!("[DONE] std pipeline test PASSED"),
         Err(e) => println!("[ERR] std pipeline test FAILED: {}", e),
+    }
+}
+
+// ============================================================
+// std-migration.4: stdin().read_line() end-to-end test
+// ============================================================
+
+/// Test kernel: std::io::stdin().read_line() via hostcall.
+///
+/// Reads one line from host stdin using real std::io::stdin() (not raw hostcall),
+/// then echoes it back via println!. Tests the full PAL chain:
+/// stdin().read_line() → Stdin::read() → gpu_stdin_read() → SERVICE_STDIN hostcall.
+#[unsafe(no_mangle)]
+pub unsafe extern "ptx-kernel" fn std_stdin_test(buf: *mut u8) {
+    stdio_init(buf);
+
+    use std::io::BufRead;
+
+    println!("[STDIN] Reading line from stdin...");
+
+    let stdin = std::io::stdin();
+    let mut line = String::new();
+    match stdin.lock().read_line(&mut line) {
+        Ok(n) => {
+            println!("[STDIN] Read {} bytes: {}", n, line.trim());
+            if n > 0 && !line.is_empty() {
+                println!("[STDIN] PASS — stdin().read_line() works on GPU");
+            } else {
+                println!("[STDIN] WARN — read 0 bytes (EOF?)");
+            }
+        }
+        Err(e) => {
+            println!("[STDIN] FAIL — read_line error: {:?}", e.kind());
+        }
     }
 }

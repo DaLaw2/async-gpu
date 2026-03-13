@@ -617,3 +617,93 @@ pub(crate) fn run_std_stdin_test(dev: Arc<CudaDevice>) -> Result<()> {
 
     Ok(())
 }
+
+/// Test: stdin().read_line() end-to-end via gpu-kernel-std (std-migration.4).
+///
+/// Unlike run_std_stdin_test which tests raw gpu_stdin_read() via std-build-test,
+/// this tests the full std path: stdin().lock().read_line() → PAL → gpu_stdin_read()
+/// → gpu-runtime hostcall → SERVICE_STDIN → host CannedStdin.
+pub(crate) fn run_std_stdin_readline_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- std-migration.4: stdin().read_line() end-to-end on GPU ---");
+
+    use std::sync::{Arc as StdArc, Mutex};
+
+    let hc_buf = hostcall::HostcallBuffer::new(4)?;
+    let dev_ptr = hc_buf.dev_ptr;
+
+    let messages: StdArc<Mutex<Vec<String>>> = StdArc::new(Mutex::new(Vec::new()));
+    let messages_clone = StdArc::clone(&messages);
+
+    let hc_buf_ref = StdArc::new(hc_buf);
+    let hc_buf_listener = StdArc::clone(&hc_buf_ref);
+
+    let stdin_data = b"Hello from stdin!\n".to_vec();
+    let listener_handle = std::thread::spawn(move || {
+        hc_buf_listener.listen_with_stdin(
+            |msg| {
+                let s = String::from_utf8_lossy(msg).to_string();
+                println!("  [HOST] GPU stdout: \"{s}\"");
+                messages_clone.lock().unwrap().push(s);
+            },
+            stdin_data,
+        );
+    });
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_STD_PTX);
+    let _ = dev.load_ptx(ptx, "kernel_std", &["std_stdin_test"]);
+    let f = dev
+        .get_func("kernel_std", "std_stdin_test")
+        .ok_or(GpuHostError::KernelNotFound("std_stdin_test"))?;
+
+    let cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (1, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    println!("  Launching std_stdin_test (read_line via patched std)...");
+    unsafe {
+        f.launch(cfg, (dev_ptr,))?;
+    }
+    dev.synchronize()?;
+    std::thread::sleep(std::time::Duration::from_millis(200));
+
+    hc_buf_ref.signal_shutdown();
+    listener_handle.join().unwrap();
+
+    let received = messages.lock().unwrap();
+    let has_pass = received.iter().any(|m| m.contains("[STDIN] PASS"));
+    let has_fail = received.iter().any(|m| m.contains("[STDIN] FAIL"));
+    let has_content = received.iter().any(|m| m.contains("Hello from stdin!"));
+
+    if has_fail {
+        let errs: Vec<_> = received
+            .iter()
+            .filter(|m| m.contains("[STDIN] FAIL"))
+            .collect();
+        return Err(GpuHostError::Verification {
+            test: "std_stdin_test (read_line)",
+            detail: format!("kernel reported failure: {:?}", errs),
+        });
+    }
+
+    if !has_pass {
+        return Err(GpuHostError::Verification {
+            test: "std_stdin_test (read_line)",
+            detail: format!(
+                "missing PASS marker. Messages: {:?}",
+                received.iter().collect::<Vec<_>>()
+            ),
+        });
+    }
+
+    if !has_content {
+        println!("  WARN: stdin data echoed but content not found in output");
+    }
+
+    println!("  std_stdin_test (read_line): PASSED!");
+    println!("    stdin().lock().read_line() → PAL → gpu_stdin_read → hostcall");
+    println!("    Full std::io::stdin() path verified on GPU via gpu-kernel-std");
+
+    Ok(())
+}

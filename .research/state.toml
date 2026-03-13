@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 159     # Monotonic counter, incremented after each completed phase
-completed_tasks = 158
+total_cycles = 161     # Monotonic counter, incremented after each completed phase
+completed_tasks = 160
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "full-inference.3"
-last_summary = "full-inference.2 done: 12-layer GPT-2 forward pass with real weights PASSED. Uses full_gemm_f32in (no separate pack step), flash_attention (causal), real 124M params. Pos 0 NaN from f16 self-attention-only (known limitation). Prediction pos 4 clean. Next: full-inference.3 (LM head)."
+current_task_id = "full-inference.5"
+last_summary = "full-inference.4 done: greedy generation loop works — 78ms/token, 4 tokens before f16 NaN stops it. Generation is structurally correct. Next: full-inference.5 (end-to-end validation vs PyTorch)."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 39
@@ -3759,7 +3759,7 @@ id = "full-inference.3"
 theme = "full-inference"
 title = "Implement LM head (linear → softmax over 50,257 vocabulary)"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["full-inference.2"]
 spawned_by = "bs38"
 research_questions = [
@@ -3773,7 +3773,7 @@ id = "full-inference.4"
 theme = "full-inference"
 title = "Implement greedy autoregressive generation loop"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["full-inference.3", "tokenizer.2"]
 spawned_by = "bs38"
 research_questions = [

@@ -209,8 +209,11 @@ fn main() -> Result<()> {
     // Transformer layer test (transformer-layer.6)
     tests_compute::run_transformer_layer_test(Arc::clone(&dev))?;
 
-    // 12-layer GPT-2 forward pass (full-inference.2)
+    // 12-layer GPT-2 forward pass (full-inference.2) + LM head (full-inference.3)
     tests_compute::run_full_forward_test(Arc::clone(&dev))?;
+
+    // Greedy autoregressive generation (full-inference.4)
+    tests_compute::run_generation_test(Arc::clone(&dev))?;
 
     // GPT-2 model weight loading test (model-loading.3)
     {

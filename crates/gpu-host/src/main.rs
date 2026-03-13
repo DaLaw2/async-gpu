@@ -86,6 +86,10 @@ fn main() -> Result<()> {
                 tests_inference::run_bf16_forward_test(Arc::clone(&dev))?;
                 return Ok(());
             }
+            "tf32" => {
+                tests_gemm::run_tf32_gemm_test(Arc::clone(&dev))?;
+                return Ok(());
+            }
             _ => println!("Unknown ONLY_TEST={only}, running all tests"),
         }
     }

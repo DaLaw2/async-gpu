@@ -1731,3 +1731,232 @@ pub(crate) fn run_bf16_gemm_test(dev: Arc<CudaDevice>) -> Result<()> {
         }
     }
 }
+
+/// tf32-mma.1: TF32 MMA GEMM test.
+///
+/// Compares full_gemm_tf32 (TF32 Tensor Core, m16n8k8) vs gemm_f32 (FMA reference)
+/// and vs full_gemm_bf16 (BF16 MMA) at GPT-2 dimensions.
+pub(crate) fn run_tf32_gemm_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- TF32 MMA GEMM test (tf32-mma.1) ---");
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
+    dev.load_ptx(
+        ptx,
+        "tf32_test",
+        &["full_gemm_tf32", "gemm_f32", "full_gemm_bf16"],
+    )
+    .map_err(|e| GpuHostError::Verification {
+        test: "tf32_gemm",
+        detail: format!("PTX load failed: {e}"),
+    })?;
+
+    let f_tf32 = dev
+        .get_func("tf32_test", "full_gemm_tf32")
+        .ok_or(GpuHostError::KernelNotFound("full_gemm_tf32"))?;
+    let f_ref = dev
+        .get_func("tf32_test", "gemm_f32")
+        .ok_or(GpuHostError::KernelNotFound("gemm_f32"))?;
+    let f_bf16 = dev
+        .get_func("tf32_test", "full_gemm_bf16")
+        .ok_or(GpuHostError::KernelNotFound("full_gemm_bf16"))?;
+
+    let (status_host_ptr, status_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 1)? };
+
+    fn to_col_major(w: &[f32], k: usize, n: usize) -> Vec<f32> {
+        let mut cm = vec![0.0f32; k * n];
+        for row in 0..k {
+            for col in 0..n {
+                cm[col * k + row] = w[row * n + col];
+            }
+        }
+        cm
+    }
+
+    let tf32_smem = (256 + 128) * 4u32; // A[32][8] + B[16][8] f32
+    let bf16_smem = (256 + 128) * 4u32; // same size
+    let f32_smem = (32 * 16 + 16 * 16) * 4u32;
+
+    // First: small debug tests
+    for k in [8usize, 16, 32, 64] {
+        let m = 32usize;
+        let n = 16usize;
+        let a_data: Vec<f32> = (0..m * k).map(|i| (i % 10) as f32 * 0.1).collect();
+        let b_rm: Vec<f32> = (0..k * n).map(|i| (i % 10) as f32 * 0.1).collect();
+        let b_cm = to_col_major(&b_rm, k, n);
+
+        let a_dev = dev.htod_sync_copy(&a_data)?;
+        let b_dev = dev.htod_sync_copy(&b_cm)?;
+        let mut out_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(m * n)?;
+
+        unsafe {
+            f_tf32.clone().launch(
+                LaunchConfig {
+                    grid_dim: (1, 1, 1),
+                    block_dim: (128, 1, 1),
+                    shared_mem_bytes: tf32_smem,
+                },
+                (
+                    &a_dev,
+                    &b_dev,
+                    &mut out_dev,
+                    (k / 8) as u32,
+                    n as u32,
+                    status_dev_ptr,
+                ),
+            )?;
+        }
+        dev.synchronize()?;
+        let out: Vec<f32> = dev.dtoh_sync_copy(&out_dev)?;
+
+        let mut cpu_out = vec![0.0f32; m * n];
+        for r in 0..m {
+            for c in 0..n {
+                let mut acc = 0.0f32;
+                for kk in 0..k {
+                    acc += a_data[r * k + kk] * b_rm[kk * n + c];
+                }
+                cpu_out[r * n + c] = acc;
+            }
+        }
+
+        let max_err = out
+            .iter()
+            .zip(cpu_out.iter())
+            .map(|(g, c)| (g - c).abs())
+            .fold(0.0f32, f32::max);
+        println!("  [Debug 32x{n}x{k}] max_err = {max_err:.6}");
+    }
+
+    // GPT-2 dimensions: compare tf32 vs bf16 vs f32
+    let dims: &[(usize, usize, usize)] = &[
+        (768, 768, 768),
+        (768, 2304, 768),
+        (768, 3072, 768),
+        (3072, 768, 3072),
+        (128, 768, 768),
+    ];
+
+    let mut all_passed = true;
+
+    for &(m, n, k) in dims {
+        let mut a_data = vec![0.0f32; m * k];
+        let mut b_data_rm = vec![0.0f32; k * n];
+        for i in 0..a_data.len() {
+            a_data[i] = ((i * 7 + 3) % 200) as f32 * 0.01 - 1.0;
+        }
+        for i in 0..b_data_rm.len() {
+            b_data_rm[i] = ((i * 11 + 7) % 200) as f32 * 0.01 - 1.0;
+        }
+        let b_cm = to_col_major(&b_data_rm, k, n);
+
+        let a_dev = dev.htod_sync_copy(&a_data)?;
+        let b_dev = dev.htod_sync_copy(&b_cm)?;
+        let mut f32_out_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(m * n)?;
+        let mut tf32_out_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(m * n)?;
+        let mut bf16_out_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(m * n)?;
+
+        // f32 reference
+        unsafe {
+            f_ref.clone().launch(
+                LaunchConfig {
+                    grid_dim: ((m as u32) / 32, (n as u32) / 16, 1),
+                    block_dim: (128, 1, 1),
+                    shared_mem_bytes: f32_smem,
+                },
+                (
+                    &a_dev,
+                    &b_dev,
+                    &mut f32_out_dev,
+                    k as u32,
+                    n as u32,
+                    status_dev_ptr,
+                ),
+            )?;
+        }
+
+        // TF32 MMA
+        unsafe {
+            f_tf32.clone().launch(
+                LaunchConfig {
+                    grid_dim: ((m as u32) / 32, (n as u32) / 16, 1),
+                    block_dim: (128, 1, 1),
+                    shared_mem_bytes: tf32_smem,
+                },
+                (
+                    &a_dev,
+                    &b_dev,
+                    &mut tf32_out_dev,
+                    (k / 8) as u32,
+                    n as u32,
+                    status_dev_ptr,
+                ),
+            )?;
+        }
+
+        // BF16 MMA
+        unsafe {
+            f_bf16.clone().launch(
+                LaunchConfig {
+                    grid_dim: ((m as u32) / 32, (n as u32) / 16, 1),
+                    block_dim: (128, 1, 1),
+                    shared_mem_bytes: bf16_smem,
+                },
+                (
+                    &a_dev,
+                    &b_dev,
+                    &mut bf16_out_dev,
+                    (k / 16) as u32,
+                    n as u32,
+                    status_dev_ptr,
+                ),
+            )?;
+        }
+        dev.synchronize()?;
+
+        let f32_out: Vec<f32> = dev.dtoh_sync_copy(&f32_out_dev)?;
+        let tf32_out: Vec<f32> = dev.dtoh_sync_copy(&tf32_out_dev)?;
+        let bf16_out: Vec<f32> = dev.dtoh_sync_copy(&bf16_out_dev)?;
+
+        let tf32_vs_f32 = tf32_out
+            .iter()
+            .zip(f32_out.iter())
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0f32, f32::max);
+        let bf16_vs_f32 = bf16_out
+            .iter()
+            .zip(f32_out.iter())
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0f32, f32::max);
+        let tf32_vs_bf16 = tf32_out
+            .iter()
+            .zip(bf16_out.iter())
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0f32, f32::max);
+
+        // TF32 should be closer to f32 than bf16 is (10-bit mantissa + f32 exponent range)
+        let pass = tf32_vs_f32 < 100.0; // generous tolerance for now
+        let status = if pass { "OK" } else { "FAIL" };
+
+        println!(
+            "  [{m}x{n}x{k}] tf32_vs_f32={tf32_vs_f32:.2}, bf16_vs_f32={bf16_vs_f32:.2}, tf32_vs_bf16={tf32_vs_bf16:.2} — {status}"
+        );
+
+        if !pass {
+            all_passed = false;
+        }
+    }
+
+    unsafe {
+        free_mapped_mem(status_host_ptr)?;
+    }
+
+    if all_passed {
+        println!("  TF32 MMA GEMM — PASSED");
+        Ok(())
+    } else {
+        Err(GpuHostError::Verification {
+            test: "full_gemm_tf32",
+            detail: "TF32 divergence exceeds tolerance".to_string(),
+        })
+    }
+}

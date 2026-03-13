@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 178     # Monotonic counter, incremented after each completed phase
-completed_tasks = 178
+total_cycles = 180     # Monotonic counter, incremented after each completed phase
+completed_tasks = 180
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.execute"
-current_task_id = "tf32-mma.1"
-last_summary = "bs47 standard: un-parked host-sdk, spawned tf32-mma theme (decision gate for gpu-perf criteria 3+4). Next: tf32-mma.1 (TF32 MMA kernel), then host-sdk.2 (API design)."
+current_step = "do.route"
+current_task_id = ""
+last_summary = "tf32-mma theme complete: TF32 worse than BF16 (2-3x more error), 0/3 inference match. Decision gate: ALL reduced-precision MMA fails for GPT-2 inference. tf32-mma.1+.2 done. Next: host-sdk.2 (public-api)."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 47
@@ -126,7 +126,7 @@ success_criteria = [
 [[themes]]
 id = "tf32-mma"
 title = "TF32 Tensor Core MMA experiment"
-status = "active"
+status = "completed"
 spawned_by = "bs47"
 epic = "gpu-perf"
 goal = "Test whether TF32 MMA (10-bit mantissa, f32 exponent) provides sufficient precision for 12-layer inference"
@@ -316,7 +316,7 @@ id = "tf32-mma.1"
 theme = "tf32-mma"
 title = "TF32 MMA GEMM kernel (m16n8k8)"
 kind = "experiment"
-status = "active"
+status = "done"
 depends_on = []
 spawned_by = "bs47"
 research_questions = [
@@ -330,7 +330,7 @@ id = "tf32-mma.2"
 theme = "tf32-mma"
 title = "TF32 inference validation (decision gate)"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["tf32-mma.1"]
 spawned_by = "bs47"
 research_questions = [

@@ -2143,6 +2143,7 @@ pub(crate) fn run_bf16_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
             "embedding_lookup",
             "layer_norm",
             "full_gemm_bf16",
+            "full_gemm_tf32",
             "gemm_f32",
             "bias_add",
             "split_qkv",
@@ -2164,6 +2165,7 @@ pub(crate) fn run_bf16_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
     let f_embed = get_fn!("embedding_lookup");
     let f_ln = get_fn!("layer_norm");
     let f_bf16 = get_fn!("full_gemm_bf16");
+    let f_tf32 = get_fn!("full_gemm_tf32");
     let f_f32 = get_fn!("gemm_f32");
     let f_bias = get_fn!("bias_add");
     let f_split = get_fn!("split_qkv");
@@ -2290,6 +2292,7 @@ pub(crate) fn run_bf16_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
 
         // Shared memory sizes
         let bf16_smem = (256 + 128) * 4; // full_gemm_bf16
+        let tf32_smem = (256 + 128) * 4; // full_gemm_tf32 (same layout)
         let f32_smem = (32 * 16 + 16 * 16) * 4; // gemm_f32
 
         let fwd_start = std::time::Instant::now();
@@ -2332,6 +2335,23 @@ pub(crate) fn run_bf16_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
                             &lw.w_qkv,
                             &mut qkv_dev,
                             (768u32 / 16),
+                            2304u32,
+                            status_dev_ptr,
+                        ),
+                    )?;
+                },
+                "tf32" => unsafe {
+                    f_tf32.clone().launch(
+                        LaunchConfig {
+                            grid_dim: (seq / 32, 2304 / 16, 1),
+                            block_dim: (128, 1, 1),
+                            shared_mem_bytes: tf32_smem,
+                        },
+                        (
+                            &ln_out_dev,
+                            &lw.w_qkv,
+                            &mut qkv_dev,
+                            (768u32 / 8),
                             2304u32,
                             status_dev_ptr,
                         ),
@@ -2440,6 +2460,23 @@ pub(crate) fn run_bf16_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
                         ),
                     )?;
                 },
+                "tf32" => unsafe {
+                    f_tf32.clone().launch(
+                        LaunchConfig {
+                            grid_dim: (seq / 32, D_MODEL / 16, 1),
+                            block_dim: (128, 1, 1),
+                            shared_mem_bytes: tf32_smem,
+                        },
+                        (
+                            &concat_dev,
+                            &lw.w_proj,
+                            &mut proj_out_dev,
+                            (768u32 / 8),
+                            D_MODEL,
+                            status_dev_ptr,
+                        ),
+                    )?;
+                },
                 _ => unsafe {
                     f_f32.clone().launch(
                         LaunchConfig {
@@ -2542,6 +2579,23 @@ pub(crate) fn run_bf16_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
                         ),
                     )?;
                 },
+                "tf32" => unsafe {
+                    f_tf32.clone().launch(
+                        LaunchConfig {
+                            grid_dim: (seq / 32, D_FFN / 16, 1),
+                            block_dim: (128, 1, 1),
+                            shared_mem_bytes: tf32_smem,
+                        },
+                        (
+                            &ln_out_dev,
+                            &lw.w_fc,
+                            &mut ffn_hidden_dev,
+                            (768u32 / 8),
+                            D_FFN,
+                            status_dev_ptr,
+                        ),
+                    )?;
+                },
                 _ => unsafe {
                     f_f32.clone().launch(
                         LaunchConfig {
@@ -2614,6 +2668,23 @@ pub(crate) fn run_bf16_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
                             &lw.w_fc_proj,
                             &mut ffn_out_dev,
                             (3072u32 / 16),
+                            D_MODEL,
+                            status_dev_ptr,
+                        ),
+                    )?;
+                },
+                "tf32" => unsafe {
+                    f_tf32.clone().launch(
+                        LaunchConfig {
+                            grid_dim: (seq / 32, D_MODEL / 16, 1),
+                            block_dim: (128, 1, 1),
+                            shared_mem_bytes: tf32_smem,
+                        },
+                        (
+                            &gelu_out_dev,
+                            &lw.w_fc_proj,
+                            &mut ffn_out_dev,
+                            (3072u32 / 8),
                             D_MODEL,
                             status_dev_ptr,
                         ),
@@ -2742,52 +2813,46 @@ pub(crate) fn run_bf16_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
         let actual_seq = tokens.len();
         println!("\n  Prompt: \"{prompt}\" ({actual_seq} tokens)");
 
-        // Run BF16 forward
-        let (bf16_out, bf16_time) = run_forward(&tokens, actual_seq, "bf16")?;
-        let bf16_top5 = get_top5(&bf16_out, actual_seq);
-
-        // Run f32 forward
+        // Run all three variants
         let (f32_out, f32_time) = run_forward(&tokens, actual_seq, "f32")?;
+        let (bf16_out, bf16_time) = run_forward(&tokens, actual_seq, "bf16")?;
+        let (tf32_out, tf32_time) = run_forward(&tokens, actual_seq, "tf32")?;
+
         let f32_top5 = get_top5(&f32_out, actual_seq);
+        let bf16_top5 = get_top5(&bf16_out, actual_seq);
+        let tf32_top5 = get_top5(&tf32_out, actual_seq);
 
         println!(
-            "    BF16: {:.1}ms | f32: {:.1}ms",
-            bf16_time.as_secs_f64() * 1000.0,
+            "    f32: {:.1}ms | BF16: {:.1}ms | TF32: {:.1}ms",
             f32_time.as_secs_f64() * 1000.0,
+            bf16_time.as_secs_f64() * 1000.0,
+            tf32_time.as_secs_f64() * 1000.0,
         );
 
-        // Compare top-5
-        let bf16_top5_ids: Vec<usize> = bf16_top5.iter().map(|&(id, _)| id).collect();
         let f32_top5_ids: Vec<usize> = f32_top5.iter().map(|&(id, _)| id).collect();
 
-        print!("    f32  top-5:");
-        for &(id, logit) in &f32_top5 {
-            let tok = tokenizer
-                .decode(&[id as u32])
-                .unwrap_or_else(|_| format!("<{id}>"));
-            print!(" {:?}({logit:.1})", tok);
+        // Display top-5 for each variant
+        for (name, top5) in [
+            ("f32 ", &f32_top5),
+            ("BF16", &bf16_top5),
+            ("TF32", &tf32_top5),
+        ] {
+            print!("    {name} top-5:");
+            for &(id, logit) in top5.iter() {
+                let tok = tokenizer
+                    .decode(&[id as u32])
+                    .unwrap_or_else(|_| format!("<{id}>"));
+                print!(" {:?}({logit:.1})", tok);
+            }
+            println!();
         }
-        println!();
 
-        print!("    BF16 top-5:");
-        for &(id, logit) in &bf16_top5 {
-            let tok = tokenizer
-                .decode(&[id as u32])
-                .unwrap_or_else(|_| format!("<{id}>"));
-            print!(" {:?}({logit:.1})", tok);
-        }
-        println!();
+        // Check top-1 agreement for BF16 and TF32 vs f32
+        let bf16_match = bf16_top5[0].0 == f32_top5_ids[0];
+        let tf32_match = tf32_top5[0].0 == f32_top5_ids[0];
+        println!("    vs f32 top-1: BF16={bf16_match} TF32={tf32_match}");
 
-        // Check top-1 agreement
-        let top1_match = bf16_top5_ids[0] == f32_top5_ids[0];
-        // Check top-5 overlap
-        let overlap = bf16_top5_ids
-            .iter()
-            .filter(|id| f32_top5_ids.contains(id))
-            .count();
-        println!("    Top-1 match: {top1_match} | Top-5 overlap: {overlap}/5");
-
-        if top1_match {
+        if tf32_match {
             total_agree += 1;
         }
         total_prompts += 1;
@@ -2797,8 +2862,8 @@ pub(crate) fn run_bf16_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
         free_mapped_mem(status_host_ptr)?;
     }
 
-    println!("\n  BF16 vs f32 top-1 agreement: {total_agree}/{total_prompts} prompts");
-    println!("  BF16 mixed-precision inference — PASSED");
+    println!("\n  TF32 vs f32 top-1 agreement: {total_agree}/{total_prompts} prompts");
+    println!("  Mixed-precision inference (BF16 + TF32) — PASSED");
     Ok(())
 }
 

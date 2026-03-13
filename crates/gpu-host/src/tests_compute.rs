@@ -2392,11 +2392,11 @@ pub(crate) fn run_transformer_layer_test(dev: Arc<CudaDevice>) -> Result<()> {
     let ln1_beta: Vec<f32> = (0..D_MODEL as usize).map(|j| j as f32 * 0.00005).collect();
 
     // QKV weight [768→2304] + bias
-    let (w_qkv_packed, _w_qkv_f32) = make_weight_colmajor(2304, 768, 0, 0.001);
+    let (w_qkv_packed, w_qkv_f32) = make_weight_colmajor(2304, 768, 0, 0.001);
     let bias_qkv: Vec<f32> = (0..2304usize).map(|j| (j % 5) as f32 * 0.0001).collect();
 
     // Output proj weight [768→768] + bias
-    let (w_proj_packed, _w_proj_f32) = make_weight_colmajor(768, 768, 100, 0.001);
+    let (w_proj_packed, w_proj_f32) = make_weight_colmajor(768, 768, 100, 0.001);
     let bias_proj: Vec<f32> = (0..768usize).map(|j| (j % 3) as f32 * 0.0001).collect();
 
     // LN2 gamma/beta
@@ -2406,9 +2406,9 @@ pub(crate) fn run_transformer_layer_test(dev: Arc<CudaDevice>) -> Result<()> {
     let ln2_beta: Vec<f32> = (0..D_MODEL as usize).map(|j| j as f32 * 0.00003).collect();
 
     // FFN weights
-    let (w_fc_packed, _w_fc_f32) = make_weight_colmajor(3072, 768, 200, 0.001);
+    let (w_fc_packed, w_fc_f32) = make_weight_colmajor(3072, 768, 200, 0.001);
     let bias_fc: Vec<f32> = (0..3072usize).map(|j| (j % 5) as f32 * 0.001).collect();
-    let (w_fc_proj_packed, _w_fc_proj_f32) = make_weight_colmajor(768, 3072, 300, 0.0005);
+    let (w_fc_proj_packed, w_fc_proj_f32) = make_weight_colmajor(768, 3072, 300, 0.0005);
     let bias_fc_proj: Vec<f32> = (0..768usize).map(|j| (j % 3) as f32 * 0.001).collect();
 
     // Input
@@ -2787,24 +2787,197 @@ pub(crate) fn run_transformer_layer_test(dev: Arc<CudaDevice>) -> Result<()> {
 
     let output_host: Vec<f32> = dev.dtoh_sync_copy(&residual1_dev)?;
 
-    // === CPU reference (simplified — just check output is non-trivial and finite) ===
-    // Full CPU reference would duplicate all 13 steps. Instead, verify:
-    // 1. All outputs are finite
-    // 2. Output differs from input (transformation happened)
-    // 3. Output has reasonable magnitude
-    let mut all_finite = true;
-    let mut all_same_as_input = true;
-    let mut max_abs: f32 = 0.0;
+    // === Full CPU reference computation ===
+    let s = SEQ as usize;
+    let dm = D_MODEL as usize;
+    let nh = N_HEADS as usize;
+    let dh = D_HEAD as usize;
+    let dff = D_FFN as usize;
+    let sqrt_2_over_pi: f32 = 0.797_884_6;
+    let coeff_gelu: f32 = 0.044715;
+
+    // CPU helper: layer_norm
+    let cpu_layer_norm = |inp: &[f32], gamma: &[f32], beta: &[f32]| -> Vec<f32> {
+        let mut out = vec![0.0f32; inp.len()];
+        for row in 0..s {
+            let sl = &inp[row * dm..(row + 1) * dm];
+            let mean: f32 = sl.iter().sum::<f32>() / dm as f32;
+            let var: f32 = sl.iter().map(|x| (x - mean) * (x - mean)).sum::<f32>() / dm as f32;
+            let inv_std = 1.0 / (var + EPS).sqrt();
+            for j in 0..dm {
+                out[row * dm + j] = gamma[j] * (sl[j] - mean) * inv_std + beta[j];
+            }
+        }
+        out
+    };
+
+    // CPU helper: matmul with f16 input quantization (matching GPU pipeline)
+    let cpu_gemm_f16 = |a: &[f32], w: &[f32], rows: usize, k_dim: usize, cols: usize| -> Vec<f32> {
+        let a_f16: Vec<f32> = a.iter().map(|v| f16_to_f32(f32_to_f16(*v))).collect();
+        let mut out = vec![0.0f32; rows * cols];
+        for i in 0..rows {
+            for j in 0..cols {
+                let mut sum: f32 = 0.0;
+                for k in 0..k_dim {
+                    sum += a_f16[i * k_dim + k] * w[k * cols + j];
+                }
+                out[i * cols + j] = sum;
+            }
+        }
+        out
+    };
+
+    // Step 1: LayerNorm1
+    let ln1_cpu = cpu_layer_norm(&input_f32, &ln1_gamma, &ln1_beta);
+
+    // Step 2: QKV projection (f16 input)
+    let mut qkv_cpu = cpu_gemm_f16(&ln1_cpu, &w_qkv_f32, s, dm, 2304);
+    for i in 0..s {
+        for j in 0..2304 {
+            qkv_cpu[i * 2304 + j] += bias_qkv[j];
+        }
+    }
+
+    // Step 3: Split QKV → [n_heads][seq][d_head]
+    let mut q_cpu = vec![0.0f32; nh * s * dh];
+    let mut k_cpu = vec![0.0f32; nh * s * dh];
+    let mut v_cpu = vec![0.0f32; nh * s * dh];
+    for head in 0..nh {
+        for seq in 0..s {
+            for d in 0..dh {
+                let qkv_idx = seq * 2304 + head * dh + d;
+                let out_idx = head * s * dh + seq * dh + d;
+                q_cpu[out_idx] = qkv_cpu[qkv_idx];
+                k_cpu[out_idx] = qkv_cpu[qkv_idx + dm];
+                v_cpu[out_idx] = qkv_cpu[qkv_idx + 2 * dm];
+            }
+        }
+    }
+
+    // Step 4: Per-head attention
+    let scale = 1.0 / (dh as f32).sqrt();
+    let mut attn_out_cpu = vec![0.0f32; nh * s * dh];
+    for h in 0..nh {
+        let off = h * s * dh;
+        for i in 0..s {
+            // Scores
+            let mut scores = vec![0.0f32; s];
+            for j in 0..s {
+                let mut dot: f32 = 0.0;
+                for d in 0..dh {
+                    dot += q_cpu[off + i * dh + d] * k_cpu[off + j * dh + d];
+                }
+                scores[j] = dot * scale;
+            }
+            // Softmax
+            let max_s = scores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+            let exp_s: Vec<f32> = scores.iter().map(|s| (s - max_s).exp()).collect();
+            let sum_exp: f32 = exp_s.iter().sum();
+            // Weighted sum
+            for d in 0..dh {
+                let mut acc: f32 = 0.0;
+                for j in 0..s {
+                    acc += (exp_s[j] / sum_exp) * v_cpu[off + j * dh + d];
+                }
+                attn_out_cpu[off + i * dh + d] = acc;
+            }
+        }
+    }
+
+    // Step 5: Concat → [seq][d_model]
+    let mut concat_cpu = vec![0.0f32; s * dm];
+    for seq in 0..s {
+        for head in 0..nh {
+            for d in 0..dh {
+                concat_cpu[seq * dm + head * dh + d] = attn_out_cpu[head * s * dh + seq * dh + d];
+            }
+        }
+    }
+
+    // Step 6: Output projection (f16 input)
+    let mut proj_cpu = cpu_gemm_f16(&concat_cpu, &w_proj_f32, s, dm, dm);
+    for i in 0..s {
+        for j in 0..dm {
+            proj_cpu[i * dm + j] += bias_proj[j];
+        }
+    }
+
+    // Step 7: Residual
+    let mut residual1_cpu = input_f32.clone();
+    for i in 0..s * dm {
+        residual1_cpu[i] += proj_cpu[i];
+    }
+
+    // Step 8: LayerNorm2
+    let ln2_cpu = cpu_layer_norm(&residual1_cpu, &ln2_gamma, &ln2_beta);
+
+    // Step 9: FFN GEMM1 (f16 input)
+    let mut ffn_hidden_cpu = cpu_gemm_f16(&ln2_cpu, &w_fc_f32, s, dm, dff);
+    for i in 0..s {
+        for j in 0..dff {
+            ffn_hidden_cpu[i * dff + j] += bias_fc[j];
+        }
+    }
+
+    // Step 10: GELU
+    let gelu_cpu: Vec<f32> = ffn_hidden_cpu
+        .iter()
+        .map(|&x| {
+            let inner = sqrt_2_over_pi * (x + coeff_gelu * x * x * x);
+            x * 0.5 * (1.0 + inner.tanh())
+        })
+        .collect();
+
+    // Step 11: FFN GEMM2 (f16 input)
+    let mut ffn_out_cpu = cpu_gemm_f16(&gelu_cpu, &w_fc_proj_f32, s, dff, dm);
+    for i in 0..s {
+        for j in 0..dm {
+            ffn_out_cpu[i * dm + j] += bias_fc_proj[j];
+        }
+    }
+
+    // Step 12: Residual
+    let mut output_cpu = residual1_cpu.clone();
+    for i in 0..s * dm {
+        output_cpu[i] += ffn_out_cpu[i];
+    }
+
+    // === Compare GPU vs CPU ===
+    let mut mismatches = 0;
+    let mut max_abs_err: f32 = 0.0;
+    let mut max_rel_err: f32 = 0.0;
     for i in 0..total_seq_model {
-        let v = output_host[i];
-        if !v.is_finite() {
-            all_finite = false;
+        let got = output_host[i];
+        let exp = output_cpu[i];
+        if !got.is_finite() {
+            if mismatches < 3 {
+                println!("  GPU output[{i}] is not finite: {got}");
+            }
+            mismatches += 1;
+            continue;
         }
-        if (v - input_f32[i]).abs() > 1e-6 {
-            all_same_as_input = false;
+        let err = (got - exp).abs();
+        if err > max_abs_err {
+            max_abs_err = err;
         }
-        if v.abs() > max_abs {
-            max_abs = v.abs();
+        let rel = if exp.abs() > 1e-6 {
+            err / exp.abs()
+        } else {
+            err
+        };
+        if rel > max_rel_err {
+            max_rel_err = rel;
+        }
+        // Tolerance: 10% relative OR 0.05 absolute (compound f16 quantization across 3+ GEMM stages)
+        if err > 0.05 && rel > 0.10 {
+            if mismatches < 5 {
+                let row = i / dm;
+                let col = i % dm;
+                println!(
+                    "  MISMATCH [{row}][{col}]: gpu={got:.6} cpu={exp:.6} err={err:.6} rel={rel:.6}"
+                );
+            }
+            mismatches += 1;
         }
     }
 
@@ -2825,29 +2998,15 @@ pub(crate) fn run_transformer_layer_test(dev: Arc<CudaDevice>) -> Result<()> {
     }
 
     println!(
-        "  Output: all_finite={all_finite}, differs_from_input={}, max_abs={max_abs:.4}",
-        !all_same_as_input
+        "  Transformer layer: max_abs_err={max_abs_err:.6}, max_rel_err={max_rel_err:.6}, mismatches={mismatches}/{total_seq_model}"
     );
-
-    if !all_finite {
-        return Err(GpuHostError::Verification {
+    if mismatches == 0 {
+        println!("  Transformer layer (full CPU reference validation, {SEQ}×{D_MODEL}) — PASSED");
+        Ok(())
+    } else {
+        Err(GpuHostError::Verification {
             test: "transformer_layer",
-            detail: "Output contains NaN or Inf".into(),
-        });
+            detail: format!("{mismatches} mismatches"),
+        })
     }
-    if all_same_as_input {
-        return Err(GpuHostError::Verification {
-            test: "transformer_layer",
-            detail: "Output identical to input — no transformation applied".into(),
-        });
-    }
-    if max_abs > 1000.0 {
-        return Err(GpuHostError::Verification {
-            test: "transformer_layer",
-            detail: format!("Output magnitude too large: {max_abs}"),
-        });
-    }
-
-    println!("  Transformer layer (13-step pipeline, {SEQ}×{D_MODEL}) — PASSED");
-    Ok(())
 }

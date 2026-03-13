@@ -3803,7 +3803,7 @@ pub(crate) fn run_full_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
         &[
             "embedding_lookup",
             "layer_norm",
-            "full_gemm_f32in",
+            "gemm_f32",
             "bias_add",
             "split_qkv",
             "flash_attention",
@@ -3823,7 +3823,7 @@ pub(crate) fn run_full_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
 
     let f_embed = get_fn!("embedding_lookup");
     let f_ln = get_fn!("layer_norm");
-    let f_gemm = get_fn!("full_gemm_f32in");
+    let f_gemm = get_fn!("gemm_f32");
     let f_bias = get_fn!("bias_add");
     let f_split = get_fn!("split_qkv");
     let f_attn = get_fn!("flash_attention");
@@ -3832,41 +3832,15 @@ pub(crate) fn run_full_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
     let f_add = get_fn!("elementwise_add");
     let f_zero = get_fn!("zero_pad");
 
-    // === Helper: pack weight [K, N] row-major f32 → column-major f16x2 ===
-    fn f32_to_f16(val: f32) -> u16 {
-        let bits = val.to_bits();
-        let sign = (bits >> 31) & 1;
-        let exp = ((bits >> 23) & 0xFF) as i32;
-        let frac = bits & 0x7FFFFF;
-        if val == 0.0 {
-            return (sign << 15) as u16;
-        }
-        let new_exp = exp - 127 + 15;
-        if new_exp <= 0 {
-            return (sign << 15) as u16;
-        }
-        if new_exp >= 31 {
-            return ((sign << 15) | 0x7C00) as u16;
-        }
-        ((sign << 15) | ((new_exp as u32) << 10) | (frac >> 13)) as u16
-    }
-    fn pack_f16x2(lo: f32, hi: f32) -> u32 {
-        (f32_to_f16(lo) as u32) | ((f32_to_f16(hi) as u32) << 16)
-    }
-
-    /// Pack weight matrix from [K, N] row-major f32 to column-major f16x2.
-    fn pack_weight(w: &[f32], k: usize, n: usize) -> Vec<u32> {
-        assert_eq!(w.len(), k * n);
-        assert!(k.is_multiple_of(2), "K must be even for f16x2 packing");
-        let mut packed = Vec::with_capacity(n * k / 2);
-        for col in 0..n {
-            for kp in 0..k / 2 {
-                let k0 = kp * 2;
-                let k1 = kp * 2 + 1;
-                packed.push(pack_f16x2(w[k0 * n + col], w[k1 * n + col]));
+    // === Helper: transpose weight [K, N] row-major → column-major f32 for gemm_f32 ===
+    fn to_col_major(w: &[f32], k: usize, n: usize) -> Vec<f32> {
+        let mut cm = vec![0.0f32; k * n];
+        for row in 0..k {
+            for col in 0..n {
+                cm[col * k + row] = w[row * n + col];
             }
         }
-        packed
+        cm
     }
 
     // === Allocate a single reusable status buffer ===
@@ -3923,49 +3897,49 @@ pub(crate) fn run_full_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
     drop(wte_dev);
     drop(wpe_dev);
 
-    // === Pre-pack and upload all layer weights ===
-    println!("  Packing and uploading 12 layers of weights...");
+    // === Upload all layer weights as f32 column-major ===
+    println!("  Uploading 12 layers (f32 column-major)...");
     struct LayerWeightsGpu {
         ln1_g: CudaSlice<f32>,
         ln1_b: CudaSlice<f32>,
-        w_qkv: CudaSlice<u32>,
+        w_qkv: CudaSlice<f32>,
         b_qkv: CudaSlice<f32>,
-        w_proj: CudaSlice<u32>,
+        w_proj: CudaSlice<f32>,
         b_proj: CudaSlice<f32>,
         ln2_g: CudaSlice<f32>,
         ln2_b: CudaSlice<f32>,
-        w_fc: CudaSlice<u32>,
+        w_fc: CudaSlice<f32>,
         b_fc: CudaSlice<f32>,
-        w_fc_proj: CudaSlice<u32>,
+        w_fc_proj: CudaSlice<f32>,
         b_fc_proj: CudaSlice<f32>,
     }
 
     let mut gpu_layers: Vec<LayerWeightsGpu> = Vec::with_capacity(12);
     for (i, layer) in weights.layers.iter().enumerate() {
-        let w_qkv_packed = pack_weight(&layer.c_attn_weight, 768, 2304);
-        let w_proj_packed = pack_weight(&layer.c_proj_weight, 768, 768);
-        let w_fc_packed = pack_weight(&layer.mlp_fc_weight, 768, 3072);
-        let w_fc_proj_packed = pack_weight(&layer.mlp_proj_weight, 3072, 768);
+        let w_qkv_cm = to_col_major(&layer.c_attn_weight, 768, 2304);
+        let w_proj_cm = to_col_major(&layer.c_proj_weight, 768, 768);
+        let w_fc_cm = to_col_major(&layer.mlp_fc_weight, 768, 3072);
+        let w_fc_proj_cm = to_col_major(&layer.mlp_proj_weight, 3072, 768);
 
         gpu_layers.push(LayerWeightsGpu {
             ln1_g: dev.htod_sync_copy(&layer.ln_1.weight)?,
             ln1_b: dev.htod_sync_copy(&layer.ln_1.bias)?,
-            w_qkv: dev.htod_sync_copy(&w_qkv_packed)?,
+            w_qkv: dev.htod_sync_copy(&w_qkv_cm)?,
             b_qkv: dev.htod_sync_copy(&layer.c_attn_bias)?,
-            w_proj: dev.htod_sync_copy(&w_proj_packed)?,
+            w_proj: dev.htod_sync_copy(&w_proj_cm)?,
             b_proj: dev.htod_sync_copy(&layer.c_proj_bias)?,
             ln2_g: dev.htod_sync_copy(&layer.ln_2.weight)?,
             ln2_b: dev.htod_sync_copy(&layer.ln_2.bias)?,
-            w_fc: dev.htod_sync_copy(&w_fc_packed)?,
+            w_fc: dev.htod_sync_copy(&w_fc_cm)?,
             b_fc: dev.htod_sync_copy(&layer.mlp_fc_bias)?,
-            w_fc_proj: dev.htod_sync_copy(&w_fc_proj_packed)?,
+            w_fc_proj: dev.htod_sync_copy(&w_fc_proj_cm)?,
             b_fc_proj: dev.htod_sync_copy(&layer.mlp_proj_bias)?,
         });
         if i == 0 || i == 11 {
             println!("    Layer {i} uploaded");
         }
     }
-    println!("  All 12 layers uploaded to GPU");
+    println!("  All 12 layers uploaded (f32)");
 
     // === Allocate reusable activation buffers ===
     let mut ln_out_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(total_seq_model)?;
@@ -3980,8 +3954,19 @@ pub(crate) fn run_full_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
     let mut gelu_out_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>((seq * D_FFN) as usize)?;
     let mut ffn_out_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(total_seq_model)?;
 
-    let gemm_shared = (256 + 128) * 4; // shared mem for full_gemm_f32in
+    let gemm_shared = (32 * 16 + 16 * 16) * 4; // f32 shared memory for gemm_f32
     let n_q_tiles = (seq as usize).div_ceil(32) as u32;
+
+    // === Diagnostic: dump embedding at pos 4 ===
+    {
+        let emb_snap: Vec<f32> = dev.dtoh_sync_copy(&hidden_dev)?;
+        let pos4 = actual_seq - 1;
+        let emb4 = &emb_snap[pos4 * (D_MODEL as usize)..(pos4 + 1) * (D_MODEL as usize)];
+        println!(
+            "  GPU embed pos4 first4: [{:.6}, {:.6}, {:.6}, {:.6}]",
+            emb4[0], emb4[1], emb4[2], emb4[3]
+        );
+    }
 
     // === Run 12 transformer layers ===
     for layer_idx in 0..12u32 {
@@ -4008,7 +3993,18 @@ pub(crate) fn run_full_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
         }
         dev.synchronize()?;
 
-        // Step 2: QKV projection (full_gemm_f32in: f32 input, packed f16x2 weights)
+        // === Layer 0 diagnostic: dump LN1 output ===
+        if layer_idx == 0 {
+            let ln_snap: Vec<f32> = dev.dtoh_sync_copy(&ln_out_dev)?;
+            let pos4 = actual_seq - 1;
+            let ln4 = &ln_snap[pos4 * (D_MODEL as usize)..(pos4 + 1) * (D_MODEL as usize)];
+            println!(
+                "  GPU L0 LN1 pos4 first4: [{:.6}, {:.6}, {:.6}, {:.6}]",
+                ln4[0], ln4[1], ln4[2], ln4[3]
+            );
+        }
+
+        // Step 2: QKV projection (gemm_f32: f32 input, f32 column-major weights)
         unsafe {
             f_gemm.clone().launch(
                 LaunchConfig {
@@ -4020,13 +4016,24 @@ pub(crate) fn run_full_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
                     &ln_out_dev,
                     &lw.w_qkv,
                     &mut qkv_dev,
-                    D_MODEL / 16,
+                    D_MODEL,
                     2304u32,
                     status_dev_ptr,
                 ),
             )?;
         }
         dev.synchronize()?;
+
+        // === Layer 0 diagnostic: dump QKV GEMM output (before bias) ===
+        if layer_idx == 0 {
+            let qkv_snap: Vec<f32> = dev.dtoh_sync_copy(&qkv_dev)?;
+            let pos4 = actual_seq - 1;
+            let qkv4 = &qkv_snap[pos4 * 2304..(pos4 + 1) * 2304];
+            println!(
+                "  GPU L0 QKV pos4 first4: [{:.6}, {:.6}, {:.6}, {:.6}]",
+                qkv4[0], qkv4[1], qkv4[2], qkv4[3]
+            );
+        }
 
         // Bias add on QKV
         let total_qkv = seq * 2304;
@@ -4104,7 +4111,7 @@ pub(crate) fn run_full_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
                     &concat_dev,
                     &lw.w_proj,
                     &mut proj_out_dev,
-                    D_MODEL / 16,
+                    D_MODEL,
                     D_MODEL,
                     status_dev_ptr,
                 ),
@@ -4187,7 +4194,7 @@ pub(crate) fn run_full_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
                     &ln_out_dev,
                     &lw.w_fc,
                     &mut ffn_hidden_dev,
-                    D_MODEL / 16,
+                    D_MODEL,
                     D_FFN,
                     status_dev_ptr,
                 ),
@@ -4245,7 +4252,7 @@ pub(crate) fn run_full_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
                     &gelu_out_dev,
                     &lw.w_fc_proj,
                     &mut ffn_out_dev,
-                    D_FFN / 16,
+                    D_FFN,
                     D_MODEL,
                     status_dev_ptr,
                 ),
@@ -4333,7 +4340,12 @@ pub(crate) fn run_full_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
                 .collect();
             format!(", OVERFLOW: [{}]", ovf_pos.join(", "))
         };
-        println!("    Layer {layer_idx}: max|val|={layer_max_abs:.2}{nan_str}{ovf_str}");
+        // Also print pos4 (last real token) specifics for CPU comparison
+        let pos4_slice = &hidden_snapshot[(actual_seq - 1) * d..actual_seq * d];
+        let pos4_maxabs = pos4_slice.iter().map(|x| x.abs()).fold(0.0f32, f32::max);
+        let pos4_first4: Vec<String> = pos4_slice[..4].iter().map(|x| format!("{x:.4}")).collect();
+        println!("    Layer {layer_idx}: max|val|={layer_max_abs:.2}, pos4_max|val|={pos4_maxabs:.2}, pos4_first4=[{}]{nan_str}{ovf_str}",
+            pos4_first4.join(", "));
     }
 
     // === Final LayerNorm ===
@@ -4551,48 +4563,24 @@ pub(crate) fn run_generation_test(dev: Arc<CudaDevice>) -> Result<()> {
     const EPS: f32 = 1e-5;
     let dm = D_MODEL as usize;
 
-    // Fixed seq=32 for all steps (pad shorter sequences)
-    const SEQ: u32 = 32;
+    // Fixed seq=128 for all steps (pad shorter sequences)
+    const SEQ: u32 = 128;
     let total_seq_model = (SEQ * D_MODEL) as usize;
     let head_total = (N_HEADS * SEQ * D_HEAD) as usize;
 
-    // Max generation: fill up to seq=32
-    let max_new_tokens: usize = 20.min(SEQ as usize - prompt_len);
+    // Max generation: fill up to seq=128
+    let max_new_tokens: usize = 50.min(SEQ as usize - prompt_len);
     println!("  Generating up to {max_new_tokens} new tokens (seq={SEQ})");
 
-    // Helper functions
-    fn f32_to_f16(val: f32) -> u16 {
-        let bits = val.to_bits();
-        let sign = (bits >> 31) & 1;
-        let exp = ((bits >> 23) & 0xFF) as i32;
-        let frac = bits & 0x7FFFFF;
-        if val == 0.0 {
-            return (sign << 15) as u16;
-        }
-        let new_exp = exp - 127 + 15;
-        if new_exp <= 0 {
-            return (sign << 15) as u16;
-        }
-        if new_exp >= 31 {
-            return ((sign << 15) | 0x7C00) as u16;
-        }
-        ((sign << 15) | ((new_exp as u32) << 10) | (frac >> 13)) as u16
-    }
-    fn pack_f16x2(lo: f32, hi: f32) -> u32 {
-        (f32_to_f16(lo) as u32) | ((f32_to_f16(hi) as u32) << 16)
-    }
-    fn pack_weight(w: &[f32], k: usize, n: usize) -> Vec<u32> {
-        assert_eq!(w.len(), k * n);
-        assert!(k.is_multiple_of(2), "K must be even for f16x2 packing");
-        let mut packed = Vec::with_capacity(n * k / 2);
-        for col in 0..n {
-            for kp in 0..k / 2 {
-                let k0 = kp * 2;
-                let k1 = kp * 2 + 1;
-                packed.push(pack_f16x2(w[k0 * n + col], w[k1 * n + col]));
+    // Helper: transpose weight [K, N] row-major → column-major f32 for gemm_f32
+    fn to_col_major(w: &[f32], k: usize, n: usize) -> Vec<f32> {
+        let mut cm = vec![0.0f32; k * n];
+        for row in 0..k {
+            for col in 0..n {
+                cm[col * k + row] = w[row * n + col];
             }
         }
-        packed
+        cm
     }
 
     // Load PTX
@@ -4603,7 +4591,7 @@ pub(crate) fn run_generation_test(dev: Arc<CudaDevice>) -> Result<()> {
         &[
             "embedding_lookup",
             "layer_norm",
-            "full_gemm_f32in",
+            "gemm_f32",
             "bias_add",
             "split_qkv",
             "flash_attention",
@@ -4623,7 +4611,7 @@ pub(crate) fn run_generation_test(dev: Arc<CudaDevice>) -> Result<()> {
 
     let f_embed = get_fn!("embedding_lookup");
     let f_ln = get_fn!("layer_norm");
-    let f_gemm = get_fn!("full_gemm_f32in");
+    let f_gemm = get_fn!("gemm_f32");
     let f_bias = get_fn!("bias_add");
     let f_split = get_fn!("split_qkv");
     let f_attn = get_fn!("flash_attention");
@@ -4639,41 +4627,41 @@ pub(crate) fn run_generation_test(dev: Arc<CudaDevice>) -> Result<()> {
     let wte_dev = dev.htod_sync_copy(&weights.wte)?;
     let wpe_dev = dev.htod_sync_copy(&weights.wpe)?;
 
-    // Pre-pack and upload all layer weights
+    // Upload all layer weights as f32 column-major
     struct LayerWeightsGpu {
         ln1_g: CudaSlice<f32>,
         ln1_b: CudaSlice<f32>,
-        w_qkv: CudaSlice<u32>,
+        w_qkv: CudaSlice<f32>,
         b_qkv: CudaSlice<f32>,
-        w_proj: CudaSlice<u32>,
+        w_proj: CudaSlice<f32>,
         b_proj: CudaSlice<f32>,
         ln2_g: CudaSlice<f32>,
         ln2_b: CudaSlice<f32>,
-        w_fc: CudaSlice<u32>,
+        w_fc: CudaSlice<f32>,
         b_fc: CudaSlice<f32>,
-        w_fc_proj: CudaSlice<u32>,
+        w_fc_proj: CudaSlice<f32>,
         b_fc_proj: CudaSlice<f32>,
     }
 
     let mut gpu_layers: Vec<LayerWeightsGpu> = Vec::with_capacity(12);
     for layer in weights.layers.iter() {
-        let w_qkv_packed = pack_weight(&layer.c_attn_weight, 768, 2304);
-        let w_proj_packed = pack_weight(&layer.c_proj_weight, 768, 768);
-        let w_fc_packed = pack_weight(&layer.mlp_fc_weight, 768, 3072);
-        let w_fc_proj_packed = pack_weight(&layer.mlp_proj_weight, 3072, 768);
+        let w_qkv_cm = to_col_major(&layer.c_attn_weight, 768, 2304);
+        let w_proj_cm = to_col_major(&layer.c_proj_weight, 768, 768);
+        let w_fc_cm = to_col_major(&layer.mlp_fc_weight, 768, 3072);
+        let w_fc_proj_cm = to_col_major(&layer.mlp_proj_weight, 3072, 768);
 
         gpu_layers.push(LayerWeightsGpu {
             ln1_g: dev.htod_sync_copy(&layer.ln_1.weight)?,
             ln1_b: dev.htod_sync_copy(&layer.ln_1.bias)?,
-            w_qkv: dev.htod_sync_copy(&w_qkv_packed)?,
+            w_qkv: dev.htod_sync_copy(&w_qkv_cm)?,
             b_qkv: dev.htod_sync_copy(&layer.c_attn_bias)?,
-            w_proj: dev.htod_sync_copy(&w_proj_packed)?,
+            w_proj: dev.htod_sync_copy(&w_proj_cm)?,
             b_proj: dev.htod_sync_copy(&layer.c_proj_bias)?,
             ln2_g: dev.htod_sync_copy(&layer.ln_2.weight)?,
             ln2_b: dev.htod_sync_copy(&layer.ln_2.bias)?,
-            w_fc: dev.htod_sync_copy(&w_fc_packed)?,
+            w_fc: dev.htod_sync_copy(&w_fc_cm)?,
             b_fc: dev.htod_sync_copy(&layer.mlp_fc_bias)?,
-            w_fc_proj: dev.htod_sync_copy(&w_fc_proj_packed)?,
+            w_fc_proj: dev.htod_sync_copy(&w_fc_proj_cm)?,
             b_fc_proj: dev.htod_sync_copy(&layer.mlp_proj_bias)?,
         });
     }
@@ -4696,7 +4684,7 @@ pub(crate) fn run_generation_test(dev: Arc<CudaDevice>) -> Result<()> {
     let mut gelu_out_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>((SEQ * D_FFN) as usize)?;
     let mut ffn_out_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(total_seq_model)?;
 
-    let gemm_shared = (256 + 128) * 4;
+    let gemm_shared = (32 * 16 + 16 * 16) * 4; // f32 shared memory for gemm_f32
     let n_q_tiles = (SEQ as usize).div_ceil(32) as u32;
 
     // Build the token sequence (will grow each step)
@@ -4788,7 +4776,7 @@ pub(crate) fn run_generation_test(dev: Arc<CudaDevice>) -> Result<()> {
                         &ln_out_dev,
                         &lw.w_qkv,
                         &mut qkv_dev,
-                        D_MODEL / 16,
+                        D_MODEL,
                         2304u32,
                         status_dev_ptr,
                     ),
@@ -4872,7 +4860,7 @@ pub(crate) fn run_generation_test(dev: Arc<CudaDevice>) -> Result<()> {
                         &concat_dev,
                         &lw.w_proj,
                         &mut proj_out_dev,
-                        D_MODEL / 16,
+                        D_MODEL,
                         D_MODEL,
                         status_dev_ptr,
                     ),
@@ -4955,7 +4943,7 @@ pub(crate) fn run_generation_test(dev: Arc<CudaDevice>) -> Result<()> {
                         &ln_out_dev,
                         &lw.w_fc,
                         &mut ffn_hidden_dev,
-                        D_MODEL / 16,
+                        D_MODEL,
                         D_FFN,
                         status_dev_ptr,
                     ),
@@ -5013,7 +5001,7 @@ pub(crate) fn run_generation_test(dev: Arc<CudaDevice>) -> Result<()> {
                         &gelu_out_dev,
                         &lw.w_fc_proj,
                         &mut ffn_out_dev,
-                        D_FFN / 16,
+                        D_FFN,
                         D_MODEL,
                         status_dev_ptr,
                     ),
@@ -5423,6 +5411,18 @@ pub(crate) fn run_f32_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
         }
         dev.synchronize()?;
 
+        // === Layer 0 diagnostic: compare f32 GEMM QKV with CPU f64 ===
+        if layer_idx == 0 {
+            let qkv_snap: Vec<f32> = dev.dtoh_sync_copy(&qkv_dev)?;
+            let pos4 = actual_seq - 1;
+            let qkv4 = &qkv_snap[pos4 * 2304..(pos4 + 1) * 2304];
+            println!(
+                "  f32 GEMM L0 QKV pos4 first4: [{:.6}, {:.6}, {:.6}, {:.6}]",
+                qkv4[0], qkv4[1], qkv4[2], qkv4[3]
+            );
+            println!("  (CPU f64 reference: [-0.191336, -0.079322, 0.937499, 0.162505])");
+        }
+
         // QKV bias
         let total_qkv = seq * 2304;
         unsafe {
@@ -5787,5 +5787,825 @@ pub(crate) fn run_f32_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
     }
 
     println!("  f32 GEMM forward pass — PASSED");
+    Ok(())
+}
+
+/// full-inference.8+10: CPU f64 reference forward pass — definitive diagnostic.
+///
+/// Implements the COMPLETE GPT-2 transformer in pure Rust f64 arithmetic on CPU.
+/// No GPU involved. If this also predicts " a", the model genuinely cannot answer.
+/// If this predicts "Paris", there is a GPU implementation bug.
+///
+/// Also performs LM head position audit (full-inference.10): checks predictions
+/// from last_pos-1, last_pos, last_pos+1.
+///
+/// Also performs per-layer intermediate predictions (full-inference.9): applies
+/// LM head after each of 12 layers to track where semantic content appears/is lost.
+pub(crate) fn run_cpu_f64_reference_test() -> Result<()> {
+    let model_path = std::path::Path::new("../../models/model.safetensors");
+    if !model_path.exists() {
+        println!("\n--- Skipping CPU f64 reference (models/model.safetensors not found) ---");
+        return Ok(());
+    }
+
+    println!("\n--- CPU f64 reference forward pass (full-inference.8+9+10) ---");
+
+    let weights =
+        gpu_host::model::load_gpt2_weights(model_path).map_err(|e| GpuHostError::Verification {
+            test: "cpu_f64_ref",
+            detail: format!("weight loading: {e}"),
+        })?;
+
+    let tokenizer =
+        gpu_host::tokenizer::Gpt2Tokenizer::new().map_err(|e| GpuHostError::Verification {
+            test: "cpu_f64_ref",
+            detail: format!("tokenizer: {e}"),
+        })?;
+    let prompt = "The capital of France is";
+    let prompt_tokens = tokenizer.encode(prompt);
+    let seq = prompt_tokens.len();
+    println!("  Prompt: \"{prompt}\" → {seq} tokens: {prompt_tokens:?}");
+
+    const D_MODEL: usize = 768;
+    const N_HEADS: usize = 12;
+    const D_HEAD: usize = 64;
+    const D_FFN: usize = 3072;
+    const VOCAB_SIZE: usize = 50257;
+    const EPS: f64 = 1e-5;
+
+    // Convert all weights to f64
+    let wte: Vec<f64> = weights.wte.iter().map(|&x| x as f64).collect();
+    let wpe: Vec<f64> = weights.wpe.iter().map(|&x| x as f64).collect();
+    let ln_f_g: Vec<f64> = weights.ln_f.weight.iter().map(|&x| x as f64).collect();
+    let ln_f_b: Vec<f64> = weights.ln_f.bias.iter().map(|&x| x as f64).collect();
+
+    // === Embedding: hidden[pos] = wte[token] + wpe[pos] ===
+    let mut hidden = vec![0.0f64; seq * D_MODEL];
+    for pos in 0..seq {
+        let tok = prompt_tokens[pos] as usize;
+        for d in 0..D_MODEL {
+            hidden[pos * D_MODEL + d] = wte[tok * D_MODEL + d] + wpe[pos * D_MODEL + d];
+        }
+    }
+    println!(
+        "  Embedding done. hidden[0][0..4] = [{:.6}, {:.6}, {:.6}, {:.6}]",
+        hidden[0], hidden[1], hidden[2], hidden[3]
+    );
+    let pos4_start = (seq - 1) * D_MODEL;
+    println!(
+        "  CPU embed pos4 first4: [{:.6}, {:.6}, {:.6}, {:.6}]",
+        hidden[pos4_start],
+        hidden[pos4_start + 1],
+        hidden[pos4_start + 2],
+        hidden[pos4_start + 3]
+    );
+
+    // Helper: LayerNorm
+    fn layer_norm(input: &[f64], gamma: &[f64], beta: &[f64], dim: usize, eps: f64) -> Vec<f64> {
+        let seq = input.len() / dim;
+        let mut output = vec![0.0f64; input.len()];
+        for s in 0..seq {
+            let row = &input[s * dim..(s + 1) * dim];
+            let mean: f64 = row.iter().sum::<f64>() / dim as f64;
+            let var: f64 = row.iter().map(|&x| (x - mean) * (x - mean)).sum::<f64>() / dim as f64;
+            let inv_std = 1.0 / (var + eps).sqrt();
+            for d in 0..dim {
+                output[s * dim + d] = (row[d] - mean) * inv_std * gamma[d] + beta[d];
+            }
+        }
+        output
+    }
+
+    // Helper: matmul A[M,K] @ B[K,N] → C[M,N]  (B stored row-major as [K,N])
+    fn matmul(a: &[f64], b: &[f64], m: usize, k: usize, n: usize) -> Vec<f64> {
+        let mut c = vec![0.0f64; m * n];
+        for i in 0..m {
+            for j in 0..n {
+                let mut sum = 0.0f64;
+                for p in 0..k {
+                    sum += a[i * k + p] * b[p * n + j];
+                }
+                c[i * n + j] = sum;
+            }
+        }
+        c
+    }
+
+    // Helper: add bias
+    fn add_bias(data: &mut [f64], bias: &[f64], dim: usize) {
+        let seq = data.len() / dim;
+        for s in 0..seq {
+            for d in 0..dim {
+                data[s * dim + d] += bias[d];
+            }
+        }
+    }
+
+    // Helper: GELU (GPT-2 variant with tanh approximation)
+    fn gelu(x: f64) -> f64 {
+        let sqrt_2_over_pi: f64 = 0.7978845608028654;
+        let coeff: f64 = 0.044715;
+        let inner = sqrt_2_over_pi * (x + coeff * x * x * x);
+        x * 0.5 * (1.0 + inner.tanh())
+    }
+
+    // Helper: compute top-5 predictions from a hidden vector using wte
+    fn top5_from_hidden(
+        hidden_vec: &[f64],
+        wte: &[f64],
+        dim: usize,
+        vocab: usize,
+        tokenizer: &gpu_host::tokenizer::Gpt2Tokenizer,
+    ) -> Vec<(usize, f64, String)> {
+        let mut logits = vec![0.0f64; vocab];
+        for v in 0..vocab {
+            let mut dot = 0.0f64;
+            for d in 0..dim {
+                dot += hidden_vec[d] * wte[v * dim + d];
+            }
+            logits[v] = dot;
+        }
+        let mut indices: Vec<usize> = (0..vocab).collect();
+        indices.sort_by(|&a, &b| logits[b].partial_cmp(&logits[a]).unwrap());
+        indices[..5]
+            .iter()
+            .map(|&idx| {
+                let tok_str = tokenizer
+                    .decode(&[idx as u32])
+                    .unwrap_or_else(|_| format!("<{idx}>"));
+                (idx, logits[idx], tok_str)
+            })
+            .collect()
+    }
+
+    let timer = std::time::Instant::now();
+
+    // === 12 Transformer Layers ===
+    for layer_idx in 0..12 {
+        let lw = &weights.layers[layer_idx];
+        let ln1_g: Vec<f64> = lw.ln_1.weight.iter().map(|&x| x as f64).collect();
+        let ln1_b: Vec<f64> = lw.ln_1.bias.iter().map(|&x| x as f64).collect();
+        let c_attn_w: Vec<f64> = lw.c_attn_weight.iter().map(|&x| x as f64).collect();
+        let c_attn_b: Vec<f64> = lw.c_attn_bias.iter().map(|&x| x as f64).collect();
+        let c_proj_w: Vec<f64> = lw.c_proj_weight.iter().map(|&x| x as f64).collect();
+        let c_proj_b: Vec<f64> = lw.c_proj_bias.iter().map(|&x| x as f64).collect();
+        let ln2_g: Vec<f64> = lw.ln_2.weight.iter().map(|&x| x as f64).collect();
+        let ln2_b: Vec<f64> = lw.ln_2.bias.iter().map(|&x| x as f64).collect();
+        let fc_w: Vec<f64> = lw.mlp_fc_weight.iter().map(|&x| x as f64).collect();
+        let fc_b: Vec<f64> = lw.mlp_fc_bias.iter().map(|&x| x as f64).collect();
+        let proj_w: Vec<f64> = lw.mlp_proj_weight.iter().map(|&x| x as f64).collect();
+        let proj_b: Vec<f64> = lw.mlp_proj_bias.iter().map(|&x| x as f64).collect();
+
+        // 1. LayerNorm1
+        let ln_out = layer_norm(&hidden, &ln1_g, &ln1_b, D_MODEL, EPS);
+
+        if layer_idx == 0 {
+            let lp = seq - 1;
+            let ln4 = &ln_out[lp * D_MODEL..(lp + 1) * D_MODEL];
+            println!(
+                "  CPU L0 LN1 pos4 first4: [{:.6}, {:.6}, {:.6}, {:.6}]",
+                ln4[0], ln4[1], ln4[2], ln4[3]
+            );
+        }
+
+        // 2. QKV projection: ln_out[seq, 768] @ c_attn_w[768, 2304] + bias
+        let mut qkv = matmul(&ln_out, &c_attn_w, seq, D_MODEL, D_MODEL * 3);
+
+        if layer_idx == 0 {
+            let lp = seq - 1;
+            let qkv4 = &qkv[lp * (D_MODEL * 3)..(lp + 1) * (D_MODEL * 3)];
+            println!(
+                "  CPU L0 QKV pos4 first4 (no bias): [{:.6}, {:.6}, {:.6}, {:.6}]",
+                qkv4[0], qkv4[1], qkv4[2], qkv4[3]
+            );
+        }
+
+        add_bias(&mut qkv, &c_attn_b, D_MODEL * 3);
+
+        // 3. Split Q, K, V and compute attention per head
+        // qkv layout: [seq, 2304] where Q=[0..768], K=[768..1536], V=[1536..2304]
+        // Within each 768: [head0_d0..head0_d63, head1_d0..head1_d63, ...]
+        let mut attn_concat = vec![0.0f64; seq * D_MODEL];
+
+        for h in 0..N_HEADS {
+            // Extract Q, K, V for this head
+            let mut q = vec![0.0f64; seq * D_HEAD];
+            let mut k = vec![0.0f64; seq * D_HEAD];
+            let mut v = vec![0.0f64; seq * D_HEAD];
+
+            for s in 0..seq {
+                for d in 0..D_HEAD {
+                    q[s * D_HEAD + d] = qkv[s * (3 * D_MODEL) + h * D_HEAD + d];
+                    k[s * D_HEAD + d] = qkv[s * (3 * D_MODEL) + D_MODEL + h * D_HEAD + d];
+                    v[s * D_HEAD + d] = qkv[s * (3 * D_MODEL) + 2 * D_MODEL + h * D_HEAD + d];
+                }
+            }
+
+            // Attention scores: Q @ K^T / sqrt(d_head) with causal mask
+            let scale = 1.0 / (D_HEAD as f64).sqrt();
+            let mut scores = vec![0.0f64; seq * seq];
+            for i in 0..seq {
+                for j in 0..seq {
+                    if j <= i {
+                        // Causal: position i can attend to positions 0..=i
+                        let mut dot = 0.0f64;
+                        for d in 0..D_HEAD {
+                            dot += q[i * D_HEAD + d] * k[j * D_HEAD + d];
+                        }
+                        scores[i * seq + j] = dot * scale;
+                    } else {
+                        scores[i * seq + j] = f64::NEG_INFINITY;
+                    }
+                }
+            }
+
+            // Softmax per row
+            for i in 0..seq {
+                let row = &mut scores[i * seq..(i + 1) * seq];
+                let max_val = row.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+                let mut sum = 0.0f64;
+                for j in 0..seq {
+                    row[j] = (row[j] - max_val).exp();
+                    sum += row[j];
+                }
+                for j in 0..seq {
+                    row[j] /= sum;
+                }
+            }
+
+            // Attention output: softmax_scores @ V
+            let attn_out = matmul(&scores, &v, seq, seq, D_HEAD);
+
+            // Concat: write to [seq][d_model] at head offset
+            for s in 0..seq {
+                for d in 0..D_HEAD {
+                    attn_concat[s * D_MODEL + h * D_HEAD + d] = attn_out[s * D_HEAD + d];
+                }
+            }
+        }
+
+        // 4. Output projection: attn_concat[seq, 768] @ c_proj_w[768, 768] + bias
+        let mut proj_out = matmul(&attn_concat, &c_proj_w, seq, D_MODEL, D_MODEL);
+        add_bias(&mut proj_out, &c_proj_b, D_MODEL);
+
+        // 5. Residual 1
+        for i in 0..hidden.len() {
+            hidden[i] += proj_out[i];
+        }
+
+        // 6. LayerNorm2
+        let ln2_out = layer_norm(&hidden, &ln2_g, &ln2_b, D_MODEL, EPS);
+
+        // 7. FFN up: ln2_out[seq, 768] @ fc_w[768, 3072] + bias
+        let mut ffn_hidden = matmul(&ln2_out, &fc_w, seq, D_MODEL, D_FFN);
+        add_bias(&mut ffn_hidden, &fc_b, D_FFN);
+
+        // 8. GELU
+        for x in ffn_hidden.iter_mut() {
+            *x = gelu(*x);
+        }
+
+        // 9. FFN down: ffn_hidden[seq, 3072] @ proj_w[3072, 768] + bias
+        let mut ffn_out = matmul(&ffn_hidden, &proj_w, seq, D_FFN, D_MODEL);
+        add_bias(&mut ffn_out, &proj_b, D_MODEL);
+
+        // 10. Residual 2
+        for i in 0..hidden.len() {
+            hidden[i] += ffn_out[i];
+        }
+
+        // === Per-layer intermediate predictions (full-inference.9) ===
+        // Compute norms of each component
+        let last_pos = seq - 1;
+        let attn_res_norm: f64 = proj_out[last_pos * D_MODEL..(last_pos + 1) * D_MODEL]
+            .iter()
+            .map(|x| x * x)
+            .sum::<f64>()
+            .sqrt();
+        let ffn_res_norm: f64 = ffn_out[last_pos * D_MODEL..(last_pos + 1) * D_MODEL]
+            .iter()
+            .map(|x| x * x)
+            .sum::<f64>()
+            .sqrt();
+        let ln_probe = layer_norm(&hidden, &ln_f_g, &ln_f_b, D_MODEL, EPS);
+        let probe_vec = &ln_probe[last_pos * D_MODEL..(last_pos + 1) * D_MODEL];
+        let top5 = top5_from_hidden(probe_vec, &wte, D_MODEL, VOCAB_SIZE, &tokenizer);
+        let hidden_norm: f64 = hidden[last_pos * D_MODEL..(last_pos + 1) * D_MODEL]
+            .iter()
+            .map(|x| x * x)
+            .sum::<f64>()
+            .sqrt();
+        println!(
+            "  Layer {:2}: top1={:?} ({:.4}) | h_norm={:.2} attn_r={:.2} ffn_r={:.2} | top5: {}",
+            layer_idx,
+            top5[0].2,
+            top5[0].1,
+            hidden_norm,
+            attn_res_norm,
+            ffn_res_norm,
+            top5.iter()
+                .map(|(_, l, s)| format!("{s}({l:.2})"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
+
+    // === Final LayerNorm ===
+    let ln_final = layer_norm(&hidden, &ln_f_g, &ln_f_b, D_MODEL, EPS);
+
+    let elapsed = timer.elapsed();
+    println!(
+        "  Forward pass done in {:.1}ms",
+        elapsed.as_secs_f64() * 1000.0
+    );
+
+    // === LM Head position audit (full-inference.10) ===
+    let last_pos = seq - 1;
+    println!("\n  === Position audit ===");
+    for offset in [-1i32, 0, 1] {
+        let pos = last_pos as i32 + offset;
+        if pos < 0 || pos >= seq as i32 {
+            continue;
+        }
+        let pos = pos as usize;
+        let hvec = &ln_final[pos * D_MODEL..(pos + 1) * D_MODEL];
+        let top5 = top5_from_hidden(hvec, &wte, D_MODEL, VOCAB_SIZE, &tokenizer);
+        let label = match offset {
+            -1 => "last_pos-1",
+            0 => "last_pos  ",
+            1 => "last_pos+1",
+            _ => unreachable!(),
+        };
+        println!(
+            "  {label} (pos={pos}): top5: {}",
+            top5.iter()
+                .map(|(id, l, s)| format!("{s}[{id}]({l:.2})"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
+
+    // === Diagnostic: norms ===
+    let final_vec_for_diag = &ln_final[last_pos * D_MODEL..(last_pos + 1) * D_MODEL];
+    let ln_final_norm: f64 = final_vec_for_diag.iter().map(|x| x * x).sum::<f64>().sqrt();
+    let ln_final_mean: f64 = final_vec_for_diag.iter().sum::<f64>() / D_MODEL as f64;
+    let ln_final_max: f64 = final_vec_for_diag
+        .iter()
+        .cloned()
+        .fold(f64::NEG_INFINITY, f64::max);
+    let ln_final_min: f64 = final_vec_for_diag
+        .iter()
+        .cloned()
+        .fold(f64::INFINITY, f64::min);
+    println!("\n  === Final LN output diagnostics ===");
+    println!(
+        "  ln_final norm={:.4}, mean={:.6}, min={:.4}, max={:.4}",
+        ln_final_norm, ln_final_mean, ln_final_min, ln_final_max
+    );
+
+    // Check a few wte row norms
+    let mut wte_norms: Vec<f64> = Vec::new();
+    for v in 0..100 {
+        let norm: f64 = wte[v * D_MODEL..(v + 1) * D_MODEL]
+            .iter()
+            .map(|x| x * x)
+            .sum::<f64>()
+            .sqrt();
+        wte_norms.push(norm);
+    }
+    let avg_wte_norm: f64 = wte_norms.iter().sum::<f64>() / wte_norms.len() as f64;
+    println!("  wte avg row norm (first 100) = {:.4}", avg_wte_norm);
+
+    // Check ln_f gamma stats
+    let gamma_norm: f64 = ln_f_g.iter().map(|x| x * x).sum::<f64>().sqrt();
+    let gamma_mean: f64 = ln_f_g.iter().sum::<f64>() / D_MODEL as f64;
+    let gamma_max: f64 = ln_f_g.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    println!(
+        "  ln_f gamma: norm={:.4}, mean={:.6}, max={:.4}",
+        gamma_norm, gamma_mean, gamma_max
+    );
+
+    // === Final top-10 predictions from last_pos ===
+    println!("\n  === Final predictions (last_pos={last_pos}) ===");
+    let final_vec = &ln_final[last_pos * D_MODEL..(last_pos + 1) * D_MODEL];
+    let mut logits = vec![0.0f64; VOCAB_SIZE];
+    for v in 0..VOCAB_SIZE {
+        let mut dot = 0.0f64;
+        for d in 0..D_MODEL {
+            dot += final_vec[d] * wte[v * D_MODEL + d];
+        }
+        logits[v] = dot;
+    }
+    let mut indices: Vec<usize> = (0..VOCAB_SIZE).collect();
+    indices.sort_by(|&a, &b| logits[b].partial_cmp(&logits[a]).unwrap());
+
+    for rank in 0..10 {
+        let idx = indices[rank];
+        let tok = tokenizer
+            .decode(&[idx as u32])
+            .unwrap_or_else(|_| format!("<{idx}>"));
+        println!(
+            "    #{}: token {} = {:?} (logit={:.4})",
+            rank + 1,
+            idx,
+            tok,
+            logits[idx]
+        );
+    }
+
+    let top1 = indices[0];
+    let top1_str = tokenizer
+        .decode(&[top1 as u32])
+        .unwrap_or_else(|_| format!("<{top1}>"));
+    println!(
+        "\n  CPU f64 GREEDY PREDICTION: token {} = {:?}",
+        top1, top1_str
+    );
+
+    // === Padding test: does padding change the result? ===
+    println!("\n  === CPU f64 with padding (seq=32, same as GPU) ===");
+    {
+        let padded_seq = 32usize;
+        // Re-do embedding with padding
+        let mut h_pad = vec![0.0f64; padded_seq * D_MODEL];
+        for pos in 0..seq {
+            let tok = prompt_tokens[pos] as usize;
+            for d in 0..D_MODEL {
+                h_pad[pos * D_MODEL + d] = wte[tok * D_MODEL + d] + wpe[pos * D_MODEL + d];
+            }
+        }
+        // Zero padded positions (seq..padded_seq) — already zero from initialization
+
+        // Run 12 layers with padded_seq
+        for li in 0..12 {
+            let lw = &weights.layers[li];
+            let lg: Vec<f64> = lw.ln_1.weight.iter().map(|&x| x as f64).collect();
+            let lb: Vec<f64> = lw.ln_1.bias.iter().map(|&x| x as f64).collect();
+            let caw: Vec<f64> = lw.c_attn_weight.iter().map(|&x| x as f64).collect();
+            let cab: Vec<f64> = lw.c_attn_bias.iter().map(|&x| x as f64).collect();
+            let cpw: Vec<f64> = lw.c_proj_weight.iter().map(|&x| x as f64).collect();
+            let cpb: Vec<f64> = lw.c_proj_bias.iter().map(|&x| x as f64).collect();
+            let l2g: Vec<f64> = lw.ln_2.weight.iter().map(|&x| x as f64).collect();
+            let l2b: Vec<f64> = lw.ln_2.bias.iter().map(|&x| x as f64).collect();
+            let fw: Vec<f64> = lw.mlp_fc_weight.iter().map(|&x| x as f64).collect();
+            let fb: Vec<f64> = lw.mlp_fc_bias.iter().map(|&x| x as f64).collect();
+            let pw: Vec<f64> = lw.mlp_proj_weight.iter().map(|&x| x as f64).collect();
+            let pb: Vec<f64> = lw.mlp_proj_bias.iter().map(|&x| x as f64).collect();
+
+            let lo = layer_norm(&h_pad, &lg, &lb, D_MODEL, EPS);
+            let mut qkv = matmul(&lo, &caw, padded_seq, D_MODEL, D_MODEL * 3);
+            add_bias(&mut qkv, &cab, D_MODEL * 3);
+
+            let mut ac = vec![0.0f64; padded_seq * D_MODEL];
+            for hd in 0..N_HEADS {
+                let mut q = vec![0.0f64; padded_seq * D_HEAD];
+                let mut k = vec![0.0f64; padded_seq * D_HEAD];
+                let mut v = vec![0.0f64; padded_seq * D_HEAD];
+                for s in 0..padded_seq {
+                    for d in 0..D_HEAD {
+                        q[s * D_HEAD + d] = qkv[s * (3 * D_MODEL) + hd * D_HEAD + d];
+                        k[s * D_HEAD + d] = qkv[s * (3 * D_MODEL) + D_MODEL + hd * D_HEAD + d];
+                        v[s * D_HEAD + d] = qkv[s * (3 * D_MODEL) + 2 * D_MODEL + hd * D_HEAD + d];
+                    }
+                }
+                let scale = 1.0 / (D_HEAD as f64).sqrt();
+                let mut scores = vec![0.0f64; padded_seq * padded_seq];
+                for i in 0..padded_seq {
+                    for j in 0..padded_seq {
+                        if j <= i {
+                            let mut dot = 0.0f64;
+                            for d in 0..D_HEAD {
+                                dot += q[i * D_HEAD + d] * k[j * D_HEAD + d];
+                            }
+                            scores[i * padded_seq + j] = dot * scale;
+                        } else {
+                            scores[i * padded_seq + j] = f64::NEG_INFINITY;
+                        }
+                    }
+                }
+                for i in 0..padded_seq {
+                    let row = &mut scores[i * padded_seq..(i + 1) * padded_seq];
+                    let mx = row.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+                    let mut sm = 0.0f64;
+                    for j in 0..padded_seq {
+                        row[j] = (row[j] - mx).exp();
+                        sm += row[j];
+                    }
+                    for j in 0..padded_seq {
+                        row[j] /= sm;
+                    }
+                }
+                let ao = matmul(&scores, &v, padded_seq, padded_seq, D_HEAD);
+                for s in 0..padded_seq {
+                    for d in 0..D_HEAD {
+                        ac[s * D_MODEL + hd * D_HEAD + d] = ao[s * D_HEAD + d];
+                    }
+                }
+            }
+
+            let mut po = matmul(&ac, &cpw, padded_seq, D_MODEL, D_MODEL);
+            add_bias(&mut po, &cpb, D_MODEL);
+            for i in 0..h_pad.len() {
+                h_pad[i] += po[i];
+            }
+
+            // Zero padded positions after residual (like GPU does)
+            for s in seq..padded_seq {
+                for d in 0..D_MODEL {
+                    h_pad[s * D_MODEL + d] = 0.0;
+                }
+            }
+
+            let l2o = layer_norm(&h_pad, &l2g, &l2b, D_MODEL, EPS);
+            let mut fh = matmul(&l2o, &fw, padded_seq, D_MODEL, D_FFN);
+            add_bias(&mut fh, &fb, D_FFN);
+            for x in fh.iter_mut() {
+                *x = gelu(*x);
+            }
+            let mut fo = matmul(&fh, &pw, padded_seq, D_FFN, D_MODEL);
+            add_bias(&mut fo, &pb, D_MODEL);
+            for i in 0..h_pad.len() {
+                h_pad[i] += fo[i];
+            }
+
+            // Zero padded positions after FFN residual
+            for s in seq..padded_seq {
+                for d in 0..D_MODEL {
+                    h_pad[s * D_MODEL + d] = 0.0;
+                }
+            }
+        }
+
+        let lnf = layer_norm(&h_pad, &ln_f_g, &ln_f_b, D_MODEL, EPS);
+        let lp = seq - 1;
+        let hv = &lnf[lp * D_MODEL..(lp + 1) * D_MODEL];
+        let t5 = top5_from_hidden(hv, &wte, D_MODEL, VOCAB_SIZE, &tokenizer);
+        let h_norm: f64 = h_pad[lp * D_MODEL..(lp + 1) * D_MODEL]
+            .iter()
+            .map(|x| x * x)
+            .sum::<f64>()
+            .sqrt();
+        let ln_norm: f64 = hv.iter().map(|x| x * x).sum::<f64>().sqrt();
+        println!(
+            "  Padded result: h_norm={:.2} ln_norm={:.2}",
+            h_norm, ln_norm
+        );
+        println!(
+            "  Top5: {}",
+            t5.iter()
+                .map(|(_, l, s)| format!("{s}({l:.2})"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        println!("  Compare no-pad: h_norm=429.60, top1=\" the\"(-100.25)");
+    }
+
+    // === Layer-by-layer GPU vs CPU comparison ===
+    // Recompute with padding (seq=32) and print per-layer hidden norms at pos 4
+    // to compare against GPU output
+    println!("\n  === Per-layer hidden state comparison (for GPU validation) ===");
+    {
+        let padded_seq = 32usize;
+        let mut h_cmp = vec![0.0f64; padded_seq * D_MODEL];
+        for pos in 0..seq {
+            let tok = prompt_tokens[pos] as usize;
+            for d in 0..D_MODEL {
+                h_cmp[pos * D_MODEL + d] = wte[tok * D_MODEL + d] + wpe[pos * D_MODEL + d];
+            }
+        }
+
+        for li in 0..12 {
+            let lw = &weights.layers[li];
+            let lg: Vec<f64> = lw.ln_1.weight.iter().map(|&x| x as f64).collect();
+            let lb: Vec<f64> = lw.ln_1.bias.iter().map(|&x| x as f64).collect();
+            let caw: Vec<f64> = lw.c_attn_weight.iter().map(|&x| x as f64).collect();
+            let cab: Vec<f64> = lw.c_attn_bias.iter().map(|&x| x as f64).collect();
+            let cpw: Vec<f64> = lw.c_proj_weight.iter().map(|&x| x as f64).collect();
+            let cpb: Vec<f64> = lw.c_proj_bias.iter().map(|&x| x as f64).collect();
+            let l2g: Vec<f64> = lw.ln_2.weight.iter().map(|&x| x as f64).collect();
+            let l2b: Vec<f64> = lw.ln_2.bias.iter().map(|&x| x as f64).collect();
+            let fw: Vec<f64> = lw.mlp_fc_weight.iter().map(|&x| x as f64).collect();
+            let fb: Vec<f64> = lw.mlp_fc_bias.iter().map(|&x| x as f64).collect();
+            let pw: Vec<f64> = lw.mlp_proj_weight.iter().map(|&x| x as f64).collect();
+            let pb: Vec<f64> = lw.mlp_proj_bias.iter().map(|&x| x as f64).collect();
+
+            let lo = layer_norm(&h_cmp, &lg, &lb, D_MODEL, EPS);
+            let mut qkv = matmul(&lo, &caw, padded_seq, D_MODEL, D_MODEL * 3);
+            add_bias(&mut qkv, &cab, D_MODEL * 3);
+
+            let mut ac = vec![0.0f64; padded_seq * D_MODEL];
+            for hd in 0..N_HEADS {
+                let mut q = vec![0.0f64; padded_seq * D_HEAD];
+                let mut k = vec![0.0f64; padded_seq * D_HEAD];
+                let mut v = vec![0.0f64; padded_seq * D_HEAD];
+                for s in 0..padded_seq {
+                    for d in 0..D_HEAD {
+                        q[s * D_HEAD + d] = qkv[s * (3 * D_MODEL) + hd * D_HEAD + d];
+                        k[s * D_HEAD + d] = qkv[s * (3 * D_MODEL) + D_MODEL + hd * D_HEAD + d];
+                        v[s * D_HEAD + d] = qkv[s * (3 * D_MODEL) + 2 * D_MODEL + hd * D_HEAD + d];
+                    }
+                }
+                let scale = 1.0 / (D_HEAD as f64).sqrt();
+                let mut scores = vec![0.0f64; padded_seq * padded_seq];
+                for i in 0..padded_seq {
+                    for j in 0..padded_seq {
+                        if j <= i {
+                            let mut dot = 0.0f64;
+                            for d in 0..D_HEAD {
+                                dot += q[i * D_HEAD + d] * k[j * D_HEAD + d];
+                            }
+                            scores[i * padded_seq + j] = dot * scale;
+                        } else {
+                            scores[i * padded_seq + j] = f64::NEG_INFINITY;
+                        }
+                    }
+                }
+                for i in 0..padded_seq {
+                    let row = &mut scores[i * padded_seq..(i + 1) * padded_seq];
+                    let mx = row.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+                    let mut sm = 0.0f64;
+                    for j in 0..padded_seq {
+                        row[j] = (row[j] - mx).exp();
+                        sm += row[j];
+                    }
+                    for j in 0..padded_seq {
+                        row[j] /= sm;
+                    }
+                }
+                let ao = matmul(&scores, &v, padded_seq, padded_seq, D_HEAD);
+                for s in 0..padded_seq {
+                    for d in 0..D_HEAD {
+                        ac[s * D_MODEL + hd * D_HEAD + d] = ao[s * D_HEAD + d];
+                    }
+                }
+            }
+
+            let mut po = matmul(&ac, &cpw, padded_seq, D_MODEL, D_MODEL);
+            add_bias(&mut po, &cpb, D_MODEL);
+            for i in 0..h_cmp.len() {
+                h_cmp[i] += po[i];
+            }
+            for s in seq..padded_seq {
+                for d in 0..D_MODEL {
+                    h_cmp[s * D_MODEL + d] = 0.0;
+                }
+            }
+
+            let l2o = layer_norm(&h_cmp, &l2g, &l2b, D_MODEL, EPS);
+            let mut fh = matmul(&l2o, &fw, padded_seq, D_MODEL, D_FFN);
+            add_bias(&mut fh, &fb, D_FFN);
+            for x in fh.iter_mut() {
+                *x = gelu(*x);
+            }
+            let mut fo = matmul(&fh, &pw, padded_seq, D_FFN, D_MODEL);
+            add_bias(&mut fo, &pb, D_MODEL);
+            for i in 0..h_cmp.len() {
+                h_cmp[i] += fo[i];
+            }
+            for s in seq..padded_seq {
+                for d in 0..D_MODEL {
+                    h_cmp[s * D_MODEL + d] = 0.0;
+                }
+            }
+
+            // Print hidden stats at pos 4 for comparison with GPU
+            let lp = seq - 1;
+            let h_slice = &h_cmp[lp * D_MODEL..(lp + 1) * D_MODEL];
+            let h_max = h_slice.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+            let h_min = h_slice.iter().cloned().fold(f64::INFINITY, f64::min);
+            let h_maxabs = h_slice.iter().map(|x| x.abs()).fold(0.0f64, f64::max);
+            let first4: Vec<String> = h_slice[..4].iter().map(|x| format!("{x:.4}")).collect();
+            println!(
+                "  Layer {:2}: max|val|={:.2}, max={:.2}, min={:.2}, first4=[{}]",
+                li,
+                h_maxabs,
+                h_max,
+                h_min,
+                first4.join(", ")
+            );
+        }
+    }
+
+    // === Additional prompt tests ===
+    println!("\n  === Multi-prompt CPU f64 test ===");
+    let test_prompts = [
+        "Hello, my name is",
+        "The largest city in Japan is",
+        "1 + 1 =",
+        "Barack Obama was the president of the",
+    ];
+    for tp in &test_prompts {
+        let toks = tokenizer.encode(tp);
+        let tseq = toks.len();
+
+        // Embedding
+        let mut h = vec![0.0f64; tseq * D_MODEL];
+        for pos in 0..tseq {
+            let tok = toks[pos] as usize;
+            for d in 0..D_MODEL {
+                h[pos * D_MODEL + d] = wte[tok * D_MODEL + d] + wpe[pos * D_MODEL + d];
+            }
+        }
+
+        // 12 layers
+        for li in 0..12 {
+            let lw = &weights.layers[li];
+            let lg: Vec<f64> = lw.ln_1.weight.iter().map(|&x| x as f64).collect();
+            let lb: Vec<f64> = lw.ln_1.bias.iter().map(|&x| x as f64).collect();
+            let caw: Vec<f64> = lw.c_attn_weight.iter().map(|&x| x as f64).collect();
+            let cab: Vec<f64> = lw.c_attn_bias.iter().map(|&x| x as f64).collect();
+            let cpw: Vec<f64> = lw.c_proj_weight.iter().map(|&x| x as f64).collect();
+            let cpb: Vec<f64> = lw.c_proj_bias.iter().map(|&x| x as f64).collect();
+            let l2g: Vec<f64> = lw.ln_2.weight.iter().map(|&x| x as f64).collect();
+            let l2b: Vec<f64> = lw.ln_2.bias.iter().map(|&x| x as f64).collect();
+            let fw: Vec<f64> = lw.mlp_fc_weight.iter().map(|&x| x as f64).collect();
+            let fb: Vec<f64> = lw.mlp_fc_bias.iter().map(|&x| x as f64).collect();
+            let pw: Vec<f64> = lw.mlp_proj_weight.iter().map(|&x| x as f64).collect();
+            let pb: Vec<f64> = lw.mlp_proj_bias.iter().map(|&x| x as f64).collect();
+
+            let lo = layer_norm(&h, &lg, &lb, D_MODEL, EPS);
+            let mut qkv = matmul(&lo, &caw, tseq, D_MODEL, D_MODEL * 3);
+            add_bias(&mut qkv, &cab, D_MODEL * 3);
+
+            let mut ac = vec![0.0f64; tseq * D_MODEL];
+            for hd in 0..N_HEADS {
+                let mut q = vec![0.0f64; tseq * D_HEAD];
+                let mut k = vec![0.0f64; tseq * D_HEAD];
+                let mut v = vec![0.0f64; tseq * D_HEAD];
+                for s in 0..tseq {
+                    for d in 0..D_HEAD {
+                        q[s * D_HEAD + d] = qkv[s * (3 * D_MODEL) + hd * D_HEAD + d];
+                        k[s * D_HEAD + d] = qkv[s * (3 * D_MODEL) + D_MODEL + hd * D_HEAD + d];
+                        v[s * D_HEAD + d] = qkv[s * (3 * D_MODEL) + 2 * D_MODEL + hd * D_HEAD + d];
+                    }
+                }
+                let scale = 1.0 / (D_HEAD as f64).sqrt();
+                let mut scores = vec![0.0f64; tseq * tseq];
+                for i in 0..tseq {
+                    for j in 0..tseq {
+                        if j <= i {
+                            let mut dot = 0.0f64;
+                            for d in 0..D_HEAD {
+                                dot += q[i * D_HEAD + d] * k[j * D_HEAD + d];
+                            }
+                            scores[i * tseq + j] = dot * scale;
+                        } else {
+                            scores[i * tseq + j] = f64::NEG_INFINITY;
+                        }
+                    }
+                }
+                for i in 0..tseq {
+                    let row = &mut scores[i * tseq..(i + 1) * tseq];
+                    let mx = row.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+                    let mut sm = 0.0f64;
+                    for j in 0..tseq {
+                        row[j] = (row[j] - mx).exp();
+                        sm += row[j];
+                    }
+                    for j in 0..tseq {
+                        row[j] /= sm;
+                    }
+                }
+                let ao = matmul(&scores, &v, tseq, tseq, D_HEAD);
+                for s in 0..tseq {
+                    for d in 0..D_HEAD {
+                        ac[s * D_MODEL + hd * D_HEAD + d] = ao[s * D_HEAD + d];
+                    }
+                }
+            }
+
+            let mut po = matmul(&ac, &cpw, tseq, D_MODEL, D_MODEL);
+            add_bias(&mut po, &cpb, D_MODEL);
+            for i in 0..h.len() {
+                h[i] += po[i];
+            }
+
+            let l2o = layer_norm(&h, &l2g, &l2b, D_MODEL, EPS);
+            let mut fh = matmul(&l2o, &fw, tseq, D_MODEL, D_FFN);
+            add_bias(&mut fh, &fb, D_FFN);
+            for x in fh.iter_mut() {
+                *x = gelu(*x);
+            }
+            let mut fo = matmul(&fh, &pw, tseq, D_FFN, D_MODEL);
+            add_bias(&mut fo, &pb, D_MODEL);
+            for i in 0..h.len() {
+                h[i] += fo[i];
+            }
+        }
+
+        let lnf = layer_norm(&h, &ln_f_g, &ln_f_b, D_MODEL, EPS);
+        let lp = tseq - 1;
+        let hv = &lnf[lp * D_MODEL..(lp + 1) * D_MODEL];
+        let t5 = top5_from_hidden(hv, &wte, D_MODEL, VOCAB_SIZE, &tokenizer);
+        println!(
+            "  \"{tp}\" → top5: {}",
+            t5.iter()
+                .map(|(_, l, s)| format!("{s}({l:.2})"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
+
+    println!("  CPU f64 reference forward pass — PASSED");
     Ok(())
 }

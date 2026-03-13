@@ -4,22 +4,22 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 163     # Monotonic counter, incremented after each completed phase
-completed_tasks = 162
+total_cycles = 167     # Monotonic counter, incremented after each completed phase
+completed_tasks = 166
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.execute"
+current_step = "do.route"
 current_task_id = ""
-last_summary = "full-inference.6 done: f32 GEMM top-1=' a' (not 'Paris'). GPT-2 small likely can't predict 'Paris'. f32 only 13% slower than f16 TC. All full-inference tasks done except blocked decision gate (.5). Need PyTorch reference."
+last_summary = "full-inference.7-10 done. Root cause: full_gemm_f32in MMA kernel produces wrong GEMM results. Switched forward+generation tests to gemm_f32 (pure f32 FMA). GPU now matches CPU f64 exactly. Generation produces 22 tokens of English before NaN at step 22 (separate precision issue). Next: brainstorm to address NaN and plan MMA kernel fix."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 40
+brainstorm_seq = 41
 review_seq = 5
 
 # Brainstorm trigger control
-last_brainstorm_at_completed = 160
+last_brainstorm_at_completed = 162
 brainstorm_interval = 3
 
 # ============================================================
@@ -3867,3 +3867,87 @@ new_themes_spawned = []
 themes_parked = []
 themes_completed = []
 key_insight = "MMA already uses f32 accumulation — NaN comes from f16 range overflow (>65504) during cvt.rn.f16.f32 input conversion, not f16 accumulation. Pure f32 GEMM is fastest path to certainty. Decision gate deferred until f32 GEMM validates precision hypothesis. GPT-2 small may not predict 'Paris' even in PyTorch — need reference output."
+
+# ============================================================
+# New tasks from BS41
+# ============================================================
+
+[[tasks]]
+id = "full-inference.7"
+theme = "full-inference"
+title = "WebFetch GPT-2 reference — confirm model predicts Paris"
+kind = "investigation"
+status = "done"
+depends_on = []
+spawned_by = "bs41"
+research_questions = [
+    "Does GPT-2 small predict 'Paris' for 'The capital of France is'?",
+    "What are the top-5 predictions from public GPT-2 endpoints?",
+    "Is our top-1 (' a') consistent with any known GPT-2 behavior?",
+]
+
+[[tasks]]
+id = "full-inference.8"
+theme = "full-inference"
+title = "CPU f64 reference + weight verification — confirm model works correctly"
+kind = "investigation"
+status = "done"
+depends_on = []
+spawned_by = "bs41"
+research_questions = [
+    "Does our pack_weight correctly handle GPT-2's Conv1D weight layout [in,out]?",
+    "Does CPU input @ weight match GPU GEMM output for the same input?",
+    "Does input @ weight.T produce different results, and which is correct?",
+]
+
+[[tasks]]
+id = "full-inference.9"
+theme = "full-inference"
+title = "Per-layer intermediate predictions — where is semantic content lost?"
+kind = "experiment"
+status = "done"
+depends_on = ["full-inference.8"]
+spawned_by = "bs41"
+research_questions = [
+    "At which layer does the model lose semantic content (predictions degrade)?",
+    "Do hidden state norms grow exponentially (suggesting attention instability)?",
+    "Does applying LM head at early layers produce more relevant predictions?",
+]
+
+[[tasks]]
+id = "full-inference.10"
+theme = "full-inference"
+title = "LM head position audit — rule out off-by-one"
+kind = "investigation"
+status = "done"
+depends_on = []
+spawned_by = "bs41"
+research_questions = [
+    "Does LM head at last_pos-1 or last_pos+1 produce better predictions?",
+    "Is the position indexing consistent between embedding and output extraction?",
+]
+
+[[tasks]]
+id = "full-inference.11"
+theme = "full-inference"
+title = "Switch forward/generation from broken MMA to correct f32 GEMM"
+kind = "experiment"
+status = "done"
+depends_on = ["full-inference.8"]
+spawned_by = "diagnosis"
+research_questions = [
+    "Does switching to gemm_f32 fix forward pass predictions?",
+    "Does generation produce coherent English text?",
+    "What causes NaN at step 22?",
+]
+
+[[brainstorms]]
+seq = 41
+at_cycle = 163
+trigger = "User demanded autonomous iteration + generation produces garbage text"
+level = "deep"
+new_tasks_spawned = ["full-inference.7", "full-inference.8", "full-inference.9", "full-inference.10"]
+new_themes_spawned = []
+themes_parked = []
+themes_completed = []
+key_insight = "Stop waiting for PyTorch. Self-diagnose: (1) WebFetch confirms GPT-2 predicts Paris, (2) weight transpose is #1 suspect (Conv1D [in,out] common bug), (3) per-layer diagnostics find where semantics are lost, (4) LM head position audit. Model limitation <5% — top-5 being function words is pathological."

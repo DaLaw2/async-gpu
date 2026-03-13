@@ -19,3 +19,4 @@ gpu_input.txt
 gpu_autonomous.txt
 gpu_roundtrip.txt
 branch_test.txt
+models/

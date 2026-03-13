@@ -197,11 +197,54 @@ fn main() -> Result<()> {
     // FlashAttention test (attention-scale.3)
     tests_compute::run_flash_attention_test(Arc::clone(&dev))?;
 
+    // FlashAttention scaling test (attention-scale.4)
+    tests_compute::run_flash_attention_scale_test(Arc::clone(&dev))?;
+
+    // Embedding lookup test (full-inference.1)
+    tests_compute::run_embedding_test(Arc::clone(&dev))?;
+
     // FFN block test (transformer-layer.4)
     tests_compute::run_ffn_test(Arc::clone(&dev))?;
 
     // Transformer layer test (transformer-layer.6)
     tests_compute::run_transformer_layer_test(Arc::clone(&dev))?;
+
+    // GPT-2 model weight loading test (model-loading.3)
+    {
+        let model_path = std::path::Path::new("../../models/model.safetensors");
+        if model_path.exists() {
+            println!("\n--- GPT-2 weight loading test (model-loading.3) ---");
+            let weights = gpu_host::model::load_gpt2_weights(model_path).map_err(|e| {
+                GpuHostError::Verification {
+                    test: "model_loading",
+                    detail: format!("{e}"),
+                }
+            })?;
+            println!("  Total params: {}", weights.total_params());
+            println!("  Memory: {:.1} MB", weights.memory_bytes() as f64 / 1e6);
+            println!("  Layers: {}", weights.layers.len());
+            println!("  wte shape: [50257, 768] = {} elements", weights.wte.len());
+            println!("  wpe shape: [1024, 768] = {} elements", weights.wpe.len());
+            assert_eq!(weights.layers.len(), 12);
+            assert_eq!(weights.wte.len(), 50257 * 768);
+            assert_eq!(weights.wpe.len(), 1024 * 768);
+            assert_eq!(weights.layers[0].c_attn_weight.len(), 768 * 2304);
+            assert_eq!(weights.layers[0].mlp_fc_weight.len(), 768 * 3072);
+
+            // Upload embedding table to GPU to verify transfer
+            let wte_dev = dev.htod_sync_copy(&weights.wte)?;
+            let wte_back: Vec<f32> = dev.dtoh_sync_copy(&wte_dev)?;
+            assert_eq!(wte_back.len(), weights.wte.len());
+            assert_eq!(wte_back[0], weights.wte[0]);
+            assert_eq!(wte_back[1000], weights.wte[1000]);
+            println!("  GPU round-trip verified for wte");
+            println!("  GPT-2 weight loading — PASSED");
+        } else {
+            println!(
+                "\n--- Skipping GPT-2 weight loading (models/model.safetensors not found) ---"
+            );
+        }
+    }
 
     // GPT-2 tokenizer test (tokenizer.2)
     tests_tokenizer::run_tokenizer_test()?;

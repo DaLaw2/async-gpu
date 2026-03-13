@@ -3017,6 +3017,62 @@ pub unsafe extern "ptx-kernel" fn flash_attention(
 }
 
 // ============================================================
+// Token + positional embedding kernel (full-inference.1)
+// ============================================================
+
+/// Embedding lookup + addition: out[pos, d] = wte[token_ids[pos], d] + wpe[pos, d]
+///
+/// wte: [vocab_size, d_model] f32 (token embedding table)
+/// wpe: [max_seq, d_model] f32 (positional embedding table)
+/// token_ids: [seq_len] u32
+/// out: [seq_len, d_model] f32
+///
+/// grid_dim = (ceil(seq_len * d_model / 256), 1, 1), block_dim = (256, 1, 1)
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn embedding_lookup(
+    wte: *const f32,
+    wpe: *const f32,
+    token_ids: *const u32,
+    out: *mut f32,
+    seq_len: u32,
+    d_model: u32,
+    status: *mut u32,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let block_x = nvptx::_block_idx_x() as u32;
+        let global_id = block_x * 256 + tid;
+        let total = seq_len * d_model;
+
+        if global_id < total {
+            let pos = global_id / d_model;
+            let d = global_id % d_model;
+
+            let token_id = *token_ids.add(pos as usize);
+            let tok_emb = *wte.add((token_id * d_model + d) as usize);
+            let pos_emb = *wpe.add((pos * d_model + d) as usize);
+
+            *out.add(global_id as usize) = tok_emb + pos_emb;
+        }
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (wte, wpe, token_ids, out, seq_len, d_model);
+    }
+
+    if tid == 0 {
+        let _prev: u32;
+        core::arch::asm!(
+            "atom.global.add.u32 {prev}, [{addr}], 1;",
+            prev = out(reg32) _prev,
+            addr = in(reg64) status,
+        );
+    }
+}
+
+// ============================================================
 // Bias-add kernel (transformer-layer.4 helper)
 // ============================================================
 

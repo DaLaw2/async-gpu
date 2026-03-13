@@ -2369,6 +2369,260 @@ pub(crate) fn run_flash_attention_test(dev: Arc<CudaDevice>) -> Result<()> {
     Ok(())
 }
 
+/// FlashAttention scaling test (attention-scale.4): validate at seq=256 and seq=1024.
+pub(crate) fn run_flash_attention_scale_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- FlashAttention scaling test (attention-scale.4) ---");
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "flash_attn_scale", &["flash_attention"]);
+    let f = dev
+        .get_func("flash_attn_scale", "flash_attention")
+        .ok_or(GpuHostError::KernelNotFound("flash_attention"))?;
+
+    const N_HEADS: usize = 12;
+    const D_HEAD: usize = 64;
+
+    for seq_len in [256usize, 1024] {
+        println!("  Testing causal attention at seq={seq_len}...");
+
+        let total = N_HEADS * seq_len * D_HEAD;
+        let mut q_data: Vec<f32> = Vec::with_capacity(total);
+        let mut k_data: Vec<f32> = Vec::with_capacity(total);
+        let mut v_data: Vec<f32> = Vec::with_capacity(total);
+
+        for i in 0..total {
+            q_data.push(((i * 7 + 3) % 11) as f32 * 0.01 - 0.05);
+            k_data.push(((i * 13 + 5) % 11) as f32 * 0.01 - 0.05);
+            v_data.push(((i * 17 + 9) % 11) as f32 * 0.01 - 0.05);
+        }
+
+        let q_dev = dev.htod_sync_copy(&q_data)?;
+        let k_dev = dev.htod_sync_copy(&k_data)?;
+        let v_dev = dev.htod_sync_copy(&v_data)?;
+        let mut out_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(total)?;
+        let (status_host_ptr, status_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 1)? };
+
+        unsafe { std::ptr::write_volatile(status_host_ptr, 0) };
+
+        let n_q_tiles = seq_len.div_ceil(32);
+        let cfg = LaunchConfig {
+            grid_dim: (N_HEADS as u32, n_q_tiles as u32, 1),
+            block_dim: (32, 1, 1),
+            shared_mem_bytes: 2 * 32 * 64 * 4,
+        };
+
+        unsafe {
+            f.clone().launch(
+                cfg,
+                (
+                    &q_dev,
+                    &k_dev,
+                    &v_dev,
+                    &mut out_dev,
+                    seq_len as u32,
+                    D_HEAD as u32,
+                    1u32, // causal
+                    status_dev_ptr,
+                ),
+            )?;
+        }
+        dev.synchronize()?;
+
+        let expected_blocks = (N_HEADS * n_q_tiles) as u32;
+        let status = unsafe { std::ptr::read_volatile(status_host_ptr) };
+        assert!(
+            status >= expected_blocks,
+            "flash_attention seq={seq_len} incomplete: {status}/{expected_blocks}"
+        );
+
+        let out_host: Vec<f32> = dev.dtoh_sync_copy(&out_dev)?;
+
+        // CPU reference: spot-check a subset of positions to keep CPU time reasonable
+        // For seq=1024, full verification would be O(seq^2 * d * heads) ≈ 805M ops
+        // Instead check first 32 + last 32 + middle 32 rows per head
+        let scale = 1.0 / (D_HEAD as f32).sqrt();
+        let mut mismatches = 0;
+        let mut max_err: f32 = 0.0;
+        let check_rows: Vec<usize> = {
+            let mut rows = Vec::new();
+            for r in 0..32.min(seq_len) {
+                rows.push(r);
+            }
+            if seq_len > 64 {
+                let mid = seq_len / 2;
+                for r in mid..mid + 32.min(seq_len - mid) {
+                    rows.push(r);
+                }
+            }
+            if seq_len > 32 {
+                for r in (seq_len - 32)..seq_len {
+                    if !rows.contains(&r) {
+                        rows.push(r);
+                    }
+                }
+            }
+            rows
+        };
+
+        for h in 0..N_HEADS {
+            for &i in &check_rows {
+                // Compute attention for row i
+                let mut scores: Vec<f32> = Vec::with_capacity(seq_len);
+                for j in 0..seq_len {
+                    if j > i {
+                        scores.push(-1.0e38);
+                    } else {
+                        let mut dot: f32 = 0.0;
+                        for d in 0..D_HEAD {
+                            dot += q_data[h * seq_len * D_HEAD + i * D_HEAD + d]
+                                * k_data[h * seq_len * D_HEAD + j * D_HEAD + d];
+                        }
+                        scores.push(dot * scale);
+                    }
+                }
+                let max_s = scores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+                let exp_scores: Vec<f32> = scores.iter().map(|s| (s - max_s).exp()).collect();
+                let sum_exp: f32 = exp_scores.iter().sum();
+                let weights: Vec<f32> = exp_scores.iter().map(|e| e / sum_exp).collect();
+
+                for d in 0..D_HEAD {
+                    let mut acc: f32 = 0.0;
+                    for j in 0..seq_len {
+                        acc += weights[j] * v_data[h * seq_len * D_HEAD + j * D_HEAD + d];
+                    }
+                    let got = out_host[h * seq_len * D_HEAD + i * D_HEAD + d];
+                    let err = (got - acc).abs();
+                    if err > max_err {
+                        max_err = err;
+                    }
+                    if err > 1e-3 {
+                        if mismatches < 3 {
+                            println!(
+                                "    MISMATCH h={h} i={i} d={d}: got={got:.6}, exp={acc:.6}, err={err:.6}"
+                            );
+                        }
+                        mismatches += 1;
+                    }
+                }
+            }
+        }
+
+        let checked = N_HEADS * check_rows.len() * D_HEAD;
+        println!(
+            "    seq={seq_len}: max_err={max_err:.8}, mismatches={mismatches}/{checked} (spot-checked)"
+        );
+
+        unsafe { free_mapped_mem(status_host_ptr)? };
+
+        if mismatches > 0 {
+            return Err(GpuHostError::Verification {
+                test: "flash_attention_scale",
+                detail: format!("seq={seq_len}: {mismatches} mismatches, max_err={max_err:.8}"),
+            });
+        }
+    }
+
+    println!("  FlashAttention scaling (seq=256, seq=1024) — PASSED");
+    Ok(())
+}
+
+/// Embedding lookup test (full-inference.1): token + positional embeddings.
+pub(crate) fn run_embedding_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Embedding lookup test (full-inference.1) ---");
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "embedding", &["embedding_lookup"]);
+    let f = dev
+        .get_func("embedding", "embedding_lookup")
+        .ok_or(GpuHostError::KernelNotFound("embedding_lookup"))?;
+
+    const SEQ_LEN: usize = 8;
+    const D_MODEL: usize = 768;
+    const VOCAB_SIZE: usize = 50257;
+    const MAX_SEQ: usize = 1024;
+
+    // Create small fake embedding tables
+    let mut wte = vec![0.0f32; VOCAB_SIZE * D_MODEL];
+    let mut wpe = vec![0.0f32; MAX_SEQ * D_MODEL];
+
+    // Fill with deterministic values
+    for i in 0..VOCAB_SIZE * D_MODEL {
+        wte[i] = (i % 1000) as f32 * 0.001;
+    }
+    for i in 0..MAX_SEQ * D_MODEL {
+        wpe[i] = (i % 500) as f32 * 0.002;
+    }
+
+    let token_ids: Vec<u32> = vec![100, 200, 300, 400, 500, 1000, 5000, 50256];
+
+    let wte_dev = dev.htod_sync_copy(&wte)?;
+    let wpe_dev = dev.htod_sync_copy(&wpe)?;
+    let tok_dev: CudaSlice<u32> = dev.htod_sync_copy(&token_ids)?;
+    let mut out_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(SEQ_LEN * D_MODEL)?;
+    let (status_host_ptr, status_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 1)? };
+
+    let total_elems = (SEQ_LEN * D_MODEL) as u32;
+    let n_blocks = total_elems.div_ceil(256);
+    let cfg = LaunchConfig {
+        grid_dim: (n_blocks, 1, 1),
+        block_dim: (256, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    unsafe {
+        f.clone().launch(
+            cfg,
+            (
+                &wte_dev,
+                &wpe_dev,
+                &tok_dev,
+                &mut out_dev,
+                SEQ_LEN as u32,
+                D_MODEL as u32,
+                status_dev_ptr,
+            ),
+        )?;
+    }
+    dev.synchronize()?;
+
+    let out_host: Vec<f32> = dev.dtoh_sync_copy(&out_dev)?;
+
+    // CPU reference
+    let mut mismatches = 0;
+    let mut max_err: f32 = 0.0;
+    for pos in 0..SEQ_LEN {
+        let tok_id = token_ids[pos] as usize;
+        for d in 0..D_MODEL {
+            let expected = wte[tok_id * D_MODEL + d] + wpe[pos * D_MODEL + d];
+            let got = out_host[pos * D_MODEL + d];
+            let err = (got - expected).abs();
+            if err > max_err {
+                max_err = err;
+            }
+            if err > 1e-6 {
+                mismatches += 1;
+            }
+        }
+    }
+
+    println!(
+        "  Embedding (seq={SEQ_LEN}): max_err={max_err:.8}, mismatches={mismatches}/{}",
+        SEQ_LEN * D_MODEL
+    );
+
+    unsafe { free_mapped_mem(status_host_ptr)? };
+
+    if mismatches == 0 {
+        println!("  Embedding lookup — PASSED");
+        Ok(())
+    } else {
+        Err(GpuHostError::Verification {
+            test: "embedding_lookup",
+            detail: format!("{mismatches} mismatches, max_err={max_err:.8}"),
+        })
+    }
+}
+
 /// FFN block test (transformer-layer.4): linear(768→3072) → GELU → linear(3072→768).
 /// Validates the full pipeline: f32→f16x2 pack → GEMM → bias → GELU → pack → GEMM → bias.
 pub(crate) fn run_ffn_test(dev: Arc<CudaDevice>) -> Result<()> {

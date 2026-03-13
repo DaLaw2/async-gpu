@@ -33,6 +33,12 @@ jobs:
           restore-keys: |
             lint-${{ runner.os }}-
 
+      - name: Create PTX stubs for gpu-host (include_str! needs them at compile time)
+        run: |
+          for f in kernel.ptx embassy_test.ptx async_hostcall_test.ptx std_build_test.ptx async_pipeline_test.ptx multi_warp_test.ptx; do
+            echo "// stub for CI" > "crates/gpu-host/$f"
+          done
+
       - name: cargo fmt --check (gpu-host)
         run: cargo +stable fmt --manifest-path crates/gpu-host/Cargo.toml -- --check
 
@@ -167,6 +173,12 @@ jobs:
           key: host-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             host-${{ runner.os }}-
+
+      - name: Create PTX stubs for gpu-host (include_str! needs them at compile time)
+        run: |
+          for f in kernel.ptx embassy_test.ptx async_hostcall_test.ptx std_build_test.ptx async_pipeline_test.ptx multi_warp_test.ptx; do
+            echo "// stub for CI" > "crates/gpu-host/$f"
+          done
 
       - name: Check gpu-host compiles
         run: cargo +stable check --manifest-path crates/gpu-host/Cargo.toml

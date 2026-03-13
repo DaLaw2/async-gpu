@@ -2031,3 +2031,301 @@ pub unsafe extern "ptx-kernel" fn multi_warp_gemm(
         core::ptr::write_volatile(status, 1);
     }
 }
+
+// ============================================================
+// Multi-block GEMM (gemm-scale.2)
+// ============================================================
+
+/// Multi-block GEMM: D(M×N) = A(M×K) × B(K×N), M = num_blocks * 32, N = 16.
+///
+/// Each block: 128 threads (4 warps), computes D[block_m*32..(block_m+1)*32][0..15].
+/// grid_dim = (M/32, 1, 1), block_dim = (128, 1, 1).
+/// A is row-major f16x2 packed [M][K/2] u32.
+/// B is column-major f16x2 packed [N][K/2] u32.
+/// D is row-major f32 [M][N].
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn multi_block_gemm(
+    a_global: *const u32,
+    b_global: *const u32,
+    d_global: *mut f32,
+    k_tiles: u32,
+    n_cols: u32,
+    m_rows: u32,
+    status: *mut u32,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let block_m = nvptx::_block_idx_x() as u32; // which 32-row block
+
+        let warp_id = tid / 32;
+        let local_tid = tid % 32;
+        let group = local_tid / 4;
+        let lane = local_tid % 4;
+
+        // Warp arrangement: 2×2 (2 in M, 2 in N)
+        let warp_m = warp_id / 2; // 0 or 1
+        let warp_n = warp_id % 2; // 0 or 1
+
+        let smem = get_dynamic_smem_ptr() as *mut u32;
+        let a_smem = smem; // [32][8] = 256 u32
+        let b_smem = smem.add(256); // [16][8] = 128 u32 (col-major packed)
+
+        let k_half = k_tiles * 8; // K/2 = packed u32 per row of A
+
+        // Offset A by block_m * 32 rows
+        let a_block = a_global.add((block_m * 32 * k_half) as usize);
+
+        // Initialize accumulator
+        let mut c0: u32 = 0;
+        let mut c1: u32 = 0;
+        let mut c2: u32 = 0;
+        let mut c3: u32 = 0;
+
+        let mut t = 0u32;
+        while t < k_tiles {
+            // Cooperative load A tile: [32][8] = 256 u32, 128 threads → 2 each
+            let mut i = 0u32;
+            while i < 2 {
+                let smem_idx = tid * 2 + i;
+                let row = smem_idx / 8;
+                let col_packed = smem_idx % 8;
+                let global_idx = row * k_half + t * 8 + col_packed;
+                *a_smem.add(smem_idx as usize) = *a_block.add(global_idx as usize);
+                i += 1;
+            }
+
+            // Cooperative load B tile: [N][8] col-major packed, 128 threads → 1 each
+            // B is shared across all blocks — no offset needed
+            if tid < 128 {
+                let col = tid / 8; // N column (0..15)
+                let k_pair = tid % 8; // row pair within tile (0..7)
+                let global_idx = col * k_half + t * 8 + k_pair;
+                *b_smem.add(tid as usize) = *b_global.add(global_idx as usize);
+            }
+
+            bar_sync();
+
+            // Load A fragments for this warp's M-slice (warp_m * 16)
+            let a_off = warp_m * 16;
+            let a0 = *a_smem.add(((a_off + group) * 8 + lane) as usize);
+            let a1 = *a_smem.add(((a_off + group) * 8 + lane + 4) as usize);
+            let a2 = *a_smem.add(((a_off + group + 8) * 8 + lane) as usize);
+            let a3 = *a_smem.add(((a_off + group + 8) * 8 + lane + 4) as usize);
+
+            // Load B fragments for this warp's N-slice (col-major packed)
+            let b_col = warp_n * 8 + group;
+            let b0 = *b_smem.add((b_col * 8 + lane) as usize);
+            let b1 = *b_smem.add((b_col * 8 + lane + 4) as usize);
+
+            // MMA: D = A*B + C
+            let d0: u32;
+            let d1: u32;
+            let d2: u32;
+            let d3: u32;
+            core::arch::asm!(
+                "mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32 \
+                 {{{d0}, {d1}, {d2}, {d3}}}, \
+                 {{{a0}, {a1}, {a2}, {a3}}}, \
+                 {{{b0}, {b1}}}, \
+                 {{{c0}, {c1}, {c2}, {c3}}};",
+                d0 = out(reg32) d0,
+                d1 = out(reg32) d1,
+                d2 = out(reg32) d2,
+                d3 = out(reg32) d3,
+                a0 = in(reg32) a0,
+                a1 = in(reg32) a1,
+                a2 = in(reg32) a2,
+                a3 = in(reg32) a3,
+                b0 = in(reg32) b0,
+                b1 = in(reg32) b1,
+                c0 = in(reg32) c0,
+                c1 = in(reg32) c1,
+                c2 = in(reg32) c2,
+                c3 = in(reg32) c3,
+            );
+
+            c0 = d0;
+            c1 = d1;
+            c2 = d2;
+            c3 = d3;
+
+            bar_sync();
+            t += 1;
+        }
+
+        // Write output — offset by block_m * 32 rows in global D
+        let global_r0 = block_m * 32 + warp_m * 16 + group;
+        let global_r2 = block_m * 32 + warp_m * 16 + group + 8;
+        let c0_idx = warp_n * 8 + lane * 2;
+        let c1_idx = c0_idx + 1;
+
+        *d_global.add((global_r0 * n_cols + c0_idx) as usize) = f32::from_bits(c0);
+        *d_global.add((global_r0 * n_cols + c1_idx) as usize) = f32::from_bits(c1);
+        *d_global.add((global_r2 * n_cols + c0_idx) as usize) = f32::from_bits(c2);
+        *d_global.add((global_r2 * n_cols + c1_idx) as usize) = f32::from_bits(c3);
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (a_global, b_global, d_global, k_tiles, n_cols, m_rows);
+    }
+
+    // All blocks atomically increment status; host checks for num_blocks
+    if tid == 0 {
+        let _prev: u32;
+        core::arch::asm!(
+            "atom.global.add.u32 {prev}, [{addr}], 1;",
+            prev = out(reg32) _prev,
+            addr = in(reg64) status,
+        );
+    }
+}
+
+// ============================================================
+// Full GEMM with 2D tiling (gemm-scale.3)
+// ============================================================
+
+/// Full GEMM: D(M×N) = A(M×K) × B(K×N), arbitrary M/N multiples of 32/16.
+///
+/// grid_dim = (M/32, N/16, 1), block_dim = (128, 1, 1).
+/// Each block: 128 threads (4 warps), computes D[bm*32..(bm+1)*32][bn*16..(bn+1)*16].
+/// A is row-major f16x2 packed [M][K/2] u32.
+/// B is column-major f16x2 packed [N][K/2] u32.
+/// D is row-major f32 [M][N].
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn full_gemm(
+    a_global: *const u32,
+    b_global: *const u32,
+    d_global: *mut f32,
+    k_tiles: u32,
+    n_cols: u32,
+    status: *mut u32,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let block_m = nvptx::_block_idx_x() as u32;
+        let block_n: u32;
+        core::arch::asm!("mov.u32 {r}, %ctaid.y;", r = out(reg32) block_n);
+
+        let warp_id = tid / 32;
+        let local_tid = tid % 32;
+        let group = local_tid / 4;
+        let lane = local_tid % 4;
+
+        let warp_m = warp_id / 2;
+        let warp_n = warp_id % 2;
+
+        let smem = get_dynamic_smem_ptr() as *mut u32;
+        let a_smem = smem; // [32][8] = 256 u32
+        let b_smem = smem.add(256); // [16][8] = 128 u32
+
+        let k_half = k_tiles * 8; // K/2
+
+        // A block offset: rows [block_m*32 .. block_m*32+32]
+        let a_block = a_global.add((block_m * 32 * k_half) as usize);
+        // B block offset: columns [block_n*16 .. block_n*16+16]
+        // B is col-major packed: [N][K/2], so column offset = block_n * 16 * k_half
+        let b_block = b_global.add((block_n * 16 * k_half) as usize);
+
+        let mut c0: u32 = 0;
+        let mut c1: u32 = 0;
+        let mut c2: u32 = 0;
+        let mut c3: u32 = 0;
+
+        let mut t = 0u32;
+        while t < k_tiles {
+            // Cooperative load A tile: [32][8] = 256 u32
+            let mut i = 0u32;
+            while i < 2 {
+                let smem_idx = tid * 2 + i;
+                let row = smem_idx / 8;
+                let col_packed = smem_idx % 8;
+                let global_idx = row * k_half + t * 8 + col_packed;
+                *a_smem.add(smem_idx as usize) = *a_block.add(global_idx as usize);
+                i += 1;
+            }
+
+            // Cooperative load B tile: 16 columns × 8 k-pairs = 128 u32
+            if tid < 128 {
+                let col = tid / 8; // local column within this 16-col block
+                let k_pair = tid % 8;
+                // b_block already offset to the right 16 columns
+                let global_idx = col * k_half + t * 8 + k_pair;
+                *b_smem.add(tid as usize) = *b_block.add(global_idx as usize);
+            }
+
+            bar_sync();
+
+            let a_off = warp_m * 16;
+            let a0 = *a_smem.add(((a_off + group) * 8 + lane) as usize);
+            let a1 = *a_smem.add(((a_off + group) * 8 + lane + 4) as usize);
+            let a2 = *a_smem.add(((a_off + group + 8) * 8 + lane) as usize);
+            let a3 = *a_smem.add(((a_off + group + 8) * 8 + lane + 4) as usize);
+
+            let b_col = warp_n * 8 + group;
+            let b0 = *b_smem.add((b_col * 8 + lane) as usize);
+            let b1 = *b_smem.add((b_col * 8 + lane + 4) as usize);
+
+            let d0: u32;
+            let d1: u32;
+            let d2: u32;
+            let d3: u32;
+            core::arch::asm!(
+                "mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32 \
+                 {{{d0}, {d1}, {d2}, {d3}}}, \
+                 {{{a0}, {a1}, {a2}, {a3}}}, \
+                 {{{b0}, {b1}}}, \
+                 {{{c0}, {c1}, {c2}, {c3}}};",
+                d0 = out(reg32) d0,
+                d1 = out(reg32) d1,
+                d2 = out(reg32) d2,
+                d3 = out(reg32) d3,
+                a0 = in(reg32) a0,
+                a1 = in(reg32) a1,
+                a2 = in(reg32) a2,
+                a3 = in(reg32) a3,
+                b0 = in(reg32) b0,
+                b1 = in(reg32) b1,
+                c0 = in(reg32) c0,
+                c1 = in(reg32) c1,
+                c2 = in(reg32) c2,
+                c3 = in(reg32) c3,
+            );
+
+            c0 = d0;
+            c1 = d1;
+            c2 = d2;
+            c3 = d3;
+
+            bar_sync();
+            t += 1;
+        }
+
+        // Write output with global row/col offsets
+        let global_r0 = block_m * 32 + warp_m * 16 + group;
+        let global_r2 = block_m * 32 + warp_m * 16 + group + 8;
+        let global_c0 = block_n * 16 + warp_n * 8 + lane * 2;
+        let global_c1 = global_c0 + 1;
+
+        *d_global.add((global_r0 * n_cols + global_c0) as usize) = f32::from_bits(c0);
+        *d_global.add((global_r0 * n_cols + global_c1) as usize) = f32::from_bits(c1);
+        *d_global.add((global_r2 * n_cols + global_c0) as usize) = f32::from_bits(c2);
+        *d_global.add((global_r2 * n_cols + global_c1) as usize) = f32::from_bits(c3);
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (a_global, b_global, d_global, k_tiles, n_cols);
+    }
+
+    if tid == 0 {
+        let _prev: u32;
+        core::arch::asm!(
+            "atom.global.add.u32 {prev}, [{addr}], 1;",
+            prev = out(reg32) _prev,
+            addr = in(reg64) status,
+        );
+    }
+}

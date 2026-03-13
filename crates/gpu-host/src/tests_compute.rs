@@ -1146,7 +1146,7 @@ pub(crate) fn run_multi_warp_gemm_test(dev: Arc<CudaDevice>) -> Result<()> {
         // B matrix — column-major packed: B_cm[col][k_pair] = pack(B[k_pair*2][col], B[k_pair*2+1][col])
         // Layout: [N][K/2] u32, column-major with row-pairing
         for col in 0..N as usize {
-            for k_pair in 0..k as usize / 2 {
+            for _k_pair in 0..k as usize / 2 {
                 if b_nonunif {
                     let v0 = (col + 1) as f32; // B[k_pair*2][col] = col+1
                     let v1 = (col + 1) as f32; // B[k_pair*2+1][col] = col+1
@@ -1240,4 +1240,334 @@ pub(crate) fn run_multi_warp_gemm_test(dev: Arc<CudaDevice>) -> Result<()> {
 
     println!("  Multi-warp GEMM (4 warps, 2×2 layout) verified");
     Ok(())
+}
+
+/// Multi-block GEMM test (gemm-scale.2): D(M×16) = A(M×K) × B(K×16), multiple blocks.
+pub(crate) fn run_multi_block_gemm_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Multi-block GEMM test (gemm-scale.2) ---");
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "multi_block_gemm", &["multi_block_gemm"]);
+    let f = dev
+        .get_func("multi_block_gemm", "multi_block_gemm")
+        .ok_or(GpuHostError::KernelNotFound("multi_block_gemm"))?;
+
+    fn f32_to_f16(val: f32) -> u16 {
+        let bits = val.to_bits();
+        let sign = (bits >> 31) & 1;
+        let exp = ((bits >> 23) & 0xFF) as i32;
+        let frac = bits & 0x7FFFFF;
+        if val == 0.0 {
+            return (sign << 15) as u16;
+        }
+        let new_exp = exp - 127 + 15;
+        if new_exp <= 0 {
+            return (sign << 15) as u16;
+        }
+        if new_exp >= 31 {
+            return ((sign << 15) | 0x7C00) as u16;
+        }
+        ((sign << 15) | ((new_exp as u32) << 10) | (frac >> 13)) as u16
+    }
+    fn pack_f16x2(lo: f32, hi: f32) -> u32 {
+        let lo_bits = f32_to_f16(lo) as u32;
+        let hi_bits = f32_to_f16(hi) as u32;
+        lo_bits | (hi_bits << 16)
+    }
+
+    const N: u32 = 16;
+
+    // Test cases: (M, K, label, a_nonunif, b_nonunif)
+    let test_cases: &[(u32, u32, &str, bool, bool)] = &[
+        (64, 16, "2 blocks uniform K=16", false, false),
+        (128, 16, "4 blocks uniform K=16", false, false),
+        (128, 32, "4 blocks uniform K=32", false, false),
+        (64, 16, "2 blocks A=nonunif B=nonunif", true, true),
+        (128, 16, "4 blocks A=nonunif B=nonunif", true, true),
+    ];
+
+    for &(m, k, label, a_nonunif, b_nonunif) in test_cases {
+        let m_usize = m as usize;
+        let k_tiles = k / 16;
+        let num_blocks = m / 32;
+
+        // Build A(M×K) row-major f16x2 packed [M][K/2] u32
+        let mut a_packed: Vec<u32> = Vec::with_capacity(m_usize * k as usize / 2);
+        for i in 0..m_usize {
+            let val = if a_nonunif { (i % 4 + 1) as f32 } else { 1.0 };
+            for _j_packed in 0..k as usize / 2 {
+                a_packed.push(pack_f16x2(val, val));
+            }
+        }
+
+        // Build B(K×N) column-major packed: B_cm[col][k_pair] = pack(B[k_pair*2][col], B[k_pair*2+1][col])
+        let mut b_packed: Vec<u32> = Vec::with_capacity(N as usize * k as usize / 2);
+        for col in 0..N as usize {
+            for _k_pair in 0..k as usize / 2 {
+                if b_nonunif {
+                    let v = (col + 1) as f32;
+                    b_packed.push(pack_f16x2(v, v));
+                } else {
+                    b_packed.push(pack_f16x2(1.0, 1.0));
+                }
+            }
+        }
+
+        let a_dev: CudaSlice<u32> = dev.htod_sync_copy(&a_packed)?;
+        let b_dev: CudaSlice<u32> = dev.htod_sync_copy(&b_packed)?;
+        let mut d_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(m_usize * N as usize)?;
+        let (status_host_ptr, status_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 1)? };
+
+        let cfg = LaunchConfig {
+            grid_dim: (num_blocks, 1, 1),
+            block_dim: (128, 1, 1),
+            shared_mem_bytes: (256 + 128) * 4, // A[32][8] + B[16][8]
+        };
+
+        unsafe {
+            f.clone().launch(
+                cfg,
+                (&a_dev, &b_dev, &mut d_dev, k_tiles, N, m, status_dev_ptr),
+            )?;
+        }
+        dev.synchronize()?;
+
+        let status = unsafe { std::ptr::read_volatile(status_host_ptr) };
+        assert!(
+            status >= num_blocks,
+            "Multi-block GEMM kernel did not complete ({label}): status={status}, expected>={num_blocks}"
+        );
+
+        let d_host: Vec<f32> = dev.dtoh_sync_copy(&d_dev)?;
+
+        // Compute CPU reference
+        let mut expected = vec![0.0f32; m_usize * N as usize];
+        for i in 0..m_usize {
+            for j in 0..N as usize {
+                let a_val = if a_nonunif { (i % 4 + 1) as f32 } else { 1.0 };
+                let b_val = if b_nonunif { (j + 1) as f32 } else { 1.0 };
+                expected[i * N as usize + j] = a_val * b_val * k as f32;
+            }
+        }
+
+        let mut mismatches = 0;
+        for i in 0..m_usize {
+            for j in 0..N as usize {
+                let got = d_host[i * N as usize + j];
+                let exp = expected[i * N as usize + j];
+                if (got - exp).abs() > 0.5 {
+                    if mismatches < 5 {
+                        println!("  MISMATCH D[{i}][{j}] = {got} (expected {exp})");
+                    }
+                    mismatches += 1;
+                }
+            }
+        }
+
+        if mismatches == 0 {
+            println!(
+                "  {label}: all {} elements correct — PASSED",
+                m_usize * N as usize
+            );
+        } else {
+            println!(
+                "  {label}: {mismatches}/{} mismatches",
+                m_usize * N as usize
+            );
+            unsafe {
+                free_mapped_mem(status_host_ptr)?;
+            }
+            return Err(GpuHostError::Verification {
+                test: "multi_block_gemm",
+                detail: format!("{label}: {mismatches} mismatches"),
+            });
+        }
+
+        unsafe {
+            free_mapped_mem(status_host_ptr)?;
+        }
+    }
+
+    println!("  Multi-block GEMM (multi-block, 4 warps/block) verified");
+    Ok(())
+}
+
+/// Full GEMM validation at 768×768 (gemm-scale.3): D(768×768) = A(768×768) × B(768×768).
+pub(crate) fn run_full_gemm_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Full GEMM 768x768 test (gemm-scale.3) ---");
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "full_gemm", &["full_gemm"]);
+    let f = dev
+        .get_func("full_gemm", "full_gemm")
+        .ok_or(GpuHostError::KernelNotFound("full_gemm"))?;
+
+    fn f32_to_f16(val: f32) -> u16 {
+        let bits = val.to_bits();
+        let sign = (bits >> 31) & 1;
+        let exp = ((bits >> 23) & 0xFF) as i32;
+        let frac = bits & 0x7FFFFF;
+        if val == 0.0 {
+            return (sign << 15) as u16;
+        }
+        let new_exp = exp - 127 + 15;
+        if new_exp <= 0 {
+            return (sign << 15) as u16;
+        }
+        if new_exp >= 31 {
+            return ((sign << 15) | 0x7C00) as u16;
+        }
+        ((sign << 15) | ((new_exp as u32) << 10) | (frac >> 13)) as u16
+    }
+    fn pack_f16x2(lo: f32, hi: f32) -> u32 {
+        let lo_bits = f32_to_f16(lo) as u32;
+        let hi_bits = f32_to_f16(hi) as u32;
+        lo_bits | (hi_bits << 16)
+    }
+    fn f16_to_f32(bits: u16) -> f32 {
+        let sign = ((bits >> 15) & 1) as u32;
+        let exp = ((bits >> 10) & 0x1F) as i32;
+        let frac = (bits & 0x3FF) as u32;
+        if exp == 0 && frac == 0 {
+            return f32::from_bits(sign << 31);
+        }
+        if exp == 0x1F {
+            return if frac == 0 {
+                f32::from_bits((sign << 31) | 0x7F800000)
+            } else {
+                f32::NAN
+            };
+        }
+        let f32_exp = (exp - 15 + 127) as u32;
+        f32::from_bits((sign << 31) | (f32_exp << 23) | (frac << 13))
+    }
+
+    const DIM: usize = 768;
+    const K: u32 = DIM as u32;
+    const M: u32 = DIM as u32;
+    const N: u32 = DIM as u32;
+    let k_tiles = K / 16;
+
+    // Use a simple deterministic pattern: A[i][k] = ((i*7 + k*3) % 5 + 1) mapped to f16 range
+    // B[k][j] = ((k*11 + j*13) % 7 + 1) mapped to f16 range
+    // Use small integer values (1-7) to keep f16 accumulation accurate over K=768
+
+    // Build A(M×K) row-major f16x2 packed [M][K/2]
+    let mut a_packed: Vec<u32> = Vec::with_capacity(DIM * DIM / 2);
+    // Store original A values for CPU reference
+    let mut a_vals: Vec<f32> = Vec::with_capacity(DIM * DIM);
+    for i in 0..DIM {
+        for k in 0..DIM {
+            let v = ((i * 7 + k * 3) % 5 + 1) as f32;
+            let v_f16 = f16_to_f32(f32_to_f16(v));
+            a_vals.push(v_f16);
+        }
+        // Pack into f16x2
+        for k_pair in 0..DIM / 2 {
+            let v0 = a_vals[i * DIM + k_pair * 2];
+            let v1 = a_vals[i * DIM + k_pair * 2 + 1];
+            a_packed.push(pack_f16x2(v0, v1));
+        }
+    }
+
+    // Build B(K×N) column-major packed: B_cm[col][k_pair] = pack(B[k_pair*2][col], B[k_pair*2+1][col])
+    let mut b_vals: Vec<f32> = Vec::with_capacity(DIM * DIM);
+    for k in 0..DIM {
+        for j in 0..DIM {
+            let v = ((k * 11 + j * 13) % 7 + 1) as f32;
+            let v_f16 = f16_to_f32(f32_to_f16(v));
+            b_vals.push(v_f16);
+        }
+    }
+    let mut b_packed: Vec<u32> = Vec::with_capacity(DIM * DIM / 2);
+    for col in 0..DIM {
+        for k_pair in 0..DIM / 2 {
+            let v0 = b_vals[k_pair * 2 * DIM + col]; // B[k_pair*2][col]
+            let v1 = b_vals[(k_pair * 2 + 1) * DIM + col]; // B[k_pair*2+1][col]
+            b_packed.push(pack_f16x2(v0, v1));
+        }
+    }
+
+    let a_dev: CudaSlice<u32> = dev.htod_sync_copy(&a_packed)?;
+    let b_dev: CudaSlice<u32> = dev.htod_sync_copy(&b_packed)?;
+    let mut d_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(DIM * DIM)?;
+    let (status_host_ptr, status_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 1)? };
+
+    let num_blocks_m = M / 32; // 24
+    let num_blocks_n = N / 16; // 48
+
+    let cfg = LaunchConfig {
+        grid_dim: (num_blocks_m, num_blocks_n, 1),
+        block_dim: (128, 1, 1),
+        shared_mem_bytes: (256 + 128) * 4,
+    };
+
+    unsafe {
+        f.clone().launch(
+            cfg,
+            (&a_dev, &b_dev, &mut d_dev, k_tiles, N, status_dev_ptr),
+        )?;
+    }
+    dev.synchronize()?;
+
+    let total_blocks = num_blocks_m * num_blocks_n;
+    let status = unsafe { std::ptr::read_volatile(status_host_ptr) };
+    println!("  Blocks completed: {status}/{total_blocks}");
+    assert!(
+        status >= total_blocks,
+        "Full GEMM kernel did not complete: status={status}, expected>={total_blocks}"
+    );
+
+    let d_host: Vec<f32> = dev.dtoh_sync_copy(&d_dev)?;
+
+    // CPU reference: D[i][j] = sum_k A[i][k] * B[k][j]
+    // Use f32 accumulation (matches MMA f32 accumulators)
+    let mut mismatches = 0;
+    let mut max_rel_err: f32 = 0.0;
+    for i in 0..DIM {
+        for j in 0..DIM {
+            let mut sum: f32 = 0.0;
+            for k in 0..DIM {
+                sum += a_vals[i * DIM + k] * b_vals[k * DIM + j];
+            }
+            let got = d_host[i * DIM + j];
+            let rel_err = if sum.abs() > 1e-6 {
+                (got - sum).abs() / sum.abs()
+            } else {
+                (got - sum).abs()
+            };
+            if rel_err > max_rel_err {
+                max_rel_err = rel_err;
+            }
+            // f16 accumulation over 768 elements with values 1-35 can have noticeable error
+            // Allow 1% relative tolerance or 1.0 absolute
+            if rel_err > 0.01 && (got - sum).abs() > 1.0 {
+                if mismatches < 5 {
+                    println!(
+                        "  MISMATCH D[{i}][{j}] = {got} (expected {sum}, rel_err={rel_err:.6})"
+                    );
+                }
+                mismatches += 1;
+            }
+        }
+    }
+
+    println!(
+        "  768x768 GEMM: max relative error = {max_rel_err:.6}, mismatches = {mismatches}/{}",
+        DIM * DIM
+    );
+
+    unsafe {
+        free_mapped_mem(status_host_ptr)?;
+    }
+
+    if mismatches == 0 {
+        println!("  Full GEMM 768x768 — PASSED");
+        Ok(())
+    } else {
+        Err(GpuHostError::Verification {
+            test: "full_gemm_768x768",
+            detail: format!("{mismatches} mismatches, max_rel_err={max_rel_err:.6}"),
+        })
+    }
 }

@@ -175,6 +175,12 @@ fn main() -> Result<()> {
     // Multi-warp GEMM test (gemm-scale.1)
     tests_compute::run_multi_warp_gemm_test(Arc::clone(&dev))?;
 
+    // Multi-block GEMM test (gemm-scale.2)
+    tests_compute::run_multi_block_gemm_test(Arc::clone(&dev))?;
+
+    // Full GEMM 768x768 test (gemm-scale.3)
+    tests_compute::run_full_gemm_test(Arc::clone(&dev))?;
+
     // GPU panic handler test (gpu-panic.2) — MUST BE LAST
     // since trap instruction calls process::exit(0)
     tests_pipeline::run_panic_test(Arc::clone(&dev))?;

@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 130     # Monotonic counter, incremented after each completed phase
-completed_tasks = 129
+total_cycles = 132     # Monotonic counter, incremented after each completed phase
+completed_tasks = 131
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.select"
+current_step = "do.execute"
 current_task_id = ""
-last_summary = "gemm-scale.1 done: 4-warp GEMM verified with non-uniform data. Discovered MMA B fragment is column-major (.col) and output mapping is d0=D[g][l*2]. Fixed both bugs."
+last_summary = "gemm-scale.3 DECISION GATE PASSED: 768x768 GEMM verified (1152 blocks, max rel error 0.42%, 0 mismatches). gemm-scale theme complete. Next: transformer-layer tasks."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 36
@@ -3128,7 +3128,7 @@ success_criteria = [
 [[themes]]
 id = "gemm-scale"
 title = "Scale GEMM to multi-warp multi-block for large matrices"
-status = "active"
+status = "completed"
 spawned_by = "bs36"
 epic = "gpu-inference"
 goal = "Scale existing single-warp GEMM to handle arbitrary matrix dimensions (at least 768x768)"
@@ -3157,7 +3157,7 @@ id = "gemm-scale.2"
 theme = "gemm-scale"
 title = "Multi-block GEMM — different blocks compute different output row-ranges"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["gemm-scale.1"]
 spawned_by = "bs36"
 research_questions = [
@@ -3171,7 +3171,7 @@ id = "gemm-scale.3"
 theme = "gemm-scale"
 title = "Correctness validation at 768x768 against CPU reference — DECISION GATE"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["gemm-scale.2"]
 spawned_by = "bs36"
 research_questions = [

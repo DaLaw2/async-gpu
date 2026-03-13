@@ -2650,6 +2650,129 @@ pub unsafe extern "ptx-kernel" fn bias_add(
 }
 
 // ============================================================
+// Elementwise add kernel (residual connection helper)
+// ============================================================
+
+/// a[i] += b[i] (in-place residual add)
+///
+/// grid_dim = (ceil(n/256), 1, 1), block_dim = (256, 1, 1).
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn elementwise_add(a: *mut f32, b: *const f32, n: u32) {
+    let tid = nvptx::_thread_idx_x() as u32;
+
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let block_x = nvptx::_block_idx_x() as u32;
+        let global_id = block_x * 256 + tid;
+        if global_id < n {
+            let val = *a.add(global_id as usize) + *b.add(global_id as usize);
+            *a.add(global_id as usize) = val;
+        }
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (a, b, n);
+    }
+}
+
+// ============================================================
+// QKV split + transpose kernel (transformer-layer.6 helper)
+// ============================================================
+
+/// Split QKV from [seq, 3*d_model] into Q, K, V as [n_heads][seq][d_head].
+///
+/// input: [seq_len, 3*d_model] f32 (row-major)
+/// q/k/v_out: [n_heads, seq_len, d_head] f32 (head-major)
+///
+/// grid_dim = (ceil(total_out/256), 1, 1), block_dim = (256, 1, 1).
+/// total_out = n_heads * seq_len * d_head (per output tensor).
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn split_qkv(
+    input: *const f32,   // [seq_len, 3*d_model]
+    q_out: *mut f32,     // [n_heads, seq_len, d_head]
+    k_out: *mut f32,     // [n_heads, seq_len, d_head]
+    v_out: *mut f32,     // [n_heads, seq_len, d_head]
+    seq_len: u32,
+    n_heads: u32,
+    d_head: u32,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let block_x = nvptx::_block_idx_x() as u32;
+        let global_id = block_x * 256 + tid;
+        let total = n_heads * seq_len * d_head;
+
+        if global_id < total {
+            // Decode [head][seq][d] indices
+            let d = global_id % d_head;
+            let seq = (global_id / d_head) % seq_len;
+            let head = global_id / (d_head * seq_len);
+
+            let d_model = n_heads * d_head;
+            // Input layout: [seq, 3*d_model], Q at [0..d_model], K at [d_model..2*d_model], V at [2*d_model..3*d_model]
+            let base = seq * 3 * d_model + head * d_head + d;
+            let q_val = *input.add(base as usize);
+            let k_val = *input.add((base + d_model) as usize);
+            let v_val = *input.add((base + 2 * d_model) as usize);
+
+            let out_idx = global_id as usize;
+            *q_out.add(out_idx) = q_val;
+            *k_out.add(out_idx) = k_val;
+            *v_out.add(out_idx) = v_val;
+        }
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (input, q_out, k_out, v_out, seq_len, n_heads, d_head);
+    }
+}
+
+// ============================================================
+// Attention concat kernel (transformer-layer.6 helper)
+// ============================================================
+
+/// Concat attention output from [n_heads][seq][d_head] → [seq][d_model].
+///
+/// grid_dim = (ceil(total/256), 1, 1), block_dim = (256, 1, 1).
+/// total = seq_len * d_model.
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn concat_heads(
+    input: *const f32, // [n_heads][seq_len][d_head]
+    output: *mut f32,  // [seq_len][d_model]
+    seq_len: u32,
+    n_heads: u32,
+    d_head: u32,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let block_x = nvptx::_block_idx_x() as u32;
+        let global_id = block_x * 256 + tid;
+        let d_model = n_heads * d_head;
+        let total = seq_len * d_model;
+
+        if global_id < total {
+            // Decode [seq][d_model] → [seq][head][d]
+            let d = global_id % d_head;
+            let col = global_id % d_model;
+            let seq = global_id / d_model;
+            let head = col / d_head;
+
+            // Input index: head * seq_len * d_head + seq * d_head + d
+            let in_idx = head * seq_len * d_head + seq * d_head + d;
+            *output.add(global_id as usize) = *input.add(in_idx as usize);
+        }
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (input, output, seq_len, n_heads, d_head);
+    }
+}
+
+// ============================================================
 // f32 → f16x2 pack kernel (transformer-layer.4 helper)
 // ============================================================
 

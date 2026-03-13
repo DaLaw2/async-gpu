@@ -193,6 +193,9 @@ fn main() -> Result<()> {
     // FFN block test (transformer-layer.4)
     tests_compute::run_ffn_test(Arc::clone(&dev))?;
 
+    // Transformer layer test (transformer-layer.6)
+    tests_compute::run_transformer_layer_test(Arc::clone(&dev))?;
+
     // GPU panic handler test (gpu-panic.2) — MUST BE LAST
     // since trap instruction calls process::exit(0)
     tests_pipeline::run_panic_test(Arc::clone(&dev))?;

@@ -2331,6 +2331,176 @@ pub unsafe extern "ptx-kernel" fn full_gemm(
 }
 
 // ============================================================
+// Full GEMM with f32 A input (precision-fix.2)
+// ============================================================
+
+/// Full GEMM with f32 activation input: D(M×N) = A(M×K) × B(K×N).
+///
+/// Same as `full_gemm` but A is row-major f32 [M][K] instead of packed f16x2.
+/// The kernel converts f32→f16 per-tile in shared memory, eliminating the
+/// separate f32_to_f16x2_pack kernel launch and global memory f16 roundtrip.
+///
+/// B is still column-major f16x2 packed [N][K/2] u32 (weights, packed once).
+/// D is row-major f32 [M][N].
+///
+/// grid_dim = (M/32, N/16, 1), block_dim = (128, 1, 1).
+/// Shared memory: (256 + 128) * 4 = 1536 bytes (same as full_gemm).
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn full_gemm_f32in(
+    a_global: *const f32,
+    b_global: *const u32,
+    d_global: *mut f32,
+    k_tiles: u32,
+    n_cols: u32,
+    status: *mut u32,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let block_m = nvptx::_block_idx_x() as u32;
+        let block_n: u32;
+        core::arch::asm!("mov.u32 {r}, %ctaid.y;", r = out(reg32) block_n);
+
+        let warp_id = tid / 32;
+        let local_tid = tid % 32;
+        let group = local_tid / 4;
+        let lane = local_tid % 4;
+
+        let warp_m = warp_id / 2;
+        let warp_n = warp_id % 2;
+
+        let smem = get_dynamic_smem_ptr() as *mut u32;
+        let a_smem = smem; // [32][8] = 256 u32 (f16x2 packed in smem)
+        let b_smem = smem.add(256); // [16][8] = 128 u32
+
+        let k_full = k_tiles * 16; // K (number of f32 elements per A row)
+        let k_half = k_tiles * 8; // K/2 (number of u32 per B column)
+
+        // A block offset: rows [block_m*32 .. block_m*32+32], f32 layout
+        let a_block = a_global.add((block_m * 32 * k_full) as usize);
+        // B block offset: columns [block_n*16 .. block_n*16+16]
+        let b_block = b_global.add((block_n * 16 * k_half) as usize);
+
+        let mut c0: u32 = 0;
+        let mut c1: u32 = 0;
+        let mut c2: u32 = 0;
+        let mut c3: u32 = 0;
+
+        let mut t = 0u32;
+        while t < k_tiles {
+            // Cooperative load A tile: read f32 pairs, convert to f16x2, store in smem
+            // smem layout: [32][8] u32, each u32 = 2 packed f16 values
+            let mut i = 0u32;
+            while i < 2 {
+                let smem_idx = tid * 2 + i;
+                let row = smem_idx / 8;
+                let col_packed = smem_idx % 8;
+                // Two f32 values that map to this packed u32
+                let k_base = t * 16 + col_packed * 2;
+                let v0 = *a_block.add((row * k_full + k_base) as usize);
+                let v1 = *a_block.add((row * k_full + k_base + 1) as usize);
+                // Convert f32 → f16 via PTX cvt
+                let h0: u32;
+                let h1: u32;
+                core::arch::asm!(
+                    "cvt.rn.f16.f32 {h}, {f};",
+                    h = out(reg32) h0,
+                    f = in(reg32) v0,
+                );
+                core::arch::asm!(
+                    "cvt.rn.f16.f32 {h}, {f};",
+                    h = out(reg32) h1,
+                    f = in(reg32) v1,
+                );
+                // Pack: lo | (hi << 16)
+                let packed = (h0 & 0xFFFF) | (h1 << 16);
+                *a_smem.add(smem_idx as usize) = packed;
+                i += 1;
+            }
+
+            // Cooperative load B tile: 16 columns × 8 k-pairs = 128 u32 (same as full_gemm)
+            if tid < 128 {
+                let col = tid / 8;
+                let k_pair = tid % 8;
+                let global_idx = col * k_half + t * 8 + k_pair;
+                *b_smem.add(tid as usize) = *b_block.add(global_idx as usize);
+            }
+
+            bar_sync();
+
+            let a_off = warp_m * 16;
+            let a0 = *a_smem.add(((a_off + group) * 8 + lane) as usize);
+            let a1 = *a_smem.add(((a_off + group) * 8 + lane + 4) as usize);
+            let a2 = *a_smem.add(((a_off + group + 8) * 8 + lane) as usize);
+            let a3 = *a_smem.add(((a_off + group + 8) * 8 + lane + 4) as usize);
+
+            let b_col = warp_n * 8 + group;
+            let b0 = *b_smem.add((b_col * 8 + lane) as usize);
+            let b1 = *b_smem.add((b_col * 8 + lane + 4) as usize);
+
+            let d0: u32;
+            let d1: u32;
+            let d2: u32;
+            let d3: u32;
+            core::arch::asm!(
+                "mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32 \
+                 {{{d0}, {d1}, {d2}, {d3}}}, \
+                 {{{a0}, {a1}, {a2}, {a3}}}, \
+                 {{{b0}, {b1}}}, \
+                 {{{c0}, {c1}, {c2}, {c3}}};",
+                d0 = out(reg32) d0,
+                d1 = out(reg32) d1,
+                d2 = out(reg32) d2,
+                d3 = out(reg32) d3,
+                a0 = in(reg32) a0,
+                a1 = in(reg32) a1,
+                a2 = in(reg32) a2,
+                a3 = in(reg32) a3,
+                b0 = in(reg32) b0,
+                b1 = in(reg32) b1,
+                c0 = in(reg32) c0,
+                c1 = in(reg32) c1,
+                c2 = in(reg32) c2,
+                c3 = in(reg32) c3,
+            );
+
+            c0 = d0;
+            c1 = d1;
+            c2 = d2;
+            c3 = d3;
+
+            bar_sync();
+            t += 1;
+        }
+
+        // Write output with global row/col offsets (same as full_gemm)
+        let global_r0 = block_m * 32 + warp_m * 16 + group;
+        let global_r2 = block_m * 32 + warp_m * 16 + group + 8;
+        let global_c0 = block_n * 16 + warp_n * 8 + lane * 2;
+        let global_c1 = global_c0 + 1;
+
+        *d_global.add((global_r0 * n_cols + global_c0) as usize) = f32::from_bits(c0);
+        *d_global.add((global_r0 * n_cols + global_c1) as usize) = f32::from_bits(c1);
+        *d_global.add((global_r2 * n_cols + global_c0) as usize) = f32::from_bits(c2);
+        *d_global.add((global_r2 * n_cols + global_c1) as usize) = f32::from_bits(c3);
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (a_global, b_global, d_global, k_tiles, n_cols);
+    }
+
+    if tid == 0 {
+        let _prev: u32;
+        core::arch::asm!(
+            "atom.global.add.u32 {prev}, [{addr}], 1;",
+            prev = out(reg32) _prev,
+            addr = in(reg64) status,
+        );
+    }
+}
+
+// ============================================================
 // LayerNorm kernel (transformer-layer.1)
 // ============================================================
 
@@ -2597,6 +2767,238 @@ pub unsafe extern "ptx-kernel" fn attention_head(
             }
             *out_head.add((tid * d_head + d) as usize) = acc;
             d += 1;
+        }
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (q_global, k_global, v_global, out_global, seq_len, d_head, causal_mask);
+    }
+
+    if tid == 0 {
+        let _prev: u32;
+        core::arch::asm!(
+            "atom.global.add.u32 {prev}, [{addr}], 1;",
+            prev = out(reg32) _prev,
+            addr = in(reg64) status,
+        );
+    }
+}
+
+// ============================================================
+// FlashAttention kernel (attention-scale.3)
+// ============================================================
+
+/// FlashAttention forward pass — tiled attention for arbitrary seq_len.
+///
+/// Uses online softmax to avoid materializing the O(seq^2) score matrix.
+/// Processes K/V in tiles of B_C=32 columns, streaming from global memory.
+///
+/// Layout: Q/K/V/out are [n_heads, seq_len, d_head] row-major f32.
+/// d_head MUST be 64 (GPT-2 small).
+///
+/// grid_dim = (n_heads, ceil(seq_len/32), 1)
+/// block_dim = (32, 1, 1)  — one warp
+/// Shared memory: k_tile[32][64] + v_tile[32][64] = 16384 bytes
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn flash_attention(
+    q_global: *const f32,
+    k_global: *const f32,
+    v_global: *const f32,
+    out_global: *mut f32,
+    seq_len: u32,
+    d_head: u32,
+    causal_mask: u32,
+    status: *mut u32,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let head = nvptx::_block_idx_x() as u32;
+        let q_tile_idx: u32;
+        core::arch::asm!("mov.u32 {r}, %ctaid.y;", r = out(reg32) q_tile_idx);
+
+        let my_row = q_tile_idx * 32 + tid; // global Q row index
+
+        // Head offset in global arrays
+        let head_off = (head * seq_len * d_head) as usize;
+        let q_head = q_global.add(head_off);
+        let k_head = k_global.add(head_off);
+        let v_head = v_global.add(head_off);
+        let out_head = out_global.add(head_off);
+
+        let scale = 1.0 / gpu_sqrtf(d_head as f32);
+
+        // Shared memory: k_tile[32][64] + v_tile[32][64]
+        let smem = get_dynamic_smem_ptr() as *mut f32;
+        let k_tile = smem; // 32 * 64 = 2048 f32
+        let v_tile = smem.add(2048); // 32 * 64 = 2048 f32
+
+        // Load Q row into registers (thread-private, loaded once)
+        let mut q_row: [f32; 64] = [0.0; 64];
+        if my_row < seq_len {
+            let mut d = 0u32;
+            while d < d_head {
+                q_row[d as usize] = *q_head.add((my_row * d_head + d) as usize);
+                d += 1;
+            }
+        }
+
+        // Initialize online softmax state
+        let mut m: f32 = -1.0e38; // running max
+        let mut l: f32 = 0.0; // running sum of exp(score - m)
+
+        // Output accumulator (unnormalized): o_acc[d] = sum of P_ij * V_j[d]
+        let mut o_acc: [f32; 64] = [0.0; 64];
+
+        // Number of KV tiles
+        let n_kv_tiles = (seq_len + 31) / 32;
+
+        let mut t = 0u32;
+        while t < n_kv_tiles {
+            let kv_col_start = t * 32;
+
+            // Early exit for causal: if entire tile is above diagonal for ALL rows in Q tile
+            if causal_mask != 0 && kv_col_start > q_tile_idx * 32 + 31 {
+                // All KV columns > all Q rows → fully masked, skip
+                // Remaining tiles are even further right, so break
+                break;
+            }
+
+            let tile_size = if kv_col_start + 32 <= seq_len {
+                32u32
+            } else {
+                seq_len - kv_col_start
+            };
+
+            // Cooperative load K tile: 32 threads load 32 rows of K, each thread loads 1 row
+            {
+                let global_kv_row = kv_col_start + tid;
+                let mut d = 0u32;
+                while d < d_head {
+                    let val = if global_kv_row < seq_len {
+                        *k_head.add((global_kv_row * d_head + d) as usize)
+                    } else {
+                        0.0
+                    };
+                    *k_tile.add((tid * d_head + d) as usize) = val;
+                    d += 1;
+                }
+            }
+
+            // Cooperative load V tile: same pattern
+            {
+                let global_kv_row = kv_col_start + tid;
+                let mut d = 0u32;
+                while d < d_head {
+                    let val = if global_kv_row < seq_len {
+                        *v_head.add((global_kv_row * d_head + d) as usize)
+                    } else {
+                        0.0
+                    };
+                    *v_tile.add((tid * d_head + d) as usize) = val;
+                    d += 1;
+                }
+            }
+
+            bar_sync();
+
+            if my_row < seq_len {
+                // Compute scores for this row against tile columns
+                // and perform online softmax update
+                let mut tile_max: f32 = -1.0e38;
+                let mut scores: [f32; 32] = [0.0; 32]; // temp scores for this tile
+
+                let mut c = 0u32;
+                while c < tile_size {
+                    let kv_col = kv_col_start + c;
+
+                    if causal_mask != 0 && kv_col > my_row {
+                        // Masked position
+                        scores[c as usize] = -1.0e38;
+                    } else {
+                        // Dot product: Q[my_row] · K[kv_col]
+                        let mut dot: f32 = 0.0;
+                        let mut d = 0u32;
+                        while d < d_head {
+                            dot += q_row[d as usize]
+                                * *k_tile.add((c * d_head + d) as usize);
+                            d += 1;
+                        }
+                        let s = dot * scale;
+                        scores[c as usize] = s;
+                        if s > tile_max {
+                            tile_max = s;
+                        }
+                    }
+                    c += 1;
+                }
+
+                // Pad remaining scores (if tile_size < 32) with -inf
+                c = tile_size;
+                while c < 32 {
+                    scores[c as usize] = -1.0e38;
+                    c += 1;
+                }
+
+                // Online softmax update
+                let m_new = if tile_max > m { tile_max } else { m };
+
+                // Compute exp(scores - m_new) and their sum
+                let mut row_sum: f32 = 0.0;
+                let mut exp_scores: [f32; 32] = [0.0; 32];
+                c = 0;
+                while c < tile_size {
+                    let e = gpu_exp_f32(scores[c as usize] - m_new);
+                    exp_scores[c as usize] = e;
+                    row_sum += e;
+                    c += 1;
+                }
+
+                // Correction factor for old accumulator
+                let correction = gpu_exp_f32(m - m_new);
+
+                // Rescale old output accumulator
+                let mut d = 0u32;
+                while d < d_head {
+                    o_acc[d as usize] = o_acc[d as usize] * correction;
+                    d += 1;
+                }
+
+                // Accumulate: o_acc += P_tile × V_tile (for this row)
+                // o_acc[d] += sum_c exp_scores[c] * V_tile[c][d]
+                c = 0;
+                while c < tile_size {
+                    let p = exp_scores[c as usize];
+                    if p > 0.0 {
+                        let mut d = 0u32;
+                        while d < d_head {
+                            o_acc[d as usize] +=
+                                p * *v_tile.add((c * d_head + d) as usize);
+                            d += 1;
+                        }
+                    }
+                    c += 1;
+                }
+
+                // Update running stats
+                l = l * correction + row_sum;
+                m = m_new;
+            }
+
+            bar_sync();
+            t += 1;
+        }
+
+        // Final normalization: o_acc /= l
+        if my_row < seq_len && l > 0.0 {
+            let inv_l = 1.0 / l;
+            let mut d = 0u32;
+            while d < d_head {
+                *out_head.add((my_row * d_head + d) as usize) =
+                    o_acc[d as usize] * inv_l;
+                d += 1;
+            }
         }
     }
     #[cfg(not(target_arch = "nvptx64"))]

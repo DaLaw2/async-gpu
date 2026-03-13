@@ -6,5 +6,7 @@ edition = "2021"
 [dependencies]
 cudarc = { version = "0.12", features = ["cuda-12060"] }
 gpu-protocol = { path = "../gpu-protocol" }
+safetensors = "0.7"
+tiktoken-rs = "0.6"
 
 

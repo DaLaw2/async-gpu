@@ -4,14 +4,14 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 147     # Monotonic counter, incremented after each completed phase
-completed_tasks = 146
+total_cycles = 150     # Monotonic counter, incremented after each completed phase
+completed_tasks = 149
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = ""
+current_task_id = "attention-scale.4"
 last_summary = "Phase 1 batch: host-sdk.1+.2 done (GpuRuntime + MappedBuffer), attention-scale.1+.2 done (causal mask works, max_err=1e-8), precision-fix.1 done (4 f16 roundtrips, FFN GEMM2 worst), model-loading.1 done (safetensors format analyzed), tokenizer.1 done (tiktoken-rs recommended)."
 
 # Sequence counters for unique file naming across iterations
@@ -3469,7 +3469,7 @@ id = "precision-fix.2"
 theme = "precision-fix"
 title = "Keep f32 activations between GEMM stages (skip f16 roundtrip)"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["precision-fix.1"]
 spawned_by = "bs38"
 research_questions = [
@@ -3615,7 +3615,7 @@ id = "tokenizer.2"
 theme = "tokenizer"
 title = "Implement BPE encoder/decoder on host side"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["tokenizer.1"]
 spawned_by = "bs38"
 research_questions = [
@@ -3686,7 +3686,7 @@ id = "attention-scale.3"
 theme = "attention-scale"
 title = "Implement multi-block/tiled attention for seq>32 — DECISION GATE"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["attention-scale.1", "attention-scale.2"]
 spawned_by = "bs38"
 research_questions = [

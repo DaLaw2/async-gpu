@@ -14,4 +14,6 @@
 pub mod error;
 pub mod hostcall;
 pub mod memory;
+pub mod model;
 pub mod runtime;
+pub mod tokenizer;

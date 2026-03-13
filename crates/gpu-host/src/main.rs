@@ -9,6 +9,7 @@ mod tests_hostcall;
 mod tests_pipeline;
 mod tests_scaling;
 mod tests_std;
+mod tests_tokenizer;
 mod tests_warp;
 
 use cudarc::driver::CudaDevice;
@@ -181,6 +182,9 @@ fn main() -> Result<()> {
     // Full GEMM 768x768 test (gemm-scale.3)
     tests_compute::run_full_gemm_test(Arc::clone(&dev))?;
 
+    // Full GEMM f32-input test (precision-fix.2)
+    tests_compute::run_full_gemm_f32in_test(Arc::clone(&dev))?;
+
     // LayerNorm test (transformer-layer.1)
     tests_compute::run_layer_norm_test(Arc::clone(&dev))?;
 
@@ -190,11 +194,20 @@ fn main() -> Result<()> {
     // Attention test (transformer-layer.3)
     tests_compute::run_attention_test(Arc::clone(&dev))?;
 
+    // FlashAttention test (attention-scale.3)
+    tests_compute::run_flash_attention_test(Arc::clone(&dev))?;
+
     // FFN block test (transformer-layer.4)
     tests_compute::run_ffn_test(Arc::clone(&dev))?;
 
     // Transformer layer test (transformer-layer.6)
     tests_compute::run_transformer_layer_test(Arc::clone(&dev))?;
+
+    // GPT-2 tokenizer test (tokenizer.2)
+    tests_tokenizer::run_tokenizer_test()?;
+
+    // GPT-2 tokenizer validation (tokenizer.3)
+    tests_tokenizer::run_tokenizer_validation()?;
 
     // GPU panic handler test (gpu-panic.2) — MUST BE LAST
     // since trap instruction calls process::exit(0)

@@ -1572,6 +1572,233 @@ pub(crate) fn run_full_gemm_test(dev: Arc<CudaDevice>) -> Result<()> {
     }
 }
 
+/// Full GEMM f32-input test (precision-fix.2): verify that full_gemm_f32in
+/// produces results matching full_gemm (pre-packed f16x2 input).
+pub(crate) fn run_full_gemm_f32in_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Full GEMM f32-input test (precision-fix.2) ---");
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "gemm_f32in", &["full_gemm", "full_gemm_f32in"]);
+    let f_packed = dev
+        .get_func("gemm_f32in", "full_gemm")
+        .ok_or(GpuHostError::KernelNotFound("full_gemm"))?;
+    let f_f32in = dev
+        .get_func("gemm_f32in", "full_gemm_f32in")
+        .ok_or(GpuHostError::KernelNotFound("full_gemm_f32in"))?;
+
+    fn f32_to_f16(val: f32) -> u16 {
+        let bits = val.to_bits();
+        let sign = (bits >> 31) & 1;
+        let exp = ((bits >> 23) & 0xFF) as i32;
+        let frac = bits & 0x7FFFFF;
+        if val == 0.0 {
+            return (sign << 15) as u16;
+        }
+        let new_exp = exp - 127 + 15;
+        if new_exp <= 0 {
+            return (sign << 15) as u16;
+        }
+        if new_exp >= 31 {
+            return ((sign << 15) | 0x7C00) as u16;
+        }
+        ((sign << 15) | ((new_exp as u32) << 10) | (frac >> 13)) as u16
+    }
+    fn pack_f16x2(lo: f32, hi: f32) -> u32 {
+        let lo_bits = f32_to_f16(lo) as u32;
+        let hi_bits = f32_to_f16(hi) as u32;
+        lo_bits | (hi_bits << 16)
+    }
+    fn f16_to_f32(bits: u16) -> f32 {
+        let sign = ((bits >> 15) & 1) as u32;
+        let exp = ((bits >> 10) & 0x1F) as i32;
+        let frac = (bits & 0x3FF) as u32;
+        if exp == 0 && frac == 0 {
+            return f32::from_bits(sign << 31);
+        }
+        if exp == 0x1F {
+            return if frac == 0 {
+                f32::from_bits((sign << 31) | 0x7F800000)
+            } else {
+                f32::NAN
+            };
+        }
+        let f32_exp = (exp - 15 + 127) as u32;
+        f32::from_bits((sign << 31) | (f32_exp << 23) | (frac << 13))
+    }
+
+    // Use smaller matrix for quicker test: 32x768 × 768x16 → 32x16
+    // (minimum tile size: M=32, N=16)
+    const M: usize = 32;
+    const K: usize = 768;
+    const N: usize = 16;
+    let k_tiles = (K / 16) as u32;
+
+    // Generate A values (f32, will be used directly for f32in, packed for full_gemm)
+    let mut a_f32: Vec<f32> = Vec::with_capacity(M * K);
+    for i in 0..M {
+        for k in 0..K {
+            let v = ((i * 7 + k * 3) % 5 + 1) as f32;
+            a_f32.push(v);
+        }
+    }
+
+    // Pack A for full_gemm (pre-quantize to f16)
+    let mut a_packed: Vec<u32> = Vec::with_capacity(M * K / 2);
+    let mut a_f16_vals: Vec<f32> = Vec::with_capacity(M * K);
+    for i in 0..M {
+        for k in 0..K {
+            a_f16_vals.push(f16_to_f32(f32_to_f16(a_f32[i * K + k])));
+        }
+        for k_pair in 0..K / 2 {
+            let v0 = a_f16_vals[i * K + k_pair * 2];
+            let v1 = a_f16_vals[i * K + k_pair * 2 + 1];
+            a_packed.push(pack_f16x2(v0, v1));
+        }
+    }
+
+    // Build B column-major packed (same for both kernels)
+    let mut b_vals: Vec<f32> = Vec::with_capacity(K * N);
+    for k in 0..K {
+        for j in 0..N {
+            let v = ((k * 11 + j * 13) % 7 + 1) as f32;
+            b_vals.push(f16_to_f32(f32_to_f16(v)));
+        }
+    }
+    let mut b_packed: Vec<u32> = Vec::with_capacity(N * K / 2);
+    for col in 0..N {
+        for k_pair in 0..K / 2 {
+            let v0 = b_vals[k_pair * 2 * N + col];
+            let v1 = b_vals[(k_pair * 2 + 1) * N + col];
+            b_packed.push(pack_f16x2(v0, v1));
+        }
+    }
+
+    let a_packed_dev: CudaSlice<u32> = dev.htod_sync_copy(&a_packed)?;
+    let a_f32_dev: CudaSlice<f32> = dev.htod_sync_copy(&a_f32)?;
+    let b_dev: CudaSlice<u32> = dev.htod_sync_copy(&b_packed)?;
+    let mut d_packed_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(M * N)?;
+    let mut d_f32in_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(M * N)?;
+    let (status_host_ptr, status_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 1)? };
+
+    let num_blocks_m = (M / 32) as u32;
+    let num_blocks_n = (N / 16) as u32;
+    let cfg = LaunchConfig {
+        grid_dim: (num_blocks_m, num_blocks_n, 1),
+        block_dim: (128, 1, 1),
+        shared_mem_bytes: (256 + 128) * 4,
+    };
+
+    // Run full_gemm with pre-packed f16x2 input
+    unsafe {
+        std::ptr::write_volatile(status_host_ptr, 0);
+        f_packed.clone().launch(
+            cfg,
+            (
+                &a_packed_dev,
+                &b_dev,
+                &mut d_packed_dev,
+                k_tiles,
+                N as u32,
+                status_dev_ptr,
+            ),
+        )?;
+    }
+    dev.synchronize()?;
+
+    // Run full_gemm_f32in with f32 input
+    unsafe {
+        std::ptr::write_volatile(status_host_ptr, 0);
+        f_f32in.clone().launch(
+            cfg,
+            (
+                &a_f32_dev,
+                &b_dev,
+                &mut d_f32in_dev,
+                k_tiles,
+                N as u32,
+                status_dev_ptr,
+            ),
+        )?;
+    }
+    dev.synchronize()?;
+
+    let d_packed: Vec<f32> = dev.dtoh_sync_copy(&d_packed_dev)?;
+    let d_f32in: Vec<f32> = dev.dtoh_sync_copy(&d_f32in_dev)?;
+
+    // Compare: both kernels should produce very close results
+    // The only difference is that full_gemm_f32in does f32→f16 conversion per-tile
+    // while full_gemm gets pre-packed f16. For integer-valued inputs (1-5),
+    // f32→f16 is exact, so results should be identical.
+    let mut mismatches = 0;
+    let mut max_abs_err: f32 = 0.0;
+    for i in 0..M * N {
+        let diff = (d_packed[i] - d_f32in[i]).abs();
+        if diff > max_abs_err {
+            max_abs_err = diff;
+        }
+        if diff > 0.01 {
+            if mismatches < 5 {
+                println!(
+                    "  MISMATCH [{i}]: packed={}, f32in={}, diff={diff}",
+                    d_packed[i], d_f32in[i]
+                );
+            }
+            mismatches += 1;
+        }
+    }
+
+    // Also compare f32in against CPU reference
+    let mut cpu_mismatches = 0;
+    let mut cpu_max_rel_err: f32 = 0.0;
+    for i in 0..M {
+        for j in 0..N {
+            let mut sum: f32 = 0.0;
+            for k in 0..K {
+                // CPU reference: quantize A to f16 then multiply in f32 (matches MMA behavior)
+                let a_q = f16_to_f32(f32_to_f16(a_f32[i * K + k]));
+                sum += a_q * b_vals[k * N + j];
+            }
+            let got = d_f32in[i * N + j];
+            let rel_err = if sum.abs() > 1e-6 {
+                (got - sum).abs() / sum.abs()
+            } else {
+                (got - sum).abs()
+            };
+            if rel_err > cpu_max_rel_err {
+                cpu_max_rel_err = rel_err;
+            }
+            if rel_err > 0.01 && (got - sum).abs() > 1.0 {
+                cpu_mismatches += 1;
+            }
+        }
+    }
+
+    println!(
+        "  packed vs f32in: max_abs_err={max_abs_err:.8}, mismatches={mismatches}/{}",
+        M * N
+    );
+    println!(
+        "  f32in vs CPU:    max_rel_err={cpu_max_rel_err:.6}, mismatches={cpu_mismatches}/{}",
+        M * N
+    );
+
+    unsafe {
+        free_mapped_mem(status_host_ptr)?;
+    }
+
+    if mismatches == 0 {
+        println!("  Full GEMM f32-input — PASSED (matches packed f16x2 output)");
+        Ok(())
+    } else {
+        Err(GpuHostError::Verification {
+            test: "full_gemm_f32in",
+            detail: format!(
+                "{mismatches} packed-vs-f32in mismatches, max_abs_err={max_abs_err:.8}"
+            ),
+        })
+    }
+}
+
 /// LayerNorm test (transformer-layer.1): validate against CPU reference.
 pub(crate) fn run_layer_norm_test(dev: Arc<CudaDevice>) -> Result<()> {
     println!("\n--- LayerNorm test (transformer-layer.1) ---");
@@ -2000,6 +2227,146 @@ pub(crate) fn run_attention_test(dev: Arc<CudaDevice>) -> Result<()> {
             ),
         })
     }
+}
+
+/// FlashAttention test (attention-scale.3): tiled attention for seq>32.
+/// Verifies flash_attention kernel against naive CPU reference for seq=128.
+pub(crate) fn run_flash_attention_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- FlashAttention test (attention-scale.3) ---");
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "flash_attn", &["flash_attention"]);
+    let f = dev
+        .get_func("flash_attn", "flash_attention")
+        .ok_or(GpuHostError::KernelNotFound("flash_attention"))?;
+
+    const N_HEADS: usize = 12;
+    const SEQ_LEN: usize = 128;
+    const D_HEAD: usize = 64;
+
+    // Generate deterministic Q, K, V data
+    let total = N_HEADS * SEQ_LEN * D_HEAD;
+    let mut q_data: Vec<f32> = Vec::with_capacity(total);
+    let mut k_data: Vec<f32> = Vec::with_capacity(total);
+    let mut v_data: Vec<f32> = Vec::with_capacity(total);
+
+    for i in 0..total {
+        q_data.push(((i * 7 + 3) % 11) as f32 * 0.01 - 0.05);
+        k_data.push(((i * 13 + 5) % 11) as f32 * 0.01 - 0.05);
+        v_data.push(((i * 17 + 9) % 11) as f32 * 0.01 - 0.05);
+    }
+
+    let q_dev = dev.htod_sync_copy(&q_data)?;
+    let k_dev = dev.htod_sync_copy(&k_data)?;
+    let v_dev = dev.htod_sync_copy(&v_data)?;
+    let mut out_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(total)?;
+    let (status_host_ptr, status_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 1)? };
+
+    // Test both bidirectional and causal
+    for (mode_name, causal) in [("bidirectional", 0u32), ("causal", 1u32)] {
+        println!("  Testing {mode_name} (seq={SEQ_LEN})...");
+        unsafe { std::ptr::write_volatile(status_host_ptr, 0) };
+
+        let n_q_tiles = SEQ_LEN.div_ceil(32);
+        let cfg = LaunchConfig {
+            grid_dim: (N_HEADS as u32, n_q_tiles as u32, 1),
+            block_dim: (32, 1, 1),
+            shared_mem_bytes: 2 * 32 * 64 * 4, // k_tile + v_tile = 16KB
+        };
+
+        unsafe {
+            f.clone().launch(
+                cfg,
+                (
+                    &q_dev,
+                    &k_dev,
+                    &v_dev,
+                    &mut out_dev,
+                    SEQ_LEN as u32,
+                    D_HEAD as u32,
+                    causal,
+                    status_dev_ptr,
+                ),
+            )?;
+        }
+        dev.synchronize()?;
+
+        let expected_blocks = (N_HEADS * n_q_tiles) as u32;
+        let status = unsafe { std::ptr::read_volatile(status_host_ptr) };
+        assert!(
+            status >= expected_blocks,
+            "flash_attention incomplete: {status}/{expected_blocks}"
+        );
+
+        let out_host: Vec<f32> = dev.dtoh_sync_copy(&out_dev)?;
+
+        // CPU reference
+        let scale = 1.0 / (D_HEAD as f32).sqrt();
+        let mut mismatches = 0;
+        let mut max_err: f32 = 0.0;
+
+        for h in 0..N_HEADS {
+            for i in 0..SEQ_LEN {
+                // Compute attention scores for row i
+                let mut scores: Vec<f32> = Vec::with_capacity(SEQ_LEN);
+                for j in 0..SEQ_LEN {
+                    if causal != 0 && j > i {
+                        scores.push(-1.0e38);
+                    } else {
+                        let mut dot: f32 = 0.0;
+                        for d in 0..D_HEAD {
+                            let qi = q_data[h * SEQ_LEN * D_HEAD + i * D_HEAD + d];
+                            let kj = k_data[h * SEQ_LEN * D_HEAD + j * D_HEAD + d];
+                            dot += qi * kj;
+                        }
+                        scores.push(dot * scale);
+                    }
+                }
+                // Softmax
+                let max_s = scores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+                let exp_scores: Vec<f32> = scores.iter().map(|s| (s - max_s).exp()).collect();
+                let sum_exp: f32 = exp_scores.iter().sum();
+                let weights: Vec<f32> = exp_scores.iter().map(|e| e / sum_exp).collect();
+                // Output
+                for d in 0..D_HEAD {
+                    let mut acc: f32 = 0.0;
+                    for j in 0..SEQ_LEN {
+                        acc += weights[j] * v_data[h * SEQ_LEN * D_HEAD + j * D_HEAD + d];
+                    }
+                    let got = out_host[h * SEQ_LEN * D_HEAD + i * D_HEAD + d];
+                    let err = (got - acc).abs();
+                    if err > max_err {
+                        max_err = err;
+                    }
+                    // Tolerance: online softmax should be mathematically exact
+                    // but exp/div rounding may differ slightly
+                    if err > 1e-3 {
+                        if mismatches < 5 {
+                            println!(
+                                "    MISMATCH h={h} i={i} d={d}: got={got:.6}, exp={acc:.6}, err={err:.6}"
+                            );
+                        }
+                        mismatches += 1;
+                    }
+                }
+            }
+        }
+
+        let total_elems = N_HEADS * SEQ_LEN * D_HEAD;
+        println!("    {mode_name}: max_err={max_err:.8}, mismatches={mismatches}/{total_elems}");
+
+        if mismatches > 0 {
+            unsafe { free_mapped_mem(status_host_ptr)? };
+            return Err(GpuHostError::Verification {
+                test: "flash_attention",
+                detail: format!("{mode_name}: {mismatches} mismatches, max_err={max_err:.8}"),
+            });
+        }
+    }
+
+    unsafe { free_mapped_mem(status_host_ptr)? };
+    println!("  FlashAttention (seq={SEQ_LEN}) — PASSED");
+    Ok(())
 }
 
 /// FFN block test (transformer-layer.4): linear(768→3072) → GELU → linear(3072→768).

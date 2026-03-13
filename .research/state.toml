@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 162     # Monotonic counter, incremented after each completed phase
-completed_tasks = 161
+total_cycles = 163     # Monotonic counter, incremented after each completed phase
+completed_tasks = 162
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "full-inference.6"
-last_summary = "full-inference.5.1 done: NaN root cause was GEMM tile contamination from padded rows, NOT f16 precision. Fixed with zero_pad kernel. All 12 layers NaN-free. Generation runs 20 tokens at 59ms/token. f16 precision still causes wrong top-1 ('-' not 'Paris'). Next: full-inference.6 (f32 GEMM)."
+current_task_id = ""
+last_summary = "full-inference.6 done: f32 GEMM top-1=' a' (not 'Paris'). GPT-2 small likely can't predict 'Paris'. f32 only 13% slower than f16 TC. All full-inference tasks done except blocked decision gate (.5). Need PyTorch reference."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 40
@@ -3814,7 +3814,7 @@ id = "full-inference.6"
 theme = "full-inference"
 title = "Pure f32 GEMM kernel (no Tensor Cores) for precision validation"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["full-inference.5.1"]
 spawned_by = "bs40"
 research_questions = [

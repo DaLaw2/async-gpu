@@ -3319,3 +3319,173 @@ pub unsafe extern "ptx-kernel" fn zero_pad(
         let _ = (buffer, start_offset, total_elems);
     }
 }
+
+// ============================================================
+// Pure f32 GEMM kernel (full-inference.6)
+// ============================================================
+
+/// Tiled f32 GEMM without Tensor Cores: D = A × B.
+///
+/// A: [M, K] row-major f32.
+/// B: [K, N] column-major f32 (stored as b[col * K + row]).
+/// D: [M, N] row-major f32.
+///
+/// grid_dim = (M/32, N/16, 1), block_dim = (128, 1, 1).
+/// shared_mem_bytes = (32*16 + 16*16) * 4 = 3072.
+///
+/// Each block computes a 32×16 output tile. Each thread computes 4 output
+/// elements (2 rows × 2 cols). K dimension is tiled in chunks of 16.
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn gemm_f32(
+    a_global: *const f32,
+    b_global: *const f32,
+    d_global: *mut f32,
+    k_dim: u32,
+    n_cols: u32,
+    status: *mut u32,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let block_m = nvptx::_block_idx_x() as u32;
+        let block_n: u32;
+        core::arch::asm!("mov.u32 {r}, %ctaid.y;", r = out(reg32) block_n);
+
+        let smem = get_dynamic_smem_ptr() as *mut f32;
+        let a_smem = smem; // [32][16] = 512 f32
+        let b_smem = smem.add(512); // [16][16] = 256 f32
+
+        // Thread mapping: 128 threads → 32×16 output = 4 per thread
+        // tid / 8 = row_pair (0..15), handles rows row_pair*2, row_pair*2+1
+        // tid % 8 = col_pair (0..7), handles cols col_pair*2, col_pair*2+1
+        let row_pair = tid / 8;
+        let col_pair = tid % 8;
+        let r0 = row_pair * 2;
+        let r1 = r0 + 1;
+        let c0 = col_pair * 2;
+        let c1 = c0 + 1;
+
+        let global_r0 = block_m * 32 + r0;
+        let global_r1 = block_m * 32 + r1;
+        let global_c0 = block_n * 16 + c0;
+        let global_c1 = block_n * 16 + c1;
+
+        // A block starts at row (block_m * 32)
+        let a_block = a_global.add((block_m * 32 * k_dim) as usize);
+        // B block starts at col (block_n * 16)
+        let b_block = b_global.add((block_n * 16 * k_dim) as usize);
+
+        let mut acc00: f32 = 0.0;
+        let mut acc01: f32 = 0.0;
+        let mut acc10: f32 = 0.0;
+        let mut acc11: f32 = 0.0;
+
+        let k_tiles = (k_dim + 15) / 16;
+        let mut t = 0u32;
+        while t < k_tiles {
+            let k_base = t * 16;
+
+            // Cooperative load A tile: 32×16 = 512 f32, 128 threads × 4 elements each
+            let mut i = 0u32;
+            while i < 4 {
+                let flat = tid * 4 + i;
+                let row = flat / 16;
+                let col = flat % 16;
+                let k_idx = k_base + col;
+                let val = if k_idx < k_dim {
+                    *a_block.add((row * k_dim + k_idx) as usize)
+                } else {
+                    0.0
+                };
+                *a_smem.add(flat as usize) = val;
+                i += 1;
+            }
+
+            // Cooperative load B tile: 16×16 = 256 f32, 128 threads × 2 elements each
+            let mut j = 0u32;
+            while j < 2 {
+                let flat = tid * 2 + j;
+                let col = flat / 16; // B column within this tile (0..15)
+                let k_row = flat % 16; // K row within tile
+                let k_idx = k_base + k_row;
+                let b_col = block_n * 16 + col;
+                let val = if k_idx < k_dim && b_col < n_cols {
+                    // B is column-major: b[col * K + k]
+                    *b_global.add((b_col * k_dim + k_idx) as usize)
+                } else {
+                    0.0
+                };
+                // Store in shared mem as b_smem[col][k_row] = b_smem[col * 16 + k_row]
+                *b_smem.add(flat as usize) = val;
+                j += 1;
+            }
+
+            bar_sync();
+
+            // Compute: each thread accumulates 4 output elements over K=16
+            let tile_k = if k_base + 16 <= k_dim { 16 } else { k_dim - k_base };
+            let mut k = 0u32;
+            while k < tile_k {
+                let a_r0 = *a_smem.add((r0 * 16 + k) as usize);
+                let a_r1 = *a_smem.add((r1 * 16 + k) as usize);
+                let b_c0 = *b_smem.add((c0 * 16 + k) as usize);
+                let b_c1 = *b_smem.add((c1 * 16 + k) as usize);
+
+                // Use FMA for better precision
+                core::arch::asm!(
+                    "fma.rn.f32 {d}, {a}, {b}, {c};",
+                    d = out(reg32) acc00,
+                    a = in(reg32) a_r0,
+                    b = in(reg32) b_c0,
+                    c = in(reg32) acc00,
+                );
+                core::arch::asm!(
+                    "fma.rn.f32 {d}, {a}, {b}, {c};",
+                    d = out(reg32) acc01,
+                    a = in(reg32) a_r0,
+                    b = in(reg32) b_c1,
+                    c = in(reg32) acc01,
+                );
+                core::arch::asm!(
+                    "fma.rn.f32 {d}, {a}, {b}, {c};",
+                    d = out(reg32) acc10,
+                    a = in(reg32) a_r1,
+                    b = in(reg32) b_c0,
+                    c = in(reg32) acc10,
+                );
+                core::arch::asm!(
+                    "fma.rn.f32 {d}, {a}, {b}, {c};",
+                    d = out(reg32) acc11,
+                    a = in(reg32) a_r1,
+                    b = in(reg32) b_c1,
+                    c = in(reg32) acc11,
+                );
+
+                k += 1;
+            }
+
+            bar_sync();
+            t += 1;
+        }
+
+        // Write output
+        *d_global.add((global_r0 * n_cols + global_c0) as usize) = acc00;
+        *d_global.add((global_r0 * n_cols + global_c1) as usize) = acc01;
+        *d_global.add((global_r1 * n_cols + global_c0) as usize) = acc10;
+        *d_global.add((global_r1 * n_cols + global_c1) as usize) = acc11;
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (a_global, b_global, d_global, k_dim, n_cols);
+    }
+
+    if tid == 0 {
+        let _prev: u32;
+        core::arch::asm!(
+            "atom.global.add.u32 {prev}, [{addr}], 1;",
+            prev = out(reg32) _prev,
+            addr = in(reg64) status,
+        );
+    }
+}

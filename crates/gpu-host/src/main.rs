@@ -215,6 +215,9 @@ fn main() -> Result<()> {
     // Greedy autoregressive generation (full-inference.4)
     tests_compute::run_generation_test(Arc::clone(&dev))?;
 
+    // f32 GEMM forward pass (full-inference.6)
+    tests_compute::run_f32_forward_test(Arc::clone(&dev))?;
+
     // GPT-2 model weight loading test (model-loading.3)
     {
         let model_path = std::path::Path::new("../../models/model.safetensors");

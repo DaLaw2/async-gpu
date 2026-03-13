@@ -107,3 +107,17 @@ Record important technical decisions here as they emerge from research.
 - **Rationale**: (1) The pattern is simple and composes linearly — adding more I/O↔compute switching points is mechanical. (2) syncwarp() is a hardware barrier that handles arbitrary lane timing differences. (3) The switching overhead is negligible (~5-10 ns per syncwarp). (4) Documentation-based enforcement is appropriate at this maturity level — no external users yet.
 - **Alternatives**: (a) Separate kernels for I/O and compute phases (context switch overhead, doesn't compose). (b) Always use per-thread futures (32x CAS overhead for I/O). (c) Compile-time enforcement via type system (premature, deferred).
 - **Sources**: hybrid-executor.1-c87, hybrid-executor.2-c88, bs19
+
+---
+
+### ADR-011: MMA m16n8k16 Fragment Mapping — Column-Major B and Correct Output Indices
+
+- **Decision**: For `mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32`, the B matrix must be stored in **column-major packed** format, and the D output mapping is `d0=D[group][lane*2]` (group=row, lane=column), not `D[lane*2][group]`.
+- **Context**: The MMA instruction with `.col` on B means the B fragment uses column-major layout: thread (g=tid/4, l=tid%4) provides b0 = pack(B[l*2][g], B[l*2+1][g]) — two consecutive K-dimension rows from the same N-column g. Feeding row-major B causes the MMA to compute A × B^T instead of A × B. This bug was invisible in all prior tests because they used uniform B data (all 1s), where B = B^T.
+- **What happens if violated**: Non-uniform B matrices produce wrong results (each output = K × mean(B_cols) instead of K × B_col_value). With row-major B, the MMA transposes B silently. Combined with the swapped output mapping (d0=D[l*2][g] vs correct d0=D[g][l*2]), results appear doubly transposed.
+- **Validated by**: gemm-scale.1 with 5 test cases: uniform K=16, uniform K=32, A=1 B=nonunif, A=nonunif B=1, both nonunif. All pass with column-major B and corrected output mapping.
+- **B memory format**: `B_cm[col][k_pair] = pack_f16x2(B[k_pair*2][col], B[k_pair*2+1][col])`, shape [N][K/2] u32.
+- **Fragment read**: `b0 = B_smem[(warp_n*8+group)*8 + lane]`, `b1 = B_smem[(warp_n*8+group)*8 + lane + 4]`.
+- **Output write**: `d0→D[warp_m*16+group][warp_n*8+lane*2]`, `d1→D[warp_m*16+group][warp_n*8+lane*2+1]`, `d2→D[warp_m*16+group+8][warp_n*8+lane*2]`, `d3→D[warp_m*16+group+8][warp_n*8+lane*2+1]`.
+- **Alternatives**: (a) Keep row-major B and accept A×B^T semantics (confusing). (b) Transpose B in shared memory after loading (extra bar_sync + complexity). (c) Store B column-major globally and load directly (chosen — simplest and cleanest).
+- **Sources**: gemm-scale.1-c1

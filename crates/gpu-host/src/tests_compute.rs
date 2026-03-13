@@ -1076,3 +1076,168 @@ pub(crate) fn run_gemm_softmax_pipeline_test(dev: Arc<CudaDevice>) -> Result<()>
     }
     Ok(())
 }
+
+/// gemm-scale.1: Multi-warp output tiling.
+/// Tests: 4 warps (128 threads) compute D(32×16) = A(32×K) × B(K×16).
+pub(crate) fn run_multi_warp_gemm_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Multi-warp GEMM test (gemm-scale.1) ---");
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "multi_warp_gemm", &["multi_warp_gemm"]);
+    let f = dev
+        .get_func("multi_warp_gemm", "multi_warp_gemm")
+        .ok_or(GpuHostError::KernelNotFound("multi_warp_gemm"))?;
+
+    fn f32_to_f16(val: f32) -> u16 {
+        let bits = val.to_bits();
+        let sign = (bits >> 31) & 1;
+        let exp = ((bits >> 23) & 0xFF) as i32;
+        let frac = bits & 0x7FFFFF;
+        if val == 0.0 {
+            return (sign << 15) as u16;
+        }
+        let new_exp = exp - 127 + 15;
+        if new_exp <= 0 {
+            return (sign << 15) as u16;
+        }
+        if new_exp >= 31 {
+            return ((sign << 15) | 0x7C00) as u16;
+        }
+        ((sign << 15) | ((new_exp as u32) << 10) | (frac >> 13)) as u16
+    }
+    fn pack_f16x2(lo: f32, hi: f32) -> u32 {
+        let lo_bits = f32_to_f16(lo) as u32;
+        let hi_bits = f32_to_f16(hi) as u32;
+        lo_bits | (hi_bits << 16)
+    }
+
+    const M: usize = 32;
+    const N: u32 = 16;
+
+    // Test 0: all-1.0, K=16 → D = all 16.0
+    // Test 1: all-1.0, K=32 → D = all 32.0
+    // Test 2: A=1.0, B=non-uniform, K=16 → D[i][j] = K * (j%4+1)
+    // Test 3: A=non-uniform, B=1.0, K=16 → D[i][j] = K * (i%4+1)
+    // Test 4: both non-uniform, K=16 → D[i][j] = K * (i%4+1) * (j%4+1)
+    for test_case in 0..5u32 {
+        let (k, label): (u32, &str) = match test_case {
+            0 => (16, "uniform K=16"),
+            1 => (32, "uniform K=32"),
+            2 => (16, "A=1 B=nonunif K=16"),
+            3 => (16, "A=nonunif B=1 K=16"),
+            _ => (16, "both nonunif K=16"),
+        };
+        let k_tiles = k / 16;
+
+        // Build A(32×K) and B(K×16) packed f16x2
+        let mut a_packed: Vec<u32> = Vec::with_capacity(M * k as usize / 2);
+        let mut b_packed: Vec<u32> = Vec::with_capacity(k as usize * N as usize / 2);
+
+        let a_nonunif = test_case == 3 || test_case == 4;
+        let b_nonunif = test_case == 2 || test_case == 4;
+
+        // A matrix
+        for i in 0..M {
+            let val = if a_nonunif { (i % 4 + 1) as f32 } else { 1.0 };
+            for _j_packed in 0..k as usize / 2 {
+                a_packed.push(pack_f16x2(val, val));
+            }
+        }
+        // B matrix — column-major packed: B_cm[col][k_pair] = pack(B[k_pair*2][col], B[k_pair*2+1][col])
+        // Layout: [N][K/2] u32, column-major with row-pairing
+        for col in 0..N as usize {
+            for k_pair in 0..k as usize / 2 {
+                if b_nonunif {
+                    let v0 = (col + 1) as f32; // B[k_pair*2][col] = col+1
+                    let v1 = (col + 1) as f32; // B[k_pair*2+1][col] = col+1
+                    b_packed.push(pack_f16x2(v0, v1));
+                } else {
+                    b_packed.push(pack_f16x2(1.0, 1.0));
+                }
+            }
+        }
+
+        let a_dev: CudaSlice<u32> = dev.htod_sync_copy(&a_packed)?;
+        let b_dev: CudaSlice<u32> = dev.htod_sync_copy(&b_packed)?;
+        let mut d_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(M * N as usize)?;
+        let (status_host_ptr, status_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 1)? };
+
+        let cfg = LaunchConfig {
+            grid_dim: (1, 1, 1),
+            block_dim: (128, 1, 1),            // 4 warps
+            shared_mem_bytes: (256 + 128) * 4, // A[32][8] + B[16][8]
+        };
+
+        unsafe {
+            f.clone().launch(
+                cfg,
+                (&a_dev, &b_dev, &mut d_dev, k_tiles, N, status_dev_ptr),
+            )?;
+        }
+        dev.synchronize()?;
+
+        let status = unsafe { std::ptr::read_volatile(status_host_ptr) };
+        assert_eq!(
+            status, 1,
+            "Multi-warp GEMM kernel did not complete ({label})"
+        );
+
+        let d_host: Vec<f32> = dev.dtoh_sync_copy(&d_dev)?;
+
+        // Compute CPU reference
+        let mut expected = vec![0.0f32; M * N as usize];
+        if test_case < 2 {
+            // All 1.0 → each element = K
+            for e in expected.iter_mut() {
+                *e = k as f32;
+            }
+        } else {
+            // A[i][k] = a_val, B[k][j] = b_val (both constant across k)
+            // D[i][j] = K * a_val * b_val
+            for i in 0..M {
+                for j in 0..N as usize {
+                    let a_val = if a_nonunif { (i % 4 + 1) as f32 } else { 1.0 };
+                    let b_val = if b_nonunif { (j + 1) as f32 } else { 1.0 };
+                    expected[i * N as usize + j] = a_val * b_val * k as f32;
+                }
+            }
+        }
+
+        let mut mismatches = 0;
+        for i in 0..M {
+            for j in 0..N as usize {
+                let got = d_host[i * N as usize + j];
+                let exp = expected[i * N as usize + j];
+                if (got - exp).abs() > 0.5 {
+                    if mismatches < 5 {
+                        println!("  MISMATCH D[{i}][{j}] = {got} (expected {exp})");
+                    }
+                    mismatches += 1;
+                }
+            }
+        }
+
+        if mismatches == 0 {
+            println!(
+                "  {label}: all {} elements correct — PASSED",
+                M * N as usize
+            );
+        } else {
+            println!("  {label}: {mismatches}/{} mismatches", M * N as usize);
+            unsafe {
+                free_mapped_mem(status_host_ptr)?;
+            }
+            return Err(GpuHostError::Verification {
+                test: "multi_warp_gemm",
+                detail: format!("{label}: {mismatches} mismatches"),
+            });
+        }
+
+        unsafe {
+            free_mapped_mem(status_host_ptr)?;
+        }
+    }
+
+    println!("  Multi-warp GEMM (4 warps, 2×2 layout) verified");
+    Ok(())
+}

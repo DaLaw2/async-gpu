@@ -1884,3 +1884,150 @@ pub unsafe extern "ptx-kernel" fn test_gemm_softmax_pipeline(
         core::ptr::write_volatile(status, 1);
     }
 }
+
+// ============================================================
+// gemm-scale.1: Multi-warp output tiling
+// ============================================================
+
+/// Multi-warp GEMM: D(32×16) = A(32×K) × B(K×16), 4 warps in 2×2 layout.
+///
+/// 128 threads (4 warps), each warp computes a 16×8 MMA tile.
+/// Warp layout: warp_m = warp_id/2 (0..1), warp_n = warp_id%2 (0..1).
+/// Shared memory per K-tile: A[32][8] + B[16][8] = 384 u32.
+/// A is row-major f16x2 packed [32][K/2] u32.
+/// B is row-major f16x2 packed [K][8] u32 (N=16 → 8 packed per row).
+/// D is row-major f32 [32][16].
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn multi_warp_gemm(
+    a_global: *const u32,
+    b_global: *const u32,
+    d_global: *mut f32,
+    k_tiles: u32,
+    n_cols: u32,
+    status: *mut u32,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let warp_id = tid / 32;
+        let local_tid = tid % 32;
+        let group = local_tid / 4;
+        let lane = local_tid % 4;
+
+        // Warp arrangement: 2×2 (2 in M, 2 in N)
+        let warp_m = warp_id / 2; // 0 or 1
+        let warp_n = warp_id % 2; // 0 or 1
+
+        let smem = get_dynamic_smem_ptr() as *mut u32;
+        let a_smem = smem; // [32][8] = 256 u32
+        let b_smem = smem.add(256); // [16][8] = 128 u32 (col-major packed)
+
+        let k_half = k_tiles * 8; // K/2 = packed u32 per row of A
+        let k_half_cm = k_tiles * 8; // K/2 = packed u32 per column of B (col-major)
+
+        // Initialize accumulator
+        let mut c0: u32 = 0;
+        let mut c1: u32 = 0;
+        let mut c2: u32 = 0;
+        let mut c3: u32 = 0;
+
+        let mut t = 0u32;
+        while t < k_tiles {
+            // Cooperative load A tile: [32][8] = 256 u32, 128 threads → 2 each
+            let mut i = 0u32;
+            while i < 2 {
+                let smem_idx = tid * 2 + i;
+                let row = smem_idx / 8;
+                let col_packed = smem_idx % 8;
+                let global_idx = row * k_half + t * 8 + col_packed;
+                *a_smem.add(smem_idx as usize) = *a_global.add(global_idx as usize);
+                i += 1;
+            }
+
+            // Cooperative load B tile: [N][8] col-major packed, 128 threads → 1 each
+            // B_cm layout: b_global[col * k_half_cm + k_pair]
+            // = pack(B[k_pair*2][col], B[k_pair*2+1][col])
+            if tid < 128 {
+                let col = tid / 8; // N column (0..15)
+                let k_pair = tid % 8; // row pair within tile (0..7)
+                let global_idx = col * k_half_cm + t * 8 + k_pair;
+                *b_smem.add(tid as usize) = *b_global.add(global_idx as usize);
+            }
+
+            bar_sync();
+
+            // Load A fragments for this warp's M-slice (warp_m * 16)
+            let a_off = warp_m * 16;
+            let a0 = *a_smem.add(((a_off + group) * 8 + lane) as usize);
+            let a1 = *a_smem.add(((a_off + group) * 8 + lane + 4) as usize);
+            let a2 = *a_smem.add(((a_off + group + 8) * 8 + lane) as usize);
+            let a3 = *a_smem.add(((a_off + group + 8) * 8 + lane + 4) as usize);
+
+            // Load B fragments for this warp's N-slice (col-major packed)
+            // b_smem layout: [N][8], col = warp_n*8+group, k_pair = lane
+            // b0 = pack(B[lane*2][col], B[lane*2+1][col])
+            // b1 = pack(B[lane*2+8][col], B[lane*2+9][col])
+            let b_col = warp_n * 8 + group;
+            let b0 = *b_smem.add((b_col * 8 + lane) as usize);
+            let b1 = *b_smem.add((b_col * 8 + lane + 4) as usize);
+
+            // MMA: D = A*B + C
+            let d0: u32;
+            let d1: u32;
+            let d2: u32;
+            let d3: u32;
+            core::arch::asm!(
+                "mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32 \
+                 {{{d0}, {d1}, {d2}, {d3}}}, \
+                 {{{a0}, {a1}, {a2}, {a3}}}, \
+                 {{{b0}, {b1}}}, \
+                 {{{c0}, {c1}, {c2}, {c3}}};",
+                d0 = out(reg32) d0,
+                d1 = out(reg32) d1,
+                d2 = out(reg32) d2,
+                d3 = out(reg32) d3,
+                a0 = in(reg32) a0,
+                a1 = in(reg32) a1,
+                a2 = in(reg32) a2,
+                a3 = in(reg32) a3,
+                b0 = in(reg32) b0,
+                b1 = in(reg32) b1,
+                c0 = in(reg32) c0,
+                c1 = in(reg32) c1,
+                c2 = in(reg32) c2,
+                c3 = in(reg32) c3,
+            );
+
+            c0 = d0;
+            c1 = d1;
+            c2 = d2;
+            c3 = d3;
+
+            bar_sync();
+            t += 1;
+        }
+
+        // Write output in row-major [32][16] f32
+        // Correct MMA fragment mapping (m16n8k16.row.col):
+        //   d0→D[group][lane*2], d1→D[group][lane*2+1],
+        //   d2→D[group+8][lane*2], d3→D[group+8][lane*2+1]
+        let r0 = warp_m * 16 + group;
+        let r2 = warp_m * 16 + group + 8;
+        let c0_idx = warp_n * 8 + lane * 2;
+        let c1_idx = c0_idx + 1;
+
+        *d_global.add((r0 * n_cols + c0_idx) as usize) = f32::from_bits(c0);
+        *d_global.add((r0 * n_cols + c1_idx) as usize) = f32::from_bits(c1);
+        *d_global.add((r2 * n_cols + c0_idx) as usize) = f32::from_bits(c2);
+        *d_global.add((r2 * n_cols + c1_idx) as usize) = f32::from_bits(c3);
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (a_global, b_global, d_global, k_tiles, n_cols);
+    }
+
+    if tid == 0 {
+        core::ptr::write_volatile(status, 1);
+    }
+}

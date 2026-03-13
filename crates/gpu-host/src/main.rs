@@ -172,6 +172,9 @@ fn main() -> Result<()> {
     // GEMM + softmax pipeline test (gpu-pipeline.3)
     tests_compute::run_gemm_softmax_pipeline_test(Arc::clone(&dev))?;
 
+    // Multi-warp GEMM test (gemm-scale.1)
+    tests_compute::run_multi_warp_gemm_test(Arc::clone(&dev))?;
+
     // GPU panic handler test (gpu-panic.2) — MUST BE LAST
     // since trap instruction calls process::exit(0)
     tests_pipeline::run_panic_test(Arc::clone(&dev))?;

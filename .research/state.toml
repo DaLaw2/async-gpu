@@ -4,22 +4,22 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 129     # Monotonic counter, incremented after each completed phase
-completed_tasks = 128
+total_cycles = 130     # Monotonic counter, incremented after each completed phase
+completed_tasks = 129
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
-current_mode = "think"
-current_step = "awaiting_user"
+current_mode = "do"
+current_step = "do.select"
 current_task_id = ""
-last_summary = "All 3 epics completed. BS35: analyzed native GPU inference as new epic. Recommended Option B (single GPT-2 layer). 2 required themes (gemm-scale, transformer-layer) + 1 conditional (text-gen). Awaiting user decision."
+last_summary = "gemm-scale.1 done: 4-warp GEMM verified with non-uniform data. Discovered MMA B fragment is column-major (.col) and output mapping is d0=D[g][l*2]. Fixed both bugs."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 35
+brainstorm_seq = 36
 review_seq = 5
 
 # Brainstorm trigger control
-last_brainstorm_at_completed = 128
+last_brainstorm_at_completed = 129
 brainstorm_interval = 3
 
 # ============================================================
@@ -3094,3 +3094,201 @@ new_themes_spawned = []
 themes_parked = []
 themes_completed = []
 key_insight = "Recommend Option B: single GPT-2 layer with real weights verified against PyTorch. 2 required themes (gemm-scale, transformer-layer) + 1 conditional (text-gen). Primary risk: GEMM scaling from single-warp to multi-block 768x768. Off-ramps at each theme boundary."
+
+[[brainstorms]]
+seq = 36
+at_cycle = 129
+trigger = "User approved BS35 recommendations, creating gpu-inference epic"
+level = "quick"
+new_tasks_spawned = ["gemm-scale.1", "gemm-scale.2", "gemm-scale.3", "transformer-layer.1", "transformer-layer.2", "transformer-layer.3", "transformer-layer.4", "transformer-layer.5", "transformer-layer.6", "transformer-layer.7"]
+new_themes_spawned = ["gemm-scale", "transformer-layer"]
+themes_parked = []
+themes_completed = []
+key_insight = "Epic gpu-inference created (Option B scope). 2 themes, 10 tasks. gemm-scale first (critical path). Decision gates after gemm-scale.3 and transformer-layer.6."
+
+# ============================================================
+# Epic: Native GPU Inference
+# ============================================================
+
+[[epics]]
+id = "gpu-inference"
+title = "Native GPU Inference"
+status = "active"
+priority = "medium"
+success_criteria = [
+    "Multi-head self-attention runs correctly on GPU with real weight values, verified against CPU reference",
+    "A complete transformer layer (attention + FFN + LayerNorm) produces output matching PyTorch reference within f16 tolerance (atol=1e-2, rtol=1e-2)",
+    "GPU autonomously orchestrates computation — host only provides weights and input",
+]
+
+# ============================================================
+# Theme: gemm-scale (serves gpu-inference epic)
+# ============================================================
+
+[[themes]]
+id = "gemm-scale"
+title = "Scale GEMM to multi-warp multi-block for large matrices"
+status = "active"
+spawned_by = "bs36"
+epic = "gpu-inference"
+goal = "Scale existing single-warp GEMM to handle arbitrary matrix dimensions (at least 768x768)"
+success_criteria = [
+    "MxK x KxN GEMM produces results matching CPU reference for M,K,N up to 768",
+    "Non-uniform f16 input values produce correct results",
+    "Multi-block execution for large matrices works correctly",
+]
+
+[[tasks]]
+id = "gemm-scale.1"
+theme = "gemm-scale"
+title = "Multi-warp output tiling — 4 warps compute adjacent 16x8 tiles"
+kind = "experiment"
+status = "done"
+depends_on = []
+spawned_by = "bs36"
+research_questions = [
+    "Can multiple warps in the same block each compute a different 16x8 output tile via MMA?",
+    "How to coordinate shared memory loading across warps (load once, compute many)?",
+    "What is the register pressure with 4 warps (128 threads)?",
+]
+
+[[tasks]]
+id = "gemm-scale.2"
+theme = "gemm-scale"
+title = "Multi-block GEMM — different blocks compute different output row-ranges"
+kind = "experiment"
+status = "pending"
+depends_on = ["gemm-scale.1"]
+spawned_by = "bs36"
+research_questions = [
+    "Can blockIdx be used to partition the output matrix across CTAs?",
+    "Does bar.sync correctly scope to block-local synchronization?",
+    "How to handle edge tiles when dimensions are not multiples of tile size?",
+]
+
+[[tasks]]
+id = "gemm-scale.3"
+theme = "gemm-scale"
+title = "Correctness validation at 768x768 against CPU reference — DECISION GATE"
+kind = "experiment"
+status = "pending"
+depends_on = ["gemm-scale.2"]
+spawned_by = "bs36"
+research_questions = [
+    "Does 768x768 GEMM with random f16 weights match CPU reference within f16 tolerance?",
+    "What is the maximum relative error across all output elements?",
+    "Are there register spilling or shared memory exhaustion issues at this scale?",
+]
+
+# ============================================================
+# Theme: transformer-layer (serves gpu-inference epic)
+# ============================================================
+
+[[themes]]
+id = "transformer-layer"
+title = "Implement complete transformer layer verified against PyTorch"
+status = "active"
+spawned_by = "bs36"
+epic = "gpu-inference"
+goal = "Implement attention + FFN + LayerNorm as a complete transformer layer with real GPT-2 weights"
+success_criteria = [
+    "Single-layer forward pass matches PyTorch GPT-2 layer 0 output within f16 tolerance",
+    "All sub-components (LayerNorm, GELU, MHA, FFN) individually verified",
+    "Weight loading from host works for real model parameters",
+]
+
+[[tasks]]
+id = "transformer-layer.1"
+theme = "transformer-layer"
+title = "LayerNorm kernel (mean + variance reduction, per-element normalize)"
+kind = "experiment"
+status = "pending"
+depends_on = []
+spawned_by = "bs36"
+research_questions = [
+    "Can the softmax reduction pattern be adapted for mean+variance computation?",
+    "What is the numerical precision of f32 reduction for d_model=768?",
+    "How to handle the affine parameters (gamma, beta)?",
+]
+
+[[tasks]]
+id = "transformer-layer.2"
+theme = "transformer-layer"
+title = "GELU activation kernel"
+kind = "experiment"
+status = "pending"
+depends_on = []
+spawned_by = "bs36"
+research_questions = [
+    "Can GELU be accurately approximated using ex2.approx.f32 on GPU?",
+    "What is the max error vs PyTorch GELU across the typical activation range?",
+]
+
+[[tasks]]
+id = "transformer-layer.3"
+theme = "transformer-layer"
+title = "Multi-head attention: Q/K/V projection → split heads → attention → concat → output projection"
+kind = "experiment"
+status = "pending"
+depends_on = ["gemm-scale.3"]
+spawned_by = "bs36"
+research_questions = [
+    "How to coordinate multiple attention heads across thread blocks?",
+    "What memory layout for Q/K/V minimizes bank conflicts?",
+    "Does the full attention mechanism match CPU reference?",
+]
+
+[[tasks]]
+id = "transformer-layer.4"
+theme = "transformer-layer"
+title = "FFN block: linear → GELU → linear"
+kind = "experiment"
+status = "pending"
+depends_on = ["gemm-scale.3", "transformer-layer.2"]
+spawned_by = "bs36"
+research_questions = [
+    "Can FFN (768→3072→768) be computed with the scaled GEMM?",
+    "What is the memory footprint for FFN intermediate activations?",
+]
+
+[[tasks]]
+id = "transformer-layer.5"
+theme = "transformer-layer"
+title = "Weight loading strategy: pre-allocate via cuMemAlloc vs hostcall streaming"
+kind = "design"
+status = "pending"
+depends_on = []
+spawned_by = "bs36"
+research_questions = [
+    "What is the total weight size for GPT-2 layer 0?",
+    "Is cuMemAlloc pre-allocation or hostcall streaming more aligned with the autonomy thesis?",
+    "How to pass weight buffer pointers to the kernel?",
+]
+
+[[tasks]]
+id = "transformer-layer.6"
+theme = "transformer-layer"
+title = "End-to-end single layer: LayerNorm → MHA → residual → LayerNorm → FFN → residual"
+kind = "experiment"
+status = "pending"
+depends_on = ["transformer-layer.1", "transformer-layer.3", "transformer-layer.4", "transformer-layer.5"]
+spawned_by = "bs36"
+research_questions = [
+    "Can all sub-components be composed into a single kernel?",
+    "What is the total shared memory and register usage?",
+    "Does the residual connection work correctly with the buffer management?",
+]
+
+[[tasks]]
+id = "transformer-layer.7"
+theme = "transformer-layer"
+title = "Numerical validation against PyTorch GPT-2 layer 0 — DECISION GATE"
+kind = "experiment"
+status = "pending"
+depends_on = ["transformer-layer.6"]
+spawned_by = "bs36"
+research_questions = [
+    "Does the output match PyTorch within atol=1e-2, rtol=1e-2?",
+    "Where are the largest numerical divergences?",
+    "Is f16 compute sufficient or does the layer need f32 fallback for specific ops?",
+]

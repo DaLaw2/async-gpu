@@ -4,18 +4,18 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 191     # Monotonic counter, incremented after each completed phase
-completed_tasks = 190
+total_cycles = 192     # Monotonic counter, incremented after each completed phase
+completed_tasks = 191
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = ""
-last_summary = "std-fs.3+4, std-migration.3 done. CUDA fs PAL, io/error, std pipeline with ? operator all working. std-fs + std-migration themes COMPLETE. Next: brainstorm for remaining epics (host-sdk, gpu-error criterion 4)."
+current_task_id = "std-migration.4"
+last_summary = "std-fs.5 done: ErrorKind::NotFound + raw_os_error(2) verified. Display for io::Error crashes (known issue — error_string allocates). Next: std-migration.4 (stdin e2e), then host-sdk.2."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 48
+brainstorm_seq = 49
 review_seq = 5
 
 # Brainstorm trigger control (event-driven, no fixed interval)
@@ -604,9 +604,50 @@ research_questions = [
     "Do file I/O errors produce proper std::io::Error?",
 ]
 
+# --- real-std verification ---
+
+[[tasks]]
+id = "std-migration.4"
+theme = "std-migration"
+title = "Verify stdin().read_line() end-to-end on GPU"
+kind = "experiment"
+status = "active"
+depends_on = ["std-fs.3"]
+spawned_by = "bs49"
+research_questions = [
+    "Does std::io::stdin().read_line() work via hostcall STDIN?",
+    "Does gpu_stdin_read need to be wired to SERVICE_STDIN?",
+]
+
+# --- gpu-error verification ---
+
+[[tasks]]
+id = "std-fs.5"
+theme = "std-fs"
+title = "Verify std::io::Error mapping for file-not-found and permission errors"
+kind = "experiment"
+status = "done"
+depends_on = ["std-fs.4"]
+spawned_by = "bs49"
+research_questions = [
+    "Does File::open on nonexistent file produce ErrorKind::NotFound?",
+    "Does the error message contain the errno description?",
+]
+
 # ============================================================
 # Brainstorms (last 3 only — older brainstorms archived)
 # ============================================================
+
+[[brainstorms]]
+seq = 49
+at_cycle = 191
+trigger = "Two themes completed (std-fs, std-migration), assess remaining epic criteria"
+level = "quick"
+new_tasks_spawned = ["std-migration.4", "std-fs.5"]
+new_themes_spawned = []
+themes_parked = []
+themes_completed = ["std-fs", "std-migration"]
+key_insight = "real-std 4/5 criteria met, gpu-error 3/4 met. Two quick verification tasks: stdin e2e test + error mapping test. After those, both epics should be closeable. host-sdk still needs full attention (5 pending tasks)."
 
 [[brainstorms]]
 seq = 48

@@ -160,6 +160,22 @@ pub unsafe extern "ptx-kernel" fn std_file_io_test(buf: *mut u8) {
     }
 
     println!("[DONE] std::fs file I/O test complete");
+
+    // Error mapping test: open nonexistent file → should get NotFound
+    use std::io::ErrorKind;
+    match File::open("nonexistent_file_12345.txt") {
+        Ok(_) => println!("[ERR] expected NotFound, got Ok"),
+        Err(e) => {
+            let kind = e.kind();
+            if kind == ErrorKind::NotFound {
+                println!("[OK] error_kind: NotFound (correct)");
+            } else {
+                println!("[ERR] error_kind: {:?} (expected NotFound)", kind);
+            }
+            // Note: e.raw_os_error() gives the errno value
+            println!("[OK] raw_os_error: {:?}", e.raw_os_error());
+        }
+    }
 }
 
 // ============================================================

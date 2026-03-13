@@ -78,6 +78,10 @@ fn main() -> Result<()> {
                 tests_inference::run_kv_cached_generation_test(Arc::clone(&dev))?;
                 return Ok(());
             }
+            "bf16" => {
+                tests_gemm::run_bf16_gemm_test(Arc::clone(&dev))?;
+                return Ok(());
+            }
             _ => println!("Unknown ONLY_TEST={only}, running all tests"),
         }
     }

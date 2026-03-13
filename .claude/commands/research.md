@@ -28,8 +28,7 @@ You are an autonomous exploratory research agent. Cyclical, evolving research �
 │   └── bs{seq}-skeptic.md         # Deep brainstorm: skeptic challenges
 ├── tasks/
 │   └── {task_id}-c{cycle}.md      # Task findings
-└── reviews/
-    └── rv{seq}-{task_id}.md       # Review document (Full review only)
+└── reviews/                       # Legacy — no longer generated
 ```
 
 ---
@@ -43,7 +42,6 @@ You are an autonomous exploratory research agent. Cyclical, evolving research �
 5. Resume from `current_step`:
    - `"do.select"` → pick next task batch
    - `"do.execute"` → check `current_task_id`, verify if findings file exists (done vs resume)
-   - `"check.*"` → check if review file exists for current task
    - `"think.*"` → check if brainstorm file exists
 
 ---
@@ -52,8 +50,10 @@ You are an autonomous exploratory research agent. Cyclical, evolving research �
 
 ### Trigger (any one):
 - `current_mode == "think"`
-- `completed_tasks - last_brainstorm_at_completed >= brainstorm_interval`
 - A task was marked `blocked`
+- A theme was just completed (reassess direction)
+- A decision gate was reached
+- User explicitly requests brainstorm
 
 ### Epic Check (MANDATORY before every brainstorm)
 1. Read all `[[epics]]` with `status = "active"`
@@ -140,7 +140,6 @@ Write to: .research/findings/brainstorm/bs{seq}.md
 ### After any brainstorm level:
 - Increment `brainstorm_seq` (even for Quick — keeps seq monotonic)
 - Record `[[brainstorms]]` entry with seq, trigger, level, key insight
-- Update `last_brainstorm_at_completed`
 - git commit + push
 - Transition → `current_mode = "do"`, `current_step = "do.select"`
 
@@ -158,13 +157,6 @@ Task selection:
 4. Set selected tasks `status = "active"`, update `current_task_id` to first task
 5. Update `current_step = "do.execute"`
 
-### Step do.env_check
-**BEFORE executing any experiment task**, verify environment:
-- Rust nightly available? (`rustup toolchain list`)
-- CUDA toolkit present? (`nvcc --version`)
-- Required system libs installed?
-- If ANYTHING missing → `current_step = "awaiting_user"`, list what's needed, STOP
-
 ### Step do.execute
 **Execute tasks in a batch** — do NOT stop between tasks unless blocked.
 
@@ -180,37 +172,35 @@ For each task:
 **kind = "design"**: Synthesize findings, produce architecture doc, record ADR in `decisions.md`.
 
 After each task:
+- **Lint** (experiment/design only): Run `cargo +stable fmt --check` and `cargo +stable clippy -- -D warnings` on modified crates. Fix before proceeding.
 - Write findings to `.research/findings/tasks/{task_id}-c{cycle}.md` (see template below)
 - Update state.toml: task status, `total_cycles++`, `completed_tasks++`
 - Update `current_task_id` to next task in batch (or clear if batch done)
 
 ### Step do.save
 After the batch is complete:
-1. **Lint check**: Run `cargo +stable fmt --check` and `cargo +stable clippy -- -D warnings` on all modified crates. Fix any failures before committing.
-2. **Commit + push**: one commit per task, or batch commit if tasks are small.
-3. Update `last_summary` in state.toml
+1. **Commit + push**: one commit per task, or batch commit if tasks are small.
+2. Update `last_summary` in state.toml
 
 ### Step do.route
 Decide what to do next:
 
-1. Check if any completed task needs review (see Review Triage below)
-2. If brainstorm trigger fired → `current_mode = "think"`, `current_step = "think.triage"`
+1. Review triage on completed tasks (see Check phase below)
+2. If any brainstorm trigger fired (including escalation from review) → `current_mode = "think"`, `current_step = "think.triage"`
 3. If more ready tasks exist → back to `do.select`
 4. If all themes completed → final summary, STOP
 
 ---
 
-## Phase 3: Check (Review — ONLY WHEN NEEDED)
-
-### Review Triage
+## Phase 3: Check (Review)
 
 After each experiment/design task completes, assess risk level:
 
-| Risk Level | Criteria | Action |
-|-----------|----------|--------|
+| Level | Criteria | Action |
+|-------|----------|--------|
 | **Skip** | Extends a proven pattern (e.g., u32→u64 same asm pattern) | No review. Proceed. |
-| **Light** | New code but within established crate/pattern | Self-review checklist (see below). No agent. |
-| **Full** | New protocol, new crate, cross-theme architecture, decision gate | Single reviewer agent. |
+| **Light** | New code but within established crate/pattern | Self-review checklist (below). No agent. |
+| **Escalate** | Cross-theme architecture, decision gate, major design choice | Trigger brainstorm (Think phase). |
 
 **Self-review checklist** (for Light):
 - [ ] No UB: pointer validity, alignment, address space
@@ -219,23 +209,7 @@ After each experiment/design task completes, assess risk level:
 - [ ] PTX output verified for key instructions
 - [ ] Test covers the happy path
 
-If checklist passes → no review needed, proceed.
-
-**Full review** (single agent, NOT a team):
-```
-Review the code/design for task {task_id}. Check:
-1. Correctness: memory safety, GPU UB, warp divergence
-2. Architecture: abstraction quality, extensibility
-3. Performance: register pressure, occupancy concerns
-
-Verdict: pass | rework | redesign
-Write to: .research/findings/reviews/rv{seq}-{task_id}.md
-```
-
-Route based on verdict:
-- **pass** → continue
-- **rework** → create fix task `{task_id}.{n}`, continue in Do phase
-- **redesign** → trigger Think phase
+If checklist passes → proceed. If issues found → create fix task `{task_id}.{n}`.
 
 ---
 
@@ -273,8 +247,8 @@ awaiting_user? ──Yes──► Output request, STOP
   ▼
 current_mode?
   ├─ "think" → Epic check → Triage (quick/standard/deep) → adapt → git save → "do"
-  ├─ "do"    → Batch select → env check → execute tasks → lint → git save → route
-  └─ "check" → Triage (skip/light/full) → git save → route
+  ├─ "do"    → Batch select → execute tasks → lint → git save → route
+  └─ "check" → Triage (skip/light/escalate) → route
        │
        ▼
   Continue until context runs low or no more ready tasks
@@ -283,6 +257,7 @@ current_mode?
 **NEVER stop for human input EXCEPT:**
 1. All tasks blocked and brainstorm cannot unblock
 2. Environment changes needed (`awaiting_user`)
+
 
 ---
 

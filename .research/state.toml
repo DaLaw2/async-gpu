@@ -10,17 +10,15 @@ status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.route"
+current_step = "do.select"
 current_task_id = ""
-last_summary = "tf32-mma theme complete: TF32 worse than BF16 (2-3x more error), 0/3 inference match. Decision gate: ALL reduced-precision MMA fails for GPT-2 inference. tf32-mma.1+.2 done. Next: host-sdk.2 (public-api)."
+last_summary = "bs48: Spawned 3 themes (gpu-error-propagation, std-migration, std-fs) + 11 tasks for real-std and gpu-error epics. Priority: error propagation first, then std migration. Batch 1: gpu-error-propagation.1, std-migration.1, std-fs.1, host-sdk.2."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 47
+brainstorm_seq = 48
 review_seq = 5
 
-# Brainstorm trigger control
-last_brainstorm_at_completed = 178
-brainstorm_interval = 3
+# Brainstorm trigger control (event-driven, no fixed interval)
 
 # ============================================================
 # Epics (active only — completed epics archived in archive/)
@@ -46,6 +44,31 @@ success_criteria = [
 #   connections. Requires quantization-aware training or post-training calibration (PTQ) with
 #   per-channel scaling — out of scope for this project.
 # Criterion 4: PARKED — depends on criterion 3.
+
+[[epics]]
+id = "real-std"
+title = "Real std on GPU — replace macros with actual Rust std"
+status = "active"
+priority = "high"
+success_criteria = [
+    "GPU kernel can `use std::io::Write` and call `println!()` without custom macros",
+    "Vec, String, Box work on GPU via #[global_allocator] backed by hostcall-aware allocator",
+    "std::fs::File::create() and write_all() work on GPU via hostcall",
+    "std::io::stdin().read_line() works on GPU via hostcall",
+    "PAL/libc facade routes std sys calls to hostcall framework",
+]
+
+[[epics]]
+id = "gpu-error"
+title = "GPU-side error handling — Result propagation from GPU to host"
+status = "active"
+priority = "medium"
+success_criteria = [
+    "GPU kernel can use `?` operator and return Result<T, E> to host",
+    "Errors propagate across async boundaries (hostcall errors → Result, not panic)",
+    "Host receives structured error info (error type + message), not just trap/exit code",
+    "std::io and std::fs errors on GPU produce proper std::io::Error, not panic",
+]
 
 [[epics]]
 id = "public-api"
@@ -142,6 +165,46 @@ goal = "Test whether TF32 MMA (10-bit mantissa, f32 exponent) provides sufficien
 success_criteria = [
     "TF32 MMA GEMM matches gemm_f32 within acceptable tolerance for GPT-2 dims",
     "TF32 inference produces same top-5 tokens as f32 FMA for 3+ prompts (decision gate)",
+]
+
+[[themes]]
+id = "gpu-error-propagation"
+title = "GPU→host error propagation via output buffer convention"
+status = "active"
+spawned_by = "bs48"
+epic = "gpu-error"
+goal = "Define and implement GPU→host error propagation using output buffer convention"
+success_criteria = [
+    "GpuKernelResult type defined with Ok/Err variants, encodable in 64 bytes",
+    "Hostcall callers check CONTROL_ERROR and return Result instead of bool/panic",
+    "Host SDK reads error buffer after kernel launch and returns Result<(), GpuKernelError>",
+    "Panic handler writes to error buffer instead of (or before) trapping",
+]
+
+[[themes]]
+id = "std-migration"
+title = "Migrate hostcall/IO kernels to use patched std"
+status = "active"
+spawned_by = "bs48"
+epic = "real-std"
+goal = "Create gpu-kernel-std crate using patched std while keeping compute kernels as no_std"
+success_criteria = [
+    "gpu-kernel-std builds with -Zbuild-std=std and can use println!(), Vec, format!()",
+    "Hostcall protocol code shared (not duplicated) between std and no_std kernels",
+    "At least one async pipeline kernel uses std types",
+]
+
+[[themes]]
+id = "std-fs"
+title = "std::fs on GPU via hostcall with proper error handling"
+status = "active"
+spawned_by = "bs48"
+epic = "real-std"
+goal = "Implement std::fs on GPU via hostcall, with proper error handling"
+success_criteria = [
+    "std::fs::File::create() and write_all() work on GPU via hostcall",
+    "File I/O errors produce proper std::io::Error (not panic)",
+    "std::io::stdin().read_line() works (fix OnceLock in stdin path)",
 ]
 
 # ============================================================
@@ -389,9 +452,172 @@ research_questions = [
     "How to handle the nightly + nvptx64 toolchain requirement?",
 ]
 
+# --- gpu-error-propagation (gpu-error) ---
+
+[[tasks]]
+id = "gpu-error-propagation.1"
+theme = "gpu-error-propagation"
+title = "Design GpuKernelResult ABI + error buffer layout"
+kind = "design"
+status = "pending"
+depends_on = []
+spawned_by = "bs48"
+research_questions = [
+    "What layout for GpuKernelResult: tag + category + errno + message? How many bytes?",
+    "Should error buffer be a kernel parameter or embedded in hostcall buffer?",
+    "How does ? operator desugar: write to buffer + early return?",
+]
+
+[[tasks]]
+id = "gpu-error-propagation.2"
+theme = "gpu-error-propagation"
+title = "Implement GPU-side error checking in hostcall helpers"
+kind = "experiment"
+status = "pending"
+depends_on = ["gpu-error-propagation.1"]
+spawned_by = "bs48"
+research_questions = [
+    "Can hostcall helpers (gpu_hostcall_print, file ops) return Result instead of bool?",
+    "Does checking CONTROL_ERROR add measurable overhead?",
+]
+
+[[tasks]]
+id = "gpu-error-propagation.3"
+theme = "gpu-error-propagation"
+title = "Implement host-side error extraction from kernel result buffer"
+kind = "experiment"
+status = "pending"
+depends_on = ["gpu-error-propagation.1"]
+spawned_by = "bs48"
+research_questions = [
+    "How does host read GpuKernelResult after kernel launch?",
+    "Can KernelBuilder::launch() return Result<(), GpuKernelError>?",
+]
+
+[[tasks]]
+id = "gpu-error-propagation.4"
+theme = "gpu-error-propagation"
+title = "Non-destructive panic handler (error buffer + cooperative exit)"
+kind = "experiment"
+status = "pending"
+depends_on = ["gpu-error-propagation.1"]
+spawned_by = "bs48"
+research_questions = [
+    "Can panic handler write to error buffer and return instead of trap?",
+    "Does cooperative exit (no trap) preserve CUDA context for recovery?",
+    "How to propagate panic info without killing the entire kernel launch?",
+]
+
+# --- std-migration (real-std) ---
+
+[[tasks]]
+id = "std-migration.1"
+theme = "std-migration"
+title = "Create gpu-kernel-std crate + verify println/Vec/format work"
+kind = "experiment"
+status = "pending"
+depends_on = []
+spawned_by = "bs48"
+research_questions = [
+    "Can a new crate build with -Zbuild-std=std and produce valid PTX?",
+    "Do println!, Vec, String, format! all work without duplicating hostcall code?",
+    "What is the PTX size difference vs no_std kernel?",
+]
+
+[[tasks]]
+id = "std-migration.2"
+theme = "std-migration"
+title = "Factor shared hostcall protocol into std-compatible library"
+kind = "design"
+status = "pending"
+depends_on = ["std-migration.1"]
+spawned_by = "bs48"
+research_questions = [
+    "Can gpu-runtime be made std-compatible (remove no_std requirement)?",
+    "What is the minimal shared interface between std and no_std kernel crates?",
+]
+
+[[tasks]]
+id = "std-migration.3"
+theme = "std-migration"
+title = "Port async pipeline kernels to gpu-kernel-std with Result types"
+kind = "experiment"
+status = "pending"
+depends_on = ["std-migration.2", "gpu-error-propagation.2"]
+spawned_by = "bs48"
+research_questions = [
+    "Can async pipeline kernels use std::io + Result error handling?",
+    "Does the combined std + error propagation work end-to-end?",
+]
+
+# --- std-fs (real-std + gpu-error) ---
+
+[[tasks]]
+id = "std-fs.1"
+theme = "std-fs"
+title = "Add SERVICE_FS_* hostcall services + host-side handlers"
+kind = "experiment"
+status = "pending"
+depends_on = []
+spawned_by = "bs48"
+research_questions = [
+    "What fs services are needed: open, read, write, close, stat?",
+    "Can existing SERVICE_OPEN/WRITE/READ/CLOSE be reused or need new opcodes?",
+]
+
+[[tasks]]
+id = "std-fs.2"
+theme = "std-fs"
+title = "Implement gpu-libc open/read/write/close via hostcall (replace stubs)"
+kind = "experiment"
+status = "pending"
+depends_on = ["std-fs.1"]
+spawned_by = "bs48"
+research_questions = [
+    "Can gpu-libc stubs call hostcall protocol without depending on gpu-runtime?",
+    "How does gpu-libc get access to the hostcall buffer pointer?",
+]
+
+[[tasks]]
+id = "std-fs.3"
+theme = "std-fs"
+title = "Fix OnceLock for stdin path (spinlock replacement)"
+kind = "experiment"
+status = "pending"
+depends_on = ["std-migration.1"]
+spawned_by = "bs48"
+research_questions = [
+    "Can OnceLock use GPU atomic spinlock instead of futex?",
+    "Does fixing OnceLock unblock std::io::stdin().read_line()?",
+]
+
+[[tasks]]
+id = "std-fs.4"
+theme = "std-fs"
+title = "End-to-end: File::create + write_all + read with error handling"
+kind = "experiment"
+status = "pending"
+depends_on = ["std-fs.2", "std-fs.3", "gpu-error-propagation.2"]
+spawned_by = "bs48"
+research_questions = [
+    "Does std::fs::File::create() work on GPU via hostcall?",
+    "Do file I/O errors produce proper std::io::Error?",
+]
+
 # ============================================================
 # Brainstorms (last 3 only — older brainstorms archived)
 # ============================================================
+
+[[brainstorms]]
+seq = 48
+at_cycle = 180
+trigger = "Two new epics (real-std, gpu-error) with no themes or tasks"
+level = "standard"
+new_tasks_spawned = ["gpu-error-propagation.1", "gpu-error-propagation.2", "gpu-error-propagation.3", "gpu-error-propagation.4", "std-migration.1", "std-migration.2", "std-migration.3", "std-fs.1", "std-fs.2", "std-fs.3", "std-fs.4"]
+new_themes_spawned = ["gpu-error-propagation", "std-migration", "std-fs"]
+themes_parked = []
+themes_completed = []
+key_insight = "std-build-test already proves patched std works. Gap: gpu-kernel doesn't use it, gpu-libc stubs return ENOSYS, error handling nonexistent. Strategy: error propagation first (unblocks Result in std), then selective std migration (new crate, not all 65+ kernels), then fs via gpu-libc hostcall."
 
 [[brainstorms]]
 seq = 47

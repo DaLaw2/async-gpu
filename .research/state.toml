@@ -4,22 +4,22 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 161     # Monotonic counter, incremented after each completed phase
-completed_tasks = 160
+total_cycles = 162     # Monotonic counter, incremented after each completed phase
+completed_tasks = 161
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "full-inference.5"
-last_summary = "full-inference.4 done: greedy generation loop works — 78ms/token, 4 tokens before f16 NaN stops it. Generation is structurally correct. Next: full-inference.5 (end-to-end validation vs PyTorch)."
+current_task_id = "full-inference.6"
+last_summary = "full-inference.5.1 done: NaN root cause was GEMM tile contamination from padded rows, NOT f16 precision. Fixed with zero_pad kernel. All 12 layers NaN-free. Generation runs 20 tokens at 59ms/token. f16 precision still causes wrong top-1 ('-' not 'Paris'). Next: full-inference.6 (f32 GEMM)."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 39
+brainstorm_seq = 40
 review_seq = 5
 
 # Brainstorm trigger control
-last_brainstorm_at_completed = 151
+last_brainstorm_at_completed = 160
 brainstorm_interval = 3
 
 # ============================================================
@@ -3787,13 +3787,40 @@ id = "full-inference.5"
 theme = "full-inference"
 title = "End-to-end validation: same prompt → same output as HuggingFace — DECISION GATE"
 kind = "experiment"
-status = "pending"
-depends_on = ["full-inference.4", "tokenizer.3"]
+status = "blocked"
+depends_on = ["full-inference.4", "tokenizer.3", "full-inference.6"]
 spawned_by = "bs38"
 research_questions = [
     "Does greedy decoding of 'The capital of France is' produce 'Paris'?",
     "Do 3+ different prompts produce identical output to HuggingFace GPT-2?",
     "What is the wall-clock time for a single forward pass at seq=128?",
+]
+
+[[tasks]]
+id = "full-inference.5.1"
+theme = "full-inference"
+title = "Diagnostic: per-layer max-abs-value instrumentation to identify NaN source"
+kind = "experiment"
+status = "done"
+depends_on = ["full-inference.2"]
+spawned_by = "bs40"
+research_questions = [
+    "Which layer first produces values exceeding f16 range (65504)?",
+    "Is the NaN from f16 range overflow or another source?",
+]
+
+[[tasks]]
+id = "full-inference.6"
+theme = "full-inference"
+title = "Pure f32 GEMM kernel (no Tensor Cores) for precision validation"
+kind = "experiment"
+status = "pending"
+depends_on = ["full-inference.5.1"]
+spawned_by = "bs40"
+research_questions = [
+    "Does f32 GEMM eliminate NaN at position 0?",
+    "With f32 GEMM, does GPT-2 produce a more sensible top-1 prediction?",
+    "What is the performance penalty of f32 vs f16 Tensor Core GEMM?",
 ]
 
 # ============================================================
@@ -3825,3 +3852,18 @@ new_themes_spawned = []
 themes_parked = []
 themes_completed = []
 key_insight = "Phase 1 nearly complete. FlashAttention seq=128 zero mismatches — biggest win. PyTorch unavailable blocks precision-fix.3 and attention-scale.4 strictly, but can validate against CPU f16 reference instead. model-loading.3 is critical path (requires GPT-2 weights file). Relaxing precision gate: f16 Tensor Core error is inherent, compare against f16-simulated CPU rather than f32."
+
+# ============================================================
+# Brainstorm record: BS40
+# ============================================================
+
+[[brainstorms]]
+seq = 40
+at_cycle = 161
+trigger = "Interval (9 tasks since last brainstorm) + decision gate full-inference.5"
+level = "standard"
+new_tasks_spawned = ["full-inference.5.1", "full-inference.6"]
+new_themes_spawned = []
+themes_parked = []
+themes_completed = []
+key_insight = "MMA already uses f32 accumulation — NaN comes from f16 range overflow (>65504) during cvt.rn.f16.f32 input conversion, not f16 accumulation. Pure f32 GEMM is fastest path to certainty. Decision gate deferred until f32 GEMM validates precision hypothesis. GPT-2 small may not predict 'Paris' even in PyTorch — need reference output."

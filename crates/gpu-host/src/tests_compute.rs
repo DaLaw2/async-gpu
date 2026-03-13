@@ -3810,6 +3810,7 @@ pub(crate) fn run_full_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
             "concat_heads",
             "gelu_forward",
             "elementwise_add",
+            "zero_pad",
         ],
     );
 
@@ -3829,6 +3830,7 @@ pub(crate) fn run_full_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
     let f_concat = get_fn!("concat_heads");
     let f_gelu = get_fn!("gelu_forward");
     let f_add = get_fn!("elementwise_add");
+    let f_zero = get_fn!("zero_pad");
 
     // === Helper: pack weight [K, N] row-major f32 → column-major f16x2 ===
     fn f32_to_f16(val: f32) -> u16 {
@@ -3896,6 +3898,25 @@ pub(crate) fn run_full_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
         )?;
     }
     dev.synchronize()?;
+
+    // Zero out padded positions to prevent NaN from propagating through GEMM tiles.
+    // Padded rows (actual_seq..seq) carry real embeddings for padding token 0,
+    // which can diverge and produce NaN after a few layers.
+    let pad_start = (actual_seq as u32) * D_MODEL;
+    let pad_count = total_seq_model as u32 - pad_start;
+    if pad_count > 0 {
+        unsafe {
+            f_zero.clone().launch(
+                LaunchConfig {
+                    grid_dim: (pad_count.div_ceil(256), 1, 1),
+                    block_dim: (256, 1, 1),
+                    shared_mem_bytes: 0,
+                },
+                (&mut hidden_dev, pad_start, total_seq_model as u32),
+            )?;
+        }
+        dev.synchronize()?;
+    }
     println!("  Embedding done (seq={seq}, actual={actual_seq})");
 
     // Drop large embedding tables from GPU to save memory
@@ -4110,7 +4131,7 @@ pub(crate) fn run_full_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
         }
         dev.synchronize()?;
 
-        // Step 7: Residual add (hidden += proj_out)
+        // Step 7: Residual add (hidden += proj_out) + zero padded rows
         unsafe {
             f_add.clone().launch(
                 LaunchConfig {
@@ -4120,6 +4141,16 @@ pub(crate) fn run_full_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
                 },
                 (&mut hidden_dev, &proj_out_dev, total_seq_model as u32),
             )?;
+            if pad_count > 0 {
+                f_zero.clone().launch(
+                    LaunchConfig {
+                        grid_dim: (pad_count.div_ceil(256), 1, 1),
+                        block_dim: (256, 1, 1),
+                        shared_mem_bytes: 0,
+                    },
+                    (&mut hidden_dev, pad_start, total_seq_model as u32),
+                )?;
+            }
         }
         dev.synchronize()?;
 
@@ -4241,7 +4272,7 @@ pub(crate) fn run_full_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
         }
         dev.synchronize()?;
 
-        // Step 12: Residual add (hidden += ffn_out)
+        // Step 12: Residual add (hidden += ffn_out) + zero padded rows
         unsafe {
             f_add.clone().launch(
                 LaunchConfig {
@@ -4251,12 +4282,58 @@ pub(crate) fn run_full_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
                 },
                 (&mut hidden_dev, &ffn_out_dev, total_seq_model as u32),
             )?;
+            if pad_count > 0 {
+                f_zero.clone().launch(
+                    LaunchConfig {
+                        grid_dim: (pad_count.div_ceil(256), 1, 1),
+                        block_dim: (256, 1, 1),
+                        shared_mem_bytes: 0,
+                    },
+                    (&mut hidden_dev, pad_start, total_seq_model as u32),
+                )?;
+            }
         }
         dev.synchronize()?;
 
-        if layer_idx == 0 || layer_idx == 5 || layer_idx == 11 {
-            println!("    Layer {layer_idx} done");
+        // === Per-layer diagnostic ===
+        // Download hidden state and check max|val| per position
+        let hidden_snapshot: Vec<f32> = dev.dtoh_sync_copy(&hidden_dev)?;
+        let d = D_MODEL as usize;
+        let mut layer_max_abs = 0.0f32;
+        let mut layer_nan_positions = Vec::new();
+        let mut layer_overflow_positions = Vec::new();
+        for row in 0..actual_seq {
+            let row_slice = &hidden_snapshot[row * d..(row + 1) * d];
+            let row_nan = row_slice.iter().any(|v| v.is_nan());
+            let row_max = row_slice
+                .iter()
+                .filter(|v| !v.is_nan() && !v.is_infinite())
+                .fold(0.0f32, |m, &v| m.max(v.abs()));
+            if row_nan {
+                layer_nan_positions.push(row);
+            }
+            if row_max > 65504.0 {
+                layer_overflow_positions.push((row, row_max));
+            }
+            if row_max > layer_max_abs {
+                layer_max_abs = row_max;
+            }
         }
+        let nan_str = if layer_nan_positions.is_empty() {
+            String::new()
+        } else {
+            format!(", NaN@{layer_nan_positions:?}")
+        };
+        let ovf_str = if layer_overflow_positions.is_empty() {
+            String::new()
+        } else {
+            let ovf_pos: Vec<_> = layer_overflow_positions
+                .iter()
+                .map(|(p, v)| format!("pos{p}={v:.0}"))
+                .collect();
+            format!(", OVERFLOW: [{}]", ovf_pos.join(", "))
+        };
+        println!("    Layer {layer_idx}: max|val|={layer_max_abs:.2}{nan_str}{ovf_str}");
     }
 
     // === Final LayerNorm ===
@@ -4533,6 +4610,7 @@ pub(crate) fn run_generation_test(dev: Arc<CudaDevice>) -> Result<()> {
             "concat_heads",
             "gelu_forward",
             "elementwise_add",
+            "zero_pad",
         ],
     );
 
@@ -4552,6 +4630,7 @@ pub(crate) fn run_generation_test(dev: Arc<CudaDevice>) -> Result<()> {
     let f_concat = get_fn!("concat_heads");
     let f_gelu = get_fn!("gelu_forward");
     let f_add = get_fn!("elementwise_add");
+    let f_zero = get_fn!("zero_pad");
 
     // Allocate status buffer
     let (status_host_ptr, status_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 1)? };
@@ -4654,6 +4733,23 @@ pub(crate) fn run_generation_test(dev: Arc<CudaDevice>) -> Result<()> {
             )?;
         }
         dev.synchronize()?;
+
+        // Zero out padded positions after embedding
+        let pad_start = (actual_seq as u32) * D_MODEL;
+        let pad_count = total_seq_model as u32 - pad_start;
+        if pad_count > 0 {
+            unsafe {
+                f_zero.clone().launch(
+                    LaunchConfig {
+                        grid_dim: (pad_count.div_ceil(256), 1, 1),
+                        block_dim: (256, 1, 1),
+                        shared_mem_bytes: 0,
+                    },
+                    (&mut hidden_dev, pad_start, total_seq_model as u32),
+                )?;
+            }
+            dev.synchronize()?;
+        }
 
         // === 12 transformer layers ===
         for layer_idx in 0..12u32 {
@@ -4803,7 +4899,7 @@ pub(crate) fn run_generation_test(dev: Arc<CudaDevice>) -> Result<()> {
             }
             dev.synchronize()?;
 
-            // Residual 1
+            // Residual 1 + zero padded rows
             unsafe {
                 f_add.clone().launch(
                     LaunchConfig {
@@ -4813,6 +4909,16 @@ pub(crate) fn run_generation_test(dev: Arc<CudaDevice>) -> Result<()> {
                     },
                     (&mut hidden_dev, &proj_out_dev, total_seq_model as u32),
                 )?;
+                if pad_count > 0 {
+                    f_zero.clone().launch(
+                        LaunchConfig {
+                            grid_dim: (pad_count.div_ceil(256), 1, 1),
+                            block_dim: (256, 1, 1),
+                            shared_mem_bytes: 0,
+                        },
+                        (&mut hidden_dev, pad_start, total_seq_model as u32),
+                    )?;
+                }
             }
             dev.synchronize()?;
 
@@ -4934,7 +5040,7 @@ pub(crate) fn run_generation_test(dev: Arc<CudaDevice>) -> Result<()> {
             }
             dev.synchronize()?;
 
-            // Residual 2
+            // Residual 2 + zero padded rows
             unsafe {
                 f_add.clone().launch(
                     LaunchConfig {
@@ -4944,6 +5050,16 @@ pub(crate) fn run_generation_test(dev: Arc<CudaDevice>) -> Result<()> {
                     },
                     (&mut hidden_dev, &ffn_out_dev, total_seq_model as u32),
                 )?;
+                if pad_count > 0 {
+                    f_zero.clone().launch(
+                        LaunchConfig {
+                            grid_dim: (pad_count.div_ceil(256), 1, 1),
+                            block_dim: (256, 1, 1),
+                            shared_mem_bytes: 0,
+                        },
+                        (&mut hidden_dev, pad_start, total_seq_model as u32),
+                    )?;
+                }
             }
             dev.synchronize()?;
         }

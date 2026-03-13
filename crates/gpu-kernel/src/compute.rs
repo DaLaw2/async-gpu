@@ -3287,3 +3287,35 @@ pub unsafe extern "ptx-kernel" fn f32_to_f16x2_pack(
         let _ = (input, output, total_pairs);
     }
 }
+
+// ============================================================
+// Zero-pad kernel (full-inference.5.1)
+// ============================================================
+
+/// Zero out elements at index >= start_offset.
+///
+/// Used to clear padded rows in activation buffers, preventing NaN
+/// propagation from padded positions through GEMM shared memory tiles.
+///
+/// grid_dim = (ceil(total_elems / 256), 1, 1), block_dim = (256, 1, 1).
+/// start_offset: first element to zero (e.g., actual_seq * d_model).
+/// total_elems: total buffer size.
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn zero_pad(
+    buffer: *mut f32,
+    start_offset: u32,
+    total_elems: u32,
+) {
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let gid = nvptx::_block_idx_x() as u32 * 256 + nvptx::_thread_idx_x() as u32;
+        let idx = start_offset + gid;
+        if idx < total_elems {
+            *buffer.add(idx as usize) = 0.0;
+        }
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (buffer, start_offset, total_elems);
+    }
+}

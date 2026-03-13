@@ -33,10 +33,19 @@ status = "active"
 priority = "high"
 success_criteria = [
     "KV cache eliminates redundant recomputation — only new token passes through model per step",
-    "Per-token generation latency < 20ms (down from ~143ms)",
-    "BF16/TF32 MMA inference matches f32 FMA output (top-5 agreement for 3+ prompts)",
-    "Mixed precision pipeline: GEMM via Tensor Core, everything else f32",
+    "PARKED: Per-token generation latency < 20ms (down from ~143ms)",
+    "PARKED: BF16/TF32 MMA inference matches f32 FMA output (top-5 agreement for 3+ prompts)",
+    "PARKED: Mixed precision pipeline: GEMM via Tensor Core, everything else f32",
 ]
+# Criterion 1: DONE — KV cache verified (50/50 tokens match, 2.07x speedup, 68ms/tok)
+# Criterion 2: PARKED — 68ms with KV cache, 35ms full forward; reaching 20ms requires
+#   persistent kernels, fused ops, reduced sync overhead. Significant engineering investment
+#   with uncertain ROI given single-SM workload and per-kernel launch overhead.
+# Criterion 3: PARKED — f16, bf16, tf32 MMA all fail 12-layer inference (0/3 top-1 match).
+#   Root cause: naive f32→reduced-precision truncation causes cascading error through residual
+#   connections. Requires quantization-aware training or post-training calibration (PTQ) with
+#   per-channel scaling — out of scope for this project.
+# Criterion 4: PARKED — depends on criterion 3.
 
 [[epics]]
 id = "public-api"

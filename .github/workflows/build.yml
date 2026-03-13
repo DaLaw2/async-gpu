@@ -8,10 +8,11 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  NIGHTLY: nightly-2026-03-11
 
 jobs:
   lint:
-    name: Lint (clippy + fmt)
+    name: Lint (fmt + clippy + docs)
     runs-on: ubuntu-latest
 
     steps:
@@ -21,6 +22,13 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
+
+      - name: Install Rust nightly with nvptx64 target
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.NIGHTLY }}
+          components: rust-src, llvm-tools, llvm-bitcode-linker
+          targets: nvptx64-nvidia-cuda
 
       - name: Cache Cargo
         uses: actions/cache@v4
@@ -33,128 +41,8 @@ jobs:
           restore-keys: |
             lint-${{ runner.os }}-
 
-      - name: Create PTX stubs for gpu-host (include_str! needs them at compile time)
-        run: |
-          for f in kernel.ptx embassy_test.ptx async_hostcall_test.ptx std_build_test.ptx async_pipeline_test.ptx multi_warp_test.ptx kernel_std.ptx; do
-            echo "// stub for CI" > "crates/gpu-host/$f"
-          done
-
-      - name: cargo fmt --check (gpu-host)
-        run: cargo +stable fmt --manifest-path crates/gpu-host/Cargo.toml -- --check
-
-      - name: cargo fmt --check (gpu-protocol)
-        run: cargo +stable fmt --manifest-path crates/gpu-protocol/Cargo.toml -- --check
-
-      - name: cargo fmt --check (warp-macro)
-        run: cargo +stable fmt --manifest-path crates/warp-macro/Cargo.toml -- --check
-
-      - name: cargo clippy (gpu-host)
-        run: cargo +stable clippy --manifest-path crates/gpu-host/Cargo.toml -- -D warnings
-
-      - name: cargo clippy (gpu-protocol)
-        run: cargo +stable clippy --manifest-path crates/gpu-protocol/Cargo.toml -- -D warnings
-
-      - name: cargo clippy (warp-macro)
-        run: cargo +stable clippy --manifest-path crates/warp-macro/Cargo.toml -- -D warnings
-
-      - name: cargo fmt --check (gpu-atomics)
-        run: cargo +stable fmt --manifest-path crates/gpu-atomics/Cargo.toml -- --check
-
-      - name: cargo fmt --check (gpu-runtime)
-        run: cargo +stable fmt --manifest-path crates/gpu-runtime/Cargo.toml -- --check
-
-      - name: cargo clippy (gpu-atomics)
-        run: cargo +stable clippy --manifest-path crates/gpu-atomics/Cargo.toml -- -D warnings
-
-      - name: cargo clippy (gpu-runtime)
-        run: cargo +stable clippy --manifest-path crates/gpu-runtime/Cargo.toml -- -D warnings
-
-      - name: cargo fmt --check (gpu-libc)
-        run: cargo +stable fmt --manifest-path crates/gpu-libc/Cargo.toml -- --check
-
-      - name: doc-tests (gpu-protocol)
-        run: cargo +stable test --manifest-path crates/gpu-protocol/Cargo.toml --doc
-
-      - name: cargo doc (gpu-protocol)
-        run: RUSTDOCFLAGS="-D missing_docs" cargo +stable doc --manifest-path crates/gpu-protocol/Cargo.toml --no-deps
-
-      - name: cargo doc (warp-macro)
-        run: RUSTDOCFLAGS="-D missing_docs" cargo +stable doc --manifest-path crates/warp-macro/Cargo.toml --no-deps
-
-      - name: cargo doc (gpu-atomics)
-        run: cargo +stable doc --manifest-path crates/gpu-atomics/Cargo.toml --no-deps
-
-      - name: cargo doc (gpu-runtime)
-        run: cargo +stable doc --manifest-path crates/gpu-runtime/Cargo.toml --no-deps
-
-  build-ptx:
-    name: Compile GPU kernels to PTX
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install Rust nightly with nvptx64 target
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: nightly-2026-03-11
-          components: rust-src, llvm-tools, llvm-bitcode-linker
-          targets: nvptx64-nvidia-cuda
-
-      - name: Cache Cargo registry and build artifacts
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            crates/gpu-kernel/target
-          key: ptx-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ptx-${{ runner.os }}-
-
-      - name: Build gpu-kernel (PTX)
-        working-directory: crates/gpu-kernel
-        run: cargo build --release
-
-      - name: Build hello-gpu example kernel
-        working-directory: examples/hello-gpu/kernel
-        run: cargo build --release
-
-      - name: Build async-hostcall-test (PTX)
-        working-directory: crates/async-hostcall-test
-        run: cargo build --release
-
-      - name: Build async-pipeline-test (PTX)
-        working-directory: crates/async-pipeline-test
-        run: cargo build --release
-
-      - name: Build embassy-test (PTX)
-        working-directory: crates/embassy-test
-        run: cargo build --release
-
-      - name: Build multi-warp-test (PTX)
-        working-directory: crates/multi-warp-test
-        run: cargo build --release
-
-      - name: Build gpu-std-test (PTX)
-        working-directory: crates/gpu-std-test
-        run: cargo build --release
-
-      - name: Verify PTX output exists
-        run: |
-          PTX_FILE=$(find crates/gpu-kernel/target/nvptx64-nvidia-cuda/release -name "*.ptx" -o -name "*.s" 2>/dev/null | head -1)
-          if [ -z "$PTX_FILE" ]; then
-            echo "ERROR: No PTX output found"
-            exit 1
-          fi
-          echo "PTX compiled successfully: $PTX_FILE"
-          wc -l "$PTX_FILE"
-
-      - name: Check hello-gpu example host compiles
-        run: cargo +stable check --manifest-path examples/hello-gpu/host/Cargo.toml
+      - name: Run CI lint
+        run: bash scripts/ci-lint.sh
 
   build-host:
     name: Check host crate compiles
@@ -177,9 +65,9 @@ jobs:
           restore-keys: |
             host-${{ runner.os }}-
 
-      - name: Create PTX stubs for gpu-host (include_str! needs them at compile time)
+      - name: Create PTX stubs (auto-discovered from include_str! calls)
         run: |
-          for f in kernel.ptx embassy_test.ptx async_hostcall_test.ptx std_build_test.ptx async_pipeline_test.ptx multi_warp_test.ptx kernel_std.ptx; do
+          for f in $(grep -roh 'include_str!("\.\.\/[^"]*\.ptx")' crates/gpu-host/src/ | sed 's/include_str!("\.\.\/\(.*\)")/\1/' | sort -u); do
             echo "// stub for CI" > "crates/gpu-host/$f"
           done
 

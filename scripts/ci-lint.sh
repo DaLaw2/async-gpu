@@ -20,8 +20,9 @@ run() {
     fi
 }
 
-# PTX stubs (needed for gpu-host include_str!)
-for f in kernel.ptx embassy_test.ptx async_hostcall_test.ptx std_build_test.ptx async_pipeline_test.ptx multi_warp_test.ptx kernel_std.ptx; do
+# PTX stubs (auto-discovered from gpu-host include_str! calls)
+PTX_STUBS=$(grep -roh 'include_str!("\.\.\/[^"]*\.ptx")' crates/gpu-host/src/ | sed 's/include_str!("\.\.\/\(.*\)")/\1/' | sort -u)
+for f in $PTX_STUBS; do
     [ -f "crates/gpu-host/$f" ] || echo "// stub" > "crates/gpu-host/$f"
 done
 

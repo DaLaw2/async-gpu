@@ -151,3 +151,12 @@ Record important technical decisions here as they emerge from research.
 - **Rationale**: (1) Library consumers get lean SDK without GPT-2 deps. (2) Binary test runner still works with default features. (3) No breaking changes — existing usage unchanged. (4) Re-exports reduce import verbosity.
 - **Alternatives**: (a) Separate crate — duplicates code, harder to maintain. (b) No feature gates — forces safetensors+tiktoken on all consumers.
 - **Sources**: host-sdk.2-c193
+
+### ADR-012: ci-lint.sh as single source of truth for CI
+- **Date**: 2026-03-14
+- **Status**: accepted (implemented in build-auto.2)
+- **Context**: build.yml had ~60 lines of duplicated fmt/clippy/doc steps that drifted out of sync with ci-lint.sh. PTX stubs were hardcoded in both files.
+- **Decision**: CI lint job calls `bash scripts/ci-lint.sh` directly. PTX stubs auto-discovered via `grep include_str!`. Separate build-ptx job removed (ci-lint.sh builds PTX).
+- **Rationale**: (1) One script, two environments — no drift. (2) Developers verify locally what CI will check. (3) PTX stub list auto-maintained.
+- **Alternatives**: (a) YAML-first CI with separate config — fragile, hard to test locally. (b) Makefile — heavier tooling for same benefit.
+- **Sources**: build-auto.1-c199, build-auto.2-c201

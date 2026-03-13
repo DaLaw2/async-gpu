@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 199     # Monotonic counter, incremented after each completed phase
-completed_tasks = 198
+total_cycles = 201     # Monotonic counter, incremented after each completed phase
+completed_tasks = 200
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
 current_task_id = ""
-last_summary = "docs theme COMPLETE (2/2 tasks). README rewritten (Quick Start, crate map, std on GPU, KV cache perf). Doc-comments added to gpu-host public API, -D missing_docs enforced in CI. Next: build-auto.1 or workspace.1."
+last_summary = "build-automation theme COMPLETE (2/2). PTX stubs auto-discovered from include_str! calls. CI simplified: build.yml calls ci-lint.sh (single source of truth). 3 themes done this session (host-sdk, docs, build-automation). Remaining: workspace-consolidation (3 tasks)."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 50
@@ -130,7 +130,7 @@ success_criteria = [
 [[themes]]
 id = "build-automation"
 title = "Build system automation — PTX stubs, CI sync"
-status = "active"
+status = "completed"
 spawned_by = "user"
 epic = "codebase-health"
 goal = "Eliminate manual maintenance when adding crates or PTX files"
@@ -259,7 +259,7 @@ id = "build-auto.1"
 theme = "build-automation"
 title = "Auto-generate PTX stub list from crate scan"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = []
 spawned_by = "user"
 research_questions = [
@@ -272,7 +272,7 @@ id = "build-auto.2"
 theme = "build-automation"
 title = "Single-source CI: generate build.yml from ci-lint.sh or shared config"
 kind = "design"
-status = "pending"
+status = "done"
 depends_on = ["build-auto.1"]
 spawned_by = "user"
 research_questions = [

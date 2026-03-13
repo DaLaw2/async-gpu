@@ -1,0 +1,18 @@
+--- std/src/sys/alloc/mod.rs.orig
++++ std/src/sys/alloc/mod.rs
+@@ -40,6 +40,7 @@
+     target_arch = "sparc64",
+     target_arch = "riscv64",
+     target_arch = "wasm64",
++    target_arch = "nvptx64",
+ )) {
+     16
+ } else {
+@@ -107,4 +108,7 @@
+     target_os = "zkvm" => {
+         mod zkvm;
+     }
++    target_os = "cuda" => {
++        mod cuda;
++    }
+ }

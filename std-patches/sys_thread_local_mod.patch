@@ -1,0 +1,18 @@
+--- std/src/sys/thread_local/mod.rs.orig
++++ std/src/sys/thread_local/mod.rs
+@@ -30,6 +30,7 @@
+         target_os = "zkvm",
+         target_os = "trusty",
+         target_os = "vexos",
++        target_os = "cuda",
+     ) => {
+         mod no_threads;
+         pub use no_threads::{EagerStorage, LazyStorage, thread_local_inner};
+@@ -118,6 +119,7 @@
+         any(
+             target_os = "hermit",
+             target_os = "xous",
++            target_os = "cuda",
+         ) => {
+             // `std` is the only runtime, so it just calls the destructor functions
+             // itself when the time comes.

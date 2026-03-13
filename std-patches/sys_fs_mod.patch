@@ -1,0 +1,13 @@
+--- std/src/sys/fs/mod.rs.orig
++++ std/src/sys/fs/mod.rs
+@@ -45,6 +45,10 @@
+         mod vexos;
+         use vexos as imp;
+     }
++    target_os = "cuda" => {
++        mod cuda;
++        use cuda as imp;
++    }
+     _ => {
+         mod unsupported;
+         use unsupported as imp;

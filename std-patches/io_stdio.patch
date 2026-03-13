@@ -1,0 +1,32 @@
+--- std/src/io/stdio.rs.orig
++++ std/src/io/stdio.rs
+@@ -1272,6 +1272,15 @@
+ #[doc(hidden)]
+ #[cfg(not(test))]
+ pub fn _print(args: fmt::Arguments<'_>) {
++    #[cfg(target_arch = "nvptx64")]
++    {
++        // On GPU, bypass OnceLock/ReentrantLock (thread_local and locking
++        // primitives are not available). Write directly through PAL Stdout.
++        use crate::io::Write;
++        let _ = crate::sys::stdio::Stdout::new().write_fmt(args);
++        return;
++    }
++    #[cfg(not(target_arch = "nvptx64"))]
+     print_to(args, stdout, "stdout");
+ }
+ 
+@@ -1283,6 +1292,13 @@
+ #[doc(hidden)]
+ #[cfg(not(test))]
+ pub fn _eprint(args: fmt::Arguments<'_>) {
++    #[cfg(target_arch = "nvptx64")]
++    {
++        use crate::io::Write;
++        let _ = crate::sys::stdio::Stderr::new().write_fmt(args);
++        return;
++    }
++    #[cfg(not(target_arch = "nvptx64"))]
+     print_to(args, stderr, "stderr");
+ }
+ 

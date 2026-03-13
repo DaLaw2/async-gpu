@@ -16,70 +16,18 @@
 - No modifying PATH, environment variables, or system config
 - If environment changes are needed → STOP and ask the user to perform them
 
-## Goal
-Reproduce VectorWare's technology: Rust std + async/await on GPU.
-Exploratory research with no fixed endpoint.
-
-## Reference Articles
-- https://www.vectorware.com/blog/rust-std-on-gpu/
-- https://www.vectorware.com/blog/async-await-on-gpu/
-
 ## Hierarchy: Epic → Theme → Task
-- **Epic**: User-defined high-level goal. Only the user can create or close epics. Brainstorm CANNOT park, complete, or delete epics.
-- **Theme**: A research direction with goal + success criteria. Can be active/parked/completed. References parent epic.
-- **Task**: An actionable item within a theme (investigation/experiment/design).
-- Task IDs prefixed with theme: `toolchain.1`, `hostcall.3`
-- Rework suffix: `toolchain.4.1`
-- Brainstorm can add new themes or park existing ones, but must align with active epics.
+- **Epic**: High-level goal. Only the user can close epics. Agent may create epics only via brainstorm when: (a) no ready tasks remain (all blocked/done), or (b) no active themes exist.
+- **Theme**: Research direction with goal + success criteria. Can be active/parked/completed. References parent epic.
+- **Task**: Actionable item within a theme (investigation/experiment/design).
+- Task IDs: `{theme}.{n}` (e.g., `hostcall.3`). Rework: `{theme}.{n}.{m}`.
 
-## Project Structure
-```
-async_gpu/
-├── CLAUDE.md
-├── .claude/
-│   ├── settings.json
-│   └── commands/
-│       └── research.md                    # /research loop engine
-├── .research/
-│   ├── state.toml                         # State machine (SSOT) + last_summary
-│   │   ├── [[epics]]                      #   User-defined high-level goals
-│   │   ├── [[themes]]                     #   Research directions (under epics)
-│   │   └── [[tasks]]                      #   Actionable items per theme
-│   ├── decisions.md                       # Architecture Decision Records
-│   └── findings/
-│       ├── brainstorm/bs{seq}.md          # Brainstorm document
-│       ├── tasks/{task_id}-c{cycle}.md    # Task findings
-│       └── reviews/rv{seq}-{task_id}.md   # Review document
-├── crates/                                # Implementation code
-└── examples/
-```
+## CRITICAL: Never Stop
+- **Do NOT stop unless the user explicitly asks.**
+- Keep executing the research loop continuously — think, do, check, repeat.
+- When approaching context limits, save progress to `last_summary` in state.toml, commit + push, then the next session will resume automatically.
+- There will always be tasks to do. If none are ready, brainstorm will generate new ones.
 
-## Autonomous Research Workflow
+## Research Workflow
+Autonomous Think → Do → Check loop. Launch with `/research`. Details in `.claude/commands/research.md`.
 
-### Core Loop: Think → Do → Check
-
-| Phase | What | How |
-|-------|------|-----|
-| **Think** | Brainstorm (tiered) | Quick (inline) / Standard (1 agent) / Deep (2-agent team) |
-| **Do** | Research/Experiment | Batch execute multiple tasks per session |
-| **Check** | Review (tiered) | Skip / self-checklist / single-agent review based on risk |
-
-### Review Triage
-- **Skip**: Extends proven pattern (e.g., u32→u64 same asm) → no review
-- **Light**: New code in established crate → self-review checklist
-- **Full**: New protocol/crate/architecture/decision gate → single reviewer agent
-
-### Task Selection
-1. Only from `active` themes
-2. Priority: brainstorm-spawned > review-spawned > initial
-3. Within theme: investigation before experiment
-4. Batch: execute all ready tasks in one session, don't stop between tasks
-
-### Launch
-```
-/research
-```
-
-## Git Remote
-- Origin: https://github.com/DaLaw2/async-gpu.git
-- Commit + push after each batch of work

@@ -2,19 +2,19 @@
 
 You are an autonomous exploratory research agent. Cyclical, evolving research — not linear.
 
-## Hierarchy: Epic → Theme → Task
-- **Epic**: User-defined high-level goal. Only the user can create or close epics. Brainstorm CANNOT park, complete, or delete epics. Status: active | completed.
-- **Theme**: Research direction with goal + success criteria. Status: active | parked | completed. References its parent epic via `epic = "..."`.
-- **Task**: Actionable item within a theme. Kind: investigation | experiment | design.
-- Task IDs: `{theme}.{n}` (e.g., `hostcall.3`). Rework: `{theme}.{n}.{m}`.
+## Hierarchy
+See CLAUDE.md for Epic/Theme/Task definitions. Key workflow rules:
+- **Epic**: Agent may create epics only via brainstorm when no ready tasks remain or no active themes exist. Only the user can close them. Status: active | completed.
+- **Theme**: Status: active | parked | completed. References parent epic via `epic = "..."`.
+- **Task**: Kind: investigation | experiment | design.
 
 ## CRITICAL RULES
 
-1. **Language**: Conversation in 繁體中文. All files/code/comments in English.
-2. **Disk-first**: Write findings to disk BEFORE proceeding. Synthesis reads from FILES.
-3. **HOST IS READ-ONLY**: No installing packages, no modifying system config. If env changes needed → STOP, list what user must do, set `current_step = "awaiting_user"`.
-4. **Git save**: Commit + push after each completed batch of work (not after every micro-step).
-5. **Epic alignment**: Every brainstorm MUST read all active epics first. All spawned themes/tasks must serve an active epic.
+1. **Disk-first**: Write findings to disk BEFORE proceeding. Synthesis reads from FILES.
+2. **HOST IS READ-ONLY**: No installing packages, no modifying system config. If env changes needed → STOP, list what user must do, set `current_step = "awaiting_user"`.
+3. **Git save**: Commit + push after each completed batch of work (not after every micro-step).
+4. **Epic alignment**: Every brainstorm MUST read all active epics first. All spawned themes/tasks must serve an active epic.
+5. **Brainstorm output**: Every brainstorm MUST produce at least one of: new task, new theme, or new epic. No empty brainstorms.
 
 ---
 
@@ -179,8 +179,9 @@ After each task:
 
 ### Step do.save
 After the batch is complete:
-1. **Pre-push check**: Run `bash scripts/pre-push.sh` BEFORE committing. This regenerates std patches (if patched-std/ was modified) and runs local CI lint. Fix all failures first. Include generated patch files in commit.
-2. **Commit + push**: one commit per task, or batch commit if tasks are small.
+1. **Maintenance**: Invoke `/maintain` to run housekeeping checks (CI sync, state archive, README sync, etc.). Fix any issues it finds.
+2. **Pre-push check**: Run `bash scripts/pre-push.sh` BEFORE committing. This regenerates std patches (if patched-std/ was modified) and runs local CI lint. Fix all failures first. Include generated patch files in commit.
+3. **Commit + push**: one commit per task, or batch commit if tasks are small.
 4. **CI check**: After push, run `gh run list --limit 1` to verify CI triggered. If the latest run shows `failure`, run `gh run view <id> --log-failed | tail -30` to diagnose. Fix CI-breaking issues before proceeding.
 5. Update `last_summary` in state.toml
 
@@ -282,7 +283,5 @@ last_summary = "atomics.4 done: u64 CAS/add/exchange + spin-load + activemask al
 
 ## Constraints
 - Do NOT delete existing findings (correct in new findings)
-- Do NOT modify anything outside the repo directory
 - When sources conflict, prefer official docs and source code
 - Experiment code goes in `crates/` or `examples/`
-- All file content in English; all conversation output in Traditional Chinese

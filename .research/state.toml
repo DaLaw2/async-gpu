@@ -71,6 +71,19 @@ success_criteria = [
 ]
 
 [[epics]]
+id = "codebase-health"
+title = "Codebase Health — build system, CI, docs, workflow automation"
+status = "active"
+priority = "medium"
+success_criteria = [
+    "Single workspace with all crates — `cargo build -p <any-crate>` works from root",
+    "Nightly toolchain version defined in one place, CI + scripts derive from it",
+    "README.md accurately reflects current project state, crate map, and setup instructions",
+    "Routine maintenance tasks (new crate → CI, new PTX → stub list) are automated or self-documenting",
+    "Research workflow handles codebase-health tasks (lint fix, doc, CI update) without full Think/Do/Check overhead",
+]
+
+[[epics]]
 id = "public-api"
 title = "Public API — Host SDK + Reusable GPU Kernel Library"
 status = "active"
@@ -210,6 +223,59 @@ success_criteria = [
 # ============================================================
 # Tasks (pending/active only — done tasks archived)
 # ============================================================
+
+# --- workspace-consolidation (codebase-health) ---
+
+[[themes]]
+id = "workspace-consolidation"
+title = "Consolidate workspace, configs, and toolchain version"
+status = "active"
+spawned_by = "user"
+epic = "codebase-health"
+goal = "Single Cargo workspace, deduplicated .cargo/config.toml, single-source nightly version"
+success_criteria = [
+    "All crates buildable from workspace root via cargo build -p <name>",
+    "No duplicate .cargo/config.toml across kernel crates",
+    "Nightly version defined once, referenced by CI + scripts",
+]
+
+[[themes]]
+id = "build-automation"
+title = "Build system automation — PTX stubs, CI sync"
+status = "active"
+spawned_by = "user"
+epic = "codebase-health"
+goal = "Eliminate manual maintenance when adding crates or PTX files"
+success_criteria = [
+    "PTX stub list auto-derived, not manually maintained in 3 places",
+    "CI workflow and local lint stay in sync automatically",
+]
+
+[[themes]]
+id = "docs"
+title = "Documentation — README, API docs, architecture"
+status = "active"
+spawned_by = "user"
+epic = "codebase-health"
+goal = "README reflects current state, public APIs documented"
+success_criteria = [
+    "README.md has accurate crate map, setup instructions, and example descriptions",
+    "All public API crates have doc-comments on public items",
+]
+
+[[themes]]
+id = "workflow-improvement"
+title = "Research workflow improvements for routine tasks"
+status = "completed"
+spawned_by = "user"
+epic = "codebase-health"
+goal = "Lightweight handling for maintenance tasks that don't need full research loop"
+success_criteria = [
+    "Routine tasks (CI fix, fmt, doc) have a fast path that skips Think/Check",
+    "New crate additions are detected and handled semi-automatically",
+]
+# Outcome: /maintain skill created as event-driven housekeeping.
+# Invoked by /research at do.save, or standalone. No state.toml bloat.
 
 # --- mma-fix (gpu-perf) ---
 
@@ -617,6 +683,120 @@ spawned_by = "bs49"
 research_questions = [
     "Does std::io::stdin().read_line() work via hostcall STDIN?",
     "Does gpu_stdin_read need to be wired to SERVICE_STDIN?",
+]
+
+# --- workspace-consolidation (codebase-health) ---
+
+[[tasks]]
+id = "workspace.1"
+theme = "workspace-consolidation"
+title = "Consolidate all crates into single Cargo workspace"
+kind = "experiment"
+status = "pending"
+depends_on = []
+spawned_by = "user"
+research_questions = [
+    "Can all 14 crates coexist in one workspace despite mixed stable/nightly targets?",
+    "How to handle GPU kernel crates (nvptx64) vs host crates (x86) in one workspace?",
+    "What resolver settings are needed?",
+]
+
+[[tasks]]
+id = "workspace.2"
+theme = "workspace-consolidation"
+title = "Deduplicate .cargo/config.toml across kernel crates"
+kind = "experiment"
+status = "pending"
+depends_on = ["workspace.1"]
+spawned_by = "user"
+research_questions = [
+    "Can kernel crates inherit target config from workspace root?",
+    "Does per-crate override still work if needed?",
+]
+
+[[tasks]]
+id = "workspace.3"
+theme = "workspace-consolidation"
+title = "Single-source nightly toolchain version"
+kind = "experiment"
+status = "pending"
+depends_on = ["workspace.1"]
+spawned_by = "user"
+research_questions = [
+    "Can ci-lint.sh read NIGHTLY from rust-toolchain.toml instead of hardcoding?",
+    "Can CI workflow reference the same file?",
+]
+
+# --- build-automation (codebase-health) ---
+
+[[tasks]]
+id = "build-auto.1"
+theme = "build-automation"
+title = "Auto-generate PTX stub list from crate scan"
+kind = "experiment"
+status = "pending"
+depends_on = []
+spawned_by = "user"
+research_questions = [
+    "Can ci-lint.sh discover PTX filenames from gpu-host include_str! calls?",
+    "Can CI workflow share the same logic?",
+]
+
+[[tasks]]
+id = "build-auto.2"
+theme = "build-automation"
+title = "Single-source CI: generate build.yml from ci-lint.sh or shared config"
+kind = "design"
+status = "pending"
+depends_on = ["build-auto.1"]
+spawned_by = "user"
+research_questions = [
+    "What is the best way to keep CI and local lint in sync?",
+    "Should ci-lint.sh be the source of truth, or a shared crate list?",
+]
+
+# --- docs (codebase-health) ---
+
+[[tasks]]
+id = "docs.1"
+theme = "docs"
+title = "Rewrite README.md to reflect current project state"
+kind = "experiment"
+status = "pending"
+depends_on = []
+spawned_by = "user"
+research_questions = [
+    "What sections are outdated or missing?",
+    "Should README include crate dependency diagram?",
+    "What setup instructions are needed for new contributors?",
+]
+
+[[tasks]]
+id = "docs.2"
+theme = "docs"
+title = "Add doc-comments to undocumented public APIs"
+kind = "experiment"
+status = "pending"
+depends_on = []
+spawned_by = "user"
+research_questions = [
+    "Which crates have missing public API docs (gpu-critical-section, gpu-libc)?",
+    "Should -D missing_docs be enforced on more crates?",
+]
+
+# --- workflow-improvement (codebase-health) ---
+
+[[tasks]]
+id = "workflow.1"
+theme = "workflow-improvement"
+title = "/maintain skill created — event-driven housekeeping"
+kind = "design"
+status = "done"
+depends_on = []
+spawned_by = "user"
+research_questions = [
+    "What tasks are routine (CI fix, doc update, fmt fix) vs research?",
+    "Should routine tasks skip Think/Check phases entirely?",
 ]
 
 # --- gpu-error verification ---

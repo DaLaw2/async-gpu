@@ -35,7 +35,7 @@ jobs:
 
       - name: Create PTX stubs for gpu-host (include_str! needs them at compile time)
         run: |
-          for f in kernel.ptx embassy_test.ptx async_hostcall_test.ptx std_build_test.ptx async_pipeline_test.ptx multi_warp_test.ptx; do
+          for f in kernel.ptx embassy_test.ptx async_hostcall_test.ptx std_build_test.ptx async_pipeline_test.ptx multi_warp_test.ptx kernel_std.ptx; do
             echo "// stub for CI" > "crates/gpu-host/$f"
           done
 
@@ -68,6 +68,12 @@ jobs:
 
       - name: cargo clippy (gpu-runtime)
         run: cargo +stable clippy --manifest-path crates/gpu-runtime/Cargo.toml -- -D warnings
+
+      - name: cargo fmt --check (gpu-libc)
+        run: cargo +stable fmt --manifest-path crates/gpu-libc/Cargo.toml -- --check
+
+      - name: cargo clippy (gpu-libc)
+        run: cargo +stable clippy --manifest-path crates/gpu-libc/Cargo.toml -- -D warnings
 
       - name: doc-tests (gpu-protocol)
         run: cargo +stable test --manifest-path crates/gpu-protocol/Cargo.toml --doc
@@ -176,7 +182,7 @@ jobs:
 
       - name: Create PTX stubs for gpu-host (include_str! needs them at compile time)
         run: |
-          for f in kernel.ptx embassy_test.ptx async_hostcall_test.ptx std_build_test.ptx async_pipeline_test.ptx multi_warp_test.ptx; do
+          for f in kernel.ptx embassy_test.ptx async_hostcall_test.ptx std_build_test.ptx async_pipeline_test.ptx multi_warp_test.ptx kernel_std.ptx; do
             echo "// stub for CI" > "crates/gpu-host/$f"
           done
 

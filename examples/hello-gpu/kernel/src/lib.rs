@@ -51,7 +51,7 @@ pub unsafe extern "ptx-kernel" fn hello_gpu(buf: *mut u8, result: *mut u32) {
     gpu_panic_init(buf);
 
     let msg = b"Hello from GPU via gpu-runtime!";
-    let ok = gpu_hostcall_print(buf, msg.as_ptr(), msg.len() as u32);
+    let ok = gpu_hostcall_print(buf, msg.as_ptr(), msg.len() as u32).is_ok();
     sys_store_release_u32(result, if ok { 1 } else { 0 });
 }
 
@@ -70,7 +70,7 @@ pub unsafe extern "ptx-kernel" fn file_io_demo(buf: *mut u8, result: *mut u32) {
 
     // Step 1: Open file for writing
     let path = b"gpu_output.txt";
-    let (pkt, ok) = gpu_hostcall_request(buf, SERVICE_OPEN, |payload| {
+    let pkt = match gpu_hostcall_request(buf, SERVICE_OPEN, |payload| {
         let slot0: u64 = (path.len() as u64) | ((FILE_OPEN_WRITE_CREATE as u64) << 32);
         core::ptr::write_volatile(payload as *mut u64, slot0);
         let dst = payload.add(8);
@@ -79,12 +79,13 @@ pub unsafe extern "ptx-kernel" fn file_io_demo(buf: *mut u8, result: *mut u32) {
             core::ptr::write_volatile(dst.add(i), path[i]);
             i += 1;
         }
-    });
-
-    if pkt.is_null() || !ok {
-        sys_store_release_u32(result, 0);
-        return;
-    }
+    }) {
+        Ok(p) => p,
+        Err(_) => {
+            sys_store_release_u32(result, 0);
+            return;
+        }
+    };
 
     let fd = core::ptr::read_volatile(pkt.add(PKT_OFF_PAYLOAD) as *const u64);
     gpu_hostcall_release(buf, pkt);
@@ -96,7 +97,7 @@ pub unsafe extern "ptx-kernel" fn file_io_demo(buf: *mut u8, result: *mut u32) {
 
     // Step 2: Write data to file
     let data = b"Written by GPU kernel!\n";
-    let (pkt, ok) = gpu_hostcall_request(buf, SERVICE_WRITE, |payload| {
+    let write_ok = match gpu_hostcall_request(buf, SERVICE_WRITE, |payload| {
         core::ptr::write_volatile(payload as *mut u64, fd);
         core::ptr::write_volatile(payload.add(8) as *mut u64, data.len() as u64);
         let dst = payload.add(16);
@@ -105,21 +106,22 @@ pub unsafe extern "ptx-kernel" fn file_io_demo(buf: *mut u8, result: *mut u32) {
             core::ptr::write_volatile(dst.add(i), data[i]);
             i += 1;
         }
-    });
-
-    if !pkt.is_null() {
-        gpu_hostcall_release(buf, pkt);
-    }
+    }) {
+        Ok(p) => {
+            gpu_hostcall_release(buf, p);
+            true
+        }
+        Err(_) => false,
+    };
 
     // Step 3: Close the file
-    let (pkt, _) = gpu_hostcall_request(buf, SERVICE_CLOSE, |payload| {
+    if let Ok(p) = gpu_hostcall_request(buf, SERVICE_CLOSE, |payload| {
         core::ptr::write_volatile(payload as *mut u64, fd);
-    });
-    if !pkt.is_null() {
-        gpu_hostcall_release(buf, pkt);
+    }) {
+        gpu_hostcall_release(buf, p);
     }
 
-    sys_store_release_u32(result, if ok { 1 } else { 0 });
+    sys_store_release_u32(result, if write_ok { 1 } else { 0 });
 }
 
 // ================================================================
@@ -144,7 +146,7 @@ pub unsafe extern "ptx-kernel" fn bulk_read_demo(
 
     // Step 1: Open the file written by file_io_demo
     let path = b"gpu_output.txt";
-    let (pkt, ok) = gpu_hostcall_request(buf, SERVICE_OPEN, |payload| {
+    let pkt = match gpu_hostcall_request(buf, SERVICE_OPEN, |payload| {
         let slot0: u64 = (path.len() as u64) | ((FILE_OPEN_READ as u64) << 32);
         core::ptr::write_volatile(payload as *mut u64, slot0);
         let dst = payload.add(8);
@@ -153,12 +155,13 @@ pub unsafe extern "ptx-kernel" fn bulk_read_demo(
             core::ptr::write_volatile(dst.add(i), path[i]);
             i += 1;
         }
-    });
-
-    if pkt.is_null() || !ok {
-        sys_store_release_u32(result, 0);
-        return;
-    }
+    }) {
+        Ok(p) => p,
+        Err(_) => {
+            sys_store_release_u32(result, 0);
+            return;
+        }
+    };
 
     let fd = core::ptr::read_volatile(pkt.add(PKT_OFF_PAYLOAD) as *const u64);
     gpu_hostcall_release(buf, pkt);
@@ -173,17 +176,16 @@ pub unsafe extern "ptx-kernel" fn bulk_read_demo(
     let n = gpu_bulk_read(buf, sideband, fd, read_buf.as_mut_ptr(), 256);
 
     // Step 3: Close the file
-    let (pkt, _) = gpu_hostcall_request(buf, SERVICE_CLOSE, |payload| {
+    if let Ok(p) = gpu_hostcall_request(buf, SERVICE_CLOSE, |payload| {
         core::ptr::write_volatile(payload as *mut u64, fd);
-    });
-    if !pkt.is_null() {
-        gpu_hostcall_release(buf, pkt);
+    }) {
+        gpu_hostcall_release(buf, p);
     }
 
     // Step 4: Print what we read back (truncate to 56 bytes for PRINT)
     if n > 0 {
         let print_len = if n > 56 { 56 } else { n };
-        gpu_hostcall_print(buf, read_buf.as_ptr(), print_len as u32);
+        let _ = gpu_hostcall_print(buf, read_buf.as_ptr(), print_len as u32);
     }
 
     sys_store_release_u32(bytes_read_out, n as u32);

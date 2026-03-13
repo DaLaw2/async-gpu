@@ -180,7 +180,8 @@ After each task:
 ### Step do.save
 After the batch is complete:
 1. **Commit + push**: one commit per task, or batch commit if tasks are small.
-2. Update `last_summary` in state.toml
+2. **CI check**: After push, run `gh run list --limit 1` to verify CI triggered. If the latest run shows `failure`, run `gh run view <id> --log-failed | tail -30` to diagnose. Fix CI-breaking issues (missing PTX stubs, API mismatches in examples, etc.) before proceeding.
+3. Update `last_summary` in state.toml
 
 ### Step do.route
 Decide what to do next:

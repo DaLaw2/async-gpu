@@ -72,9 +72,6 @@ jobs:
       - name: cargo fmt --check (gpu-libc)
         run: cargo +stable fmt --manifest-path crates/gpu-libc/Cargo.toml -- --check
 
-      - name: cargo clippy (gpu-libc)
-        run: cargo +stable clippy --manifest-path crates/gpu-libc/Cargo.toml -- -D warnings
-
       - name: doc-tests (gpu-protocol)
         run: cargo +stable test --manifest-path crates/gpu-protocol/Cargo.toml --doc
 

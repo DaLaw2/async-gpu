@@ -77,22 +77,21 @@ pub unsafe extern "C" fn open(pathname: *const c_char, flags: c_int, _mode: mode
     let proto_flags = map_open_flags(flags);
 
     // Use gpu_hostcall_request for SERVICE_OPEN
-    let result =
-        gpu_runtime::hostcall::gpu_hostcall_request(buf, SERVICE_OPEN, |payload| {
-            // Slot 0: low 32 bits = path_len, high 32 bits = flags
-            let slot0 = (path_len as u64) | ((proto_flags as u64) << 32);
-            core::ptr::write_volatile(payload as *mut u64, slot0);
-            // Slots 1-7: path bytes
-            let dst = payload.add(8);
-            let mut i: u32 = 0;
-            while i < path_len {
-                core::ptr::write_volatile(
-                    dst.add(i as usize),
-                    *(pathname as *const u8).add(i as usize),
-                );
-                i += 1;
-            }
-        });
+    let result = gpu_runtime::hostcall::gpu_hostcall_request(buf, SERVICE_OPEN, |payload| {
+        // Slot 0: low 32 bits = path_len, high 32 bits = flags
+        let slot0 = (path_len as u64) | ((proto_flags as u64) << 32);
+        core::ptr::write_volatile(payload as *mut u64, slot0);
+        // Slots 1-7: path bytes
+        let dst = payload.add(8);
+        let mut i: u32 = 0;
+        while i < path_len {
+            core::ptr::write_volatile(
+                dst.add(i as usize),
+                *(pathname as *const u8).add(i as usize),
+            );
+            i += 1;
+        }
+    });
 
     match result {
         Ok(pkt) => {
@@ -126,17 +125,16 @@ pub unsafe extern "C" fn write(fd: c_int, data: *const c_void, count: size_t) ->
         count
     };
 
-    let result =
-        gpu_runtime::hostcall::gpu_hostcall_request(buf, SERVICE_WRITE, |payload| {
-            core::ptr::write_volatile(payload as *mut u64, fd as u64);
-            core::ptr::write_volatile(payload.add(8) as *mut u64, write_len as u64);
-            let dst = payload.add(16);
-            let mut i = 0;
-            while i < write_len {
-                core::ptr::write_volatile(dst.add(i), *src.add(i));
-                i += 1;
-            }
-        });
+    let result = gpu_runtime::hostcall::gpu_hostcall_request(buf, SERVICE_WRITE, |payload| {
+        core::ptr::write_volatile(payload as *mut u64, fd as u64);
+        core::ptr::write_volatile(payload.add(8) as *mut u64, write_len as u64);
+        let dst = payload.add(16);
+        let mut i = 0;
+        while i < write_len {
+            core::ptr::write_volatile(dst.add(i), *src.add(i));
+            i += 1;
+        }
+    });
 
     match result {
         Ok(pkt) => {
@@ -169,11 +167,10 @@ pub unsafe extern "C" fn read(fd: c_int, out_buf: *mut c_void, count: size_t) ->
         count
     };
 
-    let result =
-        gpu_runtime::hostcall::gpu_hostcall_request(buf, SERVICE_READ, |payload| {
-            core::ptr::write_volatile(payload as *mut u64, fd as u64);
-            core::ptr::write_volatile(payload.add(8) as *mut u64, max_len as u64);
-        });
+    let result = gpu_runtime::hostcall::gpu_hostcall_request(buf, SERVICE_READ, |payload| {
+        core::ptr::write_volatile(payload as *mut u64, fd as u64);
+        core::ptr::write_volatile(payload.add(8) as *mut u64, max_len as u64);
+    });
 
     match result {
         Ok(pkt) => {
@@ -210,10 +207,9 @@ pub unsafe extern "C" fn close(fd: c_int) -> c_int {
         return -1;
     }
 
-    let result =
-        gpu_runtime::hostcall::gpu_hostcall_request(buf, SERVICE_CLOSE, |payload| {
-            core::ptr::write_volatile(payload as *mut u64, fd as u64);
-        });
+    let result = gpu_runtime::hostcall::gpu_hostcall_request(buf, SERVICE_CLOSE, |payload| {
+        core::ptr::write_volatile(payload as *mut u64, fd as u64);
+    });
 
     match result {
         Ok(pkt) => {

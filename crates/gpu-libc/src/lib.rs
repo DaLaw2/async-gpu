@@ -14,19 +14,19 @@
 #![feature(c_variadic)]
 #![allow(non_camel_case_types)]
 
-mod types;
+mod errno;
+pub mod hostcall_io;
 pub mod memory;
 pub mod string;
 pub mod stub;
-pub mod hostcall_io;
-mod errno;
+mod types;
 
-pub use types::*;
 pub use errno::*;
+pub use types::*;
 
 // Re-export key functions for direct use by GPU kernels
-pub use memory::{malloc, calloc, free, realloc, posix_memalign, gpu_heap_init};
-pub use memory::{memcpy, memset, memcmp, memmove};
-pub use string::{strlen, strcmp, strncmp};
+pub use hostcall_io::{close, gpu_libc_io_init, open, read, write};
+pub use memory::{calloc, free, gpu_heap_init, malloc, posix_memalign, realloc};
+pub use memory::{memcmp, memcpy, memmove, memset};
+pub use string::{strcmp, strlen, strncmp};
 pub use stub::abort;
-pub use hostcall_io::{gpu_libc_io_init, open, write, read, close};

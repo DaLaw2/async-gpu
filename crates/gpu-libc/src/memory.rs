@@ -11,8 +11,8 @@
 //! For this initial implementation, `free` is a no-op (bump allocator).
 //! A freelist allocator can be added later for long-running kernels.
 
-use crate::types::*;
 use crate::errno::*;
+use crate::types::*;
 
 // ============================================================
 // Memory operations (device-side, no hostcall needed)

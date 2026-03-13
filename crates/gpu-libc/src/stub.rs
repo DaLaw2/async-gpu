@@ -4,8 +4,8 @@
 //! They exist solely to satisfy linker requirements when compiling
 //! Rust std for GPU.
 
-use crate::types::*;
 use crate::errno::*;
+use crate::types::*;
 
 // ============================================================
 // Process control stubs
@@ -217,11 +217,7 @@ pub unsafe extern "C" fn getpwuid_r(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn poll(
-    _fds: *mut c_void,
-    _nfds: c_ulong,
-    _timeout: c_int,
-) -> c_int {
+pub unsafe extern "C" fn poll(_fds: *mut c_void, _nfds: c_ulong, _timeout: c_int) -> c_int {
     set_errno(ENOSYS);
     -1
 }

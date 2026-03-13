@@ -181,6 +181,12 @@ fn main() -> Result<()> {
     // Full GEMM 768x768 test (gemm-scale.3)
     tests_compute::run_full_gemm_test(Arc::clone(&dev))?;
 
+    // LayerNorm test (transformer-layer.1)
+    tests_compute::run_layer_norm_test(Arc::clone(&dev))?;
+
+    // GELU test (transformer-layer.2)
+    tests_compute::run_gelu_test(Arc::clone(&dev))?;
+
     // GPU panic handler test (gpu-panic.2) — MUST BE LAST
     // since trap instruction calls process::exit(0)
     tests_pipeline::run_panic_test(Arc::clone(&dev))?;

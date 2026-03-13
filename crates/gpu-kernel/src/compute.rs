@@ -2329,3 +2329,159 @@ pub unsafe extern "ptx-kernel" fn full_gemm(
         );
     }
 }
+
+// ============================================================
+// LayerNorm kernel (transformer-layer.1)
+// ============================================================
+
+/// Warp-level butterfly reduction: sum across all 32 lanes.
+#[inline(always)]
+unsafe fn warp_reduce_sum_f32(mut val: f32) -> f32 {
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let mask = 0xFFFF_FFFFu32;
+        let mut offset = 16u32;
+        while offset > 0 {
+            let other: f32;
+            core::arch::asm!(
+                "shfl.sync.bfly.b32 {dst}, {src}, {off}, 0x1f, {mask};",
+                dst = out(reg32) other,
+                src = in(reg32) val,
+                off = in(reg32) offset,
+                mask = in(reg32) mask,
+                options(nostack),
+            );
+            val += other;
+            offset /= 2;
+        }
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {}
+    val
+}
+
+/// LayerNorm: y[i] = gamma[i] * (x[i] - mean) / sqrt(var + eps) + beta[i]
+///
+/// grid_dim = (num_rows, 1, 1), block_dim = (32, 1, 1).
+/// Each block (1 warp) processes one row of d_model elements.
+/// Input/output: f32 [num_rows][d_model].
+/// gamma, beta: f32 [d_model].
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn layer_norm(
+    input: *const f32,
+    output: *mut f32,
+    gamma: *const f32,
+    beta: *const f32,
+    d_model: u32,
+    eps: f32,
+    status: *mut u32,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let row = nvptx::_block_idx_x() as u32;
+        let row_ptr = input.add((row * d_model) as usize);
+        let out_ptr = output.add((row * d_model) as usize);
+        let elems_per_thread = d_model / 32;
+
+        // Phase 1: Compute mean — each thread sums its elements
+        let mut local_sum: f32 = 0.0;
+        let mut i = 0u32;
+        while i < elems_per_thread {
+            let idx = tid * elems_per_thread + i;
+            local_sum += *row_ptr.add(idx as usize);
+            i += 1;
+        }
+        let total_sum = warp_reduce_sum_f32(local_sum);
+        let mean = total_sum / d_model as f32;
+
+        // Phase 2: Compute variance — each thread sums squared deviations
+        let mut local_var: f32 = 0.0;
+        i = 0;
+        while i < elems_per_thread {
+            let idx = tid * elems_per_thread + i;
+            let diff = *row_ptr.add(idx as usize) - mean;
+            local_var += diff * diff;
+            i += 1;
+        }
+        let total_var = warp_reduce_sum_f32(local_var);
+        let var = total_var / d_model as f32;
+        let inv_std = 1.0 / gpu_sqrtf(var + eps);
+
+        // Phase 3: Normalize and apply affine
+        i = 0;
+        while i < elems_per_thread {
+            let idx = tid * elems_per_thread + i;
+            let x = *row_ptr.add(idx as usize);
+            let g = *gamma.add(idx as usize);
+            let b = *beta.add(idx as usize);
+            *out_ptr.add(idx as usize) = g * (x - mean) * inv_std + b;
+            i += 1;
+        }
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (input, output, gamma, beta, d_model, eps);
+    }
+
+    if tid == 0 {
+        let _prev: u32;
+        core::arch::asm!(
+            "atom.global.add.u32 {prev}, [{addr}], 1;",
+            prev = out(reg32) _prev,
+            addr = in(reg64) status,
+        );
+    }
+}
+
+// ============================================================
+// GELU kernel (transformer-layer.2)
+// ============================================================
+
+/// GELU activation: y = x * 0.5 * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
+///
+/// grid_dim = (ceil(n/256), 1, 1), block_dim = (256, 1, 1).
+/// Each thread processes one element.
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn gelu_forward(
+    input: *const f32,
+    output: *mut f32,
+    n: u32,
+    status: *mut u32,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let block_x = nvptx::_block_idx_x() as u32;
+        let global_id = block_x * 256 + tid;
+
+        if global_id < n {
+            let x = *input.add(global_id as usize);
+            // GELU(x) = x * 0.5 * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
+            // tanh(z) = (exp(2z) - 1) / (exp(2z) + 1)
+            let sqrt_2_over_pi: f32 = 0.7978845608; // sqrt(2/pi)
+            let coeff: f32 = 0.044715;
+            let inner = sqrt_2_over_pi * (x + coeff * x * x * x);
+            // tanh via exp: tanh(z) = 1 - 2/(exp(2z)+1)
+            let exp_2z = gpu_exp_f32(2.0 * inner);
+            let tanh_val = (exp_2z - 1.0) / (exp_2z + 1.0);
+            let result = x * 0.5 * (1.0 + tanh_val);
+            *output.add(global_id as usize) = result;
+        }
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (input, output, n);
+    }
+
+    if tid == 0 {
+        let _prev: u32;
+        core::arch::asm!(
+            "atom.global.add.u32 {prev}, [{addr}], 1;",
+            prev = out(reg32) _prev,
+            addr = in(reg64) status,
+        );
+    }
+}

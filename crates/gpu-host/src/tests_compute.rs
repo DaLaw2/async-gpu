@@ -1571,3 +1571,200 @@ pub(crate) fn run_full_gemm_test(dev: Arc<CudaDevice>) -> Result<()> {
         })
     }
 }
+
+/// LayerNorm test (transformer-layer.1): validate against CPU reference.
+pub(crate) fn run_layer_norm_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- LayerNorm test (transformer-layer.1) ---");
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "layer_norm", &["layer_norm"]);
+    let f = dev
+        .get_func("layer_norm", "layer_norm")
+        .ok_or(GpuHostError::KernelNotFound("layer_norm"))?;
+
+    const D_MODEL: u32 = 768;
+    let num_rows: u32 = 4;
+    let eps: f32 = 1e-5;
+
+    // Generate input: x[i][j] = ((i*7 + j*3) % 11 - 5) as f32 * 0.1
+    let mut input: Vec<f32> = Vec::with_capacity(num_rows as usize * D_MODEL as usize);
+    for i in 0..num_rows as usize {
+        for j in 0..D_MODEL as usize {
+            let v = ((i * 7 + j * 3) % 11) as f32 - 5.0;
+            input.push(v * 0.1);
+        }
+    }
+
+    // gamma = 1.0 + j*0.001, beta = j*0.0001
+    let mut gamma: Vec<f32> = Vec::with_capacity(D_MODEL as usize);
+    let mut beta: Vec<f32> = Vec::with_capacity(D_MODEL as usize);
+    for j in 0..D_MODEL as usize {
+        gamma.push(1.0 + j as f32 * 0.001);
+        beta.push(j as f32 * 0.0001);
+    }
+
+    let input_dev: CudaSlice<f32> = dev.htod_sync_copy(&input)?;
+    let mut output_dev: CudaSlice<f32> =
+        dev.alloc_zeros::<f32>(num_rows as usize * D_MODEL as usize)?;
+    let gamma_dev: CudaSlice<f32> = dev.htod_sync_copy(&gamma)?;
+    let beta_dev: CudaSlice<f32> = dev.htod_sync_copy(&beta)?;
+    let (status_host_ptr, status_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 1)? };
+
+    let cfg = LaunchConfig {
+        grid_dim: (num_rows, 1, 1),
+        block_dim: (32, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    unsafe {
+        f.clone().launch(
+            cfg,
+            (
+                &input_dev,
+                &mut output_dev,
+                &gamma_dev,
+                &beta_dev,
+                D_MODEL,
+                eps,
+                status_dev_ptr,
+            ),
+        )?;
+    }
+    dev.synchronize()?;
+
+    let status = unsafe { std::ptr::read_volatile(status_host_ptr) };
+    assert!(
+        status >= num_rows,
+        "LayerNorm kernel did not complete: status={status}"
+    );
+
+    let output_host: Vec<f32> = dev.dtoh_sync_copy(&output_dev)?;
+
+    // CPU reference
+    let mut mismatches = 0;
+    let mut max_err: f32 = 0.0;
+    for row in 0..num_rows as usize {
+        let row_start = row * D_MODEL as usize;
+        let row_end = row_start + D_MODEL as usize;
+        let row_data = &input[row_start..row_end];
+
+        let mean: f32 = row_data.iter().sum::<f32>() / D_MODEL as f32;
+        let var: f32 = row_data
+            .iter()
+            .map(|x| (x - mean) * (x - mean))
+            .sum::<f32>()
+            / D_MODEL as f32;
+        let inv_std = 1.0 / (var + eps).sqrt();
+
+        for j in 0..D_MODEL as usize {
+            let expected = gamma[j] * (row_data[j] - mean) * inv_std + beta[j];
+            let got = output_host[row_start + j];
+            let err = (got - expected).abs();
+            if err > max_err {
+                max_err = err;
+            }
+            if err > 1e-3 {
+                if mismatches < 5 {
+                    println!("  MISMATCH row={row} j={j}: got={got} expected={expected} err={err}");
+                }
+                mismatches += 1;
+            }
+        }
+    }
+
+    unsafe {
+        free_mapped_mem(status_host_ptr)?;
+    }
+
+    println!("  LayerNorm {num_rows}x{D_MODEL}: max_err={max_err:.8}, mismatches={mismatches}");
+    if mismatches == 0 {
+        println!("  LayerNorm — PASSED");
+        Ok(())
+    } else {
+        Err(GpuHostError::Verification {
+            test: "layer_norm",
+            detail: format!("{mismatches} mismatches"),
+        })
+    }
+}
+
+/// GELU test (transformer-layer.2): validate against CPU reference.
+pub(crate) fn run_gelu_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- GELU test (transformer-layer.2) ---");
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "gelu_forward", &["gelu_forward"]);
+    let f = dev
+        .get_func("gelu_forward", "gelu_forward")
+        .ok_or(GpuHostError::KernelNotFound("gelu_forward"))?;
+
+    // Test with a range of values from -5 to 5
+    let n: u32 = 1024;
+    let mut input: Vec<f32> = Vec::with_capacity(n as usize);
+    for i in 0..n as usize {
+        input.push(-5.0 + 10.0 * i as f32 / (n - 1) as f32);
+    }
+
+    let input_dev: CudaSlice<f32> = dev.htod_sync_copy(&input)?;
+    let mut output_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(n as usize)?;
+    let (status_host_ptr, status_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 1)? };
+
+    let num_blocks = n.div_ceil(256);
+    let cfg = LaunchConfig {
+        grid_dim: (num_blocks, 1, 1),
+        block_dim: (256, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    unsafe {
+        f.clone()
+            .launch(cfg, (&input_dev, &mut output_dev, n, status_dev_ptr))?;
+    }
+    dev.synchronize()?;
+
+    let status = unsafe { std::ptr::read_volatile(status_host_ptr) };
+    assert!(
+        status >= num_blocks,
+        "GELU kernel did not complete: status={status}"
+    );
+
+    let output_host: Vec<f32> = dev.dtoh_sync_copy(&output_dev)?;
+
+    // CPU reference: GELU(x) = x * 0.5 * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
+    let sqrt_2_over_pi: f32 = 0.797_884_6;
+    let coeff: f32 = 0.044715;
+    let mut mismatches = 0;
+    let mut max_err: f32 = 0.0;
+    for i in 0..n as usize {
+        let x = input[i];
+        let inner = sqrt_2_over_pi * (x + coeff * x * x * x);
+        let expected = x * 0.5 * (1.0 + inner.tanh());
+        let got = output_host[i];
+        let err = (got - expected).abs();
+        if err > max_err {
+            max_err = err;
+        }
+        // Allow slightly larger tolerance for extreme values
+        if err > 1e-4 {
+            if mismatches < 5 {
+                println!("  MISMATCH i={i} x={x}: got={got} expected={expected} err={err}");
+            }
+            mismatches += 1;
+        }
+    }
+
+    unsafe {
+        free_mapped_mem(status_host_ptr)?;
+    }
+
+    println!("  GELU {n} elements: max_err={max_err:.8}, mismatches={mismatches}");
+    if mismatches == 0 {
+        println!("  GELU — PASSED");
+        Ok(())
+    } else {
+        Err(GpuHostError::Verification {
+            test: "gelu_forward",
+            detail: format!("{mismatches} mismatches, max_err={max_err:.8}"),
+        })
+    }
+}

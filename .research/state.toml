@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 132     # Monotonic counter, incremented after each completed phase
-completed_tasks = 131
+total_cycles = 134     # Monotonic counter, incremented after each completed phase
+completed_tasks = 133
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = ""
-last_summary = "gemm-scale.3 DECISION GATE PASSED: 768x768 GEMM verified (1152 blocks, max rel error 0.42%, 0 mismatches). gemm-scale theme complete. Next: transformer-layer tasks."
+current_task_id = "transformer-layer.5"
+last_summary = "transformer-layer.1+2 done: LayerNorm (max err 3.3e-6) and GELU (max err 4.8e-7) both verified. Next: .5 (weight loading design), then .3 (MHA), .4 (FFN)."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 36
@@ -3202,7 +3202,7 @@ id = "transformer-layer.1"
 theme = "transformer-layer"
 title = "LayerNorm kernel (mean + variance reduction, per-element normalize)"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = []
 spawned_by = "bs36"
 research_questions = [
@@ -3216,7 +3216,7 @@ id = "transformer-layer.2"
 theme = "transformer-layer"
 title = "GELU activation kernel"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = []
 spawned_by = "bs36"
 research_questions = [

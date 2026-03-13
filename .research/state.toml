@@ -10,16 +10,16 @@ status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.route"
-current_task_id = ""
+current_step = "do.execute"
+current_task_id = "full-inference.12"
 last_summary = "full-inference.7-10 done. Root cause: full_gemm_f32in MMA kernel produces wrong GEMM results. Switched forward+generation tests to gemm_f32 (pure f32 FMA). GPU now matches CPU f64 exactly. Generation produces 22 tokens of English before NaN at step 22 (separate precision issue). Next: brainstorm to address NaN and plan MMA kernel fix."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 41
+brainstorm_seq = 42
 review_seq = 5
 
 # Brainstorm trigger control
-last_brainstorm_at_completed = 162
+last_brainstorm_at_completed = 166
 brainstorm_interval = 3
 
 # ============================================================
@@ -3441,7 +3441,7 @@ success_criteria = [
 [[themes]]
 id = "precision-fix"
 title = "Fix compound f16 quantization error for multi-layer inference"
-status = "active"
+status = "completed"
 spawned_by = "bs38"
 epic = "gpu-inference"
 goal = "Reduce per-layer error so single layer matches PyTorch at (atol=0.01, rtol=0.01) and 12 layers don't diverge"
@@ -3513,7 +3513,7 @@ research_questions = [
 [[themes]]
 id = "model-loading"
 title = "Load real GPT-2 weights from HuggingFace safetensors"
-status = "active"
+status = "completed"
 spawned_by = "bs38"
 epic = "gpu-inference"
 goal = "Parse safetensors format, load all GPT-2 small weight tensors, upload to GPU"
@@ -3586,7 +3586,7 @@ research_questions = [
 [[themes]]
 id = "tokenizer"
 title = "GPT-2 BPE tokenizer for text-to-tokens and tokens-to-text"
-status = "active"
+status = "completed"
 spawned_by = "bs38"
 epic = "gpu-inference"
 goal = "Implement GPT-2 BPE tokenizer on host side, validated against HuggingFace"
@@ -3643,7 +3643,7 @@ research_questions = [
 [[themes]]
 id = "attention-scale"
 title = "Scale attention kernel to seq>32 with causal mask"
-status = "active"
+status = "completed"
 spawned_by = "bs38"
 epic = "gpu-inference"
 goal = "Implement attention that supports arbitrary sequence lengths with causal masking"
@@ -3940,6 +3940,45 @@ research_questions = [
     "Does generation produce coherent English text?",
     "What causes NaN at step 22?",
 ]
+
+[[tasks]]
+id = "full-inference.12"
+theme = "full-inference"
+title = "Fix NaN at step 22 — numerically stable softmax in attention"
+kind = "experiment"
+status = "pending"
+depends_on = ["full-inference.11"]
+spawned_by = "bs42"
+research_questions = [
+    "Is the NaN f32-specific? (verify by running CPU f64 generation for 50+ tokens)",
+    "Does online softmax (tracking running max) prevent the NaN?",
+    "What is the maximum generation length after the fix?",
+]
+
+[[tasks]]
+id = "full-inference.13"
+theme = "full-inference"
+title = "Validate 50+ token generation on 3+ prompts"
+kind = "experiment"
+status = "pending"
+depends_on = ["full-inference.12"]
+spawned_by = "bs42"
+research_questions = [
+    "Does generation produce coherent English for 50+ tokens?",
+    "Do top-5 tokens match CPU f64 reference at each step?",
+    "Is there a maximum generation length beyond which quality degrades?",
+]
+
+[[brainstorms]]
+seq = 42
+at_cycle = 167
+trigger = "Brainstorm interval (4 tasks completed since last bs)"
+level = "standard"
+new_tasks_spawned = ["full-inference.12", "full-inference.13"]
+new_themes_spawned = []
+themes_parked = []
+themes_completed = ["precision-fix", "model-loading", "tokenizer", "attention-scale"]
+key_insight = "GPU inference now correct (gemm_f32 matches CPU f64). NaN at step 22 is next blocker — online softmax is the fix. 4 themes completed. 'Paris' criterion unreachable (model limitation), suggest user revision."
 
 [[brainstorms]]
 seq = 41

@@ -376,6 +376,152 @@ pub const fn error_raw_errno(slot0: u64) -> u16 {
 }
 
 // ============================================================
+// GPU-side error types for Result-based error propagation
+// ============================================================
+
+/// GPU-side error returned by hostcall helpers.
+///
+/// Encodes an error category (from the ERR_* constants) and an optional
+/// OS errno. Small enough (4 bytes) to be returned by value in Result.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GpuError {
+    /// Error category (one of the ERR_* constants).
+    pub category: u16,
+    /// Raw OS errno from the host, or 0 if not applicable.
+    pub raw_errno: u16,
+}
+
+impl GpuError {
+    /// Create a new GpuError from category and errno.
+    #[inline(always)]
+    pub const fn new(category: u16, raw_errno: u16) -> Self {
+        Self {
+            category,
+            raw_errno,
+        }
+    }
+
+    /// Create a GpuError from an encoded error value (payload slot 0 format).
+    #[inline(always)]
+    pub const fn from_encoded(slot0: u64) -> Self {
+        Self {
+            category: error_category(slot0),
+            raw_errno: error_raw_errno(slot0),
+        }
+    }
+
+    /// Pool exhaustion — no free packets available.
+    #[inline(always)]
+    pub const fn pool_exhausted() -> Self {
+        Self::new(ERR_RESOURCE_BUSY, 0)
+    }
+
+    /// Timeout waiting for host response.
+    #[inline(always)]
+    pub const fn timeout() -> Self {
+        Self::new(ERR_HOST_TIMEOUT, 0)
+    }
+}
+
+/// Sentinel values for GpuKernelResult tag field.
+pub const TAG_OK: u32 = 0;
+/// Kernel returned an error.
+pub const TAG_ERR: u32 = 1;
+/// Buffer not yet written — kernel may have crashed.
+pub const TAG_UNINIT: u32 = 0xDEAD_BEEF;
+
+/// GPU kernel result buffer — 64 bytes, one cache line.
+///
+/// Passed as the last kernel parameter. Host allocates mapped memory,
+/// initializes tag to TAG_UNINIT, launches kernel, then reads result
+/// after synchronization.
+///
+/// Layout:
+/// ```text
+/// Offset  0: tag        (u32)  — TAG_OK, TAG_ERR, or TAG_UNINIT
+/// Offset  4: category   (u16)  — ERR_* constant
+/// Offset  6: raw_errno  (u16)  — OS errno
+/// Offset  8: thread_idx (u16)  — threadIdx.x that produced error
+/// Offset 10: block_idx  (u16)  — blockIdx.x that produced error
+/// Offset 12: msg_len    (u32)  — message byte count (0..48)
+/// Offset 16: msg_bytes  [48]   — UTF-8 message (truncated if needed)
+/// ```
+#[repr(C, align(64))]
+#[derive(Clone, Copy)]
+pub struct GpuKernelResult {
+    pub tag: u32,
+    pub category: u16,
+    pub raw_errno: u16,
+    pub thread_idx: u16,
+    pub block_idx: u16,
+    pub msg_len: u32,
+    pub msg_bytes: [u8; 48],
+}
+
+impl GpuKernelResult {
+    /// Create an uninitialized result (sentinel value).
+    #[inline(always)]
+    pub const fn uninit() -> Self {
+        Self {
+            tag: TAG_UNINIT,
+            category: 0,
+            raw_errno: 0,
+            thread_idx: 0,
+            block_idx: 0,
+            msg_len: 0,
+            msg_bytes: [0u8; 48],
+        }
+    }
+
+    /// Write OK status.
+    #[inline(always)]
+    pub fn set_ok(&mut self) {
+        self.tag = TAG_OK;
+    }
+
+    /// Write error status with a GpuError and optional message.
+    #[inline(always)]
+    pub fn set_err(&mut self, err: GpuError, thread_idx: u16, block_idx: u16, msg: &[u8]) {
+        self.tag = TAG_ERR;
+        self.category = err.category;
+        self.raw_errno = err.raw_errno;
+        self.thread_idx = thread_idx;
+        self.block_idx = block_idx;
+        let len = if msg.len() > 48 { 48 } else { msg.len() };
+        self.msg_len = len as u32;
+        let mut i = 0;
+        while i < len {
+            self.msg_bytes[i] = msg[i];
+            i += 1;
+        }
+    }
+
+    /// Check if the result indicates success.
+    #[inline(always)]
+    pub const fn is_ok(&self) -> bool {
+        self.tag == TAG_OK
+    }
+
+    /// Check if the result indicates an error.
+    #[inline(always)]
+    pub const fn is_err(&self) -> bool {
+        self.tag == TAG_ERR
+    }
+
+    /// Get the error message as a byte slice.
+    #[inline(always)]
+    pub fn message(&self) -> &[u8] {
+        let len = if (self.msg_len as usize) > 48 {
+            48
+        } else {
+            self.msg_len as usize
+        };
+        &self.msg_bytes[..len]
+    }
+}
+
+// ============================================================
 // PANIC service payload layout (lane 0)
 // ============================================================
 //

@@ -18,40 +18,31 @@ pub(crate) unsafe fn gpu_hostcall_open(
     path_len: u32,
     flags: u32,
 ) -> (u64, u16) {
-    let (pkt, success) =
-        gpu_runtime::hostcall::gpu_hostcall_request(buf, SERVICE_OPEN, |payload| {
-            // Slot 0: low 32 bits = path_len, high 32 bits = flags
-            let slot0_val = (path_len as u64) | ((flags as u64) << 32);
-            core::ptr::write_volatile(payload as *mut u64, slot0_val);
+    let pkt = match gpu_runtime::hostcall::gpu_hostcall_request(buf, SERVICE_OPEN, |payload| {
+        // Slot 0: low 32 bits = path_len, high 32 bits = flags
+        let slot0_val = (path_len as u64) | ((flags as u64) << 32);
+        core::ptr::write_volatile(payload as *mut u64, slot0_val);
 
-            // Slots 1-7: path bytes
-            let copy_len = if path_len > FILE_MAX_PATH_LEN as u32 {
-                FILE_MAX_PATH_LEN as u32
-            } else {
-                path_len
-            };
-            let dst = payload.add(8);
-            let mut i: u32 = 0;
-            while i < copy_len {
-                core::ptr::write_volatile(dst.add(i as usize), *path.add(i as usize));
-                i += 1;
-            }
-        });
-
-    if pkt.is_null() {
-        // Timeout — no packet returned
-        return (0, ERR_HOST_TIMEOUT);
-    }
+        // Slots 1-7: path bytes
+        let copy_len = if path_len > FILE_MAX_PATH_LEN as u32 {
+            FILE_MAX_PATH_LEN as u32
+        } else {
+            path_len
+        };
+        let dst = payload.add(8);
+        let mut i: u32 = 0;
+        while i < copy_len {
+            core::ptr::write_volatile(dst.add(i as usize), *path.add(i as usize));
+            i += 1;
+        }
+    }) {
+        Ok(p) => p,
+        Err(e) => return (0, e.category),
+    };
 
     let slot0 = core::ptr::read_volatile(pkt.add(PKT_OFF_PAYLOAD) as *const u64);
     gpu_runtime::hostcall::gpu_hostcall_release(buf, pkt);
-
-    if !success {
-        // Host returned CONTROL_ERROR — slot0 contains encoded error
-        (0, error_category(slot0))
-    } else {
-        (slot0, 0)
-    }
+    (slot0, 0)
 }
 
 /// GPU-side hostcall: write data to a file.
@@ -63,62 +54,48 @@ pub(crate) unsafe fn gpu_hostcall_write(
     data: *const u8,
     data_len: u32,
 ) -> (u64, u16) {
-    let (pkt, success) =
-        gpu_runtime::hostcall::gpu_hostcall_request(buf, SERVICE_WRITE, |payload| {
-            // Slot 0: fd
-            core::ptr::write_volatile(payload as *mut u64, fd);
-            // Slot 1: data length
-            core::ptr::write_volatile(payload.add(8) as *mut u64, data_len as u64);
-            // Slots 2-7: data bytes (up to 48 bytes)
-            let copy_len = if data_len > FILE_MAX_WRITE_LEN as u32 {
-                FILE_MAX_WRITE_LEN as u32
-            } else {
-                data_len
-            };
-            let dst = payload.add(16); // skip slots 0 and 1
-            let mut i: u32 = 0;
-            while i < copy_len {
-                core::ptr::write_volatile(dst.add(i as usize), *data.add(i as usize));
-                i += 1;
-            }
-        });
-
-    if pkt.is_null() {
-        return (0, ERR_HOST_TIMEOUT);
-    }
+    let pkt = match gpu_runtime::hostcall::gpu_hostcall_request(buf, SERVICE_WRITE, |payload| {
+        // Slot 0: fd
+        core::ptr::write_volatile(payload as *mut u64, fd);
+        // Slot 1: data length
+        core::ptr::write_volatile(payload.add(8) as *mut u64, data_len as u64);
+        // Slots 2-7: data bytes (up to 48 bytes)
+        let copy_len = if data_len > FILE_MAX_WRITE_LEN as u32 {
+            FILE_MAX_WRITE_LEN as u32
+        } else {
+            data_len
+        };
+        let dst = payload.add(16); // skip slots 0 and 1
+        let mut i: u32 = 0;
+        while i < copy_len {
+            core::ptr::write_volatile(dst.add(i as usize), *data.add(i as usize));
+            i += 1;
+        }
+    }) {
+        Ok(p) => p,
+        Err(e) => return (0, e.category),
+    };
 
     let slot0 = core::ptr::read_volatile(pkt.add(PKT_OFF_PAYLOAD) as *const u64);
     gpu_runtime::hostcall::gpu_hostcall_release(buf, pkt);
-
-    if !success {
-        (0, error_category(slot0))
-    } else {
-        (slot0, 0)
-    }
+    (slot0, 0)
 }
 
 /// GPU-side hostcall: close a file.
 /// Returns `(0, 0)` on success, `(0, error_category)` on failure.
 #[inline(always)]
 pub(crate) unsafe fn gpu_hostcall_close(buf: *mut u8, fd: u64) -> (u64, u16) {
-    let (pkt, success) =
-        gpu_runtime::hostcall::gpu_hostcall_request(buf, SERVICE_CLOSE, |payload| {
-            // Slot 0: fd
-            core::ptr::write_volatile(payload as *mut u64, fd);
-        });
-
-    if pkt.is_null() {
-        return (0, ERR_HOST_TIMEOUT);
-    }
+    let pkt = match gpu_runtime::hostcall::gpu_hostcall_request(buf, SERVICE_CLOSE, |payload| {
+        // Slot 0: fd
+        core::ptr::write_volatile(payload as *mut u64, fd);
+    }) {
+        Ok(p) => p,
+        Err(e) => return (0, e.category),
+    };
 
     let slot0 = core::ptr::read_volatile(pkt.add(PKT_OFF_PAYLOAD) as *const u64);
     gpu_runtime::hostcall::gpu_hostcall_release(buf, pkt);
-
-    if !success {
-        (0, error_category(slot0))
-    } else {
-        (slot0, 0)
-    }
+    (slot0, 0)
 }
 
 /// GPU-side hostcall: read data from a file.
@@ -130,24 +107,17 @@ pub(crate) unsafe fn gpu_hostcall_read(
     out_buf: *mut u8,
     max_len: u32,
 ) -> (u64, u16) {
-    let (pkt, success) =
-        gpu_runtime::hostcall::gpu_hostcall_request(buf, SERVICE_READ, |payload| {
-            // Slot 0: fd
-            core::ptr::write_volatile(payload as *mut u64, fd);
-            // Slot 1: max bytes to read
-            core::ptr::write_volatile(payload.add(8) as *mut u64, max_len as u64);
-        });
-
-    if pkt.is_null() {
-        return (0, ERR_HOST_TIMEOUT);
-    }
+    let pkt = match gpu_runtime::hostcall::gpu_hostcall_request(buf, SERVICE_READ, |payload| {
+        // Slot 0: fd
+        core::ptr::write_volatile(payload as *mut u64, fd);
+        // Slot 1: max bytes to read
+        core::ptr::write_volatile(payload.add(8) as *mut u64, max_len as u64);
+    }) {
+        Ok(p) => p,
+        Err(e) => return (0, e.category),
+    };
 
     let slot0 = core::ptr::read_volatile(pkt.add(PKT_OFF_PAYLOAD) as *const u64);
-
-    if !success {
-        gpu_runtime::hostcall::gpu_hostcall_release(buf, pkt);
-        return (0, error_category(slot0));
-    }
 
     // Success — copy data from slots 1-7
     let src = pkt.add(PKT_OFF_PAYLOAD).add(8);
@@ -190,22 +160,15 @@ pub(crate) unsafe fn gpu_hostcall_stdin_read(
     out_buf: *mut u8,
     max_len: u32,
 ) -> (u64, u16) {
-    let (pkt, success) =
-        gpu_runtime::hostcall::gpu_hostcall_request(buf, SERVICE_STDIN, |payload| {
-            // Slot 0: max bytes to read
-            core::ptr::write_volatile(payload as *mut u64, max_len as u64);
-        });
-
-    if pkt.is_null() {
-        return (0, ERR_HOST_TIMEOUT);
-    }
+    let pkt = match gpu_runtime::hostcall::gpu_hostcall_request(buf, SERVICE_STDIN, |payload| {
+        // Slot 0: max bytes to read
+        core::ptr::write_volatile(payload as *mut u64, max_len as u64);
+    }) {
+        Ok(p) => p,
+        Err(e) => return (0, e.category),
+    };
 
     let slot0 = core::ptr::read_volatile(pkt.add(PKT_OFF_PAYLOAD) as *const u64);
-
-    if !success {
-        gpu_runtime::hostcall::gpu_hostcall_release(buf, pkt);
-        return (0, error_category(slot0));
-    }
 
     // Success — copy data from slots 1-7
     let src = pkt.add(PKT_OFF_PAYLOAD).add(8);
@@ -227,17 +190,12 @@ pub(crate) unsafe fn gpu_hostcall_stdin_read(
 /// Returns (seconds_since_epoch, nanoseconds) on success, (0, 0) on failure.
 #[inline(always)]
 pub(crate) unsafe fn gpu_hostcall_time(buf: *mut u8) -> (u64, u64) {
-    let (pkt, success) =
-        gpu_runtime::hostcall::gpu_hostcall_request(buf, SERVICE_TIME, |_payload| {
-            // No request payload needed
-        });
-
-    if pkt.is_null() || !success {
-        if !pkt.is_null() {
-            gpu_runtime::hostcall::gpu_hostcall_release(buf, pkt);
-        }
-        return (0, 0);
-    }
+    let pkt = match gpu_runtime::hostcall::gpu_hostcall_request(buf, SERVICE_TIME, |_payload| {
+        // No request payload needed
+    }) {
+        Ok(p) => p,
+        Err(_) => return (0, 0),
+    };
 
     let secs = core::ptr::read_volatile(pkt.add(PKT_OFF_PAYLOAD) as *const u64);
     let nanos = core::ptr::read_volatile(pkt.add(PKT_OFF_PAYLOAD).add(8) as *const u64);
@@ -416,7 +374,7 @@ pub(crate) unsafe fn grep_buffer(
                         pos += 1;
                         c += 1;
                     }
-                    gpu_runtime::hostcall::gpu_hostcall_print(buf, msg.as_ptr(), pos as u32);
+                    let _ = gpu_runtime::hostcall::gpu_hostcall_print(buf, msg.as_ptr(), pos as u32);
                     matches += 1;
                 }
             }

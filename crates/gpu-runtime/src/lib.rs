@@ -226,15 +226,16 @@ pub mod hostcall {
     /// Submit a hostcall request: pop packet, fill header + payload, push to ready
     /// stack, ring doorbell, spin-wait for response.
     ///
-    /// Returns `(pkt_ptr, success)`. On success, the payload contains the host's response.
-    /// On failure (pool exhaustion or timeout), returns `(null, false)`.
+    /// Returns `Ok(pkt_ptr)` on success — the payload contains the host's response.
+    /// Returns `Err(GpuError)` on failure: pool exhaustion, timeout, or host-side error
+    /// (decoded from CONTROL_ERROR + payload slot 0).
     /// Caller must call `gpu_hostcall_release(buf, pkt)` after reading the response.
     #[inline(always)]
     pub unsafe fn gpu_hostcall_request(
         buf: *mut u8,
         service: u32,
         fill_payload: impl FnOnce(*mut u8),
-    ) -> (*mut u8, bool) {
+    ) -> Result<*mut u8, GpuError> {
         let (num_shards, shard_array_off, _) = read_shard_info(buf as *const u8);
         let free_ptr = get_free_stack_ptr(buf, num_shards, shard_array_off);
         let ready_ptr = get_ready_stack_ptr(buf, num_shards, shard_array_off);
@@ -242,7 +243,7 @@ pub mod hostcall {
         // Step 1: Pop free packet
         let pkt_idx = hc_pop_free_from(buf, free_ptr, num_shards, shard_array_off);
         if pkt_idx == NULL_INDEX {
-            return (core::ptr::null_mut(), false);
+            return Err(GpuError::pool_exhausted());
         }
 
         let pkt_off = if num_shards == 0 {
@@ -273,35 +274,44 @@ pub mod hostcall {
         // Step 7: Spin-wait for host response
         let control_ptr = pkt.add(PKT_OFF_CONTROL) as *const u32;
         let mut spins: u32 = 0;
-        let success;
         loop {
             let ctrl = sys_spin_load_acquire_u32(control_ptr);
             if ctrl & CONTROL_READY != 0 {
-                success = (ctrl & CONTROL_ERROR) == 0;
-                break;
+                if ctrl & CONTROL_ERROR != 0 {
+                    // Host reported an error — decode from payload slot 0
+                    let slot0 = core::ptr::read_volatile(
+                        pkt.add(PKT_OFF_PAYLOAD) as *const u64,
+                    );
+                    // Release packet before returning error
+                    hc_push_with(free_ptr, buf, pkt_idx, num_shards, shard_array_off);
+                    return Err(GpuError::from_encoded(slot0));
+                }
+                return Ok(pkt);
             }
             spins += 1;
             if spins >= GPU_MAX_SPIN {
                 // Timeout — return packet to free stack
                 hc_push_with(free_ptr, buf, pkt_idx, num_shards, shard_array_off);
-                return (core::ptr::null_mut(), false);
+                return Err(GpuError::timeout());
             }
         }
-
-        (pkt, success)
     }
 
     /// Send a PRINT hostcall with a short message (max 56 bytes).
-    /// Returns true on success.
+    /// Returns `Ok(())` on success, `Err(GpuError)` on pool exhaustion or timeout.
     #[inline(always)]
-    pub unsafe fn gpu_hostcall_print(buf: *mut u8, msg: *const u8, msg_len: u32) -> bool {
+    pub unsafe fn gpu_hostcall_print(
+        buf: *mut u8,
+        msg: *const u8,
+        msg_len: u32,
+    ) -> Result<(), GpuError> {
         let (num_shards, shard_array_off, _) = read_shard_info(buf as *const u8);
         let free_ptr = get_free_stack_ptr(buf, num_shards, shard_array_off);
         let ready_ptr = get_ready_stack_ptr(buf, num_shards, shard_array_off);
 
         let pkt_idx = hc_pop_free_from(buf, free_ptr, num_shards, shard_array_off);
         if pkt_idx == NULL_INDEX {
-            return false;
+            return Err(GpuError::pool_exhausted());
         }
 
         let pkt_off = if num_shards == 0 {
@@ -345,23 +355,21 @@ pub mod hostcall {
 
         let control_ptr = pkt.add(PKT_OFF_CONTROL) as *const u32;
         let mut spins: u32 = 0;
-        let success;
         loop {
             let ctrl = sys_spin_load_acquire_u32(control_ptr);
             if ctrl & CONTROL_READY != 0 {
-                success = true;
                 break;
             }
             spins += 1;
             if spins >= GPU_MAX_SPIN {
-                success = false;
-                break;
+                // Don't release packet on timeout — it may still be in-flight
+                return Err(GpuError::timeout());
             }
         }
 
         hc_push_with(free_ptr, buf, pkt_idx, num_shards, shard_array_off);
 
-        success
+        Ok(())
     }
 }
 
@@ -426,14 +434,14 @@ pub mod sideband {
         }
 
         // Send hostcall with sideband metadata
-        let (pkt, success) = gpu_hostcall_request(buf, SERVICE_BULK_WRITE, |payload| {
+        let pkt = match gpu_hostcall_request(buf, SERVICE_BULK_WRITE, |payload| {
             core::ptr::write_volatile(payload as *mut u64, fd);
             core::ptr::write_volatile(payload.add(8) as *mut u64, offset);
             core::ptr::write_volatile(payload.add(16) as *mut u64, len as u64);
-        });
-        if pkt.is_null() || !success {
-            return 0;
-        }
+        }) {
+            Ok(p) => p,
+            Err(_) => return 0,
+        };
 
         let written = core::ptr::read_volatile(pkt.add(PKT_OFF_PAYLOAD) as *const u64);
         gpu_hostcall_release(buf, pkt);
@@ -465,14 +473,14 @@ pub mod sideband {
         }
 
         // Send hostcall requesting read
-        let (pkt, success) = gpu_hostcall_request(buf, SERVICE_BULK_READ, |payload| {
+        let pkt = match gpu_hostcall_request(buf, SERVICE_BULK_READ, |payload| {
             core::ptr::write_volatile(payload as *mut u64, fd);
             core::ptr::write_volatile(payload.add(8) as *mut u64, offset);
             core::ptr::write_volatile(payload.add(16) as *mut u64, max_len as u64);
-        });
-        if pkt.is_null() || !success {
-            return 0;
-        }
+        }) {
+            Ok(p) => p,
+            Err(_) => return 0,
+        };
 
         let bytes_read = core::ptr::read_volatile(pkt.add(PKT_OFF_PAYLOAD) as *const u64);
         gpu_hostcall_release(buf, pkt);
@@ -515,6 +523,10 @@ pub mod panic {
     /// Each GPU thread reads this when a panic occurs.
     static mut PANIC_BUF: *mut u8 = core::ptr::null_mut();
 
+    /// Global kernel result buffer pointer. Set by `gpu_result_init()`.
+    /// The panic handler writes error info here before trapping.
+    static mut RESULT_BUF: *mut GpuKernelResult = core::ptr::null_mut();
+
     /// Initialize the panic handler with the hostcall buffer pointer.
     /// Must be called at the start of every kernel that might panic.
     #[inline(always)]
@@ -522,10 +534,38 @@ pub mod panic {
         PANIC_BUF = buf;
     }
 
+    /// Register the kernel result buffer for panic reporting.
+    /// When set, the panic handler writes error info here before trapping.
+    /// Call at kernel entry alongside `gpu_panic_init()`.
+    #[inline(always)]
+    pub unsafe fn gpu_result_init(result: *mut GpuKernelResult) {
+        RESULT_BUF = result;
+    }
+
     /// Get the current hostcall buffer pointer (for use by panic handler).
     #[inline(always)]
     pub unsafe fn panic_buf() -> *mut u8 {
         PANIC_BUF
+    }
+
+    /// Get the current result buffer pointer (for use by panic handler).
+    #[inline(always)]
+    pub unsafe fn result_buf() -> *mut GpuKernelResult {
+        RESULT_BUF
+    }
+
+    /// Write a GpuError to the kernel result buffer with panic message.
+    /// Called by the panic handler before trapping.
+    #[inline(always)]
+    pub unsafe fn write_panic_to_result(msg: &[u8]) {
+        let result = RESULT_BUF;
+        if result.is_null() {
+            return;
+        }
+        let thread_idx = crate::nvptx_shim::thread_idx_x() as u16;
+        let block_idx = crate::nvptx_shim::block_idx_x() as u16;
+        let err = GpuError::new(ERR_OTHER, 0);
+        (*result).set_err(err, thread_idx, block_idx, msg);
     }
 
     /// Fixed-size buffer for formatting panic messages on GPU (no allocator needed).
@@ -713,16 +753,21 @@ macro_rules! panic_handler {
         #[panic_handler]
         fn _gpu_panic_handler(info: &core::panic::PanicInfo) -> ! {
             unsafe {
+                // Format the panic message into a fixed-size buffer
+                let mut pbuf = $crate::panic::PanicBuf::new();
+                use core::fmt::Write;
+                let _ = write!(pbuf, "{}", info);
+                let msg = pbuf.as_slice();
+
+                // Write to kernel result buffer (if registered)
+                $crate::panic::write_panic_to_result(msg);
+
+                // Send via hostcall (if registered)
                 let buf = $crate::panic::panic_buf();
                 if !buf.is_null() {
-                    // Format the panic message into a fixed-size buffer
-                    let mut pbuf = $crate::panic::PanicBuf::new();
-                    use core::fmt::Write;
-                    // Try to write the full PanicInfo (includes location + message)
-                    let _ = write!(pbuf, "{}", info);
-                    let msg = pbuf.as_slice();
                     $crate::panic::send_panic_hostcall(buf, msg);
                 }
+
                 // Terminate this GPU thread
                 #[cfg(target_arch = "nvptx64")]
                 core::arch::asm!("trap;", options(noreturn));
@@ -988,13 +1033,18 @@ pub mod warp_future {
 pub mod prelude {
     // --- High-level hostcall API ---
     pub use crate::hostcall::{gpu_hostcall_print, gpu_hostcall_release, gpu_hostcall_request};
-    pub use crate::panic::gpu_panic_init;
+    pub use crate::panic::{gpu_panic_init, gpu_result_init};
     pub use crate::sideband::{gpu_bulk_read, gpu_bulk_write, sideband_alloc, sideband_reset};
 
     // --- WarpFuture API ---
     pub use crate::warp_future::{
         broadcast_u32, warp_hostcall_submit, warp_hostcall_wait_u64, WarpContext, WarpExecutor,
         WarpFuture, WarpPoll,
+    };
+
+    // --- Error types ---
+    pub use gpu_protocol::{
+        GpuError, GpuKernelResult, TAG_ERR, TAG_OK, TAG_UNINIT,
     };
 
     // --- Commonly needed protocol constants ---

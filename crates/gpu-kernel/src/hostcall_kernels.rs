@@ -39,7 +39,7 @@ pub unsafe extern "ptx-kernel" fn hostcall_print_hello(buf: *mut u8, result: *mu
 
     // Hardcoded message — the bytes live in GPU .const memory
     let msg: &[u8; 15] = b"Hello from GPU!";
-    let ok = gpu_runtime::hostcall::gpu_hostcall_print(buf, msg.as_ptr(), 15);
+    let ok = gpu_runtime::hostcall::gpu_hostcall_print(buf, msg.as_ptr(), 15).is_ok();
     sys_store_release_u32(result, if ok { 1 } else { 0 });
 }
 
@@ -85,8 +85,7 @@ pub unsafe extern "ptx-kernel" fn hostcall_print_multi(buf: *mut u8, success_cou
     msg_buf[pos] = b'0' + n as u8;
     pos += 1;
 
-    let ok = gpu_runtime::hostcall::gpu_hostcall_print(buf, msg_buf.as_ptr(), pos as u32);
-    if ok {
+    if gpu_runtime::hostcall::gpu_hostcall_print(buf, msg_buf.as_ptr(), pos as u32).is_ok() {
         gpu_atomics::sys_fetch_add_u32(success_count, 1);
     }
 }
@@ -676,8 +675,7 @@ pub unsafe extern "ptx-kernel" fn sharded_print_test(buf: *mut u8, success_count
     msg_buf[pos] = b'0' + n as u8;
     pos += 1;
 
-    let ok = gpu_runtime::hostcall::gpu_hostcall_print(buf, msg_buf.as_ptr(), pos as u32);
-    if ok {
+    if gpu_runtime::hostcall::gpu_hostcall_print(buf, msg_buf.as_ptr(), pos as u32).is_ok() {
         gpu_atomics::sys_fetch_add_u32(success_count, 1);
     }
 }

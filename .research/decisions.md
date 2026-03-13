@@ -130,3 +130,14 @@ Record important technical decisions here as they emerge from research.
 - **Trade-offs**: Pre-allocation is less "autonomous" than hostcall streaming, but for inference the weights are deterministic inputs, not runtime decisions. The kernel's autonomy is in its compute graph execution, not data loading.
 - **Buffer layout**: Each weight tensor is a separate `CudaSlice<T>` on the host side, passed as raw pointer to the kernel. GEMM weights use column-major packed f16x2 format (per ADR-011). Bias/gamma/beta are plain f32 arrays.
 - **Sources**: transformer-layer.5-c1
+
+### ADR-013: GPU→Host Error Propagation via Result Buffer
+
+- **Date**: 2026-03-13
+- **Status**: accepted (implemented in gpu-error-propagation.2-4)
+- **Context**: GPU kernels currently have no way to report errors to the host except via panic (which traps and kills the CUDA context) or writing ad-hoc status values to output buffers. std::io returns Result, so proper error handling is needed before real std can work on GPU.
+- **Decision**: Define a 64-byte `GpuKernelResult` struct passed as the last kernel parameter. TAG_OK/TAG_ERR/TAG_UNINIT tag field. GPU writes error info (category, errno, thread/block idx, message). Host reads after synchronization. `?` operator works through standard Rust Result mechanics with a wrapper function at kernel entry.
+- **Rationale**: (1) Kernel parameter is explicit and composable — no global state. (2) No hostcall protocol change needed. (3) Works with both no_std and std kernels. (4) TAG_UNINIT (0xDEAD_BEEF) detects kernel crashes. (5) Standard Rust error handling patterns — no proc macro required.
+- **Layout**: `[tag:u32][category:u16][errno:u16][thread_idx:u16][block_idx:u16][msg_len:u32][msg:48B]` = 64 bytes.
+- **Alternatives**: (a) Embed in hostcall buffer header — breaks protocol, not composable. (b) Hostcall error channel — adds latency, trap still kills context. (c) Global error buffer — not composable with concurrent launches.
+- **Sources**: gpu-error-propagation.1-c181

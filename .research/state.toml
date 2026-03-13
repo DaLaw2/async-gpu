@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 180     # Monotonic counter, incremented after each completed phase
-completed_tasks = 180
+total_cycles = 186     # Monotonic counter, incremented after each completed phase
+completed_tasks = 185
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.select"
-current_task_id = ""
-last_summary = "bs48: Spawned 3 themes (gpu-error-propagation, std-migration, std-fs) + 11 tasks for real-std and gpu-error epics. Priority: error propagation first, then std migration. Batch 1: gpu-error-propagation.1, std-migration.1, std-fs.1, host-sdk.2."
+current_step = "do.execute"
+current_task_id = "gpu-error-propagation.4"
+last_summary = "gpu-error-propagation theme COMPLETE (4/4 tasks). GpuError + GpuKernelResult types, Result-based hostcall API, host-side check_kernel_result(), panic→result buffer. std-migration.1 also done. Next: std-migration.2, std-fs.2+3."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 48
@@ -170,7 +170,7 @@ success_criteria = [
 [[themes]]
 id = "gpu-error-propagation"
 title = "GPU→host error propagation via output buffer convention"
-status = "active"
+status = "completed"
 spawned_by = "bs48"
 epic = "gpu-error"
 goal = "Define and implement GPU→host error propagation using output buffer convention"
@@ -459,7 +459,7 @@ id = "gpu-error-propagation.1"
 theme = "gpu-error-propagation"
 title = "Design GpuKernelResult ABI + error buffer layout"
 kind = "design"
-status = "pending"
+status = "done"
 depends_on = []
 spawned_by = "bs48"
 research_questions = [
@@ -473,7 +473,7 @@ id = "gpu-error-propagation.2"
 theme = "gpu-error-propagation"
 title = "Implement GPU-side error checking in hostcall helpers"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["gpu-error-propagation.1"]
 spawned_by = "bs48"
 research_questions = [
@@ -486,7 +486,7 @@ id = "gpu-error-propagation.3"
 theme = "gpu-error-propagation"
 title = "Implement host-side error extraction from kernel result buffer"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["gpu-error-propagation.1"]
 spawned_by = "bs48"
 research_questions = [
@@ -499,7 +499,7 @@ id = "gpu-error-propagation.4"
 theme = "gpu-error-propagation"
 title = "Non-destructive panic handler (error buffer + cooperative exit)"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["gpu-error-propagation.1"]
 spawned_by = "bs48"
 research_questions = [
@@ -515,7 +515,7 @@ id = "std-migration.1"
 theme = "std-migration"
 title = "Create gpu-kernel-std crate + verify println/Vec/format work"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = []
 spawned_by = "bs48"
 research_questions = [
@@ -557,7 +557,7 @@ id = "std-fs.1"
 theme = "std-fs"
 title = "Add SERVICE_FS_* hostcall services + host-side handlers"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = []
 spawned_by = "bs48"
 research_questions = [

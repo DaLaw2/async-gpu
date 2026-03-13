@@ -55,7 +55,8 @@ run "check gpu-host" "cargo +stable check --manifest-path crates/gpu-host/Cargo.
 
 # --- PTX kernel builds (nightly + nvptx64) ---
 # Must cd into each dir so .cargo/config.toml (target, build-std) is picked up.
-NIGHTLY="nightly-2026-03-11"
+# Read nightly version from rust-toolchain.toml (single source of truth)
+NIGHTLY=$(grep '^channel' rust-toolchain.toml | sed 's/.*= *"\(.*\)"/\1/')
 PTX_KERNELS="crates/gpu-kernel crates/async-hostcall-test crates/async-pipeline-test crates/embassy-test crates/multi-warp-test crates/gpu-std-test examples/hello-gpu/kernel examples/async-io/kernel examples/vector-math/kernel"
 for k in $PTX_KERNELS; do
     name=$(basename "$k")

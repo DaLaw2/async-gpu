@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 201     # Monotonic counter, incremented after each completed phase
-completed_tasks = 200
+total_cycles = 204     # Monotonic counter, incremented after each completed phase
+completed_tasks = 203
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
 current_task_id = ""
-last_summary = "build-automation theme COMPLETE (2/2). PTX stubs auto-discovered from include_str! calls. CI simplified: build.yml calls ci-lint.sh (single source of truth). 3 themes done this session (host-sdk, docs, build-automation). Remaining: workspace-consolidation (3 tasks)."
+last_summary = "ALL codebase-health themes COMPLETE. workspace: host crates in root workspace (gpu-host, gpu-protocol, warp-macro); GPU crates isolated (Cargo limitation). Nightly version single-sourced from rust-toolchain.toml. 4 themes completed this session. No pending tasks remain."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 50
@@ -117,7 +117,7 @@ success_criteria = [
 [[themes]]
 id = "workspace-consolidation"
 title = "Consolidate workspace, configs, and toolchain version"
-status = "active"
+status = "completed"
 spawned_by = "user"
 epic = "codebase-health"
 goal = "Single Cargo workspace, deduplicated .cargo/config.toml, single-source nightly version"
@@ -217,7 +217,7 @@ id = "workspace.1"
 theme = "workspace-consolidation"
 title = "Consolidate all crates into single Cargo workspace"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = []
 spawned_by = "user"
 research_questions = [
@@ -231,7 +231,7 @@ id = "workspace.2"
 theme = "workspace-consolidation"
 title = "Deduplicate .cargo/config.toml across kernel crates"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["workspace.1"]
 spawned_by = "user"
 research_questions = [
@@ -244,7 +244,7 @@ id = "workspace.3"
 theme = "workspace-consolidation"
 title = "Single-source nightly toolchain version"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["workspace.1"]
 spawned_by = "user"
 research_questions = [

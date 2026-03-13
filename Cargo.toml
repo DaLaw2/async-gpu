@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/gpu-host",
+    "crates/gpu-protocol",
     "crates/warp-macro",
 ]
 resolver = "2"

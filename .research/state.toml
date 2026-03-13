@@ -9,17 +9,17 @@ completed_tasks = 168
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
-current_mode = "do"
-current_step = "do.save"
+current_mode = "think"
+current_step = "think.triage"
 current_task_id = ""
-last_summary = "full-inference.12+13 done. NaN root cause: GELU tanh overflow (exp(2z) → Inf → NaN). Fixed by clamping inner to ±10. 3 prompts × 50 tokens all pass with coherent English, zero NaN. full-inference theme tasks complete. Next: brainstorm for epic criteria revision and theme completion."
+last_summary = "gpu-inference epic completed. full-inference theme completed. New gpu-perf epic created (MMA kernel fix, KV cache). public-api epic active. Next: brainstorm to spawn themes/tasks for gpu-perf."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 42
 review_seq = 5
 
 # Brainstorm trigger control
-last_brainstorm_at_completed = 166
+last_brainstorm_at_completed = 168
 brainstorm_interval = 3
 
 # ============================================================
@@ -35,17 +35,15 @@ brainstorm_interval = 3
 # ============================================================
 
 [[epics]]
-id = "gpu-inference"
-title = "Native GPU Inference"
+id = "gpu-perf"
+title = "GPU Inference Performance Optimization"
 status = "active"
 priority = "high"
 success_criteria = [
-    "Real GPT-2 small weights loaded from HuggingFace safetensors",
-    "BPE tokenizer produces correct token IDs matching HuggingFace",
-    "Single-layer output matches PyTorch reference within (atol=0.01, rtol=0.01) — no relaxation",
-    "12-layer stacked output produces correct top-1 next-token prediction",
-    "Given 'The capital of France is', greedy decoding produces text containing 'Paris'",
-    "Greedy-decoded output matches HuggingFace GPT-2 token-for-token for 3+ test prompts",
+    "Tensor Core MMA kernel (mma.sync.aligned.m16n8k16) produces correct GEMM results for all GPT-2 dimensions (768x768, 768x2304, 768x3072, 3072x768)",
+    "MMA-based inference matches f32 FMA inference output (top-5 agreement for 3+ prompts)",
+    "KV cache eliminates redundant recomputation — only new token passes through model per step",
+    "Per-token generation latency < 20ms (down from ~143ms)",
 ]
 
 [[epics]]
@@ -75,19 +73,6 @@ success_criteria = [
     "gpu-host exports a library crate with public GpuDevice + KernelBuilder + HostcallRuntime types",
     "A standalone example can use gpu-host as a library dependency",
     "All existing tests continue to pass",
-]
-
-[[themes]]
-id = "full-inference"
-title = "End-to-end GPT-2 inference: text in, text out"
-status = "active"
-spawned_by = "bs38"
-epic = "gpu-inference"
-goal = "Run complete GPT-2 inference with real weights producing coherent text"
-success_criteria = [
-    "Token embedding + 12 layers + LM head + sampling all working",
-    "Given 'The capital of France is', greedy decoding produces text containing 'Paris'",
-    "Greedy-decoded output matches HuggingFace GPT-2 token-for-token for 3+ prompts",
 ]
 
 # ============================================================

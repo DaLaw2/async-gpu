@@ -25,7 +25,19 @@ fn main() {
         .expect("Failed to run cargo for kernel compilation. Is nightly-2026-03-11 installed?");
 
     if !status.success() {
-        panic!("Kernel PTX compilation failed");
+        let ptx_fallback = kernel_dir
+            .join("target")
+            .join("nvptx64-nvidia-cuda")
+            .join("release")
+            .join("vector_math_kernel.ptx");
+        if ptx_fallback.exists() {
+            eprintln!(
+                "cargo:warning=Kernel compilation failed; using cached PTX at {:?}",
+                ptx_fallback
+            );
+        } else {
+            panic!("Kernel PTX compilation failed and no cached PTX found");
+        }
     }
 
     let ptx_src = kernel_dir

@@ -45,7 +45,7 @@ pub unsafe extern "ptx-kernel" fn write_pipeline(buf: *mut u8, result: *mut u32)
         let data = contents[i];
 
         // Open for writing
-        let (pkt, ok) = gpu_hostcall_request(buf, SERVICE_OPEN, |payload| {
+        let pkt = match gpu_hostcall_request(buf, SERVICE_OPEN, |payload| {
             let slot0: u64 = (path.len() as u64) | ((FILE_OPEN_WRITE_CREATE as u64) << 32);
             core::ptr::write_volatile(payload as *mut u64, slot0);
             let dst = payload.add(8);
@@ -54,12 +54,14 @@ pub unsafe extern "ptx-kernel" fn write_pipeline(buf: *mut u8, result: *mut u32)
                 core::ptr::write_volatile(dst.add(j), path[j]);
                 j += 1;
             }
-        });
+        }) {
+            Ok(p) => p,
+            Err(_) => {
+                i += 1;
+                continue;
+            }
+        };
 
-        if pkt.is_null() || !ok {
-            i += 1;
-            continue;
-        }
         let fd = core::ptr::read_volatile(pkt.add(PKT_OFF_PAYLOAD) as *const u64);
         gpu_hostcall_release(buf, pkt);
 
@@ -69,7 +71,7 @@ pub unsafe extern "ptx-kernel" fn write_pipeline(buf: *mut u8, result: *mut u32)
         }
 
         // Write data
-        let (pkt, wrote_ok) = gpu_hostcall_request(buf, SERVICE_WRITE, |payload| {
+        let wrote_ok = match gpu_hostcall_request(buf, SERVICE_WRITE, |payload| {
             core::ptr::write_volatile(payload as *mut u64, fd);
             core::ptr::write_volatile(payload.add(8) as *mut u64, data.len() as u64);
             let dst = payload.add(16);
@@ -78,17 +80,19 @@ pub unsafe extern "ptx-kernel" fn write_pipeline(buf: *mut u8, result: *mut u32)
                 core::ptr::write_volatile(dst.add(j), data[j]);
                 j += 1;
             }
-        });
-        if !pkt.is_null() {
-            gpu_hostcall_release(buf, pkt);
-        }
+        }) {
+            Ok(p) => {
+                gpu_hostcall_release(buf, p);
+                true
+            }
+            Err(_) => false,
+        };
 
         // Close
-        let (pkt, _) = gpu_hostcall_request(buf, SERVICE_CLOSE, |payload| {
+        if let Ok(p) = gpu_hostcall_request(buf, SERVICE_CLOSE, |payload| {
             core::ptr::write_volatile(payload as *mut u64, fd);
-        });
-        if !pkt.is_null() {
-            gpu_hostcall_release(buf, pkt);
+        }) {
+            gpu_hostcall_release(buf, p);
         }
 
         if wrote_ok {
@@ -124,7 +128,7 @@ pub unsafe extern "ptx-kernel" fn transform_pipeline(
 
     // Step 1: Read source file via sideband
     let path = b"gpu_file_0.txt";
-    let (pkt, ok) = gpu_hostcall_request(buf, SERVICE_OPEN, |payload| {
+    let pkt = match gpu_hostcall_request(buf, SERVICE_OPEN, |payload| {
         let slot0: u64 = (path.len() as u64) | ((FILE_OPEN_READ as u64) << 32);
         core::ptr::write_volatile(payload as *mut u64, slot0);
         let dst = payload.add(8);
@@ -133,12 +137,14 @@ pub unsafe extern "ptx-kernel" fn transform_pipeline(
             core::ptr::write_volatile(dst.add(i), path[i]);
             i += 1;
         }
-    });
+    }) {
+        Ok(p) => p,
+        Err(_) => {
+            sys_store_release_u32(result, 0);
+            return;
+        }
+    };
 
-    if pkt.is_null() || !ok {
-        sys_store_release_u32(result, 0);
-        return;
-    }
     let fd = core::ptr::read_volatile(pkt.add(PKT_OFF_PAYLOAD) as *const u64);
     gpu_hostcall_release(buf, pkt);
     if fd == FILE_ERROR_SENTINEL {
@@ -150,11 +156,10 @@ pub unsafe extern "ptx-kernel" fn transform_pipeline(
     let n = gpu_bulk_read(buf, sideband, fd, read_buf.as_mut_ptr(), 256);
 
     // Close source
-    let (pkt, _) = gpu_hostcall_request(buf, SERVICE_CLOSE, |payload| {
+    if let Ok(p) = gpu_hostcall_request(buf, SERVICE_CLOSE, |payload| {
         core::ptr::write_volatile(payload as *mut u64, fd);
-    });
-    if !pkt.is_null() {
-        gpu_hostcall_release(buf, pkt);
+    }) {
+        gpu_hostcall_release(buf, p);
     }
 
     if n == 0 {
@@ -177,7 +182,7 @@ pub unsafe extern "ptx-kernel" fn transform_pipeline(
 
     // Step 3: Write transformed data
     let out_path = b"gpu_upper.txt";
-    let (pkt, ok) = gpu_hostcall_request(buf, SERVICE_OPEN, |payload| {
+    let pkt = match gpu_hostcall_request(buf, SERVICE_OPEN, |payload| {
         let slot0: u64 = (out_path.len() as u64) | ((FILE_OPEN_WRITE_CREATE as u64) << 32);
         core::ptr::write_volatile(payload as *mut u64, slot0);
         let dst = payload.add(8);
@@ -186,12 +191,14 @@ pub unsafe extern "ptx-kernel" fn transform_pipeline(
             core::ptr::write_volatile(dst.add(i), out_path[i]);
             i += 1;
         }
-    });
+    }) {
+        Ok(p) => p,
+        Err(_) => {
+            sys_store_release_u32(result, 0);
+            return;
+        }
+    };
 
-    if pkt.is_null() || !ok {
-        sys_store_release_u32(result, 0);
-        return;
-    }
     let out_fd = core::ptr::read_volatile(pkt.add(PKT_OFF_PAYLOAD) as *const u64);
     gpu_hostcall_release(buf, pkt);
     if out_fd == FILE_ERROR_SENTINEL {
@@ -200,7 +207,7 @@ pub unsafe extern "ptx-kernel" fn transform_pipeline(
     }
 
     let write_len = if n > 48 { 48 } else { n };
-    let (pkt, wrote_ok) = gpu_hostcall_request(buf, SERVICE_WRITE, |payload| {
+    let wrote_ok = match gpu_hostcall_request(buf, SERVICE_WRITE, |payload| {
         core::ptr::write_volatile(payload as *mut u64, out_fd);
         core::ptr::write_volatile(payload.add(8) as *mut u64, write_len as u64);
         let dst = payload.add(16);
@@ -209,17 +216,19 @@ pub unsafe extern "ptx-kernel" fn transform_pipeline(
             core::ptr::write_volatile(dst.add(i), upper_buf[i]);
             i += 1;
         }
-    });
-    if !pkt.is_null() {
-        gpu_hostcall_release(buf, pkt);
-    }
+    }) {
+        Ok(p) => {
+            gpu_hostcall_release(buf, p);
+            true
+        }
+        Err(_) => false,
+    };
 
     // Close output
-    let (pkt, _) = gpu_hostcall_request(buf, SERVICE_CLOSE, |payload| {
+    if let Ok(p) = gpu_hostcall_request(buf, SERVICE_CLOSE, |payload| {
         core::ptr::write_volatile(payload as *mut u64, out_fd);
-    });
-    if !pkt.is_null() {
-        gpu_hostcall_release(buf, pkt);
+    }) {
+        gpu_hostcall_release(buf, p);
     }
 
     // Print confirmation

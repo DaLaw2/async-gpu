@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 195     # Monotonic counter, incremented after each completed phase
-completed_tasks = 194
+total_cycles = 197     # Monotonic counter, incremented after each completed phase
+completed_tasks = 196
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.save"
 current_task_id = ""
-last_summary = "host-sdk.2+3 done: gpu-host extracted as SDK lib (GpuRuntime, HostcallBuffer, MappedBuffer) with feature-gated gpt2 binary. hello-gpu example rewritten to use SDK as library dep. public-api criterion 2 met. Next: host-sdk.4 (more examples) or workspace.1."
+last_summary = "host-sdk theme COMPLETE (5/5 tasks). All 3 examples (hello-gpu, async-io, vector-math) use SDK. async-io kernel updated to Result API. CI lint covers all examples. public-api: 3/4 criteria met (1=lib, 2=example, 3=build). Next: workspace/docs tasks."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 49
@@ -104,7 +104,7 @@ success_criteria = [
 [[themes]]
 id = "host-sdk"
 title = "Extract reusable host-side SDK library from gpu-host"
-status = "active"
+status = "completed"
 spawned_by = "bs38"
 epic = "public-api"
 goal = "Extract a library crate from gpu-host that provides clean API for kernel management, hostcall runtime, and memory management"
@@ -189,7 +189,7 @@ id = "host-sdk.4"
 theme = "host-sdk"
 title = "Two additional examples (async-io, compute) with documentation"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["host-sdk.2"]
 spawned_by = "bs47"
 research_questions = [
@@ -202,7 +202,7 @@ id = "host-sdk.5"
 theme = "host-sdk"
 title = "Automate build system — single cargo command"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends_on = ["host-sdk.2"]
 spawned_by = "bs47"
 research_questions = [

@@ -54,14 +54,16 @@ run "check gpu-host" "cargo +stable check --manifest-path crates/gpu-host/Cargo.
 # --- PTX kernel builds (nightly + nvptx64) ---
 # Must cd into each dir so .cargo/config.toml (target, build-std) is picked up.
 NIGHTLY="nightly-2026-03-11"
-PTX_KERNELS="crates/gpu-kernel crates/async-hostcall-test crates/async-pipeline-test crates/embassy-test crates/multi-warp-test crates/gpu-std-test examples/hello-gpu/kernel"
+PTX_KERNELS="crates/gpu-kernel crates/async-hostcall-test crates/async-pipeline-test crates/embassy-test crates/multi-warp-test crates/gpu-std-test examples/hello-gpu/kernel examples/async-io/kernel examples/vector-math/kernel"
 for k in $PTX_KERNELS; do
     name=$(basename "$k")
     run "ptx $name" "(cd $k && cargo +$NIGHTLY build --release)"
 done
 
-# --- hello-gpu example host ---
+# --- example hosts ---
 run "check hello-gpu-host" "cargo +stable check --manifest-path examples/hello-gpu/host/Cargo.toml"
+run "check async-io-host" "cargo +stable check --manifest-path examples/async-io/host/Cargo.toml"
+run "check vector-math-host" "cargo +stable check --manifest-path examples/vector-math/host/Cargo.toml"
 
 echo ""
 if [ "$FAIL" -eq 0 ]; then

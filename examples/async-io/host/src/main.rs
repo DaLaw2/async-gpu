@@ -1,54 +1,38 @@
 //! Async I/O — host binary demonstrating multi-step file I/O from GPU.
 //!
-//! Runs two GPU kernels:
+//! Runs two GPU kernels via the gpu-host SDK:
 //! 1. write_pipeline — write 3 files from GPU in sequence
 //! 2. transform_pipeline — read a file, uppercase on GPU, write result
+//!
+//! Uses the three core SDK types:
+//! - [`GpuRuntime`] — device init, PTX loading, kernel launch
+//! - [`HostcallBuffer`] — GPU-host RPC communication
+//! - [`MappedBuffer`] — RAII pinned device-mapped memory
 
-use cudarc::driver::sys::{self, lib as cuda_lib};
-use cudarc::driver::{CudaDevice, LaunchAsync, LaunchConfig};
-use gpu_host::hostcall::HostcallBuffer;
+use cudarc::driver::LaunchAsync;
+use gpu_host::{GpuHostError, GpuRuntime, HostcallBuffer, MappedBuffer};
 
 const KERNEL_PTX: &str = include_str!(concat!(env!("OUT_DIR"), "/kernel.ptx"));
 
-unsafe fn alloc_mapped_u32() -> (*mut u32, sys::CUdeviceptr) {
-    let cu = cuda_lib();
-    let mut host_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
-    let flags = sys::CU_MEMHOSTALLOC_DEVICEMAP | sys::CU_MEMHOSTALLOC_PORTABLE;
-    let result = cu.cuMemHostAlloc(&mut host_ptr, std::mem::size_of::<u32>(), flags);
-    assert_eq!(result, sys::CUresult::CUDA_SUCCESS, "cuMemHostAlloc failed");
-
-    let mut dev_ptr: sys::CUdeviceptr = 0;
-    let result = cu.cuMemHostGetDevicePointer_v2(&mut dev_ptr, host_ptr, 0);
-    assert_eq!(
-        result,
-        sys::CUresult::CUDA_SUCCESS,
-        "cuMemHostGetDevicePointer failed"
-    );
-
-    (host_ptr as *mut u32, dev_ptr)
-}
-
-fn main() {
+fn main() -> gpu_host::Result<()> {
     println!("=== Async I/O Example ===\n");
 
-    let dev = CudaDevice::new(0).expect("Failed to initialize CUDA device");
+    let rt = GpuRuntime::new(0)?;
     println!("[host] CUDA device initialized.");
 
-    let ptx = cudarc::nvrtc::Ptx::from_src(KERNEL_PTX);
-    dev.load_ptx(ptx, "asyncio", &["write_pipeline", "transform_pipeline"])
-        .expect("Failed to load PTX module");
+    rt.load_ptx(
+        KERNEL_PTX,
+        "asyncio",
+        &["write_pipeline", "transform_pipeline"],
+    )?;
     println!("[host] PTX module loaded.\n");
 
-    let hcbuf = HostcallBuffer::new(8).expect("HostcallBuffer allocation failed");
-    let (result_ptr, result_dev) = unsafe { alloc_mapped_u32() };
+    let hcbuf = HostcallBuffer::new(8)?;
+    let mut result_buf = MappedBuffer::<u32>::new_zeroed(1)?;
 
-    let cfg = LaunchConfig {
-        grid_dim: (1, 1, 1),
-        block_dim: (32, 1, 1),
-        shared_mem_bytes: 0,
-    };
+    let cfg = GpuRuntime::launch_config((1, 1, 1), (32, 1, 1), 0);
 
-    std::thread::scope(|scope| {
+    std::thread::scope(|scope| -> gpu_host::Result<()> {
         let listener = scope.spawn(|| {
             hcbuf.listen(|msg| {
                 let s = std::str::from_utf8(msg).unwrap_or("<invalid utf8>");
@@ -58,19 +42,19 @@ fn main() {
 
         // ---- Demo 1: write_pipeline ----
         println!("--- Demo 1: write_pipeline (3 files from GPU) ---");
-        unsafe { std::ptr::write_volatile(result_ptr, 0) };
+        unsafe { result_buf.write(0, 0) };
         {
-            let f = dev.get_func("asyncio", "write_pipeline").unwrap();
+            let f = rt
+                .get_func("asyncio", "write_pipeline")
+                .ok_or(GpuHostError::KernelNotFound("write_pipeline"))?;
             unsafe {
-                f.launch(cfg, (hcbuf.dev_ptr as u64, result_dev as u64))
-                    .unwrap();
+                f.launch(cfg, (hcbuf.dev_ptr as u64, result_buf.dev_ptr() as u64))?;
             }
-            dev.synchronize().unwrap();
+            rt.synchronize()?;
             std::thread::sleep(std::time::Duration::from_millis(50));
-            let r = unsafe { std::ptr::read_volatile(result_ptr) };
+            let r = unsafe { result_buf.read(0) };
             println!("[host] write_pipeline: {}/3 files written", r);
 
-            // Verify files exist
             for i in 0..3 {
                 let name = format!("gpu_file_{i}.txt");
                 if let Ok(content) = std::fs::read_to_string(&name) {
@@ -81,24 +65,25 @@ fn main() {
         }
 
         // ---- Demo 2: transform_pipeline ----
-        println!("--- Demo 2: transform_pipeline (read → uppercase → write) ---");
-        unsafe { std::ptr::write_volatile(result_ptr, 0) };
+        println!("--- Demo 2: transform_pipeline (read -> uppercase -> write) ---");
+        unsafe { result_buf.write(0, 0) };
         {
-            let f = dev.get_func("asyncio", "transform_pipeline").unwrap();
+            let f = rt
+                .get_func("asyncio", "transform_pipeline")
+                .ok_or(GpuHostError::KernelNotFound("transform_pipeline"))?;
             unsafe {
                 f.launch(
                     cfg,
                     (
                         hcbuf.dev_ptr as u64,
                         hcbuf.sideband_dev_ptr as u64,
-                        result_dev as u64,
+                        result_buf.dev_ptr() as u64,
                     ),
-                )
-                .unwrap();
+                )?;
             }
-            dev.synchronize().unwrap();
+            rt.synchronize()?;
             std::thread::sleep(std::time::Duration::from_millis(50));
-            let r = unsafe { std::ptr::read_volatile(result_ptr) };
+            let r = unsafe { result_buf.read(0) };
             println!(
                 "[host] transform_pipeline: {}",
                 if r == 1 { "PASSED" } else { "FAILED" }
@@ -111,13 +96,10 @@ fn main() {
 
         hcbuf.signal_shutdown();
         let _ = listener;
-    });
+        Ok(())
+    })?;
 
     // Cleanup
-    unsafe {
-        let cu = cuda_lib();
-        cu.cuMemFreeHost(result_ptr as *mut std::ffi::c_void);
-    }
     for name in &[
         "gpu_file_0.txt",
         "gpu_file_1.txt",
@@ -128,4 +110,5 @@ fn main() {
     }
 
     println!("=== Async I/O example complete! ===");
+    Ok(())
 }

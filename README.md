@@ -2,7 +2,7 @@
 
 **What if the GPU could drive its own computation?** Open files, read data, branch on results, loop until convergence, write output — all from GPU code, with zero CPU orchestration between steps.
 
-async_gpu makes this real: **Rust async/await running natively on NVIDIA GPUs**, with a proc macro that turns sequential GPU code into warp-cooperative state machines.
+async_gpu makes this real: **Rust async/await running natively on NVIDIA GPUs**, with a proc macro that turns sequential GPU code into warp-cooperative state machines — and GPU compute kernels powerful enough to run **end-to-end GPT-2 inference** entirely from Rust inline PTX.
 
 ```rust
 #[warp_async]
@@ -104,6 +104,24 @@ A single kernel launch where the GPU self-coordinates an 8-step I/O pipeline + p
     rank 3: id=18 score=0.0913
 ```
 
+### GPT-2 Inference (124M Parameters)
+
+End-to-end transformer inference running entirely on GPU — token embedding, 12 transformer layers (LayerNorm → Multi-Head Attention → FFN → residual connections), LM head projection, and greedy autoregressive generation:
+
+```
+--- GPT-2 Forward Pass (12 layers) ---
+  Prompt: "The capital of France is"
+  Token IDs: [464, 3139, 286, 4881, 318]
+  Forward pass: 12 layers × (LayerNorm → MHA → FFN → residual)
+  Elapsed: ~30ms (f16 Tensor Core) / ~34ms (f32 FMA)
+
+--- Greedy Generation (20 tokens) ---
+  "The capital of France is - and the French government has been ..."
+  59ms/token (full recompute, no KV cache)
+```
+
+All compute kernels are written in pure Rust with inline PTX assembly — Tensor Core MMA (`mma.sync.aligned.m16n8k16`), FlashAttention with causal masking, tiled GEMM with shared memory, LayerNorm, GELU, softmax. Real GPT-2 weights loaded from HuggingFace safetensors format with a custom BPE tokenizer validated against HuggingFace.
+
 ### GPU-Driven Multi-Step Pipeline with Branching
 
 The GPU autonomously chooses processing paths based on parameters and hostcall results:
@@ -174,6 +192,19 @@ All 32 GPU lanes in a warp share a single state machine:
 - **Compute phases**: Each lane works independently on its data slice
 - **Reconvergence**: `syncwarp()` ensures all lanes rejoin before the next I/O phase
 
+### GPU Compute Kernels
+
+All compute is written in Rust with inline PTX assembly — no CUDA C++, no cuBLAS:
+
+| Kernel | Implementation |
+|--------|---------------|
+| **GEMM** | Tensor Core `mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32`, multi-block tiling, f32 accumulation. Handles arbitrary dimensions up to 768x768+. Also: pure f32 FMA variant for precision validation. |
+| **FlashAttention** | Tiled attention with online softmax, causal masking, multi-head support. Scales to seq=256+. |
+| **LayerNorm** | Shared-memory parallel reduction for mean + variance, per-element affine transform. |
+| **GELU** | Approximation via `ex2.approx.f32` PTX instruction. |
+| **Softmax** | Shared-memory max reduction + exp-sum reduction, numerically stable. |
+| **Embedding** | Token + positional embedding lookup with element-wise addition. |
+
 ## Capabilities
 
 | Category | What works |
@@ -182,7 +213,8 @@ All 32 GPU lanes in a warp share a single state machine:
 | **Async runtime** | Embassy executor on GPU, `futures::join!()`, per-thread and per-warp executors |
 | **Std library** | `Vec`, `String`, `format!()` via patched std with hostcall-backed libc shim |
 | **Warp-cooperative** | `#[warp_async]` with if/else, loop/break, match, nested control flow |
-| **Compute** | Hybrid executor (WarpFuture I/O + per-thread compute), warp shuffle merge |
+| **Compute** | Tensor Core GEMM, FlashAttention, LayerNorm, GELU, softmax — all in Rust inline PTX |
+| **Inference** | End-to-end GPT-2 small (124M params): tokenize → embed → 12 transformer layers → generate |
 | **Scaling** | Multi-block with per-block sharding, 512+ concurrent threads |
 | **Safety** | GPU panic handler with visible `[GPU PANIC]` messages via hostcall |
 
@@ -200,7 +232,7 @@ async_gpu/
 │   ├── warp-macro/         #[warp_async] proc macro for WarpFuture generation
 │   └── (6 test crates)     Async pipeline, Embassy, multi-warp, std tests
 ├── examples/hello-gpu/     One-command demo (host + kernel)
-└── .research/              122 cycles of autonomous research findings
+└── .research/              163 cycles of autonomous research findings
 ```
 
 ## Performance
@@ -214,6 +246,14 @@ Hostcall round-trip latency (RTX 3060, SM 86):
 | 128 (4 warps) | ~5-6 ms | ~14K calls/s |
 
 Per-block sharding reduces CAS contention at higher thread counts. Latency is dominated by host I/O processing, not the protocol itself.
+
+GPT-2 inference (RTX 3060, SM 86, seq=5 prompt):
+
+| Metric | f16 Tensor Core | f32 FMA |
+|--------|----------------|---------|
+| 12-layer forward pass | ~30ms | ~34ms |
+| Per-token generation | ~59ms | — |
+| GEMM overhead (f32 vs f16) | baseline | +13% |
 
 <details>
 <summary>Reproduce</summary>
@@ -233,10 +273,17 @@ Numbers vary by ~30% between runs depending on GPU load.
 - **Hostcall latency**: ~20-100 us round-trip, not suitable for per-element I/O in hot loops
 - **Uniform I/O**: `#[warp_async]` requires all 32 lanes to execute the same I/O sequence
 - **Limited std**: File I/O, print, Vec, String work; networking and threading are stubbed
+- **No KV cache**: GPT-2 generation recomputes all layers per token (O(n^2) total)
 
 ## Research Background
 
-This project was built through an autonomous Think/Do/Check research loop: 122 cycles, 27 themes, 121 verified experiments, 10 architecture decision records. Full research state and findings are in `.research/`.
+This project was built through an autonomous Think/Do/Check research loop: 163 cycles, 35+ themes, 162 verified experiments, 10 architecture decision records. Full research state and findings are in `.research/`.
+
+Key research milestones:
+- **Cycles 1-47**: Foundation — toolchain, hostcall protocol, GPU atomics, libc shim, Embassy async executor, std on GPU
+- **Cycles 48-89**: Scaling — multi-block, per-block sharding, bulk data transfer, GPU panic handler, WarpFuture trait, `#[warp_async]` proc macro, hybrid executor
+- **Cycles 90-108**: Product — CI pipeline, API documentation, hello-gpu example, control flow in proc macro (if/else, loop, match)
+- **Cycles 109-163**: GPU inference — Tensor Core MMA, tiled GEMM, FlashAttention, LayerNorm, GELU, safetensors loading, BPE tokenizer, 12-layer GPT-2 forward pass, autoregressive generation
 
 Inspired by [VectorWare](https://www.vectorware.com/)'s work on [Rust std on GPU](https://www.vectorware.com/blog/rust-std-on-gpu/) and [Async/Await on GPU](https://www.vectorware.com/blog/async-await-on-gpu/).
 

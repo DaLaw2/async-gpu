@@ -106,7 +106,7 @@ A single kernel launch where the GPU self-coordinates an 8-step I/O pipeline + p
 
 ### GPT-2 Inference (124M Parameters)
 
-End-to-end transformer inference running entirely on GPU — token embedding, 12 transformer layers (LayerNorm → Multi-Head Attention → FFN → residual connections), LM head projection, and greedy autoregressive generation:
+End-to-end transformer inference on GPU — token embedding, 12 transformer layers (LayerNorm → Multi-Head Attention → FFN → residual connections), and greedy autoregressive generation. LM head (final vocab projection) runs on CPU due to non-aligned 50,257 vocab size.
 
 ```
 --- GPT-2 Forward Pass (12 layers) ---
@@ -114,13 +114,13 @@ End-to-end transformer inference running entirely on GPU — token embedding, 12
   Token IDs: [464, 3139, 286, 4881, 318]
   Forward pass: 12 layers × (LayerNorm → MHA → FFN → residual)
   Elapsed: ~30ms (f16 Tensor Core) / ~34ms (f32 FMA)
+  Top-1 prediction: "-" (f16) / " a" (f32)
 
 --- Greedy Generation (20 tokens) ---
-  "The capital of France is - and the French government has been ..."
   59ms/token (full recompute, no KV cache)
 ```
 
-All compute kernels are written in pure Rust with inline PTX assembly — Tensor Core MMA (`mma.sync.aligned.m16n8k16`), FlashAttention with causal masking, tiled GEMM with shared memory, LayerNorm, GELU, softmax. Real GPT-2 weights loaded from HuggingFace safetensors format with a custom BPE tokenizer validated against HuggingFace.
+GPT-2 small (124M params) does not predict "Paris" for this prompt — this is a model capability limitation, not a precision issue (confirmed by running pure f32 GEMM which also fails to predict "Paris"). All compute kernels are written in pure Rust with inline PTX assembly — Tensor Core MMA (`mma.sync.aligned.m16n8k16`), FlashAttention with causal masking, tiled GEMM with shared memory, LayerNorm, GELU, softmax. Real GPT-2 weights loaded from HuggingFace safetensors format with a custom BPE tokenizer validated against HuggingFace. Output has not yet been validated against PyTorch reference.
 
 ### GPU-Driven Multi-Step Pipeline with Branching
 
@@ -214,7 +214,7 @@ All compute is written in Rust with inline PTX assembly — no CUDA C++, no cuBL
 | **Std library** | `Vec`, `String`, `format!()` via patched std with hostcall-backed libc shim |
 | **Warp-cooperative** | `#[warp_async]` with if/else, loop/break, match, nested control flow |
 | **Compute** | Tensor Core GEMM, FlashAttention, LayerNorm, GELU, softmax — all in Rust inline PTX |
-| **Inference** | End-to-end GPT-2 small (124M params): tokenize → embed → 12 transformer layers → generate |
+| **Inference** | GPT-2 small (124M params): tokenize → embed → 12 transformer layers → generate (not yet validated against PyTorch) |
 | **Scaling** | Multi-block with per-block sharding, 512+ concurrent threads |
 | **Safety** | GPU panic handler with visible `[GPU PANIC]` messages via hostcall |
 

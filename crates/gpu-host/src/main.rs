@@ -437,6 +437,9 @@ fn main() -> Result<()> {
     // Buffered print test (printf-batch.3)
     tests_pipeline::run_buffered_print_test(Arc::clone(&dev))?;
 
+    // Std buffered println! test (println-buffer.2)
+    tests_std::run_std_buffered_println_test(Arc::clone(&dev))?;
+
     println!("\nAll tests PASSED.");
     Ok(())
 }

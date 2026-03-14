@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 258     # Monotonic counter, incremented after each completed phase
-completed_tasks = 258
+total_cycles = 259     # Monotonic counter, incremented after each completed phase
+completed_tasks = 259
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.execute"
-current_task_id = "println-buffer.2"
-last_summary = "println-buffer.1 done: println!() goes through gpu-kernel-std gpu_stdout_write(), NOT gpu-libc. Sideband has no global storage. Multi-block tid collision issue identified. Next: implement buffered path."
+current_step = "do.route"
+current_task_id = ""
+last_summary = "println-buffer.2 done: integrated print_buffer with gpu_stdout_write(). Fast path via STDIO_PRINT_BUF_READY flag + sideband global. Test kernel + host test added. All CI passes. println-buffer theme criteria met."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 66
@@ -215,7 +215,7 @@ status = "completed"
 id = "println-buffer"
 epic = "gpu-perf"
 title = "Integrate print_buffer with gpu-libc write() for automatic println buffering"
-status = "active"
+status = "completed"
 goal = "GPU println!() automatically uses buffered print path instead of per-call hostcall"
 success_criteria = [
     "gpu-libc write(STDOUT) routes through print_buffer when buffer is initialized",
@@ -337,7 +337,7 @@ id = "println-buffer.2"
 theme = "println-buffer"
 title = "Implement buffered println — modify gpu_stdout_write() to use print_buffer"
 kind = "experiment"
-status = "active"
+status = "done"
 deps = ["println-buffer.1"]
 deps = []
 deps = ["gpu-test-harness.1"]

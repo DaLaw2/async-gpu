@@ -9,20 +9,45 @@
 #![feature(abi_ptx)]
 #![feature(asm_experimental_arch)]
 
-use core::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
+use core::sync::atomic::{AtomicU32, AtomicU64, Ordering as AtomicOrdering};
 
 /// Global hostcall buffer pointer for stdio. Set by kernel at entry.
 static STDIO_HOSTCALL_BUF: AtomicU64 = AtomicU64::new(0);
 
+/// Global sideband buffer pointer for buffered printing. Set by `stdio_print_buffer_init`.
+static STDIO_SIDEBAND_PTR: AtomicU64 = AtomicU64::new(0);
+
+/// Flag: 1 if print buffer is initialized and ready for use.
+static STDIO_PRINT_BUF_READY: AtomicU32 = AtomicU32::new(0);
+
 /// External function called by std's CUDA PAL Stdout::write().
-/// Routes through gpu-runtime's hostcall PRINT implementation.
+/// Routes through gpu-runtime's print_buffer (if initialized) or direct hostcall.
+///
+/// When print buffer is active, messages are accumulated locally and flushed
+/// via a single SERVICE_BULK_PRINT hostcall, reducing overhead from O(N) to O(1)
+/// per flush.
 #[unsafe(no_mangle)]
 pub fn gpu_stdout_write(buf: *const u8, len: usize) -> usize {
     let hc_buf = STDIO_HOSTCALL_BUF.load(AtomicOrdering::Relaxed) as *mut u8;
     if hc_buf.is_null() || buf.is_null() || len == 0 {
         return len; // silently discard if no hostcall buffer set
     }
-    // Send via gpu-runtime's hostcall PRINT service (56-byte chunks)
+
+    // Fast path: use print_buffer if initialized (auto-flush when full)
+    if STDIO_PRINT_BUF_READY.load(AtomicOrdering::Relaxed) != 0 {
+        let sideband = STDIO_SIDEBAND_PTR.load(AtomicOrdering::Relaxed) as *mut u8;
+        if !sideband.is_null() {
+            let result = unsafe {
+                gpu_runtime::print_buffer::print(hc_buf, sideband, buf, len as u32)
+            };
+            if result.is_ok() {
+                return len;
+            }
+            // Fall through to direct hostcall on error
+        }
+    }
+
+    // Slow path: direct hostcall (56-byte chunks, one hostcall per chunk)
     const MAX_CHUNK: usize = 56;
     let mut offset = 0usize;
     while offset < len {
@@ -88,6 +113,41 @@ pub fn gpu_stdin_read(out_buf: *mut u8, max_len: usize) -> usize {
 /// Set the hostcall buffer pointer for stdio. Must be called at kernel entry.
 fn stdio_init(buf: *mut u8) {
     STDIO_HOSTCALL_BUF.store(buf as u64, AtomicOrdering::Relaxed);
+}
+
+/// Initialize buffered printing for `println!()`.
+///
+/// After this call, `gpu_stdout_write()` routes through `print_buffer` instead
+/// of issuing one hostcall per chunk. The caller MUST call
+/// `gpu_print_buffer_flush()` before kernel exit.
+#[unsafe(no_mangle)]
+pub fn stdio_print_buffer_init(buf: *mut u8, sideband: *mut u8, thread_count: u32) {
+    STDIO_HOSTCALL_BUF.store(buf as u64, AtomicOrdering::Relaxed);
+    STDIO_SIDEBAND_PTR.store(sideband as u64, AtomicOrdering::Relaxed);
+    unsafe {
+        gpu_runtime::print_buffer::init(sideband, thread_count);
+    }
+    STDIO_PRINT_BUF_READY.store(1, AtomicOrdering::Release);
+}
+
+/// Flush the print buffer for the calling thread and send all buffered
+/// messages to the host via a single SERVICE_BULK_PRINT hostcall.
+///
+/// Must be called before kernel exit when buffered printing is active.
+/// Safe to call even if the buffer was never initialized (no-op).
+#[unsafe(no_mangle)]
+pub fn gpu_print_buffer_flush() {
+    if STDIO_PRINT_BUF_READY.load(AtomicOrdering::Relaxed) == 0 {
+        return;
+    }
+    let hc_buf = STDIO_HOSTCALL_BUF.load(AtomicOrdering::Relaxed) as *mut u8;
+    let sideband = STDIO_SIDEBAND_PTR.load(AtomicOrdering::Relaxed) as *mut u8;
+    if hc_buf.is_null() || sideband.is_null() {
+        return;
+    }
+    unsafe {
+        let _ = gpu_runtime::print_buffer::flush(hc_buf, sideband);
+    }
 }
 
 // ============================================================
@@ -446,5 +506,40 @@ pub unsafe extern "ptx-kernel" fn std_multithread_vec_test(result: *mut u32) {
     // Expected: sum of (tid*10+0, tid*10+1, ..., tid*10+7) = tid*80 + 28
     unsafe {
         core::ptr::write_volatile(result.add(tid as usize), sum);
+    }
+}
+
+// ============================================================
+// println-buffer: Buffered println! via print_buffer + sideband
+// ============================================================
+
+/// Test kernel: buffered println! using print_buffer integration.
+///
+/// Initializes the print buffer, prints 6 messages via println! (which now
+/// routes through print_buffer's fast path), then flushes. The host should
+/// receive all 6 messages in a single SERVICE_BULK_PRINT hostcall instead
+/// of 6 separate SERVICE_PRINT hostcalls.
+///
+/// Launch with 1 block × 1 thread.
+#[unsafe(no_mangle)]
+pub unsafe extern "ptx-kernel" fn std_buffered_println_test(
+    buf: *mut u8,
+    sideband: *mut u8,
+    result: *mut u32,
+) {
+    stdio_print_buffer_init(buf, sideband, 1);
+
+    println!("Buffered line 1: hello from std!");
+    println!("Buffered line 2: this goes through print_buffer");
+    println!("Buffered line 3: auto-batch via sideband");
+    println!("Buffered line 4: fewer hostcalls = faster");
+    println!("Buffered line 5: almost done");
+    println!("Buffered line 6: final message");
+
+    gpu_print_buffer_flush();
+
+    // Signal success
+    unsafe {
+        core::ptr::write_volatile(result, 1);
     }
 }

@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 261     # Monotonic counter, incremented after each completed phase
-completed_tasks = 261
+total_cycles = 262     # Monotonic counter, incremented after each completed phase
+completed_tasks = 262
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.execute"
-current_task_id = "rustc-warp-async.3"
-last_summary = "rustc-warp-async.2 done: designed WarpCooperativeTransform MIR pass — 4 rewrite rules (dispatch broadcast, leader-only poll, payload broadcast, syncwarp barrier). Inline PTX asm for shfl.sync. ADR-019 recorded. Next: write patch files for skeleton MIR pass."
+current_step = "do.route"
+current_task_id = ""
+last_summary = "rustc-warp-async.3 done: skeleton WarpCooperativeTransform MIR pass in rustc-patches/ (444-line .rs + lib_rs.patch + PATCHES.md). Analyzes yield points, poll calls, dispatch switch. Phase 1 complete — all 3 theme criteria met. Next: brainstorm for Phase 2 or new direction."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 67
@@ -151,7 +151,7 @@ success_criteria = [
 id = "rustc-warp-async"
 epic = "native-warp-async"
 title = "Rustc MIR pass feasibility — warp-cooperative async/await compiler support"
-status = "active"
+status = "completed"
 goal = "Determine if rustc MIR pass can transform standard async fn into warp-cooperative coroutine"
 success_criteria = [
     "Document rustc async transform pipeline: desugaring → generator → state machine → MIR",
@@ -184,7 +184,7 @@ id = "rustc-warp-async.3"
 theme = "rustc-warp-async"
 title = "Write rustc patch files for skeleton WarpCooperativeTransform MIR pass"
 kind = "experiment"
-status = "active"
+status = "done"
 deps = ["rustc-warp-async.2"]
 
 # ============================================================

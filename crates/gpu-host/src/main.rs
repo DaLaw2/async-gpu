@@ -136,6 +136,14 @@ fn main() -> Result<()> {
                 tests_hostcall::run_flight_recorder_test(Arc::clone(&dev))?;
                 return Ok(());
             }
+            "std_future" => {
+                tests_hostcall::run_std_future_print_test(Arc::clone(&dev))?;
+                tests_hostcall::run_std_future_two_prints_test(Arc::clone(&dev))?;
+                tests_hostcall::run_warp_cooperative_future_test(Arc::clone(&dev))?;
+                tests_hostcall::run_warp_cooperative_two_futures_test(Arc::clone(&dev))?;
+                tests_hostcall::run_warp_result_future_test(Arc::clone(&dev))?;
+                return Ok(());
+            }
             _ => println!("Unknown ONLY_TEST={only}, running all tests"),
         }
     }
@@ -408,6 +416,19 @@ fn main() -> Result<()> {
     tests_scaling::run_error_propagation_test(Arc::clone(&dev))?;
 
     tests_scaling::run_multi_block_async_test(Arc::clone(&dev))?;
+
+    // Standard impl Future on GPU (warp-future-bridge.1)
+    tests_hostcall::run_std_future_print_test(Arc::clone(&dev))?;
+    tests_hostcall::run_std_future_two_prints_test(Arc::clone(&dev))?;
+
+    // Warp-cooperative Future polling (warp-future-bridge.2)
+    tests_hostcall::run_warp_cooperative_future_test(Arc::clone(&dev))?;
+
+    // Warp-cooperative two sequential futures (warp-future-bridge.3)
+    tests_hostcall::run_warp_cooperative_two_futures_test(Arc::clone(&dev))?;
+
+    // Warp-cooperative Result<T,E> broadcasting (warp-future-bridge.4)
+    tests_hostcall::run_warp_result_future_test(Arc::clone(&dev))?;
 
     println!("\nAll tests PASSED.");
     Ok(())

@@ -4,18 +4,18 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 232     # Monotonic counter, incremented after each completed phase
-completed_tasks = 231
+total_cycles = 236     # Monotonic counter, incremented after each completed phase
+completed_tasks = 235
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.execute"
+current_step = "do.save"
 current_task_id = ""
-last_summary = "gpu-debug ALL 4 CRITERIA MET: trace protocol, assert diag, flight recorder (5 events + crash dump), conditional compilation (gpu-trace feature flag). gpu-autonomous also complete. All active epics at terminal state."
+last_summary = "Phase 1 COMPLETE: all 4 warp-future-bridge tasks pass. Standard impl Future polled warp-cooperatively on GPU. Lane 0 polls, shfl broadcast, 32 lanes converge. Sequential .await + Result<T,E> ? operator all work. Next: do.save → Phase 2 (warp-async-v2)."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 55
+brainstorm_seq = 57
 review_seq = 5
 
 # Brainstorm trigger control (event-driven, no fixed interval)
@@ -91,7 +91,7 @@ success_criteria = [
 [[epics]]
 id = "gpu-debug"
 title = "GPU Debugging & Observability — structured tracing, assertions, flight recorder"
-status = "active"
+status = "completed"
 priority = "high"
 success_criteria = [
     "gpu_trace!() macro emits structured events with thread/block/warp ID + timestamp to host",
@@ -114,8 +114,21 @@ success_criteria = [
 ]
 
 [[epics]]
+id = "native-warp-async"
+title = "Native Warp-Cooperative Async/Await — compiler-level SIMT async"
+status = "active"
+priority = "high"
+success_criteria = [
+    "Standard impl Future polled warp-cooperatively (lane 0 polls, shfl broadcast)",
+    "#[warp_async] accepts async fn syntax with .await and ? operator",
+    "#[warp_cooperative] async fn compiles via rustc MIR pass and runs on GPU",
+]
+# Created from BS57 deep brainstorm. Three phases: manual proof → enhanced proc macro → rustc fork.
+# Project organization: rustc-patches/ for diff files (like std-patches/), toolchain/ gitignored.
+
+[[epics]]
 id = "gpu-autonomous"
-title = "GPU as Autonomous Compute Environment v2 — command buffer, cross-launch pipeline, iterative workflows"
+title = "GPU as Autonomous Compute Environment v3 — native warp-cooperative async/await"
 status = "active"
 priority = "high"
 success_criteria = [
@@ -123,10 +136,13 @@ success_criteria = [
     "Cross-launch pipeline: two kernels share device buffer (A writes → B reads, zero host copy), with minimal Pipeline API",
     "Data-dependent iteration: kernel autonomously loops (read → process → check convergence → iterate or finalize), pattern not yet demonstrated",
     "Hostcall session persistence: HostcallSession keeps listener + fd table + buffer alive across multiple kernel launches, packet pool reinit between launches",
+    "Standard impl Future can be polled warp-cooperatively (lane 0 polls, broadcast result via shfl.sync)",
+    "#[warp_async] accepts async fn syntax with .await and ? operator",
+    "#[warp_cooperative] async fn compiles via rustc MIR pass and runs correctly on GPU",
 ]
-# Reopened from archive 2026-03-14 with new success criteria (v2)
-# Original v1 completed: GPT-2 inference, basic autonomous compute demonstrated
-# Criteria revised after BS54 deep brainstorm (proposer + skeptic)
+# v1 completed: GPT-2 inference, basic autonomous compute
+# v2 completed: criteria 1-4 (multi-command, cross-pipeline, iteration, session persistence)
+# v3 added after BS57: native warp-cooperative async/await (3 phases)
 
 # ============================================================
 # Themes (active only — completed/parked archived in archive/)
@@ -429,6 +445,188 @@ kind = "experiment"
 status = "done"
 deps = ["iter-workflow.1"]
 
+# --- gpu-autonomous v3 themes/tasks (BS57) ---
+
+[[themes]]
+id = "rustc-survey"
+epic = "native-warp-async"
+title = "Lightweight survey of rustc async→coroutine pipeline"
+status = "completed"
+goal = "Map the MIR transform pipeline, assess warp-cooperative codegen feasibility"
+success_criteria = [
+    "Document exact MIR transform files and insertion points",
+    "1-page feasibility assessment for warp-cooperative generator lowering",
+]
+# rustc-survey.1 completed: mapped 5-stage pipeline, identified StateTransform as key pass
+# rustc-survey.2 superseded by BS57 deep brainstorm (full feasibility analysis done)
+
+[[themes]]
+id = "warp-future-bridge"
+epic = "native-warp-async"
+title = "Phase 1: Standard impl Future wrapped in warp cooperation"
+status = "completed"
+goal = "Prove standard impl Future can be polled warp-cooperatively (lane 0 polls, broadcast result)"
+success_criteria = [
+    "GpuPrintFuture as standard impl Future works on GPU (single-thread baseline)",
+    "Warp-cooperative wrapper: lane 0 polls, broadcasts Poll result, all lanes converge",
+    "Two sequential .await points with warp convergence maintained",
+    "Result<T, E> error broadcasting across warp-cooperative .await boundaries",
+]
+
+[[themes]]
+id = "warp-async-v2"
+epic = "native-warp-async"
+title = "Phase 2: Enhanced #[warp_async] with async fn syntax + ? operator"
+status = "active"
+goal = "Extend proc macro to accept async fn with .await and ? operator"
+success_criteria = [
+    "? operator works in #[warp_async] — hostcall errors propagate as Result",
+    "#[warp_async] accepts async fn syntax with .await expressions",
+    "End-to-end test with .await?, branching, error handling",
+]
+
+[[themes]]
+id = "rustc-warp"
+epic = "native-warp-async"
+title = "Phase 3: rustc MIR pass for warp-cooperative codegen"
+status = "active"
+goal = "Implement #[warp_cooperative] attribute + WarpCooperativeTransform MIR pass in rustc fork"
+success_criteria = [
+    "Forked rustc compiles #[warp_cooperative] async fn to PTX",
+    "Generated PTX contains shfl.sync + bar.warp.sync",
+    "Integration test: warp-cooperative async fn runs correctly on GPU hardware",
+]
+
+# --- Phase 1: warp-future-bridge tasks ---
+
+[[tasks]]
+id = "warp-future-bridge.1"
+theme = "warp-future-bridge"
+title = "GpuPrintFuture as standard impl Future — compile + test on GPU"
+kind = "experiment"
+status = "done"
+deps = []
+
+[[tasks]]
+id = "warp-future-bridge.2"
+theme = "warp-future-bridge"
+title = "Warp-cooperative wrapper: lane 0 polls GpuPrintFuture, broadcast result"
+kind = "experiment"
+status = "done"
+deps = ["warp-future-bridge.1"]
+
+[[tasks]]
+id = "warp-future-bridge.3"
+theme = "warp-future-bridge"
+title = "Chain two GpuPrintFutures in warp-cooperative state machine"
+kind = "experiment"
+status = "done"
+deps = ["warp-future-bridge.2"]
+
+[[tasks]]
+id = "warp-future-bridge.4"
+theme = "warp-future-bridge"
+title = "Add Result<T, E> error broadcasting across .await boundaries"
+kind = "experiment"
+status = "done"
+deps = ["warp-future-bridge.3"]
+
+# --- Phase 2: warp-async-v2 tasks ---
+
+[[tasks]]
+id = "warp-async-v2.1"
+theme = "warp-async-v2"
+title = "Design .await recognition in proc macro"
+kind = "design"
+status = "pending"
+deps = []
+
+[[tasks]]
+id = "warp-async-v2.2"
+theme = "warp-async-v2"
+title = "Implement ? operator in #[warp_async] (standalone win)"
+kind = "experiment"
+status = "pending"
+deps = []
+
+[[tasks]]
+id = "warp-async-v2.3"
+theme = "warp-async-v2"
+title = "Implement .await syntax recognition in proc macro"
+kind = "experiment"
+status = "pending"
+deps = ["warp-async-v2.1"]
+
+[[tasks]]
+id = "warp-async-v2.4"
+theme = "warp-async-v2"
+title = "End-to-end test: async fn with .await?, branching, error handling"
+kind = "experiment"
+status = "pending"
+deps = ["warp-async-v2.2", "warp-async-v2.3"]
+
+# --- Phase 3: rustc-warp tasks ---
+
+[[tasks]]
+id = "rustc-warp.1"
+theme = "rustc-warp"
+title = "Set up rustc fork, verify baseline async fn → PTX"
+kind = "experiment"
+status = "pending"
+deps = ["warp-future-bridge.4"]
+# Only start after Phase 1 proves the concept
+
+[[tasks]]
+id = "rustc-warp.2"
+theme = "rustc-warp"
+title = "MIR transformation spec — before/after for 2-yield async fn"
+kind = "design"
+status = "pending"
+deps = ["rustc-warp.1"]
+
+[[tasks]]
+id = "rustc-warp.3"
+theme = "rustc-warp"
+title = "Implement minimal WarpCooperativeTransform (single .await)"
+kind = "experiment"
+status = "pending"
+deps = ["rustc-warp.2"]
+
+[[tasks]]
+id = "rustc-warp.4"
+theme = "rustc-warp"
+title = "Extend pass: multiple yields + ? operator"
+kind = "experiment"
+status = "pending"
+deps = ["rustc-warp.3"]
+
+[[tasks]]
+id = "rustc-warp.5"
+theme = "rustc-warp"
+title = "Integration test: #[warp_cooperative] async fn on real GPU"
+kind = "experiment"
+status = "pending"
+deps = ["rustc-warp.4"]
+
+# --- rustc-survey tasks (completed) ---
+
+[[tasks]]
+id = "rustc-survey.1"
+theme = "rustc-survey"
+title = "Map rustc async fn → coroutine → state machine pipeline"
+kind = "investigation"
+status = "done"
+deps = []
+
+[[tasks]]
+id = "rustc-survey.2"
+theme = "rustc-survey"
+title = "Feasibility assessment — warp-cooperative generator lowering"
+kind = "design"
+status = "done"
+deps = ["rustc-survey.1"]
+# Superseded by BS57 deep brainstorm — full feasibility analysis completed
+
 # --- gpu-debug remaining criteria (BS55) ---
 
 [[themes]]
@@ -499,6 +697,28 @@ deps = ["cond-trace.1"]
 # ============================================================
 # Brainstorms (last 3 only — older brainstorms archived)
 # ============================================================
+
+[[brainstorms]]
+seq = 57
+at_cycle = 232
+trigger = "User: upstream acceptance irrelevant, prove warp-cooperative async is feasible"
+level = "deep"
+new_tasks_spawned = ["warp-future-bridge.1", "warp-future-bridge.2", "warp-future-bridge.3", "warp-future-bridge.4", "warp-async-v2.1", "warp-async-v2.2", "warp-async-v2.3", "warp-async-v2.4", "rustc-warp.1", "rustc-warp.2", "rustc-warp.3", "rustc-warp.4", "rustc-warp.5"]
+new_themes_spawned = ["warp-future-bridge", "warp-async-v2", "rustc-warp"]
+themes_parked = []
+themes_completed = ["rustc-survey"]
+key_insight = "Key insight: warp cooperation is a property of the CALLER's state machine, not the inner futures. Standard impl Future can be wrapped in warp-cooperative polling. Three phases: (1) manual proof, (2) enhanced proc macro with .await/?, (3) rustc MIR pass fork. LLVM problem is empirically unfounded (40+ tests confirm)."
+
+[[brainstorms]]
+seq = 56
+at_cycle = 232
+trigger = "User requested: align #[warp_async] with native async/await, including rustc modification"
+level = "deep"
+new_tasks_spawned = ["rustc-survey.1", "rustc-survey.2"]
+new_themes_spawned = ["rustc-survey"]
+themes_parked = []
+themes_completed = []
+key_insight = "Initial analysis: WarpFuture and core::future::Future are fundamentally different execution models. Superseded by BS57 which reframed the problem."
 
 [[brainstorms]]
 seq = 55

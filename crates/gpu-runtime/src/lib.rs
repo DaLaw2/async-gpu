@@ -147,7 +147,7 @@ pub mod hostcall {
 
     /// Pop a packet from a specific free stack pointer.
     #[inline(always)]
-    unsafe fn hc_pop_free_from(
+    pub unsafe fn hc_pop_free_from(
         buf: *mut u8,
         free_ptr: *mut u64,
         num_shards: u32,
@@ -1366,6 +1366,631 @@ pub mod warp_future {
         } else {
             None
         }
+    }
+}
+
+/// Standard `core::future::Future` wrappers for hostcall operations.
+///
+/// These types implement `core::future::Future` — they are per-thread,
+/// independent, and have NO warp awareness. They can be polled by any
+/// single-threaded executor (Embassy, manual spin-poll, etc.).
+///
+/// The key design insight: inner futures are standard per-thread futures.
+/// Warp cooperation is added by the CALLER's state machine (either
+/// `#[warp_async]` proc macro or a future `#[warp_cooperative]` rustc pass).
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use gpu_runtime::std_future::GpuPrintFuture;
+/// use core::future::Future;
+///
+/// // Poll manually (single-thread):
+/// let mut future = GpuPrintFuture::new(buf, b"Hello!");
+/// loop {
+///     match Pin::new_unchecked(&mut future).poll(&mut cx) {
+///         Poll::Ready(ok) => break,
+///         Poll::Pending => { /* yield / nanosleep */ }
+///     }
+/// }
+/// ```
+pub mod std_future {
+    use core::future::Future;
+    use core::pin::Pin;
+    use core::task::{Context, Poll};
+
+    use gpu_atomics::{activemask, sys_fetch_add_u64, sys_load_acquire_u32, sys_store_release_u32};
+    use gpu_protocol::*;
+
+    /// State machine for async hostcall print.
+    enum PrintState {
+        /// Initial: need to allocate packet and submit request.
+        Init,
+        /// Packet submitted, waiting for host response.
+        Waiting { pkt_idx: u16 },
+        /// Completed.
+        Done,
+    }
+
+    /// A `core::future::Future` that performs a hostcall print asynchronously.
+    ///
+    /// On first poll: allocates a packet, fills the PRINT payload, submits
+    /// to the ready stack, and rings the doorbell. Returns `Poll::Pending`.
+    ///
+    /// On subsequent polls: checks the control word for `CONTROL_READY`.
+    /// Returns `Poll::Ready(true)` on success, `Poll::Ready(false)` on error,
+    /// or `Poll::Pending` if the host hasn't responded yet.
+    ///
+    /// This is a standard per-thread future — no warp cooperation.
+    pub struct GpuPrintFuture {
+        buf: *mut u8,
+        msg: *const u8,
+        msg_len: u32,
+        state: PrintState,
+    }
+
+    // SAFETY: On GPU, all threads access the same global memory.
+    // The future is only used by one thread at a time.
+    unsafe impl Send for GpuPrintFuture {}
+
+    impl GpuPrintFuture {
+        /// Create a new GpuPrintFuture.
+        ///
+        /// `buf` is the hostcall buffer (mapped memory).
+        /// `msg` is the message to print (max 56 bytes, truncated if longer).
+        #[inline(always)]
+        pub fn new(buf: *mut u8, msg: &[u8]) -> Self {
+            Self {
+                buf,
+                msg: msg.as_ptr(),
+                msg_len: msg.len() as u32,
+                state: PrintState::Init,
+            }
+        }
+    }
+
+    impl Future for GpuPrintFuture {
+        type Output = bool;
+
+        #[inline(always)]
+        fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<bool> {
+            let this = unsafe { self.get_unchecked_mut() };
+
+            match this.state {
+                PrintState::Init => unsafe {
+                    // Pop a free packet using the hostcall module's helpers
+                    let (num_shards, shard_array_off, _) =
+                        crate::hostcall::read_shard_info(this.buf as *const u8);
+                    let free_ptr =
+                        crate::hostcall::get_free_stack_ptr(this.buf, num_shards, shard_array_off);
+
+                    let pkt_idx = crate::hostcall::hc_pop_free_from(
+                        this.buf,
+                        free_ptr,
+                        num_shards,
+                        shard_array_off,
+                    );
+                    if pkt_idx == NULL_INDEX {
+                        // Pool exhausted — backpressure, retry on next poll
+                        return Poll::Pending;
+                    }
+
+                    let pkt_off = crate::hostcall::pkt_offset(this.buf as *const u8, pkt_idx);
+                    let pkt = this.buf.add(pkt_off);
+
+                    // Fill packet header
+                    let mask = activemask();
+                    core::ptr::write_volatile(pkt.add(PKT_OFF_ACTIVE_MASK) as *mut u32, mask);
+                    core::ptr::write_volatile(pkt.add(PKT_OFF_SERVICE) as *mut u32, SERVICE_PRINT);
+                    sys_store_release_u32(pkt.add(PKT_OFF_CONTROL) as *mut u32, 0);
+
+                    // Fill payload: slot 0 = message length, then message bytes
+                    let payload = pkt.add(PKT_OFF_PAYLOAD);
+                    core::ptr::write_volatile(payload as *mut u64, this.msg_len as u64);
+
+                    let copy_len = if this.msg_len > PRINT_MAX_MSG_LEN as u32 {
+                        PRINT_MAX_MSG_LEN as u32
+                    } else {
+                        this.msg_len
+                    };
+                    let dst = payload.add(8);
+                    let mut i: u32 = 0;
+                    while i < copy_len {
+                        core::ptr::write_volatile(dst.add(i as usize), *this.msg.add(i as usize));
+                        i += 1;
+                    }
+
+                    // Thread/block metadata
+                    let block_idx = crate::nvptx_shim::block_idx_x();
+                    let thread_idx = crate::nvptx_shim::thread_idx_x();
+                    core::ptr::write_volatile(payload.add(64) as *mut u32, block_idx);
+                    core::ptr::write_volatile(payload.add(68) as *mut u32, thread_idx);
+
+                    // Mark filled, push to ready stack, ring doorbell
+                    sys_store_release_u32(pkt.add(PKT_OFF_CONTROL) as *mut u32, CONTROL_FILLED);
+
+                    let ready_ptr =
+                        crate::hostcall::get_ready_stack_ptr(this.buf, num_shards, shard_array_off);
+                    crate::hostcall::hc_push(ready_ptr, this.buf, pkt_idx);
+                    sys_fetch_add_u64(this.buf.add(BUF_OFF_DOORBELL) as *mut u64, 1);
+
+                    this.state = PrintState::Waiting { pkt_idx };
+                    Poll::Pending
+                },
+
+                PrintState::Waiting { pkt_idx } => unsafe {
+                    let pkt_off = crate::hostcall::pkt_offset(this.buf as *const u8, pkt_idx);
+                    let pkt = this.buf.add(pkt_off);
+                    let ctrl = sys_load_acquire_u32(pkt.add(PKT_OFF_CONTROL) as *const u32);
+
+                    if ctrl & CONTROL_READY != 0 {
+                        let success = (ctrl & CONTROL_ERROR) == 0;
+                        // Release packet back to free stack
+                        crate::hostcall::gpu_hostcall_release(this.buf, pkt);
+                        this.state = PrintState::Done;
+                        Poll::Ready(success)
+                    } else {
+                        Poll::Pending
+                    }
+                },
+
+                PrintState::Done => Poll::Ready(false),
+            }
+        }
+    }
+
+    /// Wrapper around `GpuPrintFuture` that returns `Result<bool, u32>`.
+    ///
+    /// Maps `true` → `Ok(true)`, `false` → `Err(1)` (print failure).
+    /// Used for testing warp-cooperative `?` operator broadcasting.
+    pub struct GpuPrintResultFuture {
+        inner: GpuPrintFuture,
+    }
+
+    impl GpuPrintResultFuture {
+        /// Create a new Result-returning print future.
+        #[inline(always)]
+        pub fn new(buf: *mut u8, msg: &[u8]) -> Self {
+            Self {
+                inner: GpuPrintFuture::new(buf, msg),
+            }
+        }
+    }
+
+    impl Future for GpuPrintResultFuture {
+        type Output = Result<bool, u32>;
+
+        #[inline(always)]
+        fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<bool, u32>> {
+            let inner = unsafe { &mut self.get_unchecked_mut().inner };
+            match unsafe { Pin::new_unchecked(inner) }.poll(cx) {
+                Poll::Ready(true) => Poll::Ready(Ok(true)),
+                Poll::Ready(false) => Poll::Ready(Err(1)), // print failure → error
+                Poll::Pending => Poll::Pending,
+            }
+        }
+    }
+
+    /// Minimal spin-poll executor for a single `Future`.
+    ///
+    /// No waker, no task queue — just polls in a loop with nanosleep yield.
+    /// This is the simplest possible executor for GPU, serving as the baseline
+    /// for warp-future-bridge experiments.
+    pub struct SpinExecutor;
+
+    impl SpinExecutor {
+        /// Run a future to completion by spin-polling.
+        ///
+        /// Returns the future's output, or `None` if MAX_POLLS exceeded.
+        ///
+        /// # Safety
+        /// The future must be safe to poll repeatedly on the current thread.
+        #[inline(always)]
+        pub unsafe fn run<F: Future>(future: &mut F) -> Option<F::Output> {
+            const MAX_POLLS: u32 = 10_000_000;
+            let mut future = Pin::new_unchecked(future);
+
+            // Create a no-op waker
+            let raw_waker = core::task::RawWaker::new(
+                core::ptr::null(),
+                &core::task::RawWakerVTable::new(
+                    |_| core::task::RawWaker::new(core::ptr::null(), &VTABLE),
+                    |_| {},
+                    |_| {},
+                    |_| {},
+                ),
+            );
+            const VTABLE: core::task::RawWakerVTable = core::task::RawWakerVTable::new(
+                |_| core::task::RawWaker::new(core::ptr::null(), &VTABLE),
+                |_| {},
+                |_| {},
+                |_| {},
+            );
+            let waker = core::task::Waker::from_raw(raw_waker);
+            let mut cx = Context::from_waker(&waker);
+
+            let mut polls: u32 = 0;
+            loop {
+                match future.as_mut().poll(&mut cx) {
+                    Poll::Ready(output) => return Some(output),
+                    Poll::Pending => {
+                        polls += 1;
+                        if polls >= MAX_POLLS {
+                            return None;
+                        }
+                        // Yield warp scheduler slot
+                        #[cfg(target_arch = "nvptx64")]
+                        core::arch::asm!("nanosleep.u32 64;", options(nostack));
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Warp-cooperative wrapper for standard `core::future::Future`.
+///
+/// This is the key proof for warp-future-bridge: standard per-thread futures
+/// can be polled warp-cooperatively. Lane 0 polls the inner future, broadcasts
+/// the `Poll` discriminant via `shfl.sync`, and all lanes converge.
+///
+/// This bridges the gap between `core::future::Future` (per-thread) and
+/// warp-cooperative execution (SIMT lockstep).
+pub mod warp_cooperative {
+    use core::future::Future;
+    use core::pin::Pin;
+    use core::task::{Context, Poll};
+
+    use gpu_atomics::{activemask, lane_id, shfl_sync_idx_u32, syncwarp};
+
+    // Poll result encoding for broadcast:
+    // 0 = Pending, 1 = Ready(true), 2 = Ready(false)
+    const POLL_PENDING: u32 = 0;
+    const POLL_READY_TRUE: u32 = 1;
+    const POLL_READY_FALSE: u32 = 2;
+
+    /// Warp-cooperatively poll a standard `impl Future<Output = bool>`.
+    ///
+    /// All 32 lanes must call this simultaneously. Lane 0 actually polls
+    /// the future; the result is broadcast via `shfl.sync.idx.b32` so all
+    /// lanes observe the same `Poll` value.
+    ///
+    /// Returns the same `Poll<bool>` to all lanes.
+    ///
+    /// # Safety
+    /// - Must be called by all active lanes simultaneously
+    /// - `future` must be safe to poll on lane 0
+    #[inline(always)]
+    pub unsafe fn warp_poll_future(
+        future: Pin<&mut impl Future<Output = bool>>,
+        cx: &mut Context<'_>,
+    ) -> Poll<bool> {
+        let mask = activemask();
+        let lid = lane_id();
+
+        // Lane 0 polls the actual future
+        let mut result_code: u32 = POLL_PENDING;
+        if lid == 0 {
+            match future.poll(cx) {
+                Poll::Ready(true) => result_code = POLL_READY_TRUE,
+                Poll::Ready(false) => result_code = POLL_READY_FALSE,
+                Poll::Pending => result_code = POLL_PENDING,
+            }
+        }
+
+        // Broadcast poll result to all lanes
+        let broadcast_result = shfl_sync_idx_u32(mask, result_code, 0);
+
+        // All lanes see the same result
+        syncwarp(mask);
+
+        match broadcast_result {
+            POLL_READY_TRUE => Poll::Ready(true),
+            POLL_READY_FALSE => Poll::Ready(false),
+            _ => Poll::Pending,
+        }
+    }
+
+    /// Warp-cooperative spin executor for a standard `impl Future<Output = bool>`.
+    ///
+    /// All 32 lanes call this together. Lane 0 polls the future; result is
+    /// broadcast to all lanes. Returns when the future completes.
+    ///
+    /// # Safety
+    /// - Must be called by all active lanes simultaneously
+    /// - The future must be safe to poll on lane 0
+    #[inline(always)]
+    pub unsafe fn warp_run_future(future: &mut impl Future<Output = bool>) -> Option<bool> {
+        const MAX_POLLS: u32 = 10_000_000;
+
+        let mask = activemask();
+        let lid = lane_id();
+
+        let mut future = Pin::new_unchecked(future);
+
+        // Create a no-op waker (only lane 0 uses it, but all lanes must have it
+        // for convergence)
+        const VTABLE: core::task::RawWakerVTable = core::task::RawWakerVTable::new(
+            |_| core::task::RawWaker::new(core::ptr::null(), &VTABLE),
+            |_| {},
+            |_| {},
+            |_| {},
+        );
+        let raw_waker = core::task::RawWaker::new(core::ptr::null(), &VTABLE);
+        let waker = core::task::Waker::from_raw(raw_waker);
+        let mut cx = Context::from_waker(&waker);
+
+        let mut polls: u32 = 0;
+        loop {
+            // Lane 0 polls, broadcasts result
+            let mut result_code: u32 = POLL_PENDING;
+            if lid == 0 {
+                match future.as_mut().poll(&mut cx) {
+                    Poll::Ready(true) => result_code = POLL_READY_TRUE,
+                    Poll::Ready(false) => result_code = POLL_READY_FALSE,
+                    Poll::Pending => result_code = POLL_PENDING,
+                }
+            }
+
+            let broadcast_result = shfl_sync_idx_u32(mask, result_code, 0);
+            syncwarp(mask);
+
+            match broadcast_result {
+                POLL_READY_TRUE => return Some(true),
+                POLL_READY_FALSE => return Some(false),
+                _ => {
+                    polls += 1;
+                    if polls >= MAX_POLLS {
+                        return None;
+                    }
+                    #[cfg(target_arch = "nvptx64")]
+                    core::arch::asm!("nanosleep.u32 64;", options(nostack));
+                }
+            }
+        }
+    }
+}
+
+/// Warp-cooperative sequential executor for two standard futures.
+///
+/// Simulates two sequential `.await` points: runs F1 to completion
+/// (warp-cooperatively), then runs F2 to completion. All lanes
+/// stay converged throughout.
+///
+/// This is the manual proof of what `#[warp_cooperative] async fn` will
+/// eventually generate automatically.
+pub mod warp_sequential {
+    use core::future::Future;
+    use core::pin::Pin;
+    use core::task::{Context, Poll};
+
+    use gpu_atomics::{activemask, lane_id, shfl_sync_idx_u32, syncwarp};
+
+    const POLL_PENDING: u32 = 0;
+    const POLL_READY_TRUE: u32 = 1;
+    const POLL_READY_FALSE: u32 = 2;
+
+    /// Run two futures sequentially with warp convergence.
+    ///
+    /// All lanes participate. Lane 0 polls each future; result is broadcast.
+    /// Returns `(ok1, ok2)` — the results of both futures.
+    ///
+    /// # Safety
+    /// Must be called by all active lanes simultaneously.
+    #[inline(always)]
+    pub unsafe fn warp_run_two_futures(
+        f1: &mut impl Future<Output = bool>,
+        f2: &mut impl Future<Output = bool>,
+    ) -> (Option<bool>, Option<bool>) {
+        const MAX_POLLS: u32 = 10_000_000;
+
+        let mask = activemask();
+        let lid = lane_id();
+
+        const VTABLE: core::task::RawWakerVTable = core::task::RawWakerVTable::new(
+            |_| core::task::RawWaker::new(core::ptr::null(), &VTABLE),
+            |_| {},
+            |_| {},
+            |_| {},
+        );
+        let raw_waker = core::task::RawWaker::new(core::ptr::null(), &VTABLE);
+        let waker = core::task::Waker::from_raw(raw_waker);
+        let mut cx = Context::from_waker(&waker);
+
+        // Phase 1: poll f1 to completion
+        let mut f1 = Pin::new_unchecked(f1);
+        let mut polls: u32 = 0;
+        let ok1 = loop {
+            let mut result_code: u32 = POLL_PENDING;
+            if lid == 0 {
+                match f1.as_mut().poll(&mut cx) {
+                    Poll::Ready(true) => result_code = POLL_READY_TRUE,
+                    Poll::Ready(false) => result_code = POLL_READY_FALSE,
+                    Poll::Pending => result_code = POLL_PENDING,
+                }
+            }
+            let broadcast = shfl_sync_idx_u32(mask, result_code, 0);
+            syncwarp(mask);
+
+            match broadcast {
+                POLL_READY_TRUE => break Some(true),
+                POLL_READY_FALSE => break Some(false),
+                _ => {
+                    polls += 1;
+                    if polls >= MAX_POLLS {
+                        break None;
+                    }
+                    #[cfg(target_arch = "nvptx64")]
+                    core::arch::asm!("nanosleep.u32 64;", options(nostack));
+                }
+            }
+        };
+
+        // Convergence barrier between the two "await" points
+        syncwarp(mask);
+
+        // Phase 2: poll f2 to completion
+        let mut f2 = Pin::new_unchecked(f2);
+        polls = 0;
+        let ok2 = loop {
+            let mut result_code: u32 = POLL_PENDING;
+            if lid == 0 {
+                match f2.as_mut().poll(&mut cx) {
+                    Poll::Ready(true) => result_code = POLL_READY_TRUE,
+                    Poll::Ready(false) => result_code = POLL_READY_FALSE,
+                    Poll::Pending => result_code = POLL_PENDING,
+                }
+            }
+            let broadcast = shfl_sync_idx_u32(mask, result_code, 0);
+            syncwarp(mask);
+
+            match broadcast {
+                POLL_READY_TRUE => break Some(true),
+                POLL_READY_FALSE => break Some(false),
+                _ => {
+                    polls += 1;
+                    if polls >= MAX_POLLS {
+                        break None;
+                    }
+                    #[cfg(target_arch = "nvptx64")]
+                    core::arch::asm!("nanosleep.u32 64;", options(nostack));
+                }
+            }
+        };
+
+        (ok1, ok2)
+    }
+}
+
+/// Warp-cooperative Result broadcasting for `? operator` across .await boundaries.
+///
+/// Extends the warp-cooperative model to handle `Result<T, E>` — when lane 0
+/// polls a future that returns `Result`, the discriminant (Ok/Err) and error
+/// code are broadcast to all lanes. If Err, all lanes can early-return together.
+pub mod warp_result {
+    use core::future::Future;
+    use core::pin::Pin;
+    use core::task::{Context, Poll};
+
+    use gpu_atomics::{activemask, lane_id, shfl_sync_idx_u32, syncwarp};
+
+    // Result encoding for broadcast:
+    // 0 = Pending, 1 = Ready(Ok(true)), 2 = Ready(Ok(false)), 3 = Ready(Err(code))
+    const POLL_PENDING: u32 = 0;
+    const POLL_OK_TRUE: u32 = 1;
+    const POLL_OK_FALSE: u32 = 2;
+    const POLL_ERR: u32 = 3;
+
+    /// Warp-cooperative poll result with error support.
+    pub enum WarpResult {
+        /// Future still pending
+        Pending,
+        /// Future completed with Ok(true)
+        OkTrue,
+        /// Future completed with Ok(false)
+        OkFalse,
+        /// Future completed with Err(error_code)
+        Err(u32),
+    }
+
+    /// Run a `Future<Output = Result<bool, u32>>` warp-cooperatively.
+    ///
+    /// Lane 0 polls; broadcasts both discriminant and error code (if any).
+    /// All lanes see the same `WarpResult`.
+    ///
+    /// # Safety
+    /// Must be called by all active lanes simultaneously.
+    #[inline(always)]
+    pub unsafe fn warp_run_result_future(
+        future: &mut impl Future<Output = Result<bool, u32>>,
+    ) -> WarpResult {
+        const MAX_POLLS: u32 = 10_000_000;
+
+        let mask = activemask();
+        let lid = lane_id();
+
+        let mut future = Pin::new_unchecked(future);
+
+        const VTABLE: core::task::RawWakerVTable = core::task::RawWakerVTable::new(
+            |_| core::task::RawWaker::new(core::ptr::null(), &VTABLE),
+            |_| {},
+            |_| {},
+            |_| {},
+        );
+        let raw_waker = core::task::RawWaker::new(core::ptr::null(), &VTABLE);
+        let waker = core::task::Waker::from_raw(raw_waker);
+        let mut cx = Context::from_waker(&waker);
+
+        let mut polls: u32 = 0;
+        loop {
+            let mut result_code: u32 = POLL_PENDING;
+            let mut error_code: u32 = 0;
+            if lid == 0 {
+                match future.as_mut().poll(&mut cx) {
+                    Poll::Ready(Ok(true)) => result_code = POLL_OK_TRUE,
+                    Poll::Ready(Ok(false)) => result_code = POLL_OK_FALSE,
+                    Poll::Ready(Err(e)) => {
+                        result_code = POLL_ERR;
+                        error_code = e;
+                    }
+                    Poll::Pending => result_code = POLL_PENDING,
+                }
+            }
+
+            // Broadcast both discriminant and error code
+            let bc_result = shfl_sync_idx_u32(mask, result_code, 0);
+            let bc_error = shfl_sync_idx_u32(mask, error_code, 0);
+            syncwarp(mask);
+
+            match bc_result {
+                POLL_OK_TRUE => return WarpResult::OkTrue,
+                POLL_OK_FALSE => return WarpResult::OkFalse,
+                POLL_ERR => return WarpResult::Err(bc_error),
+                _ => {
+                    polls += 1;
+                    if polls >= MAX_POLLS {
+                        return WarpResult::Err(0xDEAD); // timeout
+                    }
+                    #[cfg(target_arch = "nvptx64")]
+                    core::arch::asm!("nanosleep.u32 64;", options(nostack));
+                }
+            }
+        }
+    }
+
+    /// Run two Result futures sequentially with ? semantics.
+    ///
+    /// If f1 returns Err, f2 is skipped (all lanes return Err together).
+    /// This is the warp-cooperative equivalent of:
+    ///   f1.await?;
+    ///   f2.await?;
+    ///
+    /// # Safety
+    /// Must be called by all active lanes simultaneously.
+    #[inline(always)]
+    pub unsafe fn warp_run_two_result_futures(
+        f1: &mut impl Future<Output = Result<bool, u32>>,
+        f2: &mut impl Future<Output = Result<bool, u32>>,
+    ) -> Result<u32, u32> {
+        let mask = activemask();
+
+        // First .await?
+        match warp_run_result_future(f1) {
+            WarpResult::OkTrue | WarpResult::OkFalse => {} // continue
+            WarpResult::Err(e) => return Err(e),           // all lanes early-return
+            WarpResult::Pending => return Err(0xDEAD),     // unreachable
+        }
+
+        syncwarp(mask);
+
+        // Second .await?
+        match warp_run_result_future(f2) {
+            WarpResult::OkTrue | WarpResult::OkFalse => {} // continue
+            WarpResult::Err(e) => return Err(e),
+            WarpResult::Pending => return Err(0xDEAD),
+        }
+
+        Ok(2) // both succeeded
     }
 }
 

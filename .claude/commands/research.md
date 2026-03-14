@@ -191,7 +191,10 @@ Decide what to do next:
 1. Review triage on completed tasks (see Check phase below)
 2. If any brainstorm trigger fired (including escalation from review) → `current_mode = "think"`, `current_step = "think.triage"`
 3. If more ready tasks exist → back to `do.select`
-4. If all themes completed → final summary, STOP
+4. If no ready tasks but active epics have UNMET success criteria → `current_mode = "think"` (brainstorm new themes/tasks to address remaining criteria)
+5. If ALL active epics have ALL success criteria met → report to user, STOP
+
+**CRITICAL**: Completing all current themes/tasks does NOT mean stop. Check epic success criteria. If any criterion is unmet, brainstorm MUST generate new work. The loop only terminates when every active epic is fully satisfied or the user explicitly stops.
 
 ---
 
@@ -254,12 +257,15 @@ current_mode?
   └─ "check" → Triage (skip/light/escalate) → route
        │
        ▼
-  Continue until context runs low or no more ready tasks
+  Continue until context runs low or ALL epic criteria met
 ```
 
 **NEVER stop for human input EXCEPT:**
 1. All tasks blocked and brainstorm cannot unblock
 2. Environment changes needed (`awaiting_user`)
+3. ALL active epics have ALL success criteria met (nothing left to do)
+
+**On session recovery**: If resuming from context break, do NOT wait for user confirmation. Read `last_summary`, check `current_step`, and IMMEDIATELY continue the loop. The user already said "go" — they don't need to say it again every session.
 
 
 ---

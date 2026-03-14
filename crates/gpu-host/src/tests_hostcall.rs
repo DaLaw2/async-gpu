@@ -1575,3 +1575,470 @@ pub(crate) fn run_flight_recorder_test(dev: Arc<CudaDevice>) -> Result<()> {
     println!("    5 events captured, crash flag set, dump printed");
     Ok(())
 }
+
+/// warp-future-bridge.1: Standard `impl Future` print test (single thread).
+pub(crate) fn run_std_future_print_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- std Future print test (warp-future-bridge.1) ---");
+
+    use std::sync::{Arc as StdArc, Mutex};
+
+    let hc_buf = hostcall::HostcallBuffer::new(4)?;
+    let dev_ptr = hc_buf.dev_ptr;
+
+    let messages: StdArc<Mutex<Vec<String>>> = StdArc::new(Mutex::new(Vec::new()));
+    let messages_clone = StdArc::clone(&messages);
+
+    let (result_host_ptr, result_dev_ptr) = unsafe { alloc_mapped_u32(&dev)? };
+    unsafe { std::ptr::write_volatile(result_host_ptr, 0u32) };
+
+    let hc_buf_ref = StdArc::new(hc_buf);
+    let hc_buf_listener = StdArc::clone(&hc_buf_ref);
+    let listener_handle = std::thread::spawn(move || {
+        hc_buf_listener.listen(|msg| {
+            let s = String::from_utf8_lossy(msg).to_string();
+            println!("  [HOST] Received: \"{s}\"");
+            messages_clone.lock().unwrap().push(s);
+        });
+    });
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "kernel", &["std_future_print_kernel"]);
+    let f = dev
+        .get_func("kernel", "std_future_print_kernel")
+        .ok_or(GpuHostError::KernelNotFound("std_future_print_kernel"))?;
+
+    // Single thread — baseline test, no warp cooperation yet
+    let cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (1, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    println!("  Launching std_future_print_kernel (1 thread)...");
+    unsafe {
+        f.launch(cfg, (dev_ptr, result_dev_ptr))?;
+    }
+
+    dev.synchronize()?;
+    println!("  Kernel completed.");
+
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    hc_buf_ref.signal_shutdown();
+    listener_handle.join().unwrap();
+
+    let result_val = unsafe { std::ptr::read_volatile(result_host_ptr) };
+    unsafe { free_mapped_mem(result_host_ptr)? };
+
+    let received = messages.lock().unwrap();
+    if result_val != 1 {
+        return Err(GpuHostError::Verification {
+            test: "std_future_print",
+            detail: format!("kernel reported failure (result={result_val})"),
+        });
+    }
+    if received.is_empty() || !received[0].contains("Hello from std Future!") {
+        return Err(GpuHostError::Verification {
+            test: "std_future_print",
+            detail: format!("unexpected messages: {:?}", *received),
+        });
+    }
+
+    println!("  std_future_print: PASSED!");
+    println!("    Standard impl Future polled to completion on GPU");
+    println!("    Message: \"{}\"", received[0]);
+    Ok(())
+}
+
+/// warp-future-bridge.2: Warp-cooperative polling of standard impl Future.
+///
+/// All 32 lanes enter. Lane 0 polls GpuPrintFuture, broadcasts result
+/// via shfl.sync. All lanes converge and write their lane_id.
+pub(crate) fn run_warp_cooperative_future_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Warp-cooperative Future test (warp-future-bridge.2) ---");
+
+    use std::sync::{Arc as StdArc, Mutex};
+
+    let hc_buf = hostcall::HostcallBuffer::new(4)?;
+    let dev_ptr = hc_buf.dev_ptr;
+
+    let messages: StdArc<Mutex<Vec<String>>> = StdArc::new(Mutex::new(Vec::new()));
+    let messages_clone = StdArc::clone(&messages);
+
+    let (result_host_ptr, result_dev_ptr) = unsafe { alloc_mapped_u32(&dev)? };
+    unsafe { std::ptr::write_volatile(result_host_ptr, 0u32) };
+
+    // Allocate mapped memory for 32 lane results
+    let (lane_results_host_ptr, lane_results_dev_ptr) =
+        unsafe { alloc_mapped_result_array(&dev, 32)? };
+    for i in 0..32 {
+        unsafe { std::ptr::write_volatile(lane_results_host_ptr.add(i), 0xFFFF_FFFFu32) };
+    }
+
+    let hc_buf_ref = StdArc::new(hc_buf);
+    let hc_buf_listener = StdArc::clone(&hc_buf_ref);
+    let listener_handle = std::thread::spawn(move || {
+        hc_buf_listener.listen(|msg| {
+            let s = String::from_utf8_lossy(msg).to_string();
+            println!("  [HOST] Received: \"{s}\"");
+            messages_clone.lock().unwrap().push(s);
+        });
+    });
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "kernel", &["warp_cooperative_future_kernel"]);
+    let f = dev
+        .get_func("kernel", "warp_cooperative_future_kernel")
+        .ok_or(GpuHostError::KernelNotFound(
+            "warp_cooperative_future_kernel",
+        ))?;
+
+    // Launch with exactly 32 threads = 1 full warp
+    let cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (32, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    println!("  Launching warp_cooperative_future_kernel (32 threads = 1 warp)...");
+    unsafe {
+        f.launch(cfg, (dev_ptr, result_dev_ptr, lane_results_dev_ptr))?;
+    }
+
+    dev.synchronize()?;
+    println!("  Kernel completed.");
+
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    hc_buf_ref.signal_shutdown();
+    listener_handle.join().unwrap();
+
+    let result_val = unsafe { std::ptr::read_volatile(result_host_ptr) };
+    unsafe { free_mapped_mem(result_host_ptr)? };
+
+    // Check that all 32 lanes wrote their lane_id
+    let mut all_lanes_ok = true;
+    for i in 0..32u32 {
+        let lane_val = unsafe { std::ptr::read_volatile(lane_results_host_ptr.add(i as usize)) };
+        if lane_val != i {
+            println!("  FAIL: lane {i} wrote {lane_val}, expected {i}");
+            all_lanes_ok = false;
+        }
+    }
+    unsafe { free_mapped_mem(lane_results_host_ptr)? };
+
+    let received = messages.lock().unwrap();
+
+    if result_val != 1 {
+        return Err(GpuHostError::Verification {
+            test: "warp_cooperative_future",
+            detail: format!("kernel reported failure (result={result_val})"),
+        });
+    }
+    if !all_lanes_ok {
+        return Err(GpuHostError::Verification {
+            test: "warp_cooperative_future",
+            detail: "not all 32 lanes wrote their lane_id".to_string(),
+        });
+    }
+    if received.is_empty() || !received[0].contains("Hello from warp-cooperative Future!") {
+        return Err(GpuHostError::Verification {
+            test: "warp_cooperative_future",
+            detail: format!("unexpected messages: {:?}", *received),
+        });
+    }
+
+    println!("  warp_cooperative_future: PASSED!");
+    println!("    Lane 0 polled standard impl Future");
+    println!("    Result broadcast via shfl.sync to all 32 lanes");
+    println!("    All 32 lanes converged and wrote their lane_id");
+    println!("    Message: \"{}\"", received[0]);
+    Ok(())
+}
+
+/// warp-future-bridge.3: Two sequential warp-cooperative Future polls.
+///
+/// Simulates two sequential `.await` points with full warp convergence.
+pub(crate) fn run_warp_cooperative_two_futures_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Warp-cooperative two-futures test (warp-future-bridge.3) ---");
+
+    use std::sync::{Arc as StdArc, Mutex};
+
+    let hc_buf = hostcall::HostcallBuffer::new(4)?;
+    let dev_ptr = hc_buf.dev_ptr;
+
+    let messages: StdArc<Mutex<Vec<String>>> = StdArc::new(Mutex::new(Vec::new()));
+    let messages_clone = StdArc::clone(&messages);
+
+    let (result_host_ptr, result_dev_ptr) = unsafe { alloc_mapped_u32(&dev)? };
+    unsafe { std::ptr::write_volatile(result_host_ptr, 0u32) };
+
+    let (lane_results_host_ptr, lane_results_dev_ptr) =
+        unsafe { alloc_mapped_result_array(&dev, 32)? };
+    for i in 0..32 {
+        unsafe { std::ptr::write_volatile(lane_results_host_ptr.add(i), 0xFFFF_FFFFu32) };
+    }
+
+    let hc_buf_ref = StdArc::new(hc_buf);
+    let hc_buf_listener = StdArc::clone(&hc_buf_ref);
+    let listener_handle = std::thread::spawn(move || {
+        hc_buf_listener.listen(|msg| {
+            let s = String::from_utf8_lossy(msg).to_string();
+            println!("  [HOST] Received: \"{s}\"");
+            messages_clone.lock().unwrap().push(s);
+        });
+    });
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "kernel", &["warp_cooperative_two_futures_kernel"]);
+    let f = dev
+        .get_func("kernel", "warp_cooperative_two_futures_kernel")
+        .ok_or(GpuHostError::KernelNotFound(
+            "warp_cooperative_two_futures_kernel",
+        ))?;
+
+    let cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (32, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    println!("  Launching warp_cooperative_two_futures_kernel (32 threads)...");
+    unsafe {
+        f.launch(cfg, (dev_ptr, result_dev_ptr, lane_results_dev_ptr))?;
+    }
+
+    dev.synchronize()?;
+    println!("  Kernel completed.");
+
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    hc_buf_ref.signal_shutdown();
+    listener_handle.join().unwrap();
+
+    let result_val = unsafe { std::ptr::read_volatile(result_host_ptr) };
+    unsafe { free_mapped_mem(result_host_ptr)? };
+
+    let mut all_lanes_ok = true;
+    for i in 0..32u32 {
+        let lane_val = unsafe { std::ptr::read_volatile(lane_results_host_ptr.add(i as usize)) };
+        if lane_val != i {
+            println!("  FAIL: lane {i} wrote {lane_val}, expected {i}");
+            all_lanes_ok = false;
+        }
+    }
+    unsafe { free_mapped_mem(lane_results_host_ptr)? };
+
+    let received = messages.lock().unwrap();
+
+    if result_val != 2 {
+        return Err(GpuHostError::Verification {
+            test: "warp_cooperative_two_futures",
+            detail: format!("expected result=2, got {result_val}"),
+        });
+    }
+    if !all_lanes_ok {
+        return Err(GpuHostError::Verification {
+            test: "warp_cooperative_two_futures",
+            detail: "not all 32 lanes converged".to_string(),
+        });
+    }
+    if received.len() < 2 {
+        return Err(GpuHostError::Verification {
+            test: "warp_cooperative_two_futures",
+            detail: format!(
+                "expected 2 messages, got {}: {:?}",
+                received.len(),
+                *received
+            ),
+        });
+    }
+
+    println!("  warp_cooperative_two_futures: PASSED!");
+    println!("    Two sequential .await points with full warp convergence");
+    println!("    All 32 lanes converged at both points");
+    println!("    Messages: {:?}", *received);
+    Ok(())
+}
+
+/// warp-future-bridge.4: Warp-cooperative Result<T, E> broadcasting with ? semantics.
+pub(crate) fn run_warp_result_future_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Warp-cooperative Result future test (warp-future-bridge.4) ---");
+
+    use std::sync::{Arc as StdArc, Mutex};
+
+    let hc_buf = hostcall::HostcallBuffer::new(4)?;
+    let dev_ptr = hc_buf.dev_ptr;
+
+    let messages: StdArc<Mutex<Vec<String>>> = StdArc::new(Mutex::new(Vec::new()));
+    let messages_clone = StdArc::clone(&messages);
+
+    let (result_host_ptr, result_dev_ptr) = unsafe { alloc_mapped_u32(&dev)? };
+    unsafe { std::ptr::write_volatile(result_host_ptr, 0u32) };
+
+    let (lane_results_host_ptr, lane_results_dev_ptr) =
+        unsafe { alloc_mapped_result_array(&dev, 32)? };
+    for i in 0..32 {
+        unsafe { std::ptr::write_volatile(lane_results_host_ptr.add(i), 0xFFFF_FFFFu32) };
+    }
+
+    let hc_buf_ref = StdArc::new(hc_buf);
+    let hc_buf_listener = StdArc::clone(&hc_buf_ref);
+    let listener_handle = std::thread::spawn(move || {
+        hc_buf_listener.listen(|msg| {
+            let s = String::from_utf8_lossy(msg).to_string();
+            println!("  [HOST] Received: \"{s}\"");
+            messages_clone.lock().unwrap().push(s);
+        });
+    });
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "kernel", &["warp_result_future_kernel"]);
+    let f = dev
+        .get_func("kernel", "warp_result_future_kernel")
+        .ok_or(GpuHostError::KernelNotFound("warp_result_future_kernel"))?;
+
+    let cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (32, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    println!("  Launching warp_result_future_kernel (32 threads)...");
+    unsafe {
+        f.launch(cfg, (dev_ptr, result_dev_ptr, lane_results_dev_ptr))?;
+    }
+
+    dev.synchronize()?;
+    println!("  Kernel completed.");
+
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    hc_buf_ref.signal_shutdown();
+    listener_handle.join().unwrap();
+
+    let result_val = unsafe { std::ptr::read_volatile(result_host_ptr) };
+    unsafe { free_mapped_mem(result_host_ptr)? };
+
+    let mut all_lanes_ok = true;
+    for i in 0..32u32 {
+        let lane_val = unsafe { std::ptr::read_volatile(lane_results_host_ptr.add(i as usize)) };
+        if lane_val != i {
+            println!("  FAIL: lane {i} wrote {lane_val}, expected {i}");
+            all_lanes_ok = false;
+        }
+    }
+    unsafe { free_mapped_mem(lane_results_host_ptr)? };
+
+    let received = messages.lock().unwrap();
+
+    // result should be 2 (both Ok) — if error, high bit is set
+    if result_val != 2 {
+        return Err(GpuHostError::Verification {
+            test: "warp_result_future",
+            detail: format!(
+                "expected result=2, got 0x{:08X} ({})",
+                result_val,
+                if result_val & 0x8000_0000 != 0 {
+                    format!("Err({})", result_val & 0x7FFF_FFFF)
+                } else {
+                    format!("Ok({result_val})")
+                }
+            ),
+        });
+    }
+    if !all_lanes_ok {
+        return Err(GpuHostError::Verification {
+            test: "warp_result_future",
+            detail: "not all 32 lanes converged".to_string(),
+        });
+    }
+    if received.len() < 2 {
+        return Err(GpuHostError::Verification {
+            test: "warp_result_future",
+            detail: format!(
+                "expected 2 messages, got {}: {:?}",
+                received.len(),
+                *received
+            ),
+        });
+    }
+
+    println!("  warp_result_future: PASSED!");
+    println!("    Result<T, E> broadcasting with ? semantics");
+    println!("    Both futures returned Ok, all 32 lanes converged");
+    println!("    Messages: {:?}", *received);
+    Ok(())
+}
+
+/// warp-future-bridge.1: Two sequential std Future prints.
+pub(crate) fn run_std_future_two_prints_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- std Future two-prints test (warp-future-bridge.1) ---");
+
+    use std::sync::{Arc as StdArc, Mutex};
+
+    let hc_buf = hostcall::HostcallBuffer::new(4)?;
+    let dev_ptr = hc_buf.dev_ptr;
+
+    let messages: StdArc<Mutex<Vec<String>>> = StdArc::new(Mutex::new(Vec::new()));
+    let messages_clone = StdArc::clone(&messages);
+
+    let (result_host_ptr, result_dev_ptr) = unsafe { alloc_mapped_u32(&dev)? };
+    unsafe { std::ptr::write_volatile(result_host_ptr, 0u32) };
+
+    let hc_buf_ref = StdArc::new(hc_buf);
+    let hc_buf_listener = StdArc::clone(&hc_buf_ref);
+    let listener_handle = std::thread::spawn(move || {
+        hc_buf_listener.listen(|msg| {
+            let s = String::from_utf8_lossy(msg).to_string();
+            println!("  [HOST] Received: \"{s}\"");
+            messages_clone.lock().unwrap().push(s);
+        });
+    });
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "kernel", &["std_future_two_prints_kernel"]);
+    let f = dev
+        .get_func("kernel", "std_future_two_prints_kernel")
+        .ok_or(GpuHostError::KernelNotFound("std_future_two_prints_kernel"))?;
+
+    let cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (1, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    println!("  Launching std_future_two_prints_kernel (1 thread)...");
+    unsafe {
+        f.launch(cfg, (dev_ptr, result_dev_ptr))?;
+    }
+
+    dev.synchronize()?;
+    println!("  Kernel completed.");
+
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    hc_buf_ref.signal_shutdown();
+    listener_handle.join().unwrap();
+
+    let result_val = unsafe { std::ptr::read_volatile(result_host_ptr) };
+    unsafe { free_mapped_mem(result_host_ptr)? };
+
+    let received = messages.lock().unwrap();
+    if result_val != 2 {
+        return Err(GpuHostError::Verification {
+            test: "std_future_two_prints",
+            detail: format!("expected result=2, got {result_val}"),
+        });
+    }
+    if received.len() < 2 {
+        return Err(GpuHostError::Verification {
+            test: "std_future_two_prints",
+            detail: format!(
+                "expected 2 messages, got {}: {:?}",
+                received.len(),
+                *received
+            ),
+        });
+    }
+
+    println!("  std_future_two_prints: PASSED!");
+    println!("    Two sequential impl Future polls completed on GPU");
+    println!("    Messages: {:?}", *received);
+    Ok(())
+}

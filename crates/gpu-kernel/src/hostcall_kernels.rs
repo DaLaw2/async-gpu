@@ -1073,3 +1073,214 @@ pub unsafe extern "ptx-kernel" fn flight_recorder_test(
     let msg: &[u8] = b"flight recorder test done";
     let _ = gpu_runtime::hostcall::gpu_hostcall_print(hc_buf, msg.as_ptr(), msg.len() as u32);
 }
+
+// ============================================================
+// warp-future-bridge.1: GpuPrintFuture as standard impl Future
+// ============================================================
+
+/// Test: GpuPrintFuture (standard impl Future) polled by SpinExecutor.
+///
+/// Single thread runs a GpuPrintFuture through the minimal SpinExecutor.
+/// This proves that standard `core::future::Future` hostcall works on GPU
+/// without Embassy, without WarpFuture, without any warp cooperation.
+///
+/// `buf` = hostcall buffer
+/// `result` = output: 1 = success, 0 = failure/timeout
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn std_future_print_kernel(buf: *mut u8, result: *mut u32) {
+    if nvptx::_thread_idx_x() != 0 {
+        return;
+    }
+    core::ptr::write_volatile(result, 0);
+
+    let mut future = gpu_runtime::std_future::GpuPrintFuture::new(buf, b"Hello from std Future!");
+
+    match gpu_runtime::std_future::SpinExecutor::run(&mut future) {
+        Some(true) => core::ptr::write_volatile(result, 1),
+        _ => core::ptr::write_volatile(result, 0),
+    }
+}
+
+/// Test: Two sequential GpuPrintFutures via SpinExecutor.
+///
+/// Proves that multiple standard Futures can be polled sequentially
+/// on GPU — the baseline before adding warp cooperation.
+///
+/// `buf` = hostcall buffer
+/// `result` = output: 2 = both succeeded, 1 = first only, 0 = failure
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn std_future_two_prints_kernel(buf: *mut u8, result: *mut u32) {
+    if nvptx::_thread_idx_x() != 0 {
+        return;
+    }
+    core::ptr::write_volatile(result, 0);
+
+    // First print
+    let mut f1 = gpu_runtime::std_future::GpuPrintFuture::new(buf, b"std_future print 1");
+    let ok1 = match gpu_runtime::std_future::SpinExecutor::run(&mut f1) {
+        Some(true) => true,
+        _ => false,
+    };
+
+    if !ok1 {
+        return;
+    }
+    core::ptr::write_volatile(result, 1);
+
+    // Second print
+    let mut f2 = gpu_runtime::std_future::GpuPrintFuture::new(buf, b"std_future print 2");
+    let ok2 = match gpu_runtime::std_future::SpinExecutor::run(&mut f2) {
+        Some(true) => true,
+        _ => false,
+    };
+
+    if ok2 {
+        core::ptr::write_volatile(result, 2);
+    }
+}
+
+/// Test: Warp-cooperative polling of standard impl Future.
+///
+/// All 32 lanes enter together. Lane 0 polls GpuPrintFuture;
+/// result is broadcast via shfl.sync to all lanes.
+/// All lanes write their lane_id to `lane_results[lane_id]` to prove
+/// they all observed the same completion.
+///
+/// `buf` = hostcall buffer
+/// `result` = output: 1 = success (all 32 lanes saw Ready), 0 = failure
+/// `lane_results` = array of 32 u32 — each lane writes its ID on success
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn warp_cooperative_future_kernel(
+    buf: *mut u8,
+    result: *mut u32,
+    lane_results: *mut u32,
+) {
+    let tid = nvptx::_thread_idx_x();
+
+    // Only first warp participates
+    if tid >= 32 {
+        return;
+    }
+
+    // Initialize result to 0 (lane 0 only)
+    if tid == 0 {
+        core::ptr::write_volatile(result, 0);
+    }
+
+    // All 32 lanes create the future (but only lane 0 will poll it)
+    let mut future = gpu_runtime::std_future::GpuPrintFuture::new(
+        buf,
+        b"Hello from warp-cooperative Future!",
+    );
+
+    // Warp-cooperative poll: lane 0 polls, broadcasts result
+    let ok = gpu_runtime::warp_cooperative::warp_run_future(&mut future);
+
+    // All lanes write their lane_id to prove they all reached this point
+    core::ptr::write_volatile(lane_results.add(tid as usize), tid);
+
+    // Lane 0 writes final result
+    if tid == 0 {
+        match ok {
+            Some(true) => core::ptr::write_volatile(result, 1),
+            _ => core::ptr::write_volatile(result, 0),
+        }
+    }
+}
+
+/// Test: Two sequential warp-cooperative Future polls.
+///
+/// Simulates two sequential `.await` points:
+///   let ok1 = print_future_1.await;  // all 32 lanes converge
+///   let ok2 = print_future_2.await;  // all 32 lanes converge again
+///
+/// `buf` = hostcall buffer
+/// `result` = output: 2 = both succeeded, 1 = first only, 0 = failure
+/// `lane_results` = array of 32 u32 — each lane writes its ID on success
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn warp_cooperative_two_futures_kernel(
+    buf: *mut u8,
+    result: *mut u32,
+    lane_results: *mut u32,
+) {
+    let tid = nvptx::_thread_idx_x();
+    if tid >= 32 {
+        return;
+    }
+
+    if tid == 0 {
+        core::ptr::write_volatile(result, 0);
+    }
+
+    let mut f1 = gpu_runtime::std_future::GpuPrintFuture::new(
+        buf,
+        b"warp-coop sequential 1",
+    );
+    let mut f2 = gpu_runtime::std_future::GpuPrintFuture::new(
+        buf,
+        b"warp-coop sequential 2",
+    );
+
+    let (ok1, ok2) = gpu_runtime::warp_sequential::warp_run_two_futures(&mut f1, &mut f2);
+
+    // All lanes write their lane_id
+    core::ptr::write_volatile(lane_results.add(tid as usize), tid);
+
+    if tid == 0 {
+        let score = match (ok1, ok2) {
+            (Some(true), Some(true)) => 2,
+            (Some(true), _) => 1,
+            _ => 0,
+        };
+        core::ptr::write_volatile(result, score);
+    }
+}
+
+/// Test: Warp-cooperative Result<T, E> broadcasting with ? semantics.
+///
+/// Simulates:
+///   async fn example(buf) -> Result<(), u32> {
+///       print_future_1.await?;  // Ok → continue, Err → all lanes early-return
+///       print_future_2.await?;
+///       Ok(())
+///   }
+///
+/// `buf` = hostcall buffer
+/// `result` = output: 2 = both Ok, 0 = error
+/// `lane_results` = array of 32 u32
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn warp_result_future_kernel(
+    buf: *mut u8,
+    result: *mut u32,
+    lane_results: *mut u32,
+) {
+    let tid = nvptx::_thread_idx_x();
+    if tid >= 32 {
+        return;
+    }
+
+    if tid == 0 {
+        core::ptr::write_volatile(result, 0);
+    }
+
+    let mut f1 = gpu_runtime::std_future::GpuPrintResultFuture::new(
+        buf,
+        b"warp-result print 1",
+    );
+    let mut f2 = gpu_runtime::std_future::GpuPrintResultFuture::new(
+        buf,
+        b"warp-result print 2",
+    );
+
+    let outcome = gpu_runtime::warp_result::warp_run_two_result_futures(&mut f1, &mut f2);
+
+    // All lanes write their lane_id (proves convergence even on error path)
+    core::ptr::write_volatile(lane_results.add(tid as usize), tid);
+
+    if tid == 0 {
+        match outcome {
+            Ok(n) => core::ptr::write_volatile(result, n),
+            Err(e) => core::ptr::write_volatile(result, 0x8000_0000 | e),
+        }
+    }
+}

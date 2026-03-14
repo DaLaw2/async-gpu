@@ -6,7 +6,7 @@ Nightly: `rustc 1.96.0-nightly (3b1b0ef4d 2026-03-11)`
 ## Setup
 
 ```bash
-./scripts/apply-patches.sh        # copies sysroot + applies patches
+./scripts/apply-std-patches.sh        # copies sysroot + applies patches
 # Then build with:
 __CARGO_TESTS_ONLY_SRC_ROOT="patched-std/library" cargo +nightly build --release
 ```
@@ -14,7 +14,7 @@ __CARGO_TESTS_ONLY_SRC_ROOT="patched-std/library" cargo +nightly build --release
 ## Regenerate patches after editing patched-std/
 
 ```bash
-./scripts/gen-patches.sh          # diffs patched-std/ vs sysroot, updates std-patches/
+./scripts/gen-std-patches.sh          # diffs patched-std/ vs sysroot, updates std-patches/
 ```
 
 ## Modified files (patches)

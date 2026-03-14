@@ -3,7 +3,7 @@
 #
 # Usage: ./scripts/gen-rustc-patches.sh
 #
-# Like gen-patches.sh (for std), this diffs our modified files against the
+# Like gen-std-patches.sh (for std), this diffs our modified files against the
 # stock originals. Since sysroot doesn't include compiler/ source, we fetch
 # stock files from GitHub using the nightly commit hash.
 #
@@ -92,7 +92,7 @@ while IFS= read -r line; do
                 continue
             fi
 
-            # Generate unified diff (like gen-patches.sh)
+            # Generate unified diff (like gen-std-patches.sh)
             diff -u "$stock_file" "$local_file" \
                 --label "a/$rel_path" --label "b/$rel_path" \
                 > "$PATCH_DIR/$patch_name" || true

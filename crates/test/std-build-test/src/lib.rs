@@ -8,6 +8,31 @@
 
 use core::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 
+// Force gpu-libc symbols (open/close/read/write/__errno_location) into the PTX.
+// Without this, LTO removes them because std only references them via extern "C" declarations
+// which are not visible to the Rust linker as direct dependencies.
+//
+// We take function pointers to force LLVM to keep these symbols alive through LTO.
+extern crate gpu_libc;
+
+/// Force gpu-libc symbols to survive LTO by referencing them in a #[used] array.
+/// Without this, LLVM removes the `#[no_mangle]` functions during LTO because
+/// std only declares them via `extern "C"` blocks (invisible to the Rust linker).
+///
+/// We use fn() pointers (which are Sync) wrapped in a newtype.
+#[repr(transparent)]
+struct FnPtr(*const ());
+unsafe impl Sync for FnPtr {}
+
+#[used]
+static FORCE_LINK_GPU_LIBC: [FnPtr; 5] = [
+    FnPtr(gpu_libc::open as *const ()),
+    FnPtr(gpu_libc::close as *const ()),
+    FnPtr(gpu_libc::read as *const ()),
+    FnPtr(gpu_libc::write as *const ()),
+    FnPtr(gpu_libc::__errno_location as *const ()),
+];
+
 /// Global hostcall buffer pointer for stdio. Set by kernel at entry.
 static STDIO_HOSTCALL_BUF: AtomicU64 = AtomicU64::new(0);
 
@@ -52,9 +77,14 @@ pub fn gpu_stdin_read(out_buf: *mut u8, max_len: usize) -> usize {
     }
 }
 
-/// Set the hostcall buffer for stdio. Must be called at kernel entry.
+/// Set the hostcall buffer for stdio and gpu-libc. Must be called at kernel entry.
 fn stdio_init(buf: *mut u8) {
     STDIO_HOSTCALL_BUF.store(buf as u64, AtomicOrdering::Relaxed);
+    // Initialize gpu-libc I/O so that std::fs::File (which uses PAL → gpu-libc open/read/write/close)
+    // has a valid hostcall buffer pointer.
+    unsafe {
+        gpu_libc::gpu_libc_io_init(buf);
+    }
 }
 
 /// Minimal hostcall PRINT implementation using inline PTX.

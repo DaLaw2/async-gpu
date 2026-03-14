@@ -4,16 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 280     # Monotonic counter, incremented after each completed phase
-completed_tasks = 280
+total_cycles = 281     # Monotonic counter, incremented after each completed phase
+completed_tasks = 281
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.execute"
-current_task_id = "std-sysroot-build.4"
-current_step = "awaiting_user"
-last_summary = "std-sysroot-build.4: host test + updated PTX ready. User needs to run `cargo run --release -p gpu-host -- std_sysroot_file` to verify File I/O on GPU. Also: block_on() done, +ptx78 applied to all configs, pre-push.sh updated with rustc patches."
+current_step = "do.route"
+current_task_id = ""
+last_summary = "std-sysroot-build.4 DONE: File::create+write_all and File::open+read on GPU via std::fs — ALL PASSED. Fix: FORCE_LINK gpu-libc symbols to survive LTO. std-sysroot epic ALL 4 criteria met. std-sysroot-build theme complete. Next: brainstorm for new work."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 76
@@ -120,7 +119,7 @@ success_criteria = [
 [[epics]]
 id = "std-sysroot"
 title = "Patched std in sysroot — use std::fs::File directly on GPU"
-status = "active"
+status = "completed"
 priority = "high"
 success_criteria = [
     "Patched toolchain builds std for nvptx64-nvidia-cuda (x.py build succeeds with std patches)",
@@ -128,6 +127,11 @@ success_criteria = [
     "std::io::Write on GPU performs hostcall I/O correctly (end-to-end verified)",
     "At least File, println!, Vec, String, Box work on GPU end-to-end",
 ]
+# ALL 4 CRITERIA MET — closed 2026-03-15
+# C1: -Zbuild-std=["std"] compiles with zero errors
+# C2: std_file_write_kernel + std_file_read_kernel in PTX
+# C3: File::create+write_all and File::open+read pass end-to-end
+# C4: Vec, String, format!, println!, File all verified on GPU
 
 [[epics]]
 id = "codebase-health"
@@ -164,7 +168,7 @@ success_criteria = [
 id = "std-sysroot-build"
 epic = "std-sysroot"
 title = "Build patched std into sysroot for nvptx64"
-status = "active"
+status = "completed"
 goal = "x.py builds std with our patches for nvptx64-nvidia-cuda; kernel can use std::fs::File"
 success_criteria = [
     "x.py build succeeds with patched std for nvptx64",
@@ -248,7 +252,7 @@ id = "std-sysroot-build.4"
 theme = "std-sysroot-build"
 title = "Experiment: end-to-end test — File::create + write on GPU via hostcall"
 kind = "experiment"
-status = "active"
+status = "done"
 depends = ["std-sysroot-build.3"]
 
 # --- gpu-executor theme ---

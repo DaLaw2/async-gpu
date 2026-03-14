@@ -59,6 +59,107 @@ pub const SERVICE_BULK_WRITE: u32 = 11;
 pub const SERVICE_BULK_READ: u32 = 12;
 
 // ============================================================
+// TCP networking service IDs (16-23)
+// ============================================================
+
+/// Connect to a remote TCP address:port, returning a socket file descriptor.
+///
+/// Request (lane 0):
+///   Slot 0: `port (u32) | addr_len (u32)` packed as `u64`
+///   Slots 1-7: address string (up to 56 bytes, e.g. "127.0.0.1" or hostname)
+///
+/// Response:
+///   Slot 0: socket fd (`u64`), or encoded error
+pub const SERVICE_TCP_CONNECT: u32 = 16;
+
+/// Write inline data to a TCP socket (up to 48 bytes).
+///
+/// Request (lane 0):
+///   Slot 0: fd (`u64`)
+///   Slot 1: data length (`u64`)
+///   Slots 2-7: data bytes (up to 48 bytes)
+///
+/// Response:
+///   Slot 0: bytes written (`u64`), or encoded error
+pub const SERVICE_TCP_WRITE: u32 = 17;
+
+/// Read inline data from a TCP socket (up to 56 bytes).
+///
+/// Request (lane 0):
+///   Slot 0: fd (`u64`)
+///   Slot 1: max bytes to read (`u64`)
+///
+/// Response:
+///   Slot 0: bytes read (`u64`), or encoded error
+///   Slots 1-7: data bytes (up to 56 bytes)
+pub const SERVICE_TCP_READ: u32 = 18;
+
+/// Close a TCP socket (both stream and listener).
+///
+/// Can also use `SERVICE_CLOSE` (5) — the fd namespace is shared between
+/// files and sockets. This service ID exists for explicit type-checking
+/// on the host side.
+///
+/// Request (lane 0):
+///   Slot 0: fd (`u64`)
+///
+/// Response:
+///   Slot 0: 0 on success, encoded error on failure
+pub const SERVICE_TCP_CLOSE: u32 = 19;
+
+/// Bind and listen on a local TCP address:port, returning a listener fd.
+///
+/// Request (lane 0):
+///   Slot 0: `port (u32) | addr_len (u32)` packed as `u64`
+///   Slots 1-7: bind address string (up to 56 bytes)
+///
+/// Response:
+///   Slot 0: listener fd (`u64`), or encoded error
+pub const SERVICE_TCP_BIND: u32 = 20;
+
+/// Accept a connection on a TCP listener fd, returning a new stream fd.
+///
+/// Request (lane 0):
+///   Slot 0: listener fd (`u64`)
+///
+/// Response:
+///   Slot 0: stream fd (`u64`), or encoded error
+pub const SERVICE_TCP_ACCEPT: u32 = 21;
+
+/// Write bulk data from sideband buffer to a TCP socket.
+///
+/// Request (lane 0):
+///   Slot 0: fd (`u64`)
+///   Slot 1: sideband_offset (`u64`)
+///   Slot 2: length (`u64`)
+///
+/// Response:
+///   Slot 0: bytes written (`u64`), or encoded error
+pub const SERVICE_TCP_BULK_WRITE: u32 = 22;
+
+/// Read bulk data from a TCP socket into sideband buffer.
+///
+/// Request (lane 0):
+///   Slot 0: fd (`u64`)
+///   Slot 1: sideband_offset (`u64`)
+///   Slot 2: max_length (`u64`)
+///
+/// Response:
+///   Slot 0: bytes read (`u64`), or encoded error
+pub const SERVICE_TCP_BULK_READ: u32 = 23;
+
+// ============================================================
+// TCP service constants
+// ============================================================
+
+/// Maximum address string length for TCP connect/bind (7 slots x 8 bytes).
+pub const TCP_MAX_ADDR_LEN: usize = 56;
+/// Maximum inline write length for TCP write (6 slots x 8 bytes).
+pub const TCP_MAX_WRITE_LEN: usize = 48;
+/// Maximum inline read length for TCP read (7 slots x 8 bytes).
+pub const TCP_MAX_READ_LEN: usize = 56;
+
+// ============================================================
 // Control bits (PacketHeader.control)
 // ============================================================
 
@@ -349,6 +450,14 @@ pub const ERR_IS_A_DIRECTORY: u16 = 15;
 pub const ERR_HOST_TIMEOUT: u16 = 16;
 /// Operation not supported.
 pub const ERR_UNSUPPORTED: u16 = 17;
+/// TCP connection reset by peer.
+pub const ERR_CONNECTION_RESET: u16 = 18;
+/// TCP bind address already in use.
+pub const ERR_ADDR_IN_USE: u16 = 19;
+/// TCP bind address not available.
+pub const ERR_ADDR_NOT_AVAILABLE: u16 = 20;
+/// Socket is not connected.
+pub const ERR_NOT_CONNECTED: u16 = 21;
 
 /// Encode an error category and raw errno into payload slot 0 format.
 ///

@@ -10,12 +10,12 @@ status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.save"
-current_task_id = ""
-last_summary = "bs83 done: CI badge, warp-cooperative README + README listing, CONTRIBUTING.md. 311 tasks completed."
+current_step = "do.execute"
+current_task_id = "net-host.1"
+last_summary = "bs84 deep brainstorm: network-io epic created. Archived 37 tasks, 17 themes, 7 brainstorms. Executing net-protocol.1."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 83
+brainstorm_seq = 84
 review_seq = 5
 
 # Brainstorm trigger control (event-driven, no fixed interval)
@@ -36,10 +36,6 @@ success_criteria = [
     "Codebase reorganized into categorized subdirectories (core/kernel/macro/test)",
 ]
 # ALL 4 CRITERIA MET (pragmatically) — closed 2026-03-15
-# C1: GpuOpenFuture/GpuReadFuture/GpuWriteFuture/GpuCloseFuture implement Future, yield during I/O
-# C2: #[warp_cooperative] async fn with GpuXxxFuture provides warp-level I/O yielding (PAL itself is sync — architecturally infeasible to make async given std's sync API)
-# C3: async-pipeline example: read→uppercase→write end-to-end PASSED, 7x bar.warp.sync in PTX
-# C4: crates/core, crates/kernel, crates/macro, crates/test
 
 [[epics]]
 id = "gpu-error"
@@ -133,10 +129,6 @@ success_criteria = [
     "At least File, println!, Vec, String, Box work on GPU end-to-end",
 ]
 # ALL 4 CRITERIA MET — closed 2026-03-15
-# C1: -Zbuild-std=["std"] compiles with zero errors
-# C2: std_file_write_kernel + std_file_read_kernel in PTX
-# C3: File::create+write_all and File::open+read pass end-to-end
-# C4: Vec, String, format!, println!, File all verified on GPU
 
 [[epics]]
 id = "codebase-health"
@@ -165,48 +157,53 @@ success_criteria = [
     "At least 3 working examples (hello-gpu, async-io, compute) with documentation",
 ]
 
+[[epics]]
+id = "network-io"
+title = "Network I/O from GPU — TCP hostcall services"
+status = "active"
+priority = "medium"
+success_criteria = [
+    "SERVICE_TCP_CONNECT / SERVICE_TCP_SEND / SERVICE_TCP_RECV defined in gpu-protocol",
+    "Host-side TCP service handlers implemented (std::net)",
+    "GPU-side Future types (GpuTcpConnectFuture, GpuTcpSendFuture, GpuTcpRecvFuture)",
+    "Demo kernel that connects to a server, sends data, receives response",
+]
+
 # ============================================================
-# Themes (active only — completed/parked archived in archive/)
+# Themes (active/parked only — completed themes archived in archive/)
 # ============================================================
 
 [[themes]]
-id = "std-sysroot-build"
-epic = "std-sysroot"
-title = "Build patched std into sysroot for nvptx64"
-status = "completed"
-goal = "x.py builds std with our patches for nvptx64-nvidia-cuda; kernel can use std::fs::File"
+id = "net-protocol"
+epic = "network-io"
+title = "Define TCP hostcall service protocol"
+status = "active"
+goal = "Service IDs, packet layout, fd model for TCP connections"
 success_criteria = [
-    "x.py build succeeds with patched std for nvptx64",
-    "Kernel with `use std::fs::File` compiles to PTX",
-    "End-to-end: File::create + write on GPU via hostcall",
+    "SERVICE_TCP_CONNECT/SEND/RECV/CLOSE defined in gpu-protocol",
+    "Protocol documented with packet layout",
 ]
 
 [[themes]]
-id = "gpu-executor"
-epic = "async-std"
-title = "GPU-side async executor — block_on() with yield strategy"
-status = "completed"
-goal = "Eliminate manual poll loop boilerplate; kernel calls executor::block_on(pipeline())"
+id = "net-host"
+epic = "network-io"
+title = "Host-side TCP service handlers"
+status = "active"
+goal = "Host listener handles TCP connect/send/recv/close requests"
 success_criteria = [
-    "block_on<F: Future>(f: F) -> F::Output in gpu-runtime",
-    "async-pipeline example refactored to use block_on",
+    "TCP connect/send/recv/close handlers in gpu-host listener",
+    "Socket fd table management",
 ]
 
 [[themes]]
-id = "ptx-codegen-fix"
-epic = "codebase-health"
-title = "Fix PTX codegen issues in patched rustc — .ptr .align + panic stubs"
-status = "completed"
-goal = "PTX output is valid without post-processing; .ptr .align removed, panic stubs generate trap"
+id = "net-gpu"
+epic = "network-io"
+title = "GPU-side TCP Future types"
+status = "active"
+goal = "Async Futures for TCP operations in gpu-runtime"
 success_criteria = [
-    "Root cause identified (LLVM or rustc_codegen_llvm)",
-    "Kernel entry params have no .ptr .align in PTX",
-    "panic_const stubs compile to trap; without referencing missing symbols",
+    "GpuTcpConnectFuture, GpuTcpSendFuture, GpuTcpRecvFuture in gpu-runtime",
 ]
-# ALL 3 CRITERIA MET — closed 2026-03-15
-# C1: LLVM NVPTXAsmPrinter confirmed as root cause
-# C2: +ptx78 in rustflags + sed post-processing removes all .ptr .align
-# C3: panic = "abort" + build-std = ["panic_abort"] eliminates all panic_const
 
 [[themes]]
 id = "warp-batch-io"
@@ -220,523 +217,68 @@ success_criteria = [
 ]
 # PARKED: depends on executor + std decisions settling first
 
-[[themes]]
-id = "async-std-demo"
-epic = "async-std"
-title = "Warp-cooperative async file pipeline demo"
-status = "completed"
-
-[[themes]]
-id = "async-bulk-io"
-epic = "codebase-health"
-title = "Async bulk I/O Futures — GpuBulkReadFuture + GpuBulkWriteFuture"
-status = "completed"
-goal = "Async wrappers around sideband bulk I/O for use with #[warp_cooperative]"
-success_criteria = [
-    "GpuBulkReadFuture implements Future, yields during sideband read",
-    "GpuBulkWriteFuture implements Future, yields during sideband write",
-    "End-to-end test: async bulk read + write from #[warp_cooperative] async fn",
-]
-
-[[themes]]
-id = "build-fix"
-epic = "codebase-health"
-title = "Fix build scripts and developer onboarding"
-status = "completed"
-goal = "Reproducible build from clean checkout, working build scripts"
-success_criteria = [
-    "build-toolchain scripts work end-to-end on Windows",
-    "README has build instructions a developer can follow",
-    "git status is clean (no uncommitted build artifacts)",
-]
-goal = "#[warp_cooperative] async fn runs file I/O pipeline with bar.warp.sync at yield points"
-success_criteria = [
-    "Kernel with #[warp_cooperative] async fn does open→read→compute→write→close via Futures",
-    "PTX shows bar.warp.sync at .await yield points",
-    "End-to-end host test: output file has correct computed result",
-]
-
-[[themes]]
-id = "rustdoc-coverage"
-epic = "public-api"
-title = "Rustdoc coverage for gpu-host public API"
-status = "completed"
-goal = "All pub items in gpu-host have doc comments; cargo doc builds cleanly"
-success_criteria = [
-    "cargo doc on gpu-host produces zero missing_docs warnings",
-    "All public types, functions, and modules have doc comments",
-]
-
-[[themes]]
-id = "arch-doc"
-epic = "public-api"
-title = "Write ARCHITECTURE.md for contributors"
-status = "completed"
-
-[[themes]]
-id = "release-prep"
-epic = "codebase-health"
-title = "Tag v0.1.0 release with CHANGELOG"
-status = "completed"
-goal = "Signal project maturity with versioned release"
-success_criteria = [
-    "CHANGELOG.md exists with key milestones",
-    "Git tag v0.1.0 created",
-]
-
-[[themes]]
-id = "showcase-demo"
-epic = "public-api"
-title = "Showcase demo — parallel file search on GPU"
-status = "completed"
-goal = "A compelling demo where GPU parallelism matters for file I/O"
-success_criteria = [
-    "Kernel searches file contents in parallel across 32 lanes",
-    "End-to-end demo: create files, search, report results",
-    "Measurably uses GPU parallelism (not just single-thread I/O)",
-]
-goal = "External-facing architecture document explaining system design"
-success_criteria = [
-    "ARCHITECTURE.md exists with hostcall protocol, MIR pass, PAL, crate map sections",
-    "A new contributor can understand the system from README + ARCHITECTURE.md alone",
-]
-
-[[themes]]
-id = "ci-update"
-epic = "codebase-health"
-title = "Add parallel-search example to CI lint and check scripts"
-status = "completed"
-goal = "CI covers all examples including parallel-search"
-success_criteria = [
-    "ci-lint.sh includes parallel-search host check",
-]
-
-[[themes]]
-id = "blog-draft"
-epic = "public-api"
-title = "Draft technical blog post for project visibility"
-status = "completed"
-goal = "Blog post draft covering three key innovations"
-success_criteria = [
-    "BLOG_DRAFT.md exists with hostcall protocol, MIR pass, and std-on-GPU sections",
-]
-
 # ============================================================
 # Tasks (pending/active only — done tasks archived in archive/)
 # ============================================================
 
-# --- std-sysroot-build theme ---
+# --- net-protocol theme ---
 
 [[tasks]]
-id = "std-sysroot-build.1"
-theme = "std-sysroot-build"
-title = "Investigation: attempt x.py build with std patches, catalog all errors"
+id = "net-protocol.1"
+theme = "net-protocol"
+title = "Investigation: design TCP service protocol — service IDs, fd model, sideband usage"
 kind = "investigation"
 status = "done"
 depends = []
 questions = [
-    "Does x.py build library succeed for nvptx64 with patched std?",
-    "Which PAL modules fail? How many errors?",
-    "Is -Zbuild-std a viable fallback if sysroot build fails?",
+    "What service IDs for TCP connect/send/recv/close?",
+    "How to reuse existing fd table for socket fds?",
+    "How to handle connection errors (refused, timeout)?",
+    "Should sideband buffer be used for send/recv data?",
 ]
 
 [[tasks]]
-id = "std-sysroot-build.2"
-theme = "std-sysroot-build"
-title = "Experiment: fix compilation errors — add missing cfg gates / PAL stubs"
+id = "net-protocol.2"
+theme = "net-protocol"
+title = "Experiment: implement TCP service IDs and constants in gpu-protocol"
 kind = "experiment"
 status = "done"
-depends = ["std-sysroot-build.1"]
-# SKIPPED: std-sysroot-build.1 found zero compilation errors; nothing to fix
+depends = ["net-protocol.1"]
+
+# --- net-host theme ---
 
 [[tasks]]
-id = "std-sysroot-build.3"
-theme = "std-sysroot-build"
-title = "Experiment: build test kernel with use std::fs::File, verify PTX"
+id = "net-host.1"
+theme = "net-host"
+title = "Experiment: implement TCP connect/send/recv/close handlers in gpu-host listener"
 kind = "experiment"
-status = "done"
-depends = ["std-sysroot-build.2"]
+status = "active"
+depends = ["net-protocol.2"]
+
+# --- net-gpu theme ---
 
 [[tasks]]
-id = "std-sysroot-build.4"
-theme = "std-sysroot-build"
-title = "Experiment: end-to-end test — File::create + write on GPU via hostcall"
+id = "net-gpu.1"
+theme = "net-gpu"
+title = "Experiment: implement GpuTcpConnectFuture/SendFuture/RecvFuture in gpu-runtime"
 kind = "experiment"
-status = "done"
-depends = ["std-sysroot-build.3"]
-
-# --- gpu-executor theme ---
-
-[[tasks]]
-id = "gpu-executor.1"
-theme = "gpu-executor"
-title = "Design: executor API — block_on, yield strategy, timeout, warp-cooperative"
-kind = "design"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "gpu-executor.2"
-theme = "gpu-executor"
-title = "Experiment: implement block_on in gpu-runtime, refactor async-pipeline"
-kind = "experiment"
-status = "done"
-depends = ["gpu-executor.1"]
-
-# --- ptx-codegen-fix theme ---
-
-[[tasks]]
-id = "ptx-codegen-fix.1"
-theme = "ptx-codegen-fix"
-title = "Investigation: root cause of .ptr .align N — LLVM or rustc_codegen_llvm?"
-kind = "investigation"
-status = "done"
-depends = []
-questions = [
-    "Is .ptr .align emitted by LLVM NVPTXAsmPrinter or by rustc metadata?",
-    "Can targeting PTX ISA 7.8+ avoid the issue?",
-    "Can we fix this in rustc_codegen_llvm without patching LLVM source?",
-]
-
-[[tasks]]
-id = "ptx-codegen-fix.2"
-theme = "ptx-codegen-fix"
-title = "Experiment: try PTX ISA 7.8+ targeting or add build.rs post-processing for .ptr .align"
-kind = "experiment"
-status = "done"
-depends = ["ptx-codegen-fix.1"]
-# +ptx78 applied to all configs. .ptr .align persists in PTX 7.8 (LLVM issue) but sed post-processing handles it.
-
-# --- async-std-demo theme ---
-
-[[tasks]]
-id = "async-std-demo.1"
-theme = "async-std-demo"
-title = "Design: demo kernel architecture — pipeline stages, Future types, PTX expectations"
-kind = "design"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "async-std-demo.2"
-theme = "async-std-demo"
-title = "Experiment: run existing async-pipeline example end-to-end, verify file I/O"
-kind = "experiment"
-status = "done"
-depends = ["async-std-demo.1"]
-
-[[tasks]]
-id = "async-std-demo.3"
-theme = "async-std-demo"
-title = "Experiment: end-to-end host test + PTX inspection for bar.warp.sync at yield points"
-kind = "experiment"
-status = "done"
-depends = ["async-std-demo.2"]
-# Merged with async-std-demo.2 — PTX already has 7x bar.warp.sync, end-to-end already passed
-
-# --- async-bulk-io theme ---
-
-[[tasks]]
-id = "async-bulk-io.1"
-theme = "async-bulk-io"
-title = "Investigation: review existing sideband bulk I/O API, design async Future wrappers"
-kind = "investigation"
-status = "done"
-depends = []
-questions = [
-    "What are gpu_bulk_read/gpu_bulk_write signatures and protocol?",
-    "What sideband buffer state management is needed for async?",
-    "Can we reuse the same HostcallState machine from GpuReadFuture?",
-]
-
-[[tasks]]
-id = "async-bulk-io.2"
-theme = "async-bulk-io"
-title = "Experiment: implement GpuBulkReadFuture + GpuBulkWriteFuture in gpu-runtime"
-kind = "experiment"
-status = "done"
-depends = ["async-bulk-io.1"]
-
-[[tasks]]
-id = "async-bulk-io.3"
-theme = "async-bulk-io"
-title = "Experiment: end-to-end test — async bulk file read + write from warp-cooperative kernel"
-kind = "experiment"
-status = "done"
-depends = ["async-bulk-io.2"]
-
-# --- build-fix theme ---
-
-[[tasks]]
-id = "build-fix.1"
-theme = "build-fix"
-title = "Investigation: audit build scripts, identify broken/missing pieces"
-kind = "investigation"
-status = "done"
-depends = []
-questions = [
-    "Which scripts are broken or have uncommitted changes?",
-    "What's the minimal set of steps to build from clean checkout?",
-    "What files should be committed vs gitignored?",
-]
-
-[[tasks]]
-id = "build-fix.2"
-theme = "build-fix"
-title = "Experiment: fix build scripts, clean git status, update README build section"
-kind = "experiment"
-status = "done"
-depends = ["build-fix.1"]
-
-# --- rustdoc-coverage theme ---
-
-[[tasks]]
-id = "rustdoc-coverage.1"
-theme = "rustdoc-coverage"
-title = "Investigation: run cargo doc on gpu-host, catalog missing doc warnings"
-kind = "investigation"
-status = "done"
-depends = []
-questions = [
-    "How many pub items lack doc comments?",
-    "Which modules have the worst coverage?",
-    "Does cargo doc build cleanly?",
-]
-
-[[tasks]]
-id = "rustdoc-coverage.2"
-theme = "rustdoc-coverage"
-title = "Experiment: add doc comments to all undocumented pub items in gpu-host"
-kind = "experiment"
-status = "done"
-# SKIPPED: rustdoc-coverage.1 found zero missing_docs warnings — nothing to fix
-depends = ["rustdoc-coverage.1"]
-
-# --- arch-doc theme ---
-
-[[tasks]]
-id = "arch-doc.1"
-theme = "arch-doc"
-title = "Design: outline ARCHITECTURE.md structure"
-kind = "design"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "arch-doc.2"
-theme = "arch-doc"
-title = "Experiment: write ARCHITECTURE.md"
-kind = "experiment"
-status = "done"
-depends = ["arch-doc.1"]
-
-# --- release-prep theme ---
-
-[[tasks]]
-id = "release-prep.1"
-theme = "release-prep"
-title = "Investigation: catalog key milestones for CHANGELOG"
-kind = "investigation"
-status = "done"
-depends = []
-questions = [
-    "What are the major milestones to document?",
-    "What version numbering scheme to use?",
-]
-
-[[tasks]]
-id = "release-prep.2"
-theme = "release-prep"
-title = "Experiment: create CHANGELOG.md and git tag v0.1.0"
-kind = "experiment"
-status = "done"
-depends = ["release-prep.1"]
-
-# --- showcase-demo theme ---
-
-[[tasks]]
-id = "showcase-demo.1"
-theme = "showcase-demo"
-title = "Design: parallel search kernel architecture"
-kind = "design"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "showcase-demo.2"
-theme = "showcase-demo"
-title = "Experiment: implement parallel file search kernel + host"
-kind = "experiment"
-status = "done"
-depends = ["showcase-demo.1"]
+status = "active"
+depends = ["net-protocol.2"]
 
 # ============================================================
 # Brainstorms (last 3 only — older brainstorms archived)
 # ============================================================
 
-[[themes]]
-id = "readme-polish"
-epic = "codebase-health"
-title = "CI badge + warp-cooperative in README"
-status = "completed"
-goal = "README has CI badge and lists all 6 examples"
-success_criteria = [
-    "CI badge in README header",
-    "warp-cooperative listed in examples section",
-]
-
-[[themes]]
-id = "contributing-guide"
-epic = "public-api"
-title = "CONTRIBUTING.md for developer onboarding"
-status = "completed"
-goal = "Developer guide for adding examples, running tests, code style"
-success_criteria = [
-    "CONTRIBUTING.md exists with dev workflow, adding examples, code style",
-]
-
-# --- ci-hygiene theme ---
-
-[[themes]]
-id = "ci-hygiene"
-epic = "codebase-health"
-title = "CI coverage for all examples + cleanup"
-status = "completed"
-goal = "All examples covered by CI; no broken artifacts in tree"
-success_criteria = [
-    "async-pipeline + parallel-search kernels and hosts in ci-lint.sh",
-    "Missing run scripts added",
-    "warp-cooperative scratch dir cleaned up",
-]
-
-[[themes]]
-id = "build-scripts"
-epic = "codebase-health"
-title = "Commit pending build script changes"
-status = "completed"
-goal = "Clean git status for build scripts"
-success_criteria = [
-    "build-toolchain.bat committed, .ps1 removed or updated, postprocess-ptx.sh removed",
-]
-
-[[themes]]
-id = "example-docs"
-epic = "public-api"
-title = "Per-example README documentation"
-status = "completed"
-goal = "Each example has a README with expected output and key observations"
-success_criteria = [
-    "async-pipeline and parallel-search have README.md",
-    "hello-gpu, async-io, vector-math have README.md",
-]
-
-# --- readme-polish theme ---
-
-[[tasks]]
-id = "readme-polish.1"
-theme = "readme-polish"
-title = "Experiment: add CI badge to README header"
-kind = "experiment"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "readme-polish.2"
-theme = "readme-polish"
-title = "Experiment: add warp-cooperative to README examples + write its README"
-kind = "experiment"
-status = "done"
-depends = []
-
-# --- contributing-guide theme ---
-
-[[tasks]]
-id = "contributing-guide.1"
-theme = "contributing-guide"
-title = "Experiment: write CONTRIBUTING.md"
-kind = "experiment"
-status = "done"
-depends = []
-
-# --- ci-hygiene theme ---
-
-[[tasks]]
-id = "ci-hygiene.1"
-theme = "ci-hygiene"
-title = "Experiment: add async-pipeline + parallel-search kernels and hosts to ci-lint.sh"
-kind = "experiment"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "ci-hygiene.2"
-theme = "ci-hygiene"
-title = "Experiment: add missing run scripts (parallel-search, async-pipeline)"
-kind = "experiment"
-status = "done"
-depends = ["ci-hygiene.1"]
-
-[[tasks]]
-id = "ci-hygiene.3"
-theme = "ci-hygiene"
-title = "Experiment: clean up warp-cooperative scratch directory"
-kind = "experiment"
-status = "done"
-depends = []
-# SKIPPED: ICE logs and mir_dump already in .gitignore; host/ dir exists, it's a proper example
-
-# --- build-scripts theme ---
-
-[[tasks]]
-id = "build-scripts.1"
-theme = "build-scripts"
-title = "Experiment: commit build-toolchain.bat, clean up .ps1 and postprocess-ptx.sh"
-kind = "experiment"
-status = "done"
-depends = []
-# SKIPPED: already committed in previous session
-
-# --- example-docs theme ---
-
-[[tasks]]
-id = "example-docs.1"
-theme = "example-docs"
-title = "Experiment: write README.md for async-pipeline and parallel-search"
-kind = "experiment"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "example-docs.2"
-theme = "example-docs"
-title = "Experiment: write README.md for hello-gpu, async-io, vector-math"
-kind = "experiment"
-status = "done"
-depends = []
-
-# --- ci-update theme (completed) ---
-
-[[tasks]]
-id = "ci-update.1"
-theme = "ci-update"
-title = "Experiment: add parallel-search host check to ci-lint.sh"
-kind = "experiment"
-status = "done"
-depends = []
-
-# --- blog-draft theme ---
-
-[[tasks]]
-id = "blog-draft.1"
-theme = "blog-draft"
-title = "Experiment: write technical blog post draft"
-kind = "experiment"
-status = "done"
-depends = []
-
-# ============================================================
-# Brainstorms (last 3 only — older brainstorms archived)
-# ============================================================
+[[brainstorms]]
+seq = 84
+at_cycle = 293
+trigger = "all themes completed — deep brainstorm for post-v0.1.0 strategic direction"
+level = "deep"
+new_tasks_spawned = ["net-protocol.1", "net-protocol.2", "net-host.1", "net-gpu.1"]
+new_themes_spawned = ["net-protocol", "net-host", "net-gpu"]
+themes_parked = []
+themes_completed = ["readme-polish", "contributing-guide"]
+key_insight = "Project proved the concept; next phase must prove value. Network I/O is highest-value work agent can do without GPU hardware. Multi-warp and benchmarks are P1/P2 but need GPU testing. New epic: network-io."
 
 [[brainstorms]]
 seq = 83
@@ -770,80 +312,3 @@ new_themes_spawned = ["ci-update", "blog-draft"]
 themes_parked = []
 themes_completed = ["release-prep", "showcase-demo"]
 key_insight = "v0.1.0 released. Highest-value remaining work: visibility (blog post) and CI hygiene (add parallel-search to CI)."
-
-[[brainstorms]]
-seq = 80
-at_cycle = 289
-trigger = "all tasks done — quick brainstorm for next direction"
-level = "quick"
-new_tasks_spawned = ["release-prep.1", "release-prep.2", "showcase-demo.1", "showcase-demo.2"]
-new_themes_spawned = ["release-prep", "showcase-demo"]
-themes_parked = []
-themes_completed = ["rustdoc-coverage", "arch-doc"]
-key_insight = "Documentation phase complete. Both evergreen epics satisfied. Next: release-prep (v0.1.0 tag) then showcase-demo (parallel file search — plays to GPU strengths)."
-
-[[brainstorms]]
-seq = 79
-at_cycle = 287
-trigger = "all tasks done, no pending tasks — standard brainstorm for maintenance direction"
-level = "standard"
-new_tasks_spawned = ["rustdoc-coverage.1", "rustdoc-coverage.2", "arch-doc.1", "arch-doc.2"]
-new_themes_spawned = ["rustdoc-coverage", "arch-doc"]
-themes_parked = []
-themes_completed = ["async-bulk-io", "build-fix"]
-key_insight = "Both evergreen epics have remaining gaps: public-api needs rustdoc coverage for gpu-host, codebase-health README had stale .ps1 references (fixed inline). New themes: rustdoc-coverage + arch-doc. Deferred: release-prep, blog post."
-
-[[brainstorms]]
-seq = 78
-at_cycle = 284
-trigger = "all themes completed, no pending tasks — deep brainstorm for new direction"
-level = "deep"
-new_tasks_spawned = ["async-bulk-io.1", "async-bulk-io.2", "async-bulk-io.3", "build-fix.1", "build-fix.2"]
-new_themes_spawned = ["async-bulk-io", "build-fix"]
-themes_parked = []
-themes_completed = ["async-std-demo"]
-key_insight = "Project graduated from 'can we do it?' to 'is it useful?'. Biggest gap is visibility, not features. async-std epic closed. Sideband bulk I/O already exists (proposer didn't know) — streaming I/O NOT needed. Priority: (1) async bulk I/O Futures (small gap), (2) fix build scripts, (3) README/docs. Defer networking, multi-GPU, serde, cargo plugin."
-
-[[brainstorms]]
-seq = 77
-at_cycle = 281
-trigger = "std-sysroot epic completed + std-sysroot-build theme completed — reassess async-std path"
-level = "standard"
-new_tasks_spawned = ["async-std-demo.1", "async-std-demo.2", "async-std-demo.3"]
-new_themes_spawned = ["async-std-demo"]
-themes_parked = []
-themes_completed = ["std-sysroot-build", "ptx-codegen-fix"]
-key_insight = "std-sysroot epic ALL 4 criteria met. ptx-codegen-fix theme closed (all criteria met). async-std remaining work: C2+C3 demo. PAL async bridge is architecturally infeasible (std API is sync); pragmatic path: #[warp_cooperative] async fn using GpuXxxFuture types + block_on(). New async-std-demo theme with 3 tasks for the integration demo."
-
-[[brainstorms]]
-seq = 76
-at_cycle = 275
-trigger = "user direction pivot — 5 priorities after async-pipeline demo success"
-level = "standard"
-new_tasks_spawned = ["std-sysroot-build.1", "std-sysroot-build.2", "std-sysroot-build.3", "std-sysroot-build.4", "gpu-executor.1", "gpu-executor.2", "ptx-codegen-fix.1", "ptx-codegen-fix.2"]
-new_themes_spawned = ["std-sysroot-build", "gpu-executor", "ptx-codegen-fix", "warp-batch-io"]
-themes_parked = ["warp-batch-io"]
-themes_completed = ["async-yield"]
-key_insight = "5 directions in priority order: (1) patched std in sysroot — biggest impact, (2) GPU executor — small effort high value, (3) PTX codegen fixes — .ptr .align + panic stubs in rustc, (4) warp-batched hostcall — parked until executor done, (5) public API — defer. New epic std-sysroot created. First task: attempt x.py build with std patches to measure gap."
-
-[[brainstorms]]
-seq = 75
-at_cycle = 274
-trigger = "toolchain-auto theme completed — assess remaining work"
-level = "quick"
-new_tasks_spawned = []
-new_themes_spawned = []
-themes_parked = []
-themes_completed = ["toolchain-auto"]
-key_insight = "async-std epic 4/6 criteria met. Criterion 3 (demo) blocked on patched toolchain build. Setting awaiting_user."
-
-[[brainstorms]]
-seq = 74
-at_cycle = 271
-trigger = "user direction pivot — async yield not warp batching"
-level = "quick"
-new_tasks_spawned = ["async-yield.1", "async-yield.2", "async-yield.3"]
-new_themes_spawned = ["async-yield"]
-themes_parked = []
-themes_completed = ["codebase-restructure"]
-key_insight = "Real value: I/O yields warp to scheduler so other warps run compute. Need async hostcall Future."

@@ -941,3 +941,319 @@ title = "Generate rustc-patches/ diffs from toolchain/ changes"
 kind = "experiment"
 status = "done"
 deps = ["rustc-impl.2"]
+
+# --- Archived at cycle 293 ---
+
+# --- std-sysroot-build theme ---
+
+[[tasks]]
+id = "std-sysroot-build.1"
+theme = "std-sysroot-build"
+title = "Investigation: attempt x.py build with std patches, catalog all errors"
+kind = "investigation"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "std-sysroot-build.2"
+theme = "std-sysroot-build"
+title = "Experiment: fix compilation errors — add missing cfg gates / PAL stubs"
+kind = "experiment"
+status = "done"
+depends = ["std-sysroot-build.1"]
+
+[[tasks]]
+id = "std-sysroot-build.3"
+theme = "std-sysroot-build"
+title = "Experiment: build test kernel with use std::fs::File, verify PTX"
+kind = "experiment"
+status = "done"
+depends = ["std-sysroot-build.2"]
+
+[[tasks]]
+id = "std-sysroot-build.4"
+theme = "std-sysroot-build"
+title = "Experiment: end-to-end test — File::create + write on GPU via hostcall"
+kind = "experiment"
+status = "done"
+depends = ["std-sysroot-build.3"]
+
+# --- gpu-executor theme ---
+
+[[tasks]]
+id = "gpu-executor.1"
+theme = "gpu-executor"
+title = "Design: executor API — block_on, yield strategy, timeout, warp-cooperative"
+kind = "design"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "gpu-executor.2"
+theme = "gpu-executor"
+title = "Experiment: implement block_on in gpu-runtime, refactor async-pipeline"
+kind = "experiment"
+status = "done"
+depends = ["gpu-executor.1"]
+
+# --- ptx-codegen-fix theme ---
+
+[[tasks]]
+id = "ptx-codegen-fix.1"
+theme = "ptx-codegen-fix"
+title = "Investigation: root cause of .ptr .align N — LLVM or rustc_codegen_llvm?"
+kind = "investigation"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "ptx-codegen-fix.2"
+theme = "ptx-codegen-fix"
+title = "Experiment: try PTX ISA 7.8+ targeting or add build.rs post-processing for .ptr .align"
+kind = "experiment"
+status = "done"
+depends = ["ptx-codegen-fix.1"]
+
+# --- async-std-demo theme ---
+
+[[tasks]]
+id = "async-std-demo.1"
+theme = "async-std-demo"
+title = "Design: demo kernel architecture — pipeline stages, Future types, PTX expectations"
+kind = "design"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "async-std-demo.2"
+theme = "async-std-demo"
+title = "Experiment: run existing async-pipeline example end-to-end, verify file I/O"
+kind = "experiment"
+status = "done"
+depends = ["async-std-demo.1"]
+
+[[tasks]]
+id = "async-std-demo.3"
+theme = "async-std-demo"
+title = "Experiment: end-to-end host test + PTX inspection for bar.warp.sync at yield points"
+kind = "experiment"
+status = "done"
+depends = ["async-std-demo.2"]
+
+# --- async-bulk-io theme ---
+
+[[tasks]]
+id = "async-bulk-io.1"
+theme = "async-bulk-io"
+title = "Investigation: review existing sideband bulk I/O API, design async Future wrappers"
+kind = "investigation"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "async-bulk-io.2"
+theme = "async-bulk-io"
+title = "Experiment: implement GpuBulkReadFuture + GpuBulkWriteFuture in gpu-runtime"
+kind = "experiment"
+status = "done"
+depends = ["async-bulk-io.1"]
+
+[[tasks]]
+id = "async-bulk-io.3"
+theme = "async-bulk-io"
+title = "Experiment: end-to-end test — async bulk file read + write from warp-cooperative kernel"
+kind = "experiment"
+status = "done"
+depends = ["async-bulk-io.2"]
+
+# --- build-fix theme ---
+
+[[tasks]]
+id = "build-fix.1"
+theme = "build-fix"
+title = "Investigation: audit build scripts, identify broken/missing pieces"
+kind = "investigation"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "build-fix.2"
+theme = "build-fix"
+title = "Experiment: fix build scripts, clean git status, update README build section"
+kind = "experiment"
+status = "done"
+depends = ["build-fix.1"]
+
+# --- rustdoc-coverage theme ---
+
+[[tasks]]
+id = "rustdoc-coverage.1"
+theme = "rustdoc-coverage"
+title = "Investigation: run cargo doc on gpu-host, catalog missing doc warnings"
+kind = "investigation"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "rustdoc-coverage.2"
+theme = "rustdoc-coverage"
+title = "Experiment: add doc comments to all undocumented pub items in gpu-host"
+kind = "experiment"
+status = "done"
+depends = ["rustdoc-coverage.1"]
+
+# --- arch-doc theme ---
+
+[[tasks]]
+id = "arch-doc.1"
+theme = "arch-doc"
+title = "Design: outline ARCHITECTURE.md structure"
+kind = "design"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "arch-doc.2"
+theme = "arch-doc"
+title = "Experiment: write ARCHITECTURE.md"
+kind = "experiment"
+status = "done"
+depends = ["arch-doc.1"]
+
+# --- release-prep theme ---
+
+[[tasks]]
+id = "release-prep.1"
+theme = "release-prep"
+title = "Investigation: catalog key milestones for CHANGELOG"
+kind = "investigation"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "release-prep.2"
+theme = "release-prep"
+title = "Experiment: create CHANGELOG.md and git tag v0.1.0"
+kind = "experiment"
+status = "done"
+depends = ["release-prep.1"]
+
+# --- showcase-demo theme ---
+
+[[tasks]]
+id = "showcase-demo.1"
+theme = "showcase-demo"
+title = "Design: parallel search kernel architecture"
+kind = "design"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "showcase-demo.2"
+theme = "showcase-demo"
+title = "Experiment: implement parallel file search kernel + host"
+kind = "experiment"
+status = "done"
+depends = ["showcase-demo.1"]
+
+# --- readme-polish theme ---
+
+[[tasks]]
+id = "readme-polish.1"
+theme = "readme-polish"
+title = "Experiment: add CI badge to README header"
+kind = "experiment"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "readme-polish.2"
+theme = "readme-polish"
+title = "Experiment: add warp-cooperative to README examples + write its README"
+kind = "experiment"
+status = "done"
+depends = []
+
+# --- contributing-guide theme ---
+
+[[tasks]]
+id = "contributing-guide.1"
+theme = "contributing-guide"
+title = "Experiment: write CONTRIBUTING.md"
+kind = "experiment"
+status = "done"
+depends = []
+
+# --- ci-hygiene theme ---
+
+[[tasks]]
+id = "ci-hygiene.1"
+theme = "ci-hygiene"
+title = "Experiment: add async-pipeline + parallel-search kernels and hosts to ci-lint.sh"
+kind = "experiment"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "ci-hygiene.2"
+theme = "ci-hygiene"
+title = "Experiment: add missing run scripts (parallel-search, async-pipeline)"
+kind = "experiment"
+status = "done"
+depends = ["ci-hygiene.1"]
+
+[[tasks]]
+id = "ci-hygiene.3"
+theme = "ci-hygiene"
+title = "Experiment: clean up warp-cooperative scratch directory"
+kind = "experiment"
+status = "done"
+depends = []
+
+# --- build-scripts theme ---
+
+[[tasks]]
+id = "build-scripts.1"
+theme = "build-scripts"
+title = "Experiment: commit build-toolchain.bat, clean up .ps1 and postprocess-ptx.sh"
+kind = "experiment"
+status = "done"
+depends = []
+
+# --- example-docs theme ---
+
+[[tasks]]
+id = "example-docs.1"
+theme = "example-docs"
+title = "Experiment: write README.md for async-pipeline and parallel-search"
+kind = "experiment"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "example-docs.2"
+theme = "example-docs"
+title = "Experiment: write README.md for hello-gpu, async-io, vector-math"
+kind = "experiment"
+status = "done"
+depends = []
+
+# --- ci-update theme ---
+
+[[tasks]]
+id = "ci-update.1"
+theme = "ci-update"
+title = "Experiment: add parallel-search host check to ci-lint.sh"
+kind = "experiment"
+status = "done"
+depends = []
+
+# --- blog-draft theme ---
+
+[[tasks]]
+id = "blog-draft.1"
+theme = "blog-draft"
+title = "Experiment: write technical blog post draft"
+kind = "experiment"
+status = "done"
+depends = []

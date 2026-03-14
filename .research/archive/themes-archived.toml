@@ -272,3 +272,107 @@ id = "rustc-impl"
 epic = "native-warp-async"
 title = "Implement WarpCooperativeTransform MIR pass in rustc source"
 status = "completed"
+
+# --- Archived at cycle 293 ---
+
+[[themes]]
+id = "std-sysroot-build"
+epic = "std-sysroot"
+title = "Build patched std into sysroot for nvptx64"
+status = "completed"
+
+[[themes]]
+id = "gpu-executor"
+epic = "async-std"
+title = "GPU-side async executor — block_on() with yield strategy"
+status = "completed"
+
+[[themes]]
+id = "ptx-codegen-fix"
+epic = "codebase-health"
+title = "Fix PTX codegen issues in patched rustc — .ptr .align + panic stubs"
+status = "completed"
+
+[[themes]]
+id = "async-std-demo"
+epic = "async-std"
+title = "Warp-cooperative async file pipeline demo"
+status = "completed"
+
+[[themes]]
+id = "async-bulk-io"
+epic = "codebase-health"
+title = "Async bulk I/O Futures — GpuBulkReadFuture + GpuBulkWriteFuture"
+status = "completed"
+
+[[themes]]
+id = "build-fix"
+epic = "codebase-health"
+title = "Fix build scripts and developer onboarding"
+status = "completed"
+
+[[themes]]
+id = "rustdoc-coverage"
+epic = "public-api"
+title = "Rustdoc coverage for gpu-host public API"
+status = "completed"
+
+[[themes]]
+id = "arch-doc"
+epic = "public-api"
+title = "Write ARCHITECTURE.md for contributors"
+status = "completed"
+
+[[themes]]
+id = "release-prep"
+epic = "codebase-health"
+title = "Tag v0.1.0 release with CHANGELOG"
+status = "completed"
+
+[[themes]]
+id = "showcase-demo"
+epic = "public-api"
+title = "Showcase demo — parallel file search on GPU"
+status = "completed"
+
+[[themes]]
+id = "ci-update"
+epic = "codebase-health"
+title = "Add parallel-search example to CI lint and check scripts"
+status = "completed"
+
+[[themes]]
+id = "blog-draft"
+epic = "public-api"
+title = "Draft technical blog post for project visibility"
+status = "completed"
+
+[[themes]]
+id = "readme-polish"
+epic = "codebase-health"
+title = "CI badge + warp-cooperative in README"
+status = "completed"
+
+[[themes]]
+id = "contributing-guide"
+epic = "public-api"
+title = "CONTRIBUTING.md for developer onboarding"
+status = "completed"
+
+[[themes]]
+id = "ci-hygiene"
+epic = "codebase-health"
+title = "CI coverage for all examples + cleanup"
+status = "completed"
+
+[[themes]]
+id = "build-scripts"
+epic = "codebase-health"
+title = "Commit pending build script changes"
+status = "completed"
+
+[[themes]]
+id = "example-docs"
+epic = "public-api"
+title = "Per-example README documentation"
+status = "completed"

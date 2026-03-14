@@ -106,3 +106,76 @@ new_themes_spawned = ["println-buffer"]
 themes_parked = []
 themes_completed = ["gpu-test-harness"]
 key_insight = "Integration test harness done. Next: integrate print_buffer with gpu-libc write() so println!() auto-buffers — highest-impact remaining optimization. Bridges printf-batch infra with real-std println!()."
+
+# --- Archived at cycle 293 (keeping bs81-83 in state.toml) ---
+
+[[brainstorms]]
+seq = 80
+at_cycle = 289
+trigger = "all tasks done — quick brainstorm for next direction"
+level = "quick"
+new_tasks_spawned = ["release-prep.1", "release-prep.2", "showcase-demo.1", "showcase-demo.2"]
+new_themes_spawned = ["release-prep", "showcase-demo"]
+themes_completed = ["rustdoc-coverage", "arch-doc"]
+key_insight = "Documentation phase complete. Both evergreen epics satisfied. Next: release-prep (v0.1.0 tag) then showcase-demo (parallel file search — plays to GPU strengths)."
+
+[[brainstorms]]
+seq = 79
+at_cycle = 287
+trigger = "all tasks done, no pending tasks — standard brainstorm for maintenance direction"
+level = "standard"
+new_tasks_spawned = ["rustdoc-coverage.1", "rustdoc-coverage.2", "arch-doc.1", "arch-doc.2"]
+new_themes_spawned = ["rustdoc-coverage", "arch-doc"]
+themes_completed = ["async-bulk-io", "build-fix"]
+key_insight = "Both evergreen epics have remaining gaps: public-api needs rustdoc coverage for gpu-host, codebase-health README had stale .ps1 references (fixed inline)."
+
+[[brainstorms]]
+seq = 78
+at_cycle = 284
+trigger = "all themes completed, no pending tasks — deep brainstorm for new direction"
+level = "deep"
+new_tasks_spawned = ["async-bulk-io.1", "async-bulk-io.2", "async-bulk-io.3", "build-fix.1", "build-fix.2"]
+new_themes_spawned = ["async-bulk-io", "build-fix"]
+themes_completed = ["async-std-demo"]
+key_insight = "Project graduated from 'can we do it?' to 'is it useful?'. Biggest gap is visibility, not features."
+
+[[brainstorms]]
+seq = 77
+at_cycle = 281
+trigger = "std-sysroot epic completed + std-sysroot-build theme completed — reassess async-std path"
+level = "standard"
+new_tasks_spawned = ["async-std-demo.1", "async-std-demo.2", "async-std-demo.3"]
+new_themes_spawned = ["async-std-demo"]
+themes_completed = ["std-sysroot-build", "ptx-codegen-fix"]
+key_insight = "std-sysroot epic ALL 4 criteria met. ptx-codegen-fix closed. async-std remaining: C2+C3 demo."
+
+[[brainstorms]]
+seq = 76
+at_cycle = 275
+trigger = "user direction pivot — 5 priorities after async-pipeline demo success"
+level = "standard"
+new_tasks_spawned = ["std-sysroot-build.1", "std-sysroot-build.2", "std-sysroot-build.3", "std-sysroot-build.4", "gpu-executor.1", "gpu-executor.2", "ptx-codegen-fix.1", "ptx-codegen-fix.2"]
+new_themes_spawned = ["std-sysroot-build", "gpu-executor", "ptx-codegen-fix", "warp-batch-io"]
+themes_parked = ["warp-batch-io"]
+themes_completed = ["async-yield"]
+key_insight = "5 directions in priority order: (1) patched std in sysroot, (2) GPU executor, (3) PTX codegen fixes, (4) warp-batched hostcall (parked), (5) public API."
+
+[[brainstorms]]
+seq = 75
+at_cycle = 274
+trigger = "toolchain-auto theme completed — assess remaining work"
+level = "quick"
+new_tasks_spawned = []
+new_themes_spawned = []
+themes_completed = ["toolchain-auto"]
+key_insight = "async-std epic 4/6 criteria met. Criterion 3 blocked on patched toolchain build."
+
+[[brainstorms]]
+seq = 74
+at_cycle = 271
+trigger = "user direction pivot — async yield not warp batching"
+level = "quick"
+new_tasks_spawned = ["async-yield.1", "async-yield.2", "async-yield.3"]
+new_themes_spawned = ["async-yield"]
+themes_completed = ["codebase-restructure"]
+key_insight = "Real value: I/O yields warp to scheduler so other warps run compute."

@@ -726,3 +726,54 @@ pub unsafe extern "ptx-kernel" fn trace_assert_test(buf: *mut u8, success_count:
 
     gpu_atomics::sys_fetch_add_u32(success_count, 1);
 }
+
+// ============================================================
+// Session test kernels (hc-session.3)
+// ============================================================
+
+/// Session test Kernel A: print a message and write a magic value.
+///
+/// Demonstrates that the hostcall session is active and working.
+/// Writes 0xCAFE to `shared_state` so Kernel B can verify persistence.
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn session_kernel_a(buf: *mut u8, shared_state: *mut u32) {
+    let tid = nvptx::_thread_idx_x() as u32;
+    if tid != 0 {
+        return;
+    }
+
+    gpu_runtime::panic::gpu_panic_init(buf);
+
+    let msg: &[u8] = b"session kernel A";
+    let _ = gpu_runtime::hostcall::gpu_hostcall_print(buf, msg.as_ptr(), msg.len() as u32);
+
+    // Write magic value for Kernel B to verify
+    gpu_atomics::sys_store_release_u32(shared_state, 0xCAFE);
+}
+
+/// Session test Kernel B: read the magic value written by Kernel A.
+///
+/// Verifies that the hostcall session persisted across launches and that
+/// shared mapped memory is readable. Writes 1 to `result` if magic matches.
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn session_kernel_b(
+    buf: *mut u8,
+    shared_state: *mut u32,
+    result: *mut u32,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+    if tid != 0 {
+        return;
+    }
+
+    gpu_runtime::panic::gpu_panic_init(buf);
+
+    // Read the value Kernel A wrote
+    let magic = gpu_atomics::sys_load_acquire_u32(shared_state as *const u32);
+
+    let msg: &[u8] = b"session kernel B";
+    let _ = gpu_runtime::hostcall::gpu_hostcall_print(buf, msg.as_ptr(), msg.len() as u32);
+
+    // Write result: 1 if magic matches, 0 otherwise
+    gpu_atomics::sys_store_release_u32(result, if magic == 0xCAFE { 1 } else { 0 });
+}

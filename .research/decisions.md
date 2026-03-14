@@ -160,3 +160,21 @@ Record important technical decisions here as they emerge from research.
 - **Rationale**: (1) One script, two environments — no drift. (2) Developers verify locally what CI will check. (3) PTX stub list auto-maintained.
 - **Alternatives**: (a) YAML-first CI with separate config — fragile, hard to test locally. (b) Makefile — heavier tooling for same benefit.
 - **Sources**: build-auto.1-c199, build-auto.2-c201
+
+### ADR-013: HostcallSession for multi-launch hostcall persistence
+- **Date**: 2026-03-14
+- **Status**: accepted (design in hc-session.1)
+- **Context**: Each kernel launch creates a new HostcallBuffer + listener thread. For multi-launch pipelines, this overhead is unnecessary and prevents cross-launch fd sharing.
+- **Decision**: HostcallSession wraps HostcallBuffer with persistent listener. `reinit_packets()` resets free/ready stacks between launches without reallocation. fd_table persists across launches.
+- **Rationale**: (1) Zero allocation overhead between launches. (2) File handles persist — Kernel B can use Kernel A's fds. (3) Listener thread stays alive with adaptive sleep.
+- **Alternatives**: (a) Recreate buffer per launch — wastes allocation + thread spawn. (b) Global persistent listener — less composable.
+- **Sources**: hc-session.1-c217, bs54.md
+
+### ADR-014: Host→GPU command buffer via mapped memory ring buffer
+- **Date**: 2026-03-14
+- **Status**: accepted (design in cmd-buffer.1)
+- **Context**: Current protocol is GPU→host only. Multi-command kernel needs host→GPU command channel.
+- **Decision**: Mapped memory ring buffer with write_idx (host, Release) / read_idx (GPU, Release). 64-byte header + 64-byte command slots. Command types: CMD_COMPUTE, CMD_PRINT, CMD_EXIT.
+- **Rationale**: (1) Ring buffer is simpler than lock-free stack for single-producer. (2) FIFO ordering preserved. (3) Uses proven sys-scope atomics pattern. (4) Independent from hostcall buffer.
+- **Alternatives**: (a) Repurpose hostcall buffer as bidirectional — overloads existing protocol. (b) Shared memory flag polling — no ordering guarantee.
+- **Sources**: cmd-buffer.1-c218, bs54.md

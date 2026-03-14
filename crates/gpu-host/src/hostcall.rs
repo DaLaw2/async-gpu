@@ -353,6 +353,90 @@ impl HostcallBuffer {
         }
     }
 
+    /// Reinitialize packet pool for reuse between kernel launches.
+    ///
+    #[allow(dead_code)]
+    /// Resets free stacks (all packets available), ready stacks (empty),
+    /// and all packet control flags. Resets sideband bump allocator.
+    ///
+    /// SAFETY: Must only be called after `cuCtxSynchronize()` (GPU is idle).
+    /// The listener thread may still be running — this is safe because the
+    /// ready stacks are set to NULL (listener will see empty stacks) and
+    /// free stacks are only popped by GPU (which is idle).
+    pub fn reinit_packets(&self) {
+        let base = self.host_ptr;
+        unsafe {
+            // Reset shutdown flag (may have been set by previous session use)
+            std::ptr::write_volatile(base.add(BUF_OFF_SHUTDOWN) as *mut u32, 0);
+
+            if self.num_shards == 0 {
+                // Legacy mode
+                let free_stack = base.add(BUF_OFF_FREE_STACK) as *mut u64;
+                let ready_stack = base.add(BUF_OFF_READY_STACK) as *mut u64;
+
+                // Clear ready stack
+                std::ptr::write_volatile(ready_stack, null_tagged());
+
+                // Rebuild free stack chain
+                for i in 0..self.num_packets {
+                    let pkt = base.add(packet_offset(i));
+                    let next_tagged = if i + 1 < self.num_packets {
+                        make_tagged(0, i + 1)
+                    } else {
+                        null_tagged()
+                    };
+                    std::ptr::write_volatile(pkt.add(PKT_OFF_NEXT) as *mut u64, next_tagged);
+                    std::ptr::write_volatile(pkt.add(PKT_OFF_CONTROL) as *mut u32, 0);
+                }
+                std::ptr::write_volatile(free_stack, make_tagged(0, 0));
+            } else {
+                // Sharded mode
+                let shard_array_off = BUFFER_HEADER_SIZE;
+
+                std::ptr::write_volatile(base.add(BUF_OFF_FREE_STACK) as *mut u64, null_tagged());
+                std::ptr::write_volatile(base.add(BUF_OFF_READY_STACK) as *mut u64, null_tagged());
+
+                for s in 0..self.num_shards {
+                    let base_pkt = s * self.pkts_per_shard;
+                    let entry_off = shard_entry_offset(shard_array_off, s);
+
+                    for i in 0..self.pkts_per_shard {
+                        let pkt_idx = (base_pkt + i) as u16;
+                        let pkt = base.add(packet_offset_sharded(
+                            pkt_idx,
+                            shard_array_off,
+                            self.num_shards,
+                        ));
+                        let next_tagged = if i + 1 < self.pkts_per_shard {
+                            make_tagged(0, (base_pkt + i + 1) as u16)
+                        } else {
+                            null_tagged()
+                        };
+                        std::ptr::write_volatile(pkt.add(PKT_OFF_NEXT) as *mut u64, next_tagged);
+                        std::ptr::write_volatile(pkt.add(PKT_OFF_CONTROL) as *mut u32, 0);
+                    }
+
+                    std::ptr::write_volatile(
+                        base.add(entry_off + SHARD_OFF_FREE_STACK) as *mut u64,
+                        make_tagged(0, base_pkt as u16),
+                    );
+                    std::ptr::write_volatile(
+                        base.add(entry_off + SHARD_OFF_READY_STACK) as *mut u64,
+                        null_tagged(),
+                    );
+                }
+            }
+
+            // Reset sideband bump allocator
+            if !self.sideband_host_ptr.is_null() {
+                std::ptr::write_volatile(
+                    self.sideband_host_ptr.add(SIDEBAND_OFF_ALLOC) as *mut u64,
+                    0u64,
+                );
+            }
+        }
+    }
+
     /// Get a reference to the doorbell as an AtomicU64.
     fn doorbell(&self) -> &AtomicU64 {
         unsafe { &*(self.host_ptr.add(BUF_OFF_DOORBELL) as *const AtomicU64) }
@@ -1055,6 +1139,114 @@ impl HostcallBuffer {
         F: FnMut(&[u8]),
     {
         self.listen_unified(on_print, CannedStdin::new(stdin_data));
+    }
+}
+
+// ================================================================
+// HostcallSession — persistent listener across kernel launches
+// ================================================================
+
+/// A persistent hostcall session that keeps the listener thread alive
+/// across multiple kernel launches.
+///
+/// Lifecycle:
+/// ```text
+/// let session = HostcallSession::start(64)?;
+/// // Launch kernel A
+/// launch_kernel(session.dev_ptr(), ...);
+/// dev.synchronize()?;
+/// session.reinit_packets();
+/// // Launch kernel B (same hostcall buffer, same listener)
+/// launch_kernel(session.dev_ptr(), ...);
+/// dev.synchronize()?;
+/// session.shutdown();
+/// ```
+///
+/// File handles opened by one kernel persist for subsequent kernels
+/// within the same session.
+#[allow(dead_code)]
+pub struct HostcallSession {
+    buf: std::sync::Arc<HostcallBuffer>,
+    listener_handle: Option<std::thread::JoinHandle<()>>,
+}
+
+#[allow(dead_code)]
+impl HostcallSession {
+    /// Start a new session with the given packet count.
+    /// Spawns listener + I/O threads immediately.
+    pub fn start(num_packets: u16) -> Result<Self, HostcallError> {
+        let buf = HostcallBuffer::new(num_packets)?;
+        let buf = std::sync::Arc::new(buf);
+        let buf_listener = std::sync::Arc::clone(&buf);
+
+        let listener_handle = std::thread::spawn(move || {
+            buf_listener.listen(|_msg| {
+                // Print messages handled by handle_print — on_print is for test capture
+            });
+        });
+
+        Ok(Self {
+            buf,
+            listener_handle: Some(listener_handle),
+        })
+    }
+
+    /// Start a new session with a custom print callback.
+    pub fn start_with_print<F>(num_packets: u16, on_print: F) -> Result<Self, HostcallError>
+    where
+        F: FnMut(&[u8]) + Send + 'static,
+    {
+        let buf = HostcallBuffer::new(num_packets)?;
+        let buf = std::sync::Arc::new(buf);
+        let buf_listener = std::sync::Arc::clone(&buf);
+
+        let listener_handle = std::thread::spawn(move || {
+            buf_listener.listen(on_print);
+        });
+
+        Ok(Self {
+            buf,
+            listener_handle: Some(listener_handle),
+        })
+    }
+
+    /// Get the device pointer for kernel launch args.
+    pub fn dev_ptr(&self) -> sys::CUdeviceptr {
+        self.buf.dev_ptr
+    }
+
+    /// Get the sideband device pointer for bulk transfer args.
+    pub fn sideband_dev_ptr(&self) -> sys::CUdeviceptr {
+        self.buf.sideband_dev_ptr
+    }
+
+    /// Reinitialize packet pool between kernel launches.
+    ///
+    /// MUST be called after `dev.synchronize()` and before the next kernel launch.
+    /// Resets free/ready stacks and sideband allocator.
+    /// File handles opened by previous kernels are NOT closed.
+    pub fn reinit_packets(&self) {
+        self.buf.reinit_packets();
+    }
+
+    /// Shut down the session. Stops listener + I/O threads, closes all files.
+    pub fn shutdown(mut self) {
+        self.buf.signal_shutdown();
+        if let Some(handle) = self.listener_handle.take() {
+            // Wait briefly for listener to drain, then join
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            let _ = handle.join();
+        }
+    }
+}
+
+impl Drop for HostcallSession {
+    fn drop(&mut self) {
+        self.buf.signal_shutdown();
+        if let Some(handle) = self.listener_handle.take() {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            let _ = handle.join();
+        }
     }
 }
 

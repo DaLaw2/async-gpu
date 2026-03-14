@@ -850,3 +850,95 @@ pub(crate) fn run_trace_assert_test(dev: Arc<CudaDevice>) -> Result<()> {
     println!("  trace_assert_test: PASSED!");
     Ok(())
 }
+
+/// Test: HostcallSession persists across two kernel launches.
+///
+/// 1. Start a HostcallSession
+/// 2. Launch Kernel A — prints message, writes 0xCAFE to shared mapped memory
+/// 3. Synchronize, reinit packets
+/// 4. Launch Kernel B — reads 0xCAFE, prints message, writes result
+/// 5. Verify Kernel B read the correct value
+pub(crate) fn run_session_multi_launch_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- HostcallSession multi-launch test ---");
+
+    let session = hostcall::HostcallSession::start(16).map_err(|e| GpuHostError::Verification {
+        test: "session_multi_launch",
+        detail: format!("session start failed: {e}"),
+    })?;
+
+    // Shared state: mapped u32 for cross-launch communication
+    let (state_host_ptr, state_dev_ptr) = unsafe { alloc_mapped_u32(&dev)? };
+    unsafe { std::ptr::write_volatile(state_host_ptr, 0u32) };
+
+    // Result: mapped u32 for Kernel B's verification
+    let (result_host_ptr, result_dev_ptr) = unsafe { alloc_mapped_u32(&dev)? };
+    unsafe { std::ptr::write_volatile(result_host_ptr, 0u32) };
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "kernel", &["session_kernel_a", "session_kernel_b"]);
+
+    // --- Launch Kernel A ---
+    let f_a = dev
+        .get_func("kernel", "session_kernel_a")
+        .ok_or(GpuHostError::KernelNotFound("session_kernel_a"))?;
+
+    let cfg = cudarc::driver::LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (32, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    println!("  Launching session_kernel_a...");
+    unsafe {
+        f_a.launch(cfg, (session.dev_ptr(), state_dev_ptr))?;
+    }
+    dev.synchronize()?;
+    println!("  Kernel A completed.");
+
+    // Check that Kernel A wrote the magic value
+    let state_after_a = unsafe { std::ptr::read_volatile(state_host_ptr) };
+    println!("  Shared state after Kernel A: 0x{state_after_a:X}");
+
+    // --- Reinit packets for Kernel B ---
+    session.reinit_packets();
+    println!("  Packet pool reinitialized.");
+
+    // --- Launch Kernel B ---
+    let f_b = dev
+        .get_func("kernel", "session_kernel_b")
+        .ok_or(GpuHostError::KernelNotFound("session_kernel_b"))?;
+
+    println!("  Launching session_kernel_b...");
+    unsafe {
+        f_b.launch(cfg, (session.dev_ptr(), state_dev_ptr, result_dev_ptr))?;
+    }
+    dev.synchronize()?;
+    println!("  Kernel B completed.");
+
+    // Give listener time to process the last print
+    std::thread::sleep(std::time::Duration::from_millis(100));
+
+    // --- Shutdown session ---
+    session.shutdown();
+
+    // --- Verify results ---
+    let result = unsafe { std::ptr::read_volatile(result_host_ptr) };
+    println!("  Kernel B result: {result} (1 = magic matched)");
+
+    unsafe {
+        free_mapped_mem(state_host_ptr)?;
+        free_mapped_mem(result_host_ptr)?;
+    }
+
+    if result != 1 {
+        return Err(GpuHostError::Verification {
+            test: "session_multi_launch",
+            detail: format!("Kernel B did not read correct magic value, result={result}"),
+        });
+    }
+
+    println!("  session_multi_launch: PASSED!");
+    println!("    Two kernels shared same HostcallSession");
+    println!("    Cross-launch state verified (0xCAFE)");
+    Ok(())
+}

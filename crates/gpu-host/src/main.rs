@@ -114,6 +114,10 @@ fn main() -> Result<()> {
                 tests_hostcall::run_trace_assert_test(Arc::clone(&dev))?;
                 return Ok(());
             }
+            "session" => {
+                tests_hostcall::run_session_multi_launch_test(Arc::clone(&dev))?;
+                return Ok(());
+            }
             _ => println!("Unknown ONLY_TEST={only}, running all tests"),
         }
     }

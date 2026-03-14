@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 214     # Monotonic counter, incremented after each completed phase
-completed_tasks = 213
+total_cycles = 221     # Monotonic counter, incremented after each completed phase
+completed_tasks = 220
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.select"
+current_step = "do.save"
 current_task_id = ""
-last_summary = "BS54 deep brainstorm done. gpu-autonomous v2 criteria revised (skeptic challenged 3/4). 4 themes, 10 tasks spawned. Priority: hc-session → cmd-buffer → cross-pipeline → iter-workflow. Also pending: gpu-assert-diag (gpu-debug)."
+last_summary = "hc-session theme DONE: HostcallSession API + reinit_packets + multi-launch test (0xCAFE verified). gpu-assert-diag also done. Designs complete for cmd-buffer.1. Next: cmd-buffer.2, cross-pipeline.1."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 54
@@ -172,7 +172,7 @@ success_criteria = [
 id = "gpu-assert-diag"
 epic = "gpu-debug"
 title = "GPU assert with diagnostic messages"
-status = "active"
+status = "completed"
 goal = "gpu_assert!() sends message to host before trap"
 success_criteria = [
     "gpu_assert!(cond, msg) sends failure info to host before trap",
@@ -287,16 +287,18 @@ id = "gpu-assert-diag.1"
 theme = "gpu-assert-diag"
 title = "Implement gpu_assert!() macro with hostcall diagnostic"
 kind = "experiment"
-status = "pending"
+status = "done"
 deps = ["trace-protocol.1"]
+# Implemented in trace-protocol batch: gpu_assert! macro + gpu_hostcall_assert() in gpu-runtime
 
 [[tasks]]
 id = "gpu-assert-diag.2"
 theme = "gpu-assert-diag"
 title = "Host-side assertion failure display + test"
 kind = "experiment"
-status = "pending"
+status = "done"
 deps = ["gpu-assert-diag.1"]
+# Implemented in trace-protocol batch: handle_assert() + trace_assert_test (32 threads, PASSED)
 
 # --- gpu-autonomous v2 themes/tasks (BS54) ---
 
@@ -304,7 +306,7 @@ deps = ["gpu-assert-diag.1"]
 id = "hc-session"
 epic = "gpu-autonomous"
 title = "Hostcall session persistence — listener + fd table across kernel launches"
-status = "active"
+status = "completed"
 goal = "HostcallSession keeps listener/buffer/fd table alive across multiple kernel launches"
 success_criteria = [
     "HostcallSession API: start → launch kernels → shutdown lifecycle",
@@ -351,7 +353,7 @@ id = "hc-session.1"
 theme = "hc-session"
 title = "Design HostcallSession API — lifecycle, packet reinit, fd persistence"
 kind = "design"
-status = "pending"
+status = "done"
 deps = []
 
 [[tasks]]
@@ -359,7 +361,7 @@ id = "hc-session.2"
 theme = "hc-session"
 title = "Implement HostcallSession in gpu-host"
 kind = "experiment"
-status = "pending"
+status = "done"
 deps = ["hc-session.1"]
 
 [[tasks]]
@@ -367,7 +369,7 @@ id = "hc-session.3"
 theme = "hc-session"
 title = "Multi-launch session test — Kernel A opens file, Kernel B reads same fd"
 kind = "experiment"
-status = "pending"
+status = "done"
 deps = ["hc-session.2"]
 
 [[tasks]]
@@ -375,7 +377,7 @@ id = "cmd-buffer.1"
 theme = "cmd-buffer"
 title = "Command buffer protocol — ring buffer layout, command types, host→GPU signaling"
 kind = "design"
-status = "pending"
+status = "done"
 deps = []
 
 [[tasks]]

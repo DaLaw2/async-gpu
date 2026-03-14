@@ -4,18 +4,18 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 263     # Monotonic counter, incremented after each completed phase
-completed_tasks = 263
+total_cycles = 266     # Monotonic counter, incremented after each completed phase
+completed_tasks = 266
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "awaiting_user"
+current_step = "do.save"
 current_task_id = ""
-last_summary = "Session completed 5 tasks (println-buffer.2, rustc-warp-async.1-3, data-iter.1). All current themes done. native-warp-async Phase 2 needs rustc clone. Suggest user close gpu-perf + real-std epics."
+last_summary = "rustc-impl theme COMPLETE: All 3 tasks done. WarpCooperativeTransform MIR pass (510 lines) implemented in toolchain/ with Phase 2 (shfl.sync discriminant broadcast) + Rule 4 (warp barrier). Registered after StateTransform. rustc-patches/ updated with reproducible diffs."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 68
+brainstorm_seq = 69
 review_seq = 5
 
 # Brainstorm trigger control (event-driven, no fixed interval)
@@ -158,6 +158,19 @@ id = "data-iter"
 epic = "gpu-autonomous"
 title = "Data-dependent iteration — GPU kernel autonomously converges"
 status = "completed"
+
+[[themes]]
+id = "rustc-impl"
+epic = "native-warp-async"
+title = "Implement WarpCooperativeTransform MIR pass in rustc source"
+status = "completed"
+goal = "Working MIR pass that modifies coroutine state machines for warp-cooperative execution on nvptx64"
+success_criteria = [
+    "MIR pass source file placed in toolchain/compiler/rustc_mir_transform/src/warp_cooperative.rs",
+    "Pass registered in lib.rs pipeline after StateTransform",
+    "Pass correctly identifies yield points and poll calls in coroutine MIR for #[warp_cooperative] fns",
+    "rustc-patches/ contains diff files that can reproduce the changes from stock rustc",
+]
 goal = "Demonstrate a GPU kernel that loops autonomously until convergence, without host intervention"
 success_criteria = [
     "Kernel reads data, processes it, checks convergence, iterates or finalizes — all on GPU",
@@ -207,6 +220,30 @@ kind = "experiment"
 status = "done"
 deps = []
 
+[[tasks]]
+id = "rustc-impl.1"
+theme = "rustc-impl"
+title = "Study actual rustc coroutine.rs StateTransform + lib.rs pass pipeline from source"
+kind = "investigation"
+status = "done"
+deps = []
+
+[[tasks]]
+id = "rustc-impl.2"
+theme = "rustc-impl"
+title = "Implement WarpCooperativeTransform in toolchain/compiler/ and register in pipeline"
+kind = "experiment"
+status = "done"
+deps = ["rustc-impl.1"]
+
+[[tasks]]
+id = "rustc-impl.3"
+theme = "rustc-impl"
+title = "Generate rustc-patches/ diffs from toolchain/ changes"
+kind = "experiment"
+status = "done"
+deps = ["rustc-impl.2"]
+
 # ============================================================
 # Brainstorms (last 3 only — older brainstorms archived)
 # ============================================================
@@ -234,15 +271,15 @@ themes_completed = ["gpu-test-harness"]
 key_insight = "Integration test harness done. Next: integrate print_buffer with gpu-libc write() so println!() auto-buffers — highest-impact remaining optimization. Bridges printf-batch infra with real-std println!()."
 
 [[brainstorms]]
-seq = 65
-at_cycle = 255
-trigger = "api-docs.1 completed — no pending tasks, all crates documented"
+seq = 69
+at_cycle = 263
+trigger = "User unblocked rustc clone — toolchain/ now has full rustc source"
 level = "quick"
-new_tasks_spawned = ["gpu-test-harness.1"]
-new_themes_spawned = ["gpu-test-harness"]
+new_tasks_spawned = ["rustc-impl.1", "rustc-impl.2", "rustc-impl.3"]
+new_themes_spawned = ["rustc-impl"]
 themes_parked = []
-themes_completed = ["api-docs"]
-key_insight = "All crates fully documented (zero doc warnings). Next value: extract GPU tests from monolithic main.rs into cargo test integration tests. Serves public-api automated testing criterion."
+themes_completed = []
+key_insight = "rustc source available in toolchain/ (flattened, no .git). Can now implement WarpCooperativeTransform directly in compiler/rustc_mir_transform/ and generate diffs for rustc-patches/."
 
 [[brainstorms]]
 seq = 67

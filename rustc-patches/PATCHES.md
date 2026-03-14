@@ -42,19 +42,7 @@ build-stage = 1
 debug-assertions = true
 ```
 
-## Step 3: Register the `warp_cooperative` symbol
-
-Add the symbol to `compiler/rustc_span/src/symbol.rs`.  Find the `symbols!`
-macro invocation (sorted alphabetically) and insert:
-
-```rust
-        warp_cooperative,
-```
-
-between the entries for `warn` and `wasm_abi` (or wherever alphabetical order
-places it in the current source).
-
-## Step 4: Place the pass source file
+## Step 3: Place the pass source file
 
 ```bash
 cp /path/to/warp_cooperative.rs compiler/rustc_mir_transform/src/warp_cooperative.rs
@@ -63,7 +51,10 @@ cp /path/to/warp_cooperative.rs compiler/rustc_mir_transform/src/warp_cooperativ
 The file goes into `compiler/rustc_mir_transform/src/` alongside the existing
 passes (`coroutine.rs`, `inline.rs`, etc.).
 
-## Step 5: Register the pass in the pipeline
+Note: The pass uses `Symbol::intern("warp_cooperative")` for attribute detection,
+so no changes to `rustc_span/src/symbol.rs` are required.
+
+## Step 4: Register the pass in the pipeline
 
 Apply the provided patch:
 
@@ -80,13 +71,14 @@ This patch makes two changes to `compiler/rustc_mir_transform/src/lib.rs`:
 
 ### Manual application (if the patch does not apply cleanly)
 
-**a)** Find the `mod` block near the top of `lib.rs` and add:
+**a)** Find the `declare_passes!` macro invocation in `lib.rs` and add after
+`mod coroutine : StateTransform;`:
 
 ```rust
-mod warp_cooperative;
+    mod warp_cooperative : WarpCooperativeTransform;
 ```
 
-**b)** Find the `mir_drops_elaborated_and_const_checked` function.  Inside it
+**b)** Find the `run_runtime_lowering_passes` function.  Inside it
 locate the pass list that includes `&coroutine::StateTransform`.  Add the new
 pass right after it:
 
@@ -97,7 +89,7 @@ pass right after it:
     &warp_cooperative::WarpCooperativeTransform,
 ```
 
-## Step 6: Build the patched compiler
+## Step 5: Build the patched compiler
 
 ```bash
 ./x.py build compiler
@@ -105,7 +97,7 @@ pass right after it:
 
 This produces a stage-1 compiler in `build/<host-triple>/stage1/bin/rustc`.
 
-## Step 7: Test with a simple async fn
+## Step 6: Test with a simple async fn
 
 Create a test file `test_warp.rs`:
 
@@ -149,15 +141,13 @@ build/<host-triple>/stage1/bin/rustc \
 Expected output: diagnostic notes from the pass, e.g.:
 
 ```
-note: warp_cooperative: analyzing `simple_await` —
-      0 yield point(s), 1 poll-call site(s), 1 suspension point(s), 1 return block(s)
-note: warp_cooperative: dispatch switch at bb0 with 1 suspension point(s)
-note: warp_cooperative: poll call at bb3 → `<DummyFuture as Future>::poll`
-note: warp_cooperative: return at bb5
+note: warp_cooperative: `simple_await` —
+      0 yield(s), 1 poll(s), 1 suspension(s), 1 return(s)
 ```
 
-The generated PTX will be identical to an unpatched build since Phase 1 does
-not modify MIR — the pass only emits diagnostics.
+The generated PTX should contain `shfl.sync.idx.b32` (discriminant broadcast)
+and `bar.warp.sync` (barrier before return) instructions. The pass now performs
+Phase 2 (discriminant broadcast) and Rule 4 (warp barrier before return).
 
 ## Directory Layout
 

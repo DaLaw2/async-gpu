@@ -1,18 +1,19 @@
 --- a/compiler/rustc_mir_transform/src/lib.rs
 +++ b/compiler/rustc_mir_transform/src/lib.rs
-@@ -100,6 +100,7 @@ mod unreachable_enum_branching;
- mod unreachable_prop;
- mod validate;
-+mod warp_cooperative;
-
- use rustc_middle::query::Providers;
-
-@@ -600,6 +601,8 @@ fn mir_drops_elaborated_and_const_checked(
-             // The main coroutine transformation — lowers Yield terminators into
-             // a dispatch-switch state machine.
-             &coroutine::StateTransform,
-+            // Warp-cooperative transform: broadcast discriminants and poll
-+            // results across SIMT lanes (nvptx64 only, #[warp_cooperative]).
-+            &warp_cooperative::WarpCooperativeTransform,
-             &Lint(known_panics_lint::KnownPanicsLint),
-             // End of MIR borrowck (often called "NLL") pipeline.
+@@ -139,6 +139,7 @@
+     mod copy_prop : CopyProp;
+     mod coroutine : StateTransform;
++    mod warp_cooperative : WarpCooperativeTransform;
+     mod coverage : InstrumentCoverage;
+     mod ctfe_limit : CtfeLimit;
+     mod dataflow_const_prop : DataflowConstProp;
+@@ -655,6 +656,10 @@
+         &elaborate_box_derefs::ElaborateBoxDerefs,
+         &coroutine::StateTransform,
++        // Warp-cooperative transform: broadcasts coroutine discriminant via
++        // shfl.sync and inserts warp barriers. Only active on nvptx64 for
++        // functions annotated with #[warp_cooperative].
++        &warp_cooperative::WarpCooperativeTransform,
+         &Lint(known_panics_lint::KnownPanicsLint),
+     ];
+     pm::run_passes_no_validate(tcx, body, passes, Some(MirPhase::Runtime(RuntimePhase::Initial)));

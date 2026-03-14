@@ -1,37 +1,62 @@
 //! MIR pass: `WarpCooperativeTransform`
 //!
-//! A skeleton MIR pass that runs **after** `StateTransform` (coroutine → state machine)
-//! and identifies yield/poll sites in coroutine bodies compiled for `nvptx64`.
+//! Runs **after** `StateTransform` (coroutine → state machine) and rewrites the
+//! generated dispatch loop for warp-cooperative execution on `nvptx64`.
 //!
-//! # Phase 1 (this file)
+//! ## What it does
 //!
-//! - Detects `#[warp_cooperative]` attribute on the source function
-//! - Identifies `TerminatorKind::Yield` terminators (pre-StateTransform residuals, if any)
-//! - Identifies `TerminatorKind::Call` terminators that resolve to `Future::poll`
-//! - Identifies the dispatch `SwitchInt` on the coroutine discriminant
-//! - Emits diagnostic notes about discovered sites — no MIR rewriting yet
+//! 1. **Dispatch discriminant broadcast**: At the entry `SwitchInt` that dispatches
+//!    on the coroutine state, inserts `activemask` + `shfl.sync.idx.b32` so all
+//!    32 lanes in a warp agree on the current state.
 //!
-//! # Future phases
+//! 2. **Barrier before Return**: Inserts `bar.warp.sync` before every `Return`
+//!    terminator so all lanes exit together.
 //!
-//! - Phase 2: Broadcast the dispatch discriminant via `shfl.sync.idx.b32`
-//! - Phase 3: Gate `Future::poll` calls behind lane-0 predication
-//! - Phase 4: Broadcast `Poll::Ready(T)` payloads (u32 → u64 → structs)
-//! - Phase 5: Handle `?` operator, barriers before `Return`, validation
+//! 3. **Analysis**: Emits diagnostic notes about poll-call sites and suspension
+//!    points for debugging.
+//!
+//! ## Activation
+//!
+//! - Only on `nvptx64` targets (`is_enabled` check)
+//! - Only on functions annotated with `#[warp_cooperative]`
+//! - Only on coroutine bodies (post-StateTransform)
 
-use rustc_middle::mir::visit::Visitor;
+use std::borrow::Cow;
+
+use rustc_ast::{InlineAsmOptions, InlineAsmTemplatePiece};
 use rustc_middle::mir::*;
 use rustc_middle::ty::{self, TyCtxt};
 use rustc_session::Session;
+use rustc_span::Symbol;
 use rustc_span::def_id::DefId;
-use rustc_span::sym;
+use rustc_target::asm::{InlineAsmRegClass, InlineAsmRegOrRegClass};
+use rustc_target::asm::nvptx::NvptxInlineAsmRegClass;
+use tracing::debug;
 
 use crate::MirPass;
+
+// ---------------------------------------------------------------------------
+// Arena allocation helper
+// ---------------------------------------------------------------------------
+
+/// Allocate a `&'tcx [InlineAsmTemplatePiece]` from a `Vec`.
+///
+/// The MIR type `TerminatorKind::InlineAsm` stores the template as `&'tcx [...]`.
+/// Normally this comes from the HIR arena, but since we're synthesizing inline asm
+/// in a MIR pass, we leak the allocation. This is fine — compiler arenas would
+/// free it at the same time anyway (end of compilation).
+fn alloc_template(
+    pieces: impl IntoIterator<Item = InlineAsmTemplatePiece>,
+) -> &'static [InlineAsmTemplatePiece] {
+    let v: Vec<InlineAsmTemplatePiece> = pieces.into_iter().collect();
+    Box::leak(v.into_boxed_slice())
+}
 
 // ---------------------------------------------------------------------------
 // Pass definition
 // ---------------------------------------------------------------------------
 
-pub(crate) struct WarpCooperativeTransform;
+pub(super) struct WarpCooperativeTransform;
 
 impl<'tcx> MirPass<'tcx> for WarpCooperativeTransform {
     fn is_enabled(&self, sess: &Session) -> bool {
@@ -48,7 +73,6 @@ impl<'tcx> MirPass<'tcx> for WarpCooperativeTransform {
 
         // After StateTransform the body retains `body.coroutine` metadata even
         // though Yield terminators have been lowered to a dispatch switch.
-        // If that metadata is absent the function was never a coroutine — skip.
         if body.coroutine.is_none() {
             tcx.dcx().span_warn(
                 body.span,
@@ -58,16 +82,33 @@ impl<'tcx> MirPass<'tcx> for WarpCooperativeTransform {
         }
 
         let fn_name = tcx.def_path_str(def_id);
+        debug!("WarpCooperativeTransform: processing `{fn_name}`");
+
+        // Phase 1: Analysis — collect structural info about the post-StateTransform MIR.
         let analysis = CoroutineAnalysis::run(tcx, body);
         analysis.emit_diagnostics(tcx, body, &fn_name);
 
-        // TODO(phase2): Insert discriminant broadcast at the dispatch switch.
-        // TODO(phase3): Gate poll calls behind lane-0 predication and broadcast
-        //               the Poll discriminant.
-        // TODO(phase4): Broadcast Poll::Ready(T) payloads.
-        // TODO(phase5): Handle `?` (Result broadcasting), add syncwarp before
-        //               Return terminators, validate against self-referential
-        //               borrows / dyn Future / Drop output types.
+        // Phase 2: Broadcast the dispatch discriminant via shfl.sync.
+        if let Some(dispatch_bb) = analysis.dispatch_switch_bb {
+            insert_discriminant_broadcast(tcx, body, dispatch_bb);
+        }
+
+        // Phase 4 (Rule 4): Barrier before Return terminators.
+        // Collect return blocks first, then mutate — avoids borrow conflict.
+        let return_blocks: Vec<BasicBlock> = body
+            .basic_blocks
+            .iter_enumerated()
+            .filter_map(|(bb, data)| {
+                if matches!(data.terminator().kind, TerminatorKind::Return) {
+                    Some(bb)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for bb in return_blocks {
+            insert_barrier_before_return(tcx, body, bb);
+        }
     }
 }
 
@@ -76,76 +117,68 @@ impl<'tcx> MirPass<'tcx> for WarpCooperativeTransform {
 // ---------------------------------------------------------------------------
 
 fn has_warp_cooperative_attr(tcx: TyCtxt<'_>, def_id: DefId) -> bool {
-    // `sym::warp_cooperative` must be added to `rustc_span::symbol::sym`.
-    // For the skeleton, fall back to scanning attributes by string name.
-    //
-    // Canonical API (once the symbol is registered):
-    //   tcx.get_attrs(def_id, sym::warp_cooperative).next().is_some()
-    //
-    // Temporary fallback that works without modifying rustc_span:
-    tcx.get_attrs_unchecked(def_id).iter().any(|attr| attr.has_name(sym::warp_cooperative))
+    let warp_sym = Symbol::intern("warp_cooperative");
+    tcx.get_attrs_unchecked(def_id)
+        .iter()
+        .any(|attr| attr.has_name(warp_sym))
 }
 
 // ---------------------------------------------------------------------------
-// Analysis results
+// Analysis
 // ---------------------------------------------------------------------------
 
-/// Collected information about the coroutine body that will drive future
-/// rewrite phases.
-#[allow(dead_code)]
 struct CoroutineAnalysis {
-    /// Basic block indices that contain `TerminatorKind::Yield`.
-    /// After `StateTransform` this list is normally empty — yields are
-    /// converted into the dispatch switch.  If non-empty it means the pass
-    /// ran before StateTransform (a pipeline ordering bug).
     yield_points: Vec<BasicBlock>,
-
-    /// `(basic_block, callee_def_id)` pairs for every `Call` terminator
-    /// whose callee resolves to `<T as Future>::poll`.
     poll_call_sites: Vec<(BasicBlock, DefId)>,
-
-    /// The basic block containing the coroutine dispatch `SwitchInt`, if found.
     dispatch_switch_bb: Option<BasicBlock>,
-
-    /// Number of suspension-point targets in the dispatch switch
-    /// (discriminant values >= RESERVED_VARIANTS = 3).
     suspension_point_count: usize,
-
-    /// Basic blocks that end with `TerminatorKind::Return`.
     return_blocks: Vec<BasicBlock>,
 }
 
 impl CoroutineAnalysis {
     fn run<'tcx>(tcx: TyCtxt<'tcx>, body: &Body<'tcx>) -> Self {
-        let mut visitor = AnalysisVisitor::new(tcx);
-        visitor.visit_body(body);
+        let mut yield_points = Vec::new();
+        let mut poll_call_sites = Vec::new();
+        let mut return_blocks = Vec::new();
 
-        // Find the dispatch switch — the first SwitchInt whose scrutinee is
-        // the discriminant of the coroutine self parameter (`_1`).
+        for (bb, bb_data) in body.basic_blocks.iter_enumerated() {
+            match &bb_data.terminator().kind {
+                TerminatorKind::Yield { .. } => {
+                    yield_points.push(bb);
+                }
+                TerminatorKind::Call { func, .. } => {
+                    if let Some(callee_def_id) = resolve_callee_def_id(func) {
+                        if is_future_poll(tcx, callee_def_id) {
+                            poll_call_sites.push((bb, callee_def_id));
+                        }
+                    }
+                }
+                TerminatorKind::Return => {
+                    return_blocks.push(bb);
+                }
+                _ => {}
+            }
+        }
+
         let (dispatch_switch_bb, suspension_point_count) =
-            find_dispatch_switch(body).unwrap_or((None, 0));
+            find_dispatch_switch(body);
 
         CoroutineAnalysis {
-            yield_points: visitor.yield_points,
-            poll_call_sites: visitor.poll_call_sites,
+            yield_points,
+            poll_call_sites,
             dispatch_switch_bb,
             suspension_point_count,
-            return_blocks: visitor.return_blocks,
+            return_blocks,
         }
     }
 
     fn emit_diagnostics(&self, tcx: TyCtxt<'_>, body: &Body<'_>, fn_name: &str) {
         let span = body.span;
-
-        // Summary note.
         tcx.dcx().span_note(
             span,
             format!(
-                "warp_cooperative: analyzing `{fn_name}` — \
-                 {yp} yield point(s), \
-                 {pc} poll-call site(s), \
-                 {sp} suspension point(s), \
-                 {rb} return block(s)",
+                "warp_cooperative: `{fn_name}` — \
+                 {yp} yield(s), {pc} poll(s), {sp} suspension(s), {rb} return(s)",
                 yp = self.yield_points.len(),
                 pc = self.poll_call_sites.len(),
                 sp = self.suspension_point_count,
@@ -153,7 +186,6 @@ impl CoroutineAnalysis {
             ),
         );
 
-        // Warn if yields are still present (pipeline ordering error).
         if !self.yield_points.is_empty() {
             tcx.dcx().span_warn(
                 span,
@@ -164,100 +196,6 @@ impl CoroutineAnalysis {
                 ),
             );
         }
-
-        // Detail: dispatch switch.
-        if let Some(bb) = self.dispatch_switch_bb {
-            tcx.dcx().span_note(
-                span,
-                format!(
-                    "warp_cooperative: dispatch switch at {bb:?} \
-                     with {n} suspension point(s)",
-                    n = self.suspension_point_count,
-                ),
-            );
-        } else {
-            tcx.dcx().span_note(
-                span,
-                "warp_cooperative: no dispatch switch found \
-                 (function may not be a transformed coroutine)",
-            );
-        }
-
-        // Detail: poll call sites.
-        for (bb, callee) in &self.poll_call_sites {
-            let callee_name = tcx.def_path_str(*callee);
-            tcx.dcx().span_note(
-                span,
-                format!("warp_cooperative: poll call at {bb:?} → `{callee_name}`"),
-            );
-        }
-
-        // Detail: return blocks.
-        for bb in &self.return_blocks {
-            tcx.dcx().span_note(
-                span,
-                format!("warp_cooperative: return at {bb:?}"),
-            );
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// MIR visitor that collects yield points, poll calls, and return blocks
-// ---------------------------------------------------------------------------
-
-struct AnalysisVisitor<'tcx> {
-    tcx: TyCtxt<'tcx>,
-    yield_points: Vec<BasicBlock>,
-    poll_call_sites: Vec<(BasicBlock, DefId)>,
-    return_blocks: Vec<BasicBlock>,
-}
-
-impl<'tcx> AnalysisVisitor<'tcx> {
-    fn new(tcx: TyCtxt<'tcx>) -> Self {
-        Self {
-            tcx,
-            yield_points: Vec::new(),
-            poll_call_sites: Vec::new(),
-            return_blocks: Vec::new(),
-        }
-    }
-}
-
-impl<'tcx> Visitor<'tcx> for AnalysisVisitor<'tcx> {
-    fn visit_terminator(&mut self, terminator: &Terminator<'tcx>, location: Location) {
-        let bb = location.block;
-
-        match &terminator.kind {
-            // ----------------------------------------------------------
-            // Yield — should be absent after StateTransform
-            // ----------------------------------------------------------
-            TerminatorKind::Yield { .. } => {
-                self.yield_points.push(bb);
-            }
-
-            // ----------------------------------------------------------
-            // Call — check if callee is `<T as Future>::poll`
-            // ----------------------------------------------------------
-            TerminatorKind::Call { func, .. } => {
-                if let Some(callee_def_id) = resolve_callee_def_id(self.tcx, func) {
-                    if is_future_poll(self.tcx, callee_def_id) {
-                        self.poll_call_sites.push((bb, callee_def_id));
-                    }
-                }
-            }
-
-            // ----------------------------------------------------------
-            // Return — marks completion (Poll::Ready of outermost future)
-            // ----------------------------------------------------------
-            TerminatorKind::Return => {
-                self.return_blocks.push(bb);
-            }
-
-            _ => {}
-        }
-
-        self.super_terminator(terminator, location);
     }
 }
 
@@ -265,180 +203,365 @@ impl<'tcx> Visitor<'tcx> for AnalysisVisitor<'tcx> {
 // Callee resolution helpers
 // ---------------------------------------------------------------------------
 
-/// Extract the `DefId` of the callee from a `Call` terminator's function
-/// operand, if it is a statically-known function (`FnDef`).
-fn resolve_callee_def_id<'tcx>(
-    _tcx: TyCtxt<'tcx>,
-    func: &Operand<'tcx>,
-) -> Option<DefId> {
-    match func {
-        Operand::Constant(c) => {
-            match c.const_.ty().kind() {
-                ty::FnDef(def_id, _substs) => Some(*def_id),
-                _ => None,
-            }
+fn resolve_callee_def_id<'tcx>(func: &Operand<'tcx>) -> Option<DefId> {
+    if let Operand::Constant(c) = func {
+        if let ty::FnDef(def_id, _) = *c.const_.ty().kind() {
+            return Some(def_id);
         }
-        // Indirect calls (fn pointers, closures) cannot be resolved
-        // statically.  We conservatively skip them.
-        Operand::Copy(_) | Operand::Move(_) => None,
     }
+    None
 }
 
-/// Returns `true` if `def_id` refers to the `poll` method on the
-/// `core::future::Future` trait.
 fn is_future_poll(tcx: TyCtxt<'_>, def_id: DefId) -> bool {
-    // Approach: check whether the item's parent trait is `Future` and
-    // the item name is `poll`.
-    //
-    // `tcx.trait_of_item(def_id)` returns `Some(trait_def_id)` when
-    // `def_id` is an associated item of a trait impl or trait definition.
     let Some(trait_def_id) = tcx.trait_of_item(def_id) else {
         return false;
     };
-
-    // Compare against the lang-item `Future` trait.
     let Some(future_trait) = tcx.lang_items().future_trait() else {
         return false;
     };
-
     if trait_def_id != future_trait {
         return false;
     }
-
-    // Confirm the method name is `poll`.
-    tcx.item_name(def_id) == sym::poll
+    let poll_sym = Symbol::intern("poll");
+    tcx.item_name(def_id) == poll_sym
 }
 
 // ---------------------------------------------------------------------------
-// Dispatch-switch detection
+// Dispatch switch detection
 // ---------------------------------------------------------------------------
 
-/// RESERVED_VARIANTS mirrors `CoroutineArgs::RESERVED_VARIANTS` in
-/// `rustc_middle::ty::sty`.  Discriminant values 0, 1, 2 correspond to
-/// UNRESUMED, RETURNED, POISONED.  Values >= 3 are suspension points.
 const RESERVED_VARIANTS: u128 = 3;
 
-/// Locate the dispatch `SwitchInt` in the body.
-///
-/// After `StateTransform`, the entry block (or a block reachable from it)
-/// contains a `SwitchInt` on `Discriminant((*_1))` — the coroutine state
-/// discriminant.  We identify it by:
-///
-/// 1. Looking for `SwitchInt` terminators.
-/// 2. Checking that the scrutinee is a `Rvalue::Discriminant` applied to a
-///    projection through the first argument (`_1`, the `&mut Self` of the
-///    resume function).
-/// 3. Counting targets with values >= `RESERVED_VARIANTS`.
-fn find_dispatch_switch(body: &Body<'_>) -> Option<(Option<BasicBlock>, usize)> {
+fn find_dispatch_switch(body: &Body<'_>) -> (Option<BasicBlock>, usize) {
     for (bb, bb_data) in body.basic_blocks.iter_enumerated() {
-        let terminator = bb_data.terminator();
-
-        if let TerminatorKind::SwitchInt { discr, targets, .. } = &terminator.kind {
-            // The scrutinee should be a local that was assigned via
-            // `Discriminant((*_1))`.  We check a simpler heuristic: the
-            // scrutinee is a `Copy` or `Move` of a local, and one of the
-            // preceding statements in this (or a predecessor) block writes
-            // that local as `Rvalue::Discriminant` of a place rooted at `_1`.
-            if is_discriminant_of_self(discr, bb_data, body) {
+        if let TerminatorKind::SwitchInt { discr, targets, .. } = &bb_data.terminator().kind {
+            if is_discriminant_of_self(discr, bb_data) {
                 let suspension_points = targets
                     .iter()
                     .filter(|(val, _)| *val >= RESERVED_VARIANTS)
                     .count();
-                return Some((Some(bb), suspension_points));
+                return (Some(bb), suspension_points);
             }
         }
     }
-    // No dispatch switch found — the function may not be a coroutine,
-    // or StateTransform has not run yet.
-    Some((None, 0))
+    (None, 0)
 }
 
-/// Check whether the `SwitchInt` scrutinee originates from
-/// `Discriminant((*_1))`.
-///
-/// We inspect the statements in `bb_data` looking for an assignment
-/// `scrutinee_local = Discriminant(place)` where `place` is rooted at
-/// `Local::from(1u32)` (the `self` parameter of the resume fn).
-fn is_discriminant_of_self(
-    discr: &Operand<'_>,
-    bb_data: &BasicBlockData<'_>,
-    body: &Body<'_>,
-) -> bool {
-    // Extract the local that the SwitchInt reads.
+fn is_discriminant_of_self(discr: &Operand<'_>, bb_data: &BasicBlockData<'_>) -> bool {
     let scrutinee_local = match discr {
-        Operand::Copy(place) | Operand::Move(place) => {
-            if place.projection.is_empty() {
-                place.local
-            } else {
-                return false;
-            }
+        Operand::Copy(place) | Operand::Move(place) if place.projection.is_empty() => {
+            place.local
         }
         _ => return false,
     };
 
-    // Walk statements in the same block looking for the assignment.
     for stmt in &bb_data.statements {
-        if let StatementKind::Assign(box (lhs, rvalue)) = &stmt.kind {
-            if lhs.local == scrutinee_local && lhs.projection.is_empty() {
-                if let Rvalue::Discriminant(place) = rvalue {
-                    return is_rooted_at_self(place, body);
-                }
+        if let StatementKind::Assign(box (lhs, Rvalue::Discriminant(place))) = &stmt.kind {
+            if lhs.local == scrutinee_local
+                && lhs.projection.is_empty()
+                && place.local == Local::from(1u32)
+            {
+                return true;
             }
         }
     }
     false
 }
 
-/// Returns `true` if `place` is (transitively through derefs) rooted at
-/// `_1`, which is the `&mut Self` parameter in the resume function
-/// generated by `StateTransform`.
-fn is_rooted_at_self(place: &Place<'_>, _body: &Body<'_>) -> bool {
-    // _1 is Local::from(1u32).
-    let self_local = Local::from(1u32);
-    place.local == self_local
+// ---------------------------------------------------------------------------
+// Phase 2: Discriminant broadcast at the dispatch switch
+// ---------------------------------------------------------------------------
+//
+// BEFORE (post-StateTransform):
+//   bb0: {
+//       _discr = discriminant((*_1));
+//       switchInt(_discr) -> [0: .., 3: .., ...]
+//   }
+//
+// AFTER:
+//   bb0: {
+//       _discr = discriminant((*_1));
+//       // → falls through to activemask block
+//   }
+//   bb_activemask: {
+//       asm!("activemask.b32 $0", out(reg32) _mask);
+//       → bb_shfl
+//   }
+//   bb_shfl: {
+//       asm!("shfl.sync.idx.b32 $0, $1, 0, 31, $2",
+//            out(reg32) _bc_discr, in(reg32) _discr, in(reg32) _mask);
+//       → bb_switch
+//   }
+//   bb_switch: {
+//       switchInt(_bc_discr) -> [0: .., 3: .., ...]
+//   }
+
+fn insert_discriminant_broadcast<'tcx>(
+    tcx: TyCtxt<'tcx>,
+    body: &mut Body<'tcx>,
+    dispatch_bb: BasicBlock,
+) {
+    let source_info = SourceInfo::outermost(body.span);
+    let u32_ty = tcx.types.u32;
+
+    // Find the discriminant local from the existing SwitchInt.
+    let discr_local = {
+        let term = body.basic_blocks[dispatch_bb].terminator();
+        match &term.kind {
+            TerminatorKind::SwitchInt { discr, .. } => {
+                match discr {
+                    Operand::Copy(p) | Operand::Move(p) if p.projection.is_empty() => {
+                        p.local
+                    }
+                    _ => return, // Can't handle complex scrutinee
+                }
+            }
+            _ => return,
+        }
+    };
+
+    // Allocate new locals: _mask (u32), _bc_discr (u32).
+    let mask_local = body.local_decls.push(LocalDecl::new(u32_ty, body.span));
+    let bc_discr_local = body.local_decls.push(LocalDecl::new(u32_ty, body.span));
+
+    let reg32 = InlineAsmRegOrRegClass::RegClass(
+        InlineAsmRegClass::Nvptx(NvptxInlineAsmRegClass::reg32),
+    );
+
+    // --- Create bb_switch: the original SwitchInt on the broadcast discriminant ---
+    let original_switch = body.basic_blocks[dispatch_bb].terminator().clone();
+    let new_switch_kind = match original_switch.kind {
+        TerminatorKind::SwitchInt { targets, .. } => {
+            TerminatorKind::SwitchInt {
+                discr: Operand::Move(bc_discr_local.into()),
+                targets,
+            }
+        }
+        _ => return,
+    };
+    let bb_switch = body.basic_blocks_mut().push(BasicBlockData::new(
+        Some(Terminator { source_info, kind: new_switch_kind }),
+        false,
+    ));
+
+    // --- Create bb_shfl: shfl.sync.idx.b32 ---
+    // Template: "shfl.sync.idx.b32 $0, $1, 0, 31, $2;"
+    // Operands: out(reg32) _bc_discr, in(reg32) _discr, in(reg32) _mask
+    let shfl_template: &[InlineAsmTemplatePiece] = alloc_template([
+        InlineAsmTemplatePiece::String(Cow::Borrowed("shfl.sync.idx.b32 ")),
+        InlineAsmTemplatePiece::Placeholder {
+            operand_idx: 0,
+            modifier: None,
+            span: source_info.span,
+        },
+        InlineAsmTemplatePiece::String(Cow::Borrowed(", ")),
+        InlineAsmTemplatePiece::Placeholder {
+            operand_idx: 1,
+            modifier: None,
+            span: source_info.span,
+        },
+        InlineAsmTemplatePiece::String(Cow::Borrowed(", 0, 31, ")),
+        InlineAsmTemplatePiece::Placeholder {
+            operand_idx: 2,
+            modifier: None,
+            span: source_info.span,
+        },
+        InlineAsmTemplatePiece::String(Cow::Borrowed(";")),
+    ]);
+
+    let shfl_operands: Box<[InlineAsmOperand<'tcx>]> = Box::new([
+        InlineAsmOperand::Out {
+            reg: reg32,
+            late: false,
+            place: Some(bc_discr_local.into()),
+        },
+        InlineAsmOperand::In {
+            reg: reg32,
+            value: Operand::Copy(discr_local.into()),
+        },
+        InlineAsmOperand::In {
+            reg: reg32,
+            value: Operand::Copy(mask_local.into()),
+        },
+    ]);
+
+    let bb_shfl = body.basic_blocks_mut().push(BasicBlockData::new(
+        Some(Terminator {
+            source_info,
+            kind: TerminatorKind::InlineAsm {
+                asm_macro: InlineAsmMacro::Asm,
+                template: shfl_template,
+                operands: shfl_operands,
+                options: InlineAsmOptions::NOSTACK,
+                line_spans: &[],
+                targets: Box::new([bb_switch]),
+                unwind: UnwindAction::Unreachable,
+            },
+        }),
+        false,
+    ));
+
+    // --- Create bb_activemask: activemask.b32 ---
+    // Template: "activemask.b32 $0;"
+    // Operands: out(reg32) _mask
+    let activemask_template: &[InlineAsmTemplatePiece] = alloc_template([
+        InlineAsmTemplatePiece::String(Cow::Borrowed("activemask.b32 ")),
+        InlineAsmTemplatePiece::Placeholder {
+            operand_idx: 0,
+            modifier: None,
+            span: source_info.span,
+        },
+        InlineAsmTemplatePiece::String(Cow::Borrowed(";")),
+    ]);
+
+    let activemask_operands: Box<[InlineAsmOperand<'tcx>]> = Box::new([
+        InlineAsmOperand::Out {
+            reg: reg32,
+            late: false,
+            place: Some(mask_local.into()),
+        },
+    ]);
+
+    let bb_activemask = body.basic_blocks_mut().push(BasicBlockData::new(
+        Some(Terminator {
+            source_info,
+            kind: TerminatorKind::InlineAsm {
+                asm_macro: InlineAsmMacro::Asm,
+                template: activemask_template,
+                operands: activemask_operands,
+                options: InlineAsmOptions::NOSTACK,
+                line_spans: &[],
+                targets: Box::new([bb_shfl]),
+                unwind: UnwindAction::Unreachable,
+            },
+        }),
+        false,
+    ));
+
+    // --- Patch the dispatch block: keep the discriminant read, replace terminator ---
+    // The dispatch block keeps its statements (including the discriminant assignment)
+    // but now jumps to the activemask block instead of switching.
+    body.basic_blocks_mut()[dispatch_bb].terminator_mut().kind =
+        TerminatorKind::Goto { target: bb_activemask };
 }
 
 // ---------------------------------------------------------------------------
-// Future MIR rewriting helpers (stubs for Phase 2+)
+// Phase 4 (Rule 4): Barrier before Return
 // ---------------------------------------------------------------------------
+//
+// BEFORE:
+//   bb_ret: {
+//       _0 = Poll::Ready(value);
+//       return;
+//   }
+//
+// AFTER:
+//   bb_ret: {
+//       _0 = Poll::Ready(value);
+//       // → falls through to activemask block
+//   }
+//   bb_mask: {
+//       asm!("activemask.b32 $0", out(reg32) _ret_mask);
+//       → bb_barrier
+//   }
+//   bb_barrier: {
+//       asm!("bar.warp.sync $0", in(reg32) _ret_mask);
+//       → bb_actual_ret
+//   }
+//   bb_actual_ret: {
+//       return;
+//   }
 
-// TODO(phase2): fn insert_discriminant_broadcast(...)
-//   - Split the dispatch switch block: interpose shfl.sync.idx.b32
-//     between the discriminant read and the SwitchInt.
-//   - New locals: _mask (u32), _broadcast_discr (u32).
-//   - New blocks: activemask call, shfl_sync call, then original SwitchInt
-//     on the broadcast discriminant.
+fn insert_barrier_before_return<'tcx>(
+    tcx: TyCtxt<'tcx>,
+    body: &mut Body<'tcx>,
+    return_bb: BasicBlock,
+) {
+    let source_info = SourceInfo::outermost(body.span);
+    let u32_ty = tcx.types.u32;
 
-// TODO(phase3): fn gate_poll_behind_leader(...)
-//   - For each poll call site, insert lane-id check.
-//   - Lane 0 → call Future::poll; other lanes → skip to broadcast block.
-//   - Broadcast the Poll discriminant via shfl.sync.idx.b32.
+    let ret_mask_local = body.local_decls.push(LocalDecl::new(u32_ty, body.span));
 
-// TODO(phase4): fn broadcast_ready_payload(...)
-//   - Determine Output type size via tcx.layout_of().
-//   - <= 4 bytes: single shfl.sync.idx.b32.
-//   - <= 8 bytes: two shfl.sync calls (hi/lo halves).
-//   - <= 256 bytes: decompose into u32 words.
-//   - > 256 bytes: shared memory fallback.
+    let reg32 = InlineAsmRegOrRegClass::RegClass(
+        InlineAsmRegClass::Nvptx(NvptxInlineAsmRegClass::reg32),
+    );
 
-// TODO(phase5): fn validate_output_type(...)
-//   - Reject dyn Future, types with Drop, self-referential borrows.
-//   - Handle Result<T, E> broadcasting for `?` operator.
-//   - Insert syncwarp barriers before Return terminators.
+    // --- bb_actual_ret: just `return` ---
+    let bb_actual_ret = body.basic_blocks_mut().push(BasicBlockData::new(
+        Some(Terminator { source_info, kind: TerminatorKind::Return }),
+        false,
+    ));
 
-// TODO(phase2+): fn emit_inline_asm_shfl_sync(...)
-//   - Create TerminatorKind::InlineAsm with template:
-//     "shfl.sync.idx.b32 $0, $1, $2, 31, $3;"
-//   - Operands: Out(dest), In(src), In(src_lane=0), In(mask).
+    // --- bb_barrier: bar.warp.sync ---
+    let barrier_template: &[InlineAsmTemplatePiece] = alloc_template([
+        InlineAsmTemplatePiece::String(Cow::Borrowed("bar.warp.sync ")),
+        InlineAsmTemplatePiece::Placeholder {
+            operand_idx: 0,
+            modifier: None,
+            span: source_info.span,
+        },
+        InlineAsmTemplatePiece::String(Cow::Borrowed(";")),
+    ]);
 
-// TODO(phase2+): fn emit_inline_asm_activemask(...)
-//   - Template: "activemask.b32 $0;"
-//   - Operands: Out(mask).
+    let barrier_operands: Box<[InlineAsmOperand<'tcx>]> = Box::new([
+        InlineAsmOperand::In {
+            reg: reg32,
+            value: Operand::Copy(ret_mask_local.into()),
+        },
+    ]);
 
-// TODO(phase2+): fn emit_inline_asm_syncwarp(...)
-//   - Template: "bar.warp.sync $0;"
-//   - Operands: In(mask).
+    let bb_barrier = body.basic_blocks_mut().push(BasicBlockData::new(
+        Some(Terminator {
+            source_info,
+            kind: TerminatorKind::InlineAsm {
+                asm_macro: InlineAsmMacro::Asm,
+                template: barrier_template,
+                operands: barrier_operands,
+                options: InlineAsmOptions::NOSTACK,
+                line_spans: &[],
+                targets: Box::new([bb_actual_ret]),
+                unwind: UnwindAction::Unreachable,
+            },
+        }),
+        false,
+    ));
 
-// TODO(phase3): fn emit_inline_asm_lane_id(...)
-//   - Template: "mov.u32 $0, %laneid;"
-//   - Operands: Out(lane_id).
+    // --- bb_mask: activemask ---
+    let activemask_template: &[InlineAsmTemplatePiece] = alloc_template([
+        InlineAsmTemplatePiece::String(Cow::Borrowed("activemask.b32 ")),
+        InlineAsmTemplatePiece::Placeholder {
+            operand_idx: 0,
+            modifier: None,
+            span: source_info.span,
+        },
+        InlineAsmTemplatePiece::String(Cow::Borrowed(";")),
+    ]);
+
+    let activemask_operands: Box<[InlineAsmOperand<'tcx>]> = Box::new([
+        InlineAsmOperand::Out {
+            reg: reg32,
+            late: false,
+            place: Some(ret_mask_local.into()),
+        },
+    ]);
+
+    let bb_mask = body.basic_blocks_mut().push(BasicBlockData::new(
+        Some(Terminator {
+            source_info,
+            kind: TerminatorKind::InlineAsm {
+                asm_macro: InlineAsmMacro::Asm,
+                template: activemask_template,
+                operands: activemask_operands,
+                options: InlineAsmOptions::NOSTACK,
+                line_spans: &[],
+                targets: Box::new([bb_barrier]),
+                unwind: UnwindAction::Unreachable,
+            },
+        }),
+        false,
+    ));
+
+    // --- Patch the return block: redirect to the mask block ---
+    body.basic_blocks_mut()[return_bb].terminator_mut().kind =
+        TerminatorKind::Goto { target: bb_mask };
+}

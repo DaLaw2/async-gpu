@@ -1,0 +1,9 @@
+# Rustc compiler files modified/added for warp-cooperative async/await.
+# Format: PATCH <path> | NEW <path>
+# Paths are relative to rustc source root (= toolchain/).
+#
+# PATCH = modified stock file (gen-rustc-patches.sh fetches original from GitHub to diff)
+# NEW   = entirely new file (copied as-is into rustc-patches/)
+
+PATCH compiler/rustc_mir_transform/src/lib.rs
+NEW   compiler/rustc_mir_transform/src/warp_cooperative.rs

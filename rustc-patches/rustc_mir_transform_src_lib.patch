@@ -1,13 +1,15 @@
 --- a/compiler/rustc_mir_transform/src/lib.rs
 +++ b/compiler/rustc_mir_transform/src/lib.rs
-@@ -139,6 +139,7 @@
+@@ -137,6 +137,7 @@
+ 
      mod copy_prop : CopyProp;
      mod coroutine : StateTransform;
 +    mod warp_cooperative : WarpCooperativeTransform;
      mod coverage : InstrumentCoverage;
      mod ctfe_limit : CtfeLimit;
      mod dataflow_const_prop : DataflowConstProp;
-@@ -655,6 +656,10 @@
+@@ -653,6 +654,10 @@
+         &erase_deref_temps::EraseDerefTemps,
          &elaborate_box_derefs::ElaborateBoxDerefs,
          &coroutine::StateTransform,
 +        // Warp-cooperative transform: broadcasts coroutine discriminant via

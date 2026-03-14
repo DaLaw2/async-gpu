@@ -1,0 +1,20 @@
+[workspace]
+
+[package]
+name = "gpu-kernel-std"
+version = "0.1.0"
+edition = "2021"
+description = "GPU kernels using patched Rust std (println!, Vec, String, File I/O)"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+gpu-libc = { path = "../../core/gpu-libc" }
+gpu-runtime = { path = "../../core/gpu-runtime" }
+gpu-protocol = { path = "../../core/gpu-protocol" }
+
+[profile.release]
+panic = "abort"
+opt-level = 3
+lto = "fat"

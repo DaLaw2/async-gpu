@@ -8,4 +8,4 @@ description = "Vector Math — pure GPU compute using gpu-host SDK"
 
 [dependencies]
 cudarc = { version = "0.12", features = ["cuda-12060"] }
-gpu-host = { path = "../../../crates/gpu-host", default-features = false }
+gpu-host = { path = "../../../crates/core/gpu-host", default-features = false }

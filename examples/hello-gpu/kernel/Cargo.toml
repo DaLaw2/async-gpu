@@ -9,7 +9,7 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-gpu-runtime = { path = "../../../crates/gpu-runtime" }
+gpu-runtime = { path = "../../../crates/core/gpu-runtime" }
 
 [profile.release]
 panic = "abort"

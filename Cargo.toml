@@ -1,8 +1,8 @@
 [workspace]
 members = [
-    "crates/gpu-host",
-    "crates/gpu-protocol",
-    "crates/warp-macro",
+    "crates/core/gpu-host",
+    "crates/core/gpu-protocol",
+    "crates/macro/warp-macro",
 ]
 resolver = "2"
-exclude = ["patched-rustc", "rustc-src", "test-warp-crate"]
+exclude = ["patched-rustc", "rustc-src"]

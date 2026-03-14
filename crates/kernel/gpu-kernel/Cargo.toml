@@ -1,0 +1,21 @@
+[workspace]
+
+[package]
+name = "gpu-kernel"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+gpu-atomics = { path = "../../core/gpu-atomics" }
+gpu-libc = { path = "../../core/gpu-libc" }
+gpu-protocol = { path = "../../core/gpu-protocol" }
+gpu-runtime = { path = "../../core/gpu-runtime" }
+warp-macro = { path = "../../macro/warp-macro" }
+
+[profile.release]
+panic = "abort"
+opt-level = 3
+lto = "fat"

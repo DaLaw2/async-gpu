@@ -9,13 +9,13 @@ completed_tasks = 270
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
-current_mode = "think"
-current_step = "think.triage"
-current_task_id = ""
-last_summary = "Opened async-std epic. Closed native-warp-async, gpu-autonomous, gpu-perf, real-std. New direction: #[warp_cooperative] async fn + patched std — make println!() and File I/O warp-cooperative automatically via MIR pass. Also need codebase restructuring (legacy crates → archive)."
+current_mode = "do"
+current_step = "do.execute"
+current_task_id = "codebase-restructure.1"
+last_summary = "BS73: async-std epic kickoff. 3 themes spawned: warp-io (warp-cooperative I/O), toolchain-auto (build scripts), codebase-restructure (archive legacy). Key insight: spin-wait in gpu_hostcall_request is the core blocker. Approach C (activemask-based warp batching) is most practical."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 72
+brainstorm_seq = 73
 review_seq = 5
 
 # Brainstorm trigger control (event-driven, no fixed interval)
@@ -149,17 +149,113 @@ success_criteria = [
 # Themes (active only — completed/parked archived in archive/)
 # ============================================================
 
-# (none active — awaiting brainstorm for async-std epic)
+[[themes]]
+id = "warp-io"
+epic = "async-std"
+title = "Warp-cooperative I/O — make println/File warp-aware under #[warp_cooperative]"
+status = "active"
+goal = "println!() and std::fs I/O become warp-cooperative automatically when called from #[warp_cooperative] async fn"
+success_criteria = [
+    "gpu_stdout_write() detects warp-cooperative context and batches via lane 0",
+    "File I/O (open/read/write/close) uses single hostcall per warp instead of per-thread",
+    "#[warp_cooperative] async fn using println!() produces correct output on GPU",
+]
+
+[[themes]]
+id = "toolchain-auto"
+epic = "async-std"
+title = "Toolchain build + PTX post-processing automation"
+status = "active"
+goal = "Single script builds patched rustc+std; PTX post-processing is automated"
+success_criteria = [
+    "scripts/build-toolchain.sh clones rustc, applies patches, builds compiler+library",
+    "PTX post-processing (remove .ptr .align 1, stub panic fn) integrated into build pipeline",
+]
+
+[[themes]]
+id = "codebase-restructure"
+epic = "async-std"
+title = "Archive legacy crates, reorganize codebase for patched-rustc direction"
+status = "active"
+goal = "Legacy crates moved to archive/, test-warp-crate integrated, CI updated"
+success_criteria = [
+    "Legacy crates (warp-macro, embassy-test, async-hostcall-test, async-pipeline-test, gpu-critical-section, std-build-test) archived",
+    "test-warp-crate moved to proper location under crates/ or examples/",
+    "CI and scripts updated to reflect new structure",
+]
 
 # ============================================================
 # Tasks (pending/active only — done tasks archived in archive/)
 # ============================================================
 
-# (none — awaiting theme creation)
+[[tasks]]
+id = "warp-io.1"
+theme = "warp-io"
+title = "Investigate: what does warp-cooperative println mean — semantics + design"
+kind = "investigation"
+status = "pending"
+depends = []
+questions = [
+    "Should println!() from 32 lanes produce 32 lines or 1 batched line?",
+    "How does existing warp_print! handle this? What's the user expectation?",
+    "Where should warp-batching live: gpu-kernel-std, gpu-runtime, or gpu-libc?",
+    "How to detect warp-cooperative context at runtime (activemask? global flag?)",
+]
+
+[[tasks]]
+id = "warp-io.2"
+theme = "warp-io"
+title = "Experiment: implement warp-cooperative gpu_stdout_write using activemask"
+kind = "experiment"
+status = "pending"
+depends = ["warp-io.1"]
+
+[[tasks]]
+id = "toolchain-auto.1"
+theme = "toolchain-auto"
+title = "Experiment: create scripts/build-toolchain.sh"
+kind = "experiment"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "toolchain-auto.2"
+theme = "toolchain-auto"
+title = "Experiment: create scripts/postprocess-ptx.sh or build.rs integration"
+kind = "experiment"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "codebase-restructure.1"
+theme = "codebase-restructure"
+title = "Experiment: reorganize crates into subdirectories + clean up root"
+kind = "experiment"
+status = "active"
+depends = []
+
+[[tasks]]
+id = "codebase-restructure.2"
+theme = "codebase-restructure"
+title = "Experiment: move test-warp-crate to proper location"
+kind = "experiment"
+status = "pending"
+depends = []
 
 # ============================================================
 # Brainstorms (last 3 only — older brainstorms archived)
 # ============================================================
+
+[[brainstorms]]
+seq = 73
+at_cycle = 270
+trigger = "async-std epic kickoff — no themes or tasks"
+level = "standard"
+new_tasks_spawned = ["warp-io.1", "warp-io.2", "toolchain-auto.1", "toolchain-auto.2", "codebase-restructure.1", "codebase-restructure.2"]
+new_themes_spawned = ["warp-io", "toolchain-auto", "codebase-restructure"]
+themes_parked = []
+themes_completed = []
+key_insight = "Spin-wait in gpu_hostcall_request is the core blocker. Three approaches analyzed: (A) async PAL — too invasive, (B) yield from spin loop — doesn't help with sync API, (C) activemask-based warp batching — most practical. Lane 0 does hostcall, others wait via bar.warp.sync. Same pattern as warp_print! but automatic."
 
 [[brainstorms]]
 seq = 72

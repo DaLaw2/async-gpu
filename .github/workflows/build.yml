@@ -70,9 +70,9 @@ jobs:
 
       - name: Create PTX stubs (auto-discovered from include_str! calls)
         run: |
-          for f in $(grep -roh 'include_str!("\.\.\/[^"]*\.ptx")' crates/gpu-host/src/ | sed 's/include_str!("\.\.\/\(.*\)")/\1/' | sort -u); do
-            echo "// stub for CI" > "crates/gpu-host/$f"
+          for f in $(grep -roh 'include_str!("\.\.\/[^"]*\.ptx")' crates/core/gpu-host/src/ | sed 's/include_str!("\.\.\/\(.*\)")/\1/' | sort -u); do
+            echo "// stub for CI" > "crates/core/gpu-host/$f"
           done
 
       - name: Check gpu-host compiles
-        run: cargo +stable check --manifest-path crates/gpu-host/Cargo.toml
+        run: cargo +stable check --manifest-path crates/core/gpu-host/Cargo.toml

@@ -11,8 +11,8 @@ crate-type = ["cdylib"]
 [dependencies]
 embassy-executor = { version = "0.7", features = ["arch-spin"] }
 gpu-critical-section = { path = "../gpu-critical-section" }
-gpu-atomics = { path = "../gpu-atomics" }
-gpu-protocol = { path = "../gpu-protocol" }
+gpu-atomics = { path = "../../core/gpu-atomics" }
+gpu-protocol = { path = "../../core/gpu-protocol" }
 futures-util = { version = "0.3", default-features = false }
 
 [profile.release]

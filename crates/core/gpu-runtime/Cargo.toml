@@ -16,7 +16,7 @@ gpu-trace = []  # Enable gpu_trace!/gpu_assert! macros. Disable for zero-overhea
 [dependencies]
 gpu-protocol = { path = "../gpu-protocol" }
 gpu-atomics = { path = "../gpu-atomics" }
-gpu-critical-section = { path = "../gpu-critical-section" }
+gpu-critical-section = { path = "../../test/gpu-critical-section" }
 
 [profile.release]
 panic = "abort"

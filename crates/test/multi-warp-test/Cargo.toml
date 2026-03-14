@@ -1,7 +1,7 @@
 [workspace]
 
 [package]
-name = "std-build-test"
+name = "multi-warp-test"
 version = "0.1.0"
 edition = "2021"
 
@@ -9,7 +9,8 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-gpu-libc = { path = "../gpu-libc" }
+gpu-atomics = { path = "../../core/gpu-atomics" }
+gpu-protocol = { path = "../../core/gpu-protocol" }
 
 [profile.release]
 panic = "abort"

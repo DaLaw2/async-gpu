@@ -1,7 +1,9 @@
 /target
 crates/*/target/
+crates/*/*/target/
 examples/*/kernel/target/
 examples/*/host/target/
+examples/*/target/
 *.swp
 *.swo
 *~
@@ -12,9 +14,9 @@ patched-std/
 patched-rustc/
 rustc-src/
 models/
-test-warp-crate/target/
-test-warp-crate/mir_dump/
-test-warp-crate/rustc-ice-*.txt
-test-warp-crate/host/target/
-test-warp-crate/host/*.ptx
+examples/warp-cooperative/target/
+examples/warp-cooperative/mir_dump/
+examples/warp-cooperative/rustc-ice-*.txt
+examples/warp-cooperative/host/target/
+examples/warp-cooperative/host/*.ptx
 scripts/pre-push.sh

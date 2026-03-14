@@ -1,7 +1,7 @@
 [workspace]
 
 [package]
-name = "gpu-std-test"
+name = "std-build-test"
 version = "0.1.0"
 edition = "2021"
 
@@ -9,7 +9,7 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-gpu-libc = { path = "../gpu-libc" }
+gpu-libc = { path = "../../core/gpu-libc" }
 
 [profile.release]
 panic = "abort"

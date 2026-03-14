@@ -34,7 +34,7 @@ pub async fn data_pipeline(buf: *mut u8) -> u32 {
 
 This is a real GPU kernel. The `#[warp_cooperative]` attribute is a custom rustc MIR pass that makes `async fn` work correctly with NVIDIA's SIMT execution model. Each `.await` is a yield point where all 32 lanes in a warp synchronize. Between awaits, lanes execute in lockstep.
 
-The system has three key innovations.
+The system has four key innovations.
 
 ## Innovation 1: Lock-Free Hostcall Protocol
 
@@ -88,6 +88,24 @@ This works via a patched `std` with a CUDA platform adaptation layer (PAL) that 
 
 Multi-thread safety is verified: 32 threads can concurrently allocate `Vec`s and call `println!`.
 
+## Innovation 4: TCP Networking from GPU
+
+GPU kernels can now make network connections — connect to servers, send requests, and receive responses, all without returning to the host:
+
+```rust
+// GPU kernel: connect to a TCP server and exchange data
+let fd = GpuTcpConnectFuture::new(buf, b"127.0.0.1:8080").await?;
+GpuTcpWriteFuture::new(buf, fd, b"Hello from GPU!").await?;
+
+let mut response = [0u8; 56];
+let n = GpuTcpReadFuture::new(buf, fd, &mut response).await?;
+GpuTcpCloseFuture::new(buf, fd).await?;
+```
+
+The TCP services extend the same hostcall protocol: 8 new service IDs (connect, write, read, close, bind, accept, bulk_write, bulk_read) sharing the existing fd namespace. Socket fds and file fds coexist in a unified `FdResource` table on the host.
+
+Bulk transfers use the sideband buffer — the same mechanism that handles large file I/O — enabling up to 1MB TCP reads and writes per hostcall. A GPU kernel can act as a TCP client or server, opening the door to GPU-autonomous network agents, distributed GPU compute, and on-device inference serving.
+
 ## Showcase: 32-Lane Parallel File Search
 
 To demonstrate genuine GPU parallelism, we built a "GPU grep" — all 32 warp lanes search different chunks of a file for a byte pattern:
@@ -108,7 +126,7 @@ Thread 0 reads the file via sideband bulk I/O. All 32 threads search their 128-b
 
 The project is [open source](https://github.com/DaLaw2/async-gpu) under MIT/Apache-2.0. It includes:
 
-- 5 working examples (hello-gpu, async-pipeline, parallel-search, async-io, vector-math)
+- 6 working examples (hello-gpu, async-pipeline, parallel-search, async-io, vector-math, tcp-echo)
 - A complete host SDK (`GpuRuntime`, `HostcallBuffer`, `MappedBuffer`)
 - GPT-2 124M inference running entirely on GPU (68ms/token)
 - Comprehensive [ARCHITECTURE.md](ARCHITECTURE.md) for contributors

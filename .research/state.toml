@@ -4,18 +4,18 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 296     # Monotonic counter, incremented after each completed phase
-completed_tasks = 317
+total_cycles = 298     # Monotonic counter, incremented after each completed phase
+completed_tasks = 319
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "think"
 current_step = "think.triage"
 current_task_id = ""
-last_summary = "network-io epic ALL 4 criteria met: protocol (8 TCP services), host handlers (FdResource enum + 8 handlers), GPU Futures (6 async types), tcp-echo demo example. 317 tasks completed. Need brainstorm."
+last_summary = "blog-update.1 done: TCP networking Innovation 4 added to BLOG_DRAFT.md. changelog-update.1 done: v0.2.0 section in CHANGELOG.md."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 84
+brainstorm_seq = 85
 review_seq = 5
 
 # Brainstorm trigger control (event-driven, no fixed interval)
@@ -160,7 +160,7 @@ success_criteria = [
 [[epics]]
 id = "network-io"
 title = "Network I/O from GPU — TCP hostcall services"
-status = "active"
+status = "completed"
 priority = "medium"
 success_criteria = [
     "SERVICE_TCP_CONNECT / SERVICE_TCP_SEND / SERVICE_TCP_RECV defined in gpu-protocol",
@@ -204,6 +204,22 @@ goal = "Async Futures for TCP operations in gpu-runtime"
 success_criteria = [
     "GpuTcpConnectFuture, GpuTcpSendFuture, GpuTcpRecvFuture in gpu-runtime",
 ]
+
+[[themes]]
+id = "blog-update"
+epic = "public-api"
+title = "Update blog post with TCP networking"
+status = "completed"
+goal = "BLOG_DRAFT.md covers 4 innovations (incl. TCP)"
+success_criteria = ["BLOG_DRAFT.md has TCP networking section"]
+
+[[themes]]
+id = "changelog-update"
+epic = "codebase-health"
+title = "Prepare CHANGELOG v0.2.0"
+status = "completed"
+goal = "CHANGELOG.md has v0.2.0 section with TCP milestone"
+success_criteria = ["CHANGELOG.md updated with v0.2.0"]
 
 [[themes]]
 id = "net-demo"
@@ -266,6 +282,26 @@ kind = "experiment"
 status = "done"
 depends = ["net-protocol.2"]
 
+# --- blog-update theme ---
+
+[[tasks]]
+id = "blog-update.1"
+theme = "blog-update"
+title = "Experiment: add TCP networking section to BLOG_DRAFT.md"
+kind = "experiment"
+status = "done"
+depends = []
+
+# --- changelog-update theme ---
+
+[[tasks]]
+id = "changelog-update.1"
+theme = "changelog-update"
+title = "Experiment: update CHANGELOG.md with v0.2.0 section"
+kind = "experiment"
+status = "done"
+depends = []
+
 # --- net-demo theme ---
 
 [[tasks]]
@@ -297,6 +333,17 @@ depends = ["net-protocol.2"]
 # ============================================================
 # Brainstorms (last 3 only — older brainstorms archived)
 # ============================================================
+
+[[brainstorms]]
+seq = 85
+at_cycle = 296
+trigger = "network-io epic completed — quick brainstorm for next work"
+level = "quick"
+new_tasks_spawned = ["blog-update.1", "changelog-update.1"]
+new_themes_spawned = ["blog-update", "changelog-update"]
+themes_parked = []
+themes_completed = ["net-protocol", "net-host", "net-gpu", "net-demo"]
+key_insight = "network-io epic done. All 11 epics satisfied. Remaining: blog post update, CHANGELOG v0.2.0, safety audit (deferred — large effort)."
 
 [[brainstorms]]
 seq = 84

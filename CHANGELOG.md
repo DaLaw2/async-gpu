@@ -1,5 +1,32 @@
 # Changelog
 
+## v0.2.0 — 2026-03-15
+
+TCP networking from GPU kernels and developer experience improvements.
+
+### Networking
+
+- **TCP hostcall services**: 8 new services (connect, write, read, close, bind, accept, bulk_write, bulk_read) enabling GPU kernels to make network connections
+- **GPU-side TCP Futures**: `GpuTcpConnectFuture`, `GpuTcpWriteFuture`, `GpuTcpReadFuture`, `GpuTcpCloseFuture`, `GpuTcpBulkWriteFuture`, `GpuTcpBulkReadFuture`
+- **Unified fd namespace**: `FdResource` enum (`File | TcpStream | TcpListener`) — sockets and files share the same fd table
+- **TCP bulk I/O**: Up to 1MB TCP transfers via sideband buffer (`SERVICE_TCP_BULK_WRITE` / `SERVICE_TCP_BULK_READ`)
+- **TCP server support**: `SERVICE_TCP_BIND` + `SERVICE_TCP_ACCEPT` for GPU-side server patterns
+
+### Examples
+
+- **tcp-echo**: GPU kernel connects to a local TCP echo server, sends a message, reads the echoed response
+- **parallel-search**: 32-lane warp-parallel byte-pattern search over bulk-read file data
+
+### Infrastructure
+
+- CI coverage expanded: all examples (kernel PTX + host check) in `ci-lint.sh`
+- Per-example `README.md` with architecture, running instructions, expected output
+- `CONTRIBUTING.md` developer guide
+- CI badge and license badge in README
+- Convenience `run.sh` / `run.bat` scripts for examples
+- Toolchain build scripts split into `.sh` (Linux) + `.ps1` (Windows)
+- 296 research cycles, 317 completed tasks
+
 ## v0.1.0 — 2026-03-15
 
 First public release. Rust async/await running natively on NVIDIA GPUs.

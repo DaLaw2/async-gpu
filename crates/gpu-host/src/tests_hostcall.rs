@@ -942,3 +942,561 @@ pub(crate) fn run_session_multi_launch_test(dev: Arc<CudaDevice>) -> Result<()> 
     println!("    Cross-launch state verified (0xCAFE)");
     Ok(())
 }
+
+/// Test: Multi-command kernel processes COMPUTE, PRINT, EXIT from command buffer.
+///
+/// 1. Start HostcallSession + CommandBuffer
+/// 2. Launch multi_cmd_kernel (thread 0 polls command buffer)
+/// 3. Host submits: COMPUTE (double 4 values) → PRINT → EXIT
+/// 4. Kernel processes all three, then exits
+/// 5. Verify COMPUTE results (doubled values)
+pub(crate) fn run_multi_cmd_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Multi-command kernel test ---");
+
+    let session = hostcall::HostcallSession::start(16).map_err(|e| GpuHostError::Verification {
+        test: "multi_cmd",
+        detail: format!("session start failed: {e}"),
+    })?;
+
+    let cmd_buf = hostcall::CommandBuffer::new(8).map_err(|e| GpuHostError::Verification {
+        test: "multi_cmd",
+        detail: format!("command buffer alloc failed: {e}"),
+    })?;
+
+    // Allocate input/output arrays (4 u32s each)
+    let count = 4u32;
+    let (input_host, input_dev) = unsafe { alloc_mapped_result_array(&dev, count as usize)? };
+    let (output_host, output_dev) = unsafe { alloc_mapped_result_array(&dev, count as usize)? };
+
+    // Initialize input: [10, 20, 30, 40]
+    unsafe {
+        for i in 0..count as isize {
+            std::ptr::write_volatile(input_host.offset(i), (i as u32 + 1) * 10);
+        }
+    }
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "kernel", &["multi_cmd_kernel"]);
+
+    let f = dev
+        .get_func("kernel", "multi_cmd_kernel")
+        .ok_or(GpuHostError::KernelNotFound("multi_cmd_kernel"))?;
+
+    let cfg = cudarc::driver::LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (1, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    println!("  Launching multi_cmd_kernel...");
+    unsafe {
+        f.launch(cfg, (session.dev_ptr(), cmd_buf.dev_ptr()))?;
+    }
+
+    // Give kernel time to start polling
+    std::thread::sleep(std::time::Duration::from_millis(50));
+
+    // Submit COMPUTE command: double the 4 input values
+    println!("  Submitting COMPUTE command (double 4 values)...");
+    cmd_buf.submit(&hostcall::Command::Compute {
+        input_ptr: input_dev,
+        output_ptr: output_dev,
+        count,
+        op_code: 0,
+    });
+
+    // Submit PRINT command
+    println!("  Submitting PRINT command...");
+    cmd_buf.submit(&hostcall::Command::Print {
+        msg: b"hello from command buffer".to_vec(),
+    });
+
+    // Submit EXIT command
+    println!("  Submitting EXIT command...");
+    cmd_buf.submit(&hostcall::Command::Exit);
+
+    // Wait for kernel to finish
+    dev.synchronize()?;
+    println!("  Kernel completed.");
+
+    // Give listener time to process prints
+    std::thread::sleep(std::time::Duration::from_millis(100));
+
+    session.shutdown();
+
+    // Verify COMPUTE results: [20, 40, 60, 80]
+    let mut pass = true;
+    println!("  Verifying COMPUTE results:");
+    for i in 0..count as isize {
+        let val = unsafe { std::ptr::read_volatile(output_host.offset(i)) };
+        let expected = ((i as u32 + 1) * 10) * 2;
+        println!("    output[{i}] = {val} (expected {expected})");
+        if val != expected {
+            pass = false;
+        }
+    }
+
+    unsafe {
+        free_mapped_mem(input_host)?;
+        free_mapped_mem(output_host)?;
+    }
+
+    if !pass {
+        return Err(GpuHostError::Verification {
+            test: "multi_cmd",
+            detail: "COMPUTE output mismatch".to_string(),
+        });
+    }
+
+    println!("  multi_cmd: PASSED!");
+    println!("    COMPUTE + PRINT + EXIT processed in single kernel launch");
+    Ok(())
+}
+
+/// Test: Cross-launch pipeline — Kernel A writes data, Kernel B reads it.
+///
+/// Zero host-side copy: both kernels operate on the same mapped memory buffer.
+/// HostcallSession persists across both launches.
+pub(crate) fn run_cross_pipeline_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Cross-launch pipeline test ---");
+
+    let session = hostcall::HostcallSession::start(16).map_err(|e| GpuHostError::Verification {
+        test: "cross_pipeline",
+        detail: format!("session start failed: {e}"),
+    })?;
+
+    let count = 8u32;
+
+    // Shared data buffer: Kernel A writes, Kernel B reads (zero host copy)
+    let (data_host, data_dev) = unsafe { alloc_mapped_result_array(&dev, count as usize)? };
+    // Result buffer: Kernel B writes final output
+    let (result_host, result_dev) = unsafe { alloc_mapped_result_array(&dev, count as usize)? };
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
+    let _ = dev.load_ptx(
+        ptx,
+        "kernel",
+        &["pipeline_writer_kernel", "pipeline_reader_kernel"],
+    );
+
+    let cfg = cudarc::driver::LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (1, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    // --- Stage 1: Writer kernel ---
+    let f_writer = dev
+        .get_func("kernel", "pipeline_writer_kernel")
+        .ok_or(GpuHostError::KernelNotFound("pipeline_writer_kernel"))?;
+
+    println!("  Stage 1: Launching pipeline_writer_kernel...");
+    unsafe {
+        f_writer.launch(cfg, (session.dev_ptr(), data_dev, count))?;
+    }
+    dev.synchronize()?;
+    println!("  Writer completed.");
+
+    // Verify writer output (peek — not a copy, just reading mapped memory)
+    println!("  Data after writer:");
+    for i in 0..count as isize {
+        let val = unsafe { std::ptr::read_volatile(data_host.offset(i)) };
+        println!("    data[{i}] = {val}");
+    }
+
+    // --- Reinit packets for Stage 2 ---
+    session.reinit_packets();
+
+    // --- Stage 2: Reader kernel ---
+    let f_reader = dev
+        .get_func("kernel", "pipeline_reader_kernel")
+        .ok_or(GpuHostError::KernelNotFound("pipeline_reader_kernel"))?;
+
+    println!("  Stage 2: Launching pipeline_reader_kernel...");
+    unsafe {
+        f_reader.launch(cfg, (session.dev_ptr(), data_dev, result_dev, count))?;
+    }
+    dev.synchronize()?;
+    println!("  Reader completed.");
+
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    session.shutdown();
+
+    // Verify: result[i] = (i+1)*100*3 = (i+1)*300
+    let mut pass = true;
+    println!("  Verifying pipeline results:");
+    for i in 0..count as isize {
+        let val = unsafe { std::ptr::read_volatile(result_host.offset(i)) };
+        let expected = (i as u32 + 1) * 300;
+        println!("    result[{i}] = {val} (expected {expected})");
+        if val != expected {
+            pass = false;
+        }
+    }
+
+    unsafe {
+        free_mapped_mem(data_host)?;
+        free_mapped_mem(result_host)?;
+    }
+
+    if !pass {
+        return Err(GpuHostError::Verification {
+            test: "cross_pipeline",
+            detail: "Pipeline output mismatch".to_string(),
+        });
+    }
+
+    println!("  cross_pipeline: PASSED!");
+    println!("    Kernel A → Kernel B via shared device buffer, zero host copy");
+    Ok(())
+}
+
+/// Test: Pipeline API — builder-style multi-stage kernel launch.
+///
+/// Uses Pipeline::new().stage().stage().run() to do the same
+/// writer→reader pipeline as the manual test above.
+pub(crate) fn run_pipeline_api_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Pipeline API test ---");
+
+    let count = 4u32;
+
+    // Allocate shared buffers
+    let (data_host, data_dev) = unsafe { alloc_mapped_result_array(&dev, count as usize)? };
+    let (result_host, result_dev) = unsafe { alloc_mapped_result_array(&dev, count as usize)? };
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
+    let _ = dev.load_ptx(
+        ptx,
+        "kernel",
+        &["pipeline_writer_kernel", "pipeline_reader_kernel"],
+    );
+
+    let cfg = cudarc::driver::LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (1, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    let dev_a = Arc::clone(&dev);
+    let dev_b = Arc::clone(&dev);
+
+    println!("  Running 2-stage pipeline via Pipeline API...");
+    hostcall::Pipeline::new(16)
+        .map_err(|e| GpuHostError::Verification {
+            test: "pipeline_api",
+            detail: format!("pipeline create failed: {e}"),
+        })?
+        .stage(move |hc_ptr| {
+            let f = dev_a
+                .get_func("kernel", "pipeline_writer_kernel")
+                .ok_or(GpuHostError::KernelNotFound("pipeline_writer_kernel"))?;
+            unsafe { f.launch(cfg, (hc_ptr, data_dev, count))? };
+            dev_a.synchronize()?;
+            println!("    Stage 1 (writer) completed.");
+            Ok(())
+        })
+        .stage(move |hc_ptr| {
+            let f = dev_b
+                .get_func("kernel", "pipeline_reader_kernel")
+                .ok_or(GpuHostError::KernelNotFound("pipeline_reader_kernel"))?;
+            unsafe { f.launch(cfg, (hc_ptr, data_dev, result_dev, count))? };
+            dev_b.synchronize()?;
+            println!("    Stage 2 (reader) completed.");
+            Ok(())
+        })
+        .run()?;
+
+    // Verify: result[i] = (i+1)*100*3
+    let mut pass = true;
+    println!("  Verifying pipeline results:");
+    for i in 0..count as isize {
+        let val = unsafe { std::ptr::read_volatile(result_host.offset(i)) };
+        let expected = (i as u32 + 1) * 300;
+        println!("    result[{i}] = {val} (expected {expected})");
+        if val != expected {
+            pass = false;
+        }
+    }
+
+    unsafe {
+        free_mapped_mem(data_host)?;
+        free_mapped_mem(result_host)?;
+    }
+
+    if !pass {
+        return Err(GpuHostError::Verification {
+            test: "pipeline_api",
+            detail: "Pipeline API output mismatch".to_string(),
+        });
+    }
+
+    println!("  pipeline_api: PASSED!");
+    println!("    Pipeline::new().stage(writer).stage(reader).run()");
+    Ok(())
+}
+
+/// Test: Iterative convergence kernel — Newton's method sqrt with data-dependent iterations.
+///
+/// Tests with diverse inputs to verify iteration count varies with input value.
+pub(crate) fn run_convergence_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Iterative convergence test ---");
+
+    let session = hostcall::HostcallSession::start(16).map_err(|e| GpuHostError::Verification {
+        test: "convergence",
+        detail: format!("session start failed: {e}"),
+    })?;
+
+    // Test inputs: diverse values to show data-dependent iteration counts
+    let inputs: Vec<u32> = vec![0, 1, 4, 9, 16, 100, 10000, 1000000];
+    let count = inputs.len() as u32;
+
+    let (input_host, input_dev) = unsafe { alloc_mapped_result_array(&dev, count as usize)? };
+    let (output_host, output_dev) = unsafe { alloc_mapped_result_array(&dev, count as usize)? };
+    let (iters_host, iters_dev) = unsafe { alloc_mapped_result_array(&dev, count as usize)? };
+
+    // Write inputs
+    for (i, &val) in inputs.iter().enumerate() {
+        unsafe { std::ptr::write_volatile(input_host.add(i), val) };
+    }
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "kernel", &["convergence_kernel"]);
+
+    let f = dev
+        .get_func("kernel", "convergence_kernel")
+        .ok_or(GpuHostError::KernelNotFound("convergence_kernel"))?;
+
+    let cfg = cudarc::driver::LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (1, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    println!("  Launching convergence_kernel...");
+    unsafe {
+        f.launch(
+            cfg,
+            (session.dev_ptr(), input_dev, output_dev, iters_dev, count),
+        )?;
+    }
+    dev.synchronize()?;
+
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    session.shutdown();
+
+    // Expected: floor(sqrt(n))
+    let expected_sqrt: Vec<u32> = vec![0, 1, 2, 3, 4, 10, 100, 1000];
+
+    let mut pass = true;
+    let mut saw_different_iters = false;
+    let mut prev_iters = 0u32;
+
+    println!("  Results:");
+    for i in 0..count as usize {
+        let out = unsafe { std::ptr::read_volatile(output_host.add(i)) };
+        let it = unsafe { std::ptr::read_volatile(iters_host.add(i)) };
+        let exp = expected_sqrt[i];
+        let ok = if out == exp { "OK" } else { "FAIL" };
+        println!(
+            "    sqrt({}) = {} ({ok}), iterations = {it}",
+            inputs[i], out
+        );
+        if out != exp {
+            pass = false;
+        }
+        if i > 1 && it != prev_iters {
+            saw_different_iters = true;
+        }
+        prev_iters = it;
+    }
+
+    unsafe {
+        free_mapped_mem(input_host)?;
+        free_mapped_mem(output_host)?;
+        free_mapped_mem(iters_host)?;
+    }
+
+    if !pass {
+        return Err(GpuHostError::Verification {
+            test: "convergence",
+            detail: "sqrt output mismatch".to_string(),
+        });
+    }
+
+    if !saw_different_iters {
+        return Err(GpuHostError::Verification {
+            test: "convergence",
+            detail: "iteration counts were all the same — not data-dependent".to_string(),
+        });
+    }
+
+    println!("  convergence: PASSED!");
+    println!(
+        "    Data-dependent iteration verified (different inputs → different iteration counts)"
+    );
+    Ok(())
+}
+
+/// Test: Multi-step autonomous pipeline — Pipeline API + convergence + multiple datasets.
+///
+/// Two pipeline stages:
+/// 1. Stage 1: process small dataset [4, 25, 144]
+/// 2. Stage 2: process larger dataset [10000, 1000000, 99999999]
+///
+/// Demonstrates Pipeline API with data-dependent iteration across stages.
+pub(crate) fn run_autonomous_pipeline_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Autonomous pipeline test ---");
+
+    let dataset_a: Vec<u32> = vec![4, 25, 144];
+    let dataset_b: Vec<u32> = vec![10000, 1000000, 99999999];
+    let count_a = dataset_a.len() as u32;
+    let count_b = dataset_b.len() as u32;
+
+    // Allocate for dataset A
+    let (in_a_host, in_a_dev) = unsafe { alloc_mapped_result_array(&dev, count_a as usize)? };
+    let (out_a_host, out_a_dev) = unsafe { alloc_mapped_result_array(&dev, count_a as usize)? };
+    let (iters_a_host, iters_a_dev) = unsafe { alloc_mapped_result_array(&dev, count_a as usize)? };
+    let (total_a_host, total_a_dev) = unsafe { alloc_mapped_u32(&dev)? };
+
+    // Allocate for dataset B
+    let (in_b_host, in_b_dev) = unsafe { alloc_mapped_result_array(&dev, count_b as usize)? };
+    let (out_b_host, out_b_dev) = unsafe { alloc_mapped_result_array(&dev, count_b as usize)? };
+    let (iters_b_host, iters_b_dev) = unsafe { alloc_mapped_result_array(&dev, count_b as usize)? };
+    let (total_b_host, total_b_dev) = unsafe { alloc_mapped_u32(&dev)? };
+
+    // Write inputs
+    for (i, &v) in dataset_a.iter().enumerate() {
+        unsafe { std::ptr::write_volatile(in_a_host.add(i), v) };
+    }
+    for (i, &v) in dataset_b.iter().enumerate() {
+        unsafe { std::ptr::write_volatile(in_b_host.add(i), v) };
+    }
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "kernel", &["autonomous_pipeline_kernel"]);
+
+    let cfg = cudarc::driver::LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (1, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    let dev_a = Arc::clone(&dev);
+    let dev_b = Arc::clone(&dev);
+
+    println!("  Running 2-stage autonomous pipeline...");
+    hostcall::Pipeline::new(16)
+        .map_err(|e| GpuHostError::Verification {
+            test: "autonomous_pipeline",
+            detail: format!("pipeline create failed: {e}"),
+        })?
+        .stage(move |hc_ptr| {
+            let f = dev_a
+                .get_func("kernel", "autonomous_pipeline_kernel")
+                .ok_or(GpuHostError::KernelNotFound("autonomous_pipeline_kernel"))?;
+            unsafe {
+                f.launch(
+                    cfg,
+                    (
+                        hc_ptr,
+                        in_a_dev,
+                        out_a_dev,
+                        iters_a_dev,
+                        total_a_dev,
+                        count_a,
+                    ),
+                )?;
+            }
+            dev_a.synchronize()?;
+            println!("    Stage 1 completed (small dataset).");
+            Ok(())
+        })
+        .stage(move |hc_ptr| {
+            let f = dev_b
+                .get_func("kernel", "autonomous_pipeline_kernel")
+                .ok_or(GpuHostError::KernelNotFound("autonomous_pipeline_kernel"))?;
+            unsafe {
+                f.launch(
+                    cfg,
+                    (
+                        hc_ptr,
+                        in_b_dev,
+                        out_b_dev,
+                        iters_b_dev,
+                        total_b_dev,
+                        count_b,
+                    ),
+                )?;
+            }
+            dev_b.synchronize()?;
+            println!("    Stage 2 completed (large dataset).");
+            Ok(())
+        })
+        .run()?;
+
+    // Verify results
+    let expected_a: Vec<u32> = vec![2, 5, 12]; // floor(sqrt(4,25,144))
+    let expected_b: Vec<u32> = vec![100, 1000, 9999]; // floor(sqrt(10000,1000000,99999999))
+
+    let mut pass = true;
+    println!("  Stage 1 results (small dataset):");
+    let total_a = unsafe { std::ptr::read_volatile(total_a_host) };
+    for i in 0..count_a as usize {
+        let out = unsafe { std::ptr::read_volatile(out_a_host.add(i)) };
+        let it = unsafe { std::ptr::read_volatile(iters_a_host.add(i)) };
+        let exp = expected_a[i];
+        let ok = if out == exp { "OK" } else { "FAIL" };
+        println!("    sqrt({}) = {} ({ok}), iters = {it}", dataset_a[i], out);
+        if out != exp {
+            pass = false;
+        }
+    }
+    println!("    Total iterations: {total_a}");
+
+    println!("  Stage 2 results (large dataset):");
+    let total_b = unsafe { std::ptr::read_volatile(total_b_host) };
+    for i in 0..count_b as usize {
+        let out = unsafe { std::ptr::read_volatile(out_b_host.add(i)) };
+        let it = unsafe { std::ptr::read_volatile(iters_b_host.add(i)) };
+        let exp = expected_b[i];
+        let ok = if out == exp { "OK" } else { "FAIL" };
+        println!("    sqrt({}) = {} ({ok}), iters = {it}", dataset_b[i], out);
+        if out != exp {
+            pass = false;
+        }
+    }
+    println!("    Total iterations: {total_b}");
+
+    // Verify different total iterations between stages (data-dependent)
+    println!("  Total iters: stage1={total_a}, stage2={total_b}");
+
+    unsafe {
+        free_mapped_mem(in_a_host)?;
+        free_mapped_mem(out_a_host)?;
+        free_mapped_mem(iters_a_host)?;
+        free_mapped_mem(total_a_host)?;
+        free_mapped_mem(in_b_host)?;
+        free_mapped_mem(out_b_host)?;
+        free_mapped_mem(iters_b_host)?;
+        free_mapped_mem(total_b_host)?;
+    }
+
+    if !pass {
+        return Err(GpuHostError::Verification {
+            test: "autonomous_pipeline",
+            detail: "autonomous pipeline output mismatch".to_string(),
+        });
+    }
+
+    if total_a == total_b {
+        return Err(GpuHostError::Verification {
+            test: "autonomous_pipeline",
+            detail: "stages had same total iterations — not data-dependent".to_string(),
+        });
+    }
+
+    println!("  autonomous_pipeline: PASSED!");
+    println!("    2-stage pipeline with data-dependent iteration");
+    println!("    Different datasets → different iteration counts");
+    Ok(())
+}

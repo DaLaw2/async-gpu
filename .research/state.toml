@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 221     # Monotonic counter, incremented after each completed phase
-completed_tasks = 220
+total_cycles = 227     # Monotonic counter, incremented after each completed phase
+completed_tasks = 226
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.save"
+current_step = "do.execute"
 current_task_id = ""
-last_summary = "hc-session theme DONE: HostcallSession API + reinit_packets + multi-launch test (0xCAFE verified). gpu-assert-diag also done. Designs complete for cmd-buffer.1. Next: cmd-buffer.2, cross-pipeline.1."
+last_summary = "gpu-autonomous v2 ALL 4 THEMES DONE: hc-session (HostcallSession), cmd-buffer (COMPUTE+PRINT+EXIT), cross-pipeline (Pipeline API), iter-workflow (Newton sqrt convergence, data-dependent). All 10 tasks verified on GPU."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 54
@@ -318,7 +318,7 @@ success_criteria = [
 id = "cmd-buffer"
 epic = "gpu-autonomous"
 title = "Multi-command kernel via mapped memory command buffer"
-status = "active"
+status = "completed"
 goal = "Host→GPU command channel: host submits commands, kernel processes batch"
 success_criteria = [
     "Command buffer protocol defined (ring buffer, command types, atomic write_idx)",
@@ -330,7 +330,7 @@ success_criteria = [
 id = "cross-pipeline"
 epic = "gpu-autonomous"
 title = "Cross-launch pipeline — device buffer persistence + Pipeline API"
-status = "active"
+status = "completed"
 goal = "Two kernels share device buffer with zero host copy, minimal Pipeline API"
 success_criteria = [
     "Kernel A writes → Kernel B reads from same device buffer, verified",
@@ -341,7 +341,7 @@ success_criteria = [
 id = "iter-workflow"
 epic = "gpu-autonomous"
 title = "Data-dependent iteration — autonomous convergence loop on GPU"
-status = "active"
+status = "completed"
 goal = "Kernel loops autonomously until convergence condition met"
 success_criteria = [
     "Kernel iterates: read → process → check residual → loop or finalize",
@@ -385,7 +385,7 @@ id = "cmd-buffer.2"
 theme = "cmd-buffer"
 title = "Host-side CommandBuffer + GPU-side polling kernel"
 kind = "experiment"
-status = "pending"
+status = "done"
 deps = ["cmd-buffer.1", "hc-session.2"]
 
 [[tasks]]
@@ -393,7 +393,8 @@ id = "cmd-buffer.3"
 theme = "cmd-buffer"
 title = "Integration test — COMPUTE → PRINT → EXIT sequence"
 kind = "experiment"
-status = "pending"
+status = "done"
+# Integration test already implemented in cmd-buffer.2: run_multi_cmd_test verifies COMPUTE→PRINT→EXIT
 deps = ["cmd-buffer.2"]
 
 [[tasks]]
@@ -401,7 +402,7 @@ id = "cross-pipeline.1"
 theme = "cross-pipeline"
 title = "Cross-launch device buffer demo — Kernel A writes, Kernel B reads"
 kind = "experiment"
-status = "pending"
+status = "done"
 deps = ["hc-session.2"]
 
 [[tasks]]
@@ -409,7 +410,7 @@ id = "cross-pipeline.2"
 theme = "cross-pipeline"
 title = "Pipeline API — session.stage(k_a).stage(k_b).run() wrapper"
 kind = "experiment"
-status = "pending"
+status = "done"
 deps = ["cross-pipeline.1"]
 
 [[tasks]]
@@ -417,7 +418,7 @@ id = "iter-workflow.1"
 theme = "iter-workflow"
 title = "Iterative convergence kernel — loop until residual < threshold"
 kind = "experiment"
-status = "pending"
+status = "done"
 deps = ["hc-session.2"]
 
 [[tasks]]
@@ -425,7 +426,7 @@ id = "iter-workflow.2"
 theme = "iter-workflow"
 title = "Multi-step autonomous pipeline with iteration + file I/O"
 kind = "experiment"
-status = "pending"
+status = "done"
 deps = ["iter-workflow.1"]
 
 # ============================================================

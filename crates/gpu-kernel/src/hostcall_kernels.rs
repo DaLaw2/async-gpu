@@ -777,3 +777,230 @@ pub unsafe extern "ptx-kernel" fn session_kernel_b(
     // Write result: 1 if magic matches, 0 otherwise
     gpu_atomics::sys_store_release_u32(result, if magic == 0xCAFE { 1 } else { 0 });
 }
+
+/// Multi-command kernel — polls command buffer, dispatches COMPUTE/PRINT/EXIT.
+///
+/// Thread 0 runs the command loop; all other threads return immediately.
+/// Processes commands sequentially from the ring buffer until CMD_EXIT.
+///
+/// - CMD_COMPUTE: reads `count` u32s from input_ptr, doubles them, writes to output_ptr
+/// - CMD_PRINT: forwards message to hostcall print
+/// - CMD_EXIT: acknowledges and breaks
+/// - CMD_NOP / unknown: acknowledges and continues
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn multi_cmd_kernel(
+    hc_buf: *mut u8,
+    cmd_buf: *mut u8,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+    if tid != 0 {
+        return;
+    }
+
+    gpu_runtime::panic::gpu_panic_init(hc_buf);
+
+    loop {
+        match gpu_runtime::cmd::cmd_poll(cmd_buf) {
+            Some((gpu_protocol::CMD_COMPUTE, payload)) => {
+                // payload layout: input_ptr(u64), output_ptr(u64), count(u32), op_code(u32)
+                let input_ptr =
+                    core::ptr::read_volatile(payload as *const u64) as *const u32;
+                let output_ptr =
+                    core::ptr::read_volatile(payload.add(8) as *const u64) as *mut u32;
+                let count =
+                    core::ptr::read_volatile(payload.add(16) as *const u32);
+                // op_code ignored for now — always "double"
+                for i in 0..count as isize {
+                    let val = core::ptr::read_volatile(input_ptr.offset(i));
+                    core::ptr::write_volatile(output_ptr.offset(i), val * 2);
+                }
+                gpu_runtime::cmd::cmd_ack(cmd_buf);
+            }
+            Some((gpu_protocol::CMD_PRINT, payload)) => {
+                let msg_len =
+                    core::ptr::read_volatile(payload as *const u32);
+                let msg_ptr = payload.add(4);
+                let _ = gpu_runtime::hostcall::gpu_hostcall_print(hc_buf, msg_ptr, msg_len);
+                gpu_runtime::cmd::cmd_ack(cmd_buf);
+            }
+            Some((gpu_protocol::CMD_EXIT, _)) => {
+                gpu_runtime::cmd::cmd_ack(cmd_buf);
+                break;
+            }
+            Some((_, _)) => {
+                // Unknown or NOP — just acknowledge
+                gpu_runtime::cmd::cmd_ack(cmd_buf);
+            }
+            None => {
+                gpu_runtime::cmd::cmd_yield();
+            }
+        }
+    }
+}
+
+/// Cross-launch pipeline: Kernel A writes values to a shared device buffer.
+///
+/// Writes `buf[i] = (i + 1) * 100` for i in 0..count.
+/// Thread 0 only.
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn pipeline_writer_kernel(
+    hc_buf: *mut u8,
+    data: *mut u32,
+    count: u32,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+    if tid != 0 {
+        return;
+    }
+
+    gpu_runtime::panic::gpu_panic_init(hc_buf);
+
+    for i in 0..count as isize {
+        core::ptr::write_volatile(data.offset(i), (i as u32 + 1) * 100);
+    }
+
+    let msg: &[u8] = b"pipeline writer done";
+    let _ = gpu_runtime::hostcall::gpu_hostcall_print(hc_buf, msg.as_ptr(), msg.len() as u32);
+}
+
+/// Cross-launch pipeline: Kernel B reads values written by Kernel A and stores results.
+///
+/// Reads data[i], multiplies by 3, writes to result[i].
+/// Thread 0 only.
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn pipeline_reader_kernel(
+    hc_buf: *mut u8,
+    data: *const u32,
+    result: *mut u32,
+    count: u32,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+    if tid != 0 {
+        return;
+    }
+
+    gpu_runtime::panic::gpu_panic_init(hc_buf);
+
+    for i in 0..count as isize {
+        let val = core::ptr::read_volatile(data.offset(i));
+        core::ptr::write_volatile(result.offset(i), val * 3);
+    }
+
+    let msg: &[u8] = b"pipeline reader done";
+    let _ = gpu_runtime::hostcall::gpu_hostcall_print(hc_buf, msg.as_ptr(), msg.len() as u32);
+}
+
+/// Iterative convergence kernel — Newton's method for integer square root.
+///
+/// For each input[i], computes floor(sqrt(input[i])) using Newton's method.
+/// The iteration count is data-dependent (larger values need more iterations).
+/// Stores sqrt result in output[i] and iteration count in iters[i].
+///
+/// Thread 0 only. Demonstrates autonomous data-dependent iteration.
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn convergence_kernel(
+    hc_buf: *mut u8,
+    input: *const u32,
+    output: *mut u32,
+    iters: *mut u32,
+    count: u32,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+    if tid != 0 {
+        return;
+    }
+
+    gpu_runtime::panic::gpu_panic_init(hc_buf);
+
+    for idx in 0..count as isize {
+        let n = core::ptr::read_volatile(input.offset(idx));
+
+        if n <= 1 {
+            core::ptr::write_volatile(output.offset(idx), n);
+            core::ptr::write_volatile(iters.offset(idx), 0);
+            continue;
+        }
+
+        // Newton's method: x_{k+1} = (x_k + n / x_k) / 2
+        let mut x = n; // Initial guess
+        let mut iter_count = 0u32;
+        loop {
+            let x_next = (x + n / x) / 2;
+            iter_count += 1;
+            if x_next >= x {
+                break; // Converged (integer Newton's method converges when x_next >= x)
+            }
+            x = x_next;
+        }
+
+        core::ptr::write_volatile(output.offset(idx), x);
+        core::ptr::write_volatile(iters.offset(idx), iter_count);
+    }
+
+    let msg: &[u8] = b"convergence done";
+    let _ = gpu_runtime::hostcall::gpu_hostcall_print(hc_buf, msg.as_ptr(), msg.len() as u32);
+}
+
+/// Multi-step autonomous pipeline kernel.
+///
+/// Reads input array, computes iterative sqrt, stores both results and
+/// iteration counts. Prints progress via hostcall. Demonstrates autonomous
+/// data-dependent computation within a single kernel launch.
+///
+/// args: hc_buf, input, output, iters, total_iters_ptr, count
+/// - input[i]: values to compute sqrt of
+/// - output[i]: sqrt results
+/// - iters[i]: per-element iteration counts
+/// - total_iters_ptr: sum of all iterations (single u32)
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn autonomous_pipeline_kernel(
+    hc_buf: *mut u8,
+    input: *const u32,
+    output: *mut u32,
+    iters: *mut u32,
+    total_iters: *mut u32,
+    count: u32,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+    if tid != 0 {
+        return;
+    }
+
+    gpu_runtime::panic::gpu_panic_init(hc_buf);
+
+    let msg: &[u8] = b"autonomous pipeline start";
+    let _ = gpu_runtime::hostcall::gpu_hostcall_print(hc_buf, msg.as_ptr(), msg.len() as u32);
+
+    let mut total = 0u32;
+
+    for idx in 0..count as isize {
+        let n = core::ptr::read_volatile(input.offset(idx));
+
+        if n <= 1 {
+            core::ptr::write_volatile(output.offset(idx), n);
+            core::ptr::write_volatile(iters.offset(idx), 0);
+            continue;
+        }
+
+        // Newton's method for isqrt
+        let mut x = n;
+        let mut iter_count = 0u32;
+        loop {
+            let x_next = (x + n / x) / 2;
+            iter_count += 1;
+            if x_next >= x {
+                break;
+            }
+            x = x_next;
+        }
+
+        core::ptr::write_volatile(output.offset(idx), x);
+        core::ptr::write_volatile(iters.offset(idx), iter_count);
+        total += iter_count;
+    }
+
+    core::ptr::write_volatile(total_iters, total);
+
+    let msg: &[u8] = b"autonomous pipeline done";
+    let _ = gpu_runtime::hostcall::gpu_hostcall_print(hc_buf, msg.as_ptr(), msg.len() as u32);
+}

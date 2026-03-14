@@ -118,6 +118,20 @@ fn main() -> Result<()> {
                 tests_hostcall::run_session_multi_launch_test(Arc::clone(&dev))?;
                 return Ok(());
             }
+            "cmd" => {
+                tests_hostcall::run_multi_cmd_test(Arc::clone(&dev))?;
+                return Ok(());
+            }
+            "pipeline" => {
+                tests_hostcall::run_cross_pipeline_test(Arc::clone(&dev))?;
+                tests_hostcall::run_pipeline_api_test(Arc::clone(&dev))?;
+                return Ok(());
+            }
+            "converge" => {
+                tests_hostcall::run_convergence_test(Arc::clone(&dev))?;
+                tests_hostcall::run_autonomous_pipeline_test(Arc::clone(&dev))?;
+                return Ok(());
+            }
             _ => println!("Unknown ONLY_TEST={only}, running all tests"),
         }
     }

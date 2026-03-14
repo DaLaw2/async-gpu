@@ -758,3 +758,47 @@ pub const fn trace_lane_id(meta: u64) -> u16 {
 
 /// Maximum assertion message length (7 slots × 8 bytes).
 pub const ASSERT_MAX_MSG_LEN: usize = 56;
+
+// ================================================================
+// Command Buffer Protocol — Host→GPU command channel
+// ================================================================
+
+/// Command buffer header size (64 bytes, cache-line aligned).
+pub const CMD_BUF_HEADER_SIZE: usize = 64;
+
+/// Command slot size (64 bytes each).
+pub const CMD_SLOT_SIZE: usize = 64;
+
+/// Offset of `write_idx` (u64, atomic) in command buffer header.
+/// Host increments after writing a command. GPU reads with Acquire.
+pub const CMD_OFF_WRITE_IDX: usize = 0;
+
+/// Offset of `read_idx` (u64, atomic) in command buffer header.
+/// GPU increments after processing a command. Host reads for backpressure.
+pub const CMD_OFF_READ_IDX: usize = 8;
+
+/// Offset of `capacity` (u32) in command buffer header.
+pub const CMD_OFF_CAPACITY: usize = 16;
+
+/// Offset of `cmd_type` (u32) within a command slot.
+pub const CMD_SLOT_OFF_TYPE: usize = 0;
+
+/// Offset of payload within a command slot (56 bytes available).
+pub const CMD_SLOT_OFF_PAYLOAD: usize = 8;
+
+/// Maximum payload size per command slot.
+pub const CMD_MAX_PAYLOAD: usize = CMD_SLOT_SIZE - CMD_SLOT_OFF_PAYLOAD;
+
+/// Command type: no-op (for testing).
+pub const CMD_NOP: u32 = 0;
+
+/// Command type: execute computation on device buffer.
+/// Payload: input_ptr (u64), output_ptr (u64), count (u32), op_code (u32).
+pub const CMD_COMPUTE: u32 = 1;
+
+/// Command type: print a message via hostcall.
+/// Payload: msg_len (u32) + message bytes (up to 52 bytes).
+pub const CMD_PRINT: u32 = 2;
+
+/// Command type: exit the command processing loop.
+pub const CMD_EXIT: u32 = 3;

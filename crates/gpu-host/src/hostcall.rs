@@ -1250,6 +1250,246 @@ impl Drop for HostcallSession {
     }
 }
 
+// ================================================================
+// Pipeline — Multi-stage kernel launch with shared hostcall session
+// ================================================================
+
+type PipelineStage =
+    Box<dyn FnOnce(sys::CUdeviceptr) -> std::result::Result<(), crate::GpuHostError>>;
+
+/// A pipeline of kernel stages that share a single [`HostcallSession`].
+///
+/// Each stage is a closure that launches a kernel using the session's
+/// hostcall buffer device pointer. The pipeline handles synchronization
+/// and packet reinitialization between stages automatically.
+#[allow(dead_code)]
+pub struct Pipeline {
+    session: HostcallSession,
+    stages: Vec<PipelineStage>,
+}
+
+#[allow(dead_code)]
+impl Pipeline {
+    /// Create a new pipeline with the given hostcall packet count.
+    pub fn new(num_packets: u16) -> std::result::Result<Self, HostcallError> {
+        let session = HostcallSession::start(num_packets)?;
+        Ok(Self {
+            session,
+            stages: Vec::new(),
+        })
+    }
+
+    /// Add a stage to the pipeline.
+    ///
+    /// The closure receives the hostcall buffer device pointer and should
+    /// launch a kernel + synchronize. The pipeline reinits packets between stages.
+    pub fn stage<F>(mut self, f: F) -> Self
+    where
+        F: FnOnce(sys::CUdeviceptr) -> std::result::Result<(), crate::GpuHostError> + 'static,
+    {
+        self.stages.push(Box::new(f));
+        self
+    }
+
+    /// Execute all stages sequentially with automatic synchronization.
+    ///
+    /// Between stages, the hostcall packet pool is reinitialized.
+    /// After all stages complete, the session is shut down.
+    pub fn run(self) -> std::result::Result<(), crate::GpuHostError> {
+        let hc_ptr = self.session.dev_ptr();
+        let stages = self.stages;
+        let session = self.session;
+
+        for (i, stage) in stages.into_iter().enumerate() {
+            if i > 0 {
+                session.reinit_packets();
+            }
+            stage(hc_ptr)?;
+        }
+
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        session.shutdown();
+        Ok(())
+    }
+}
+
+// ================================================================
+// CommandBuffer — Host→GPU command channel
+// ================================================================
+
+/// A mapped-memory command buffer for host→GPU command submission.
+///
+/// The host writes commands to a ring buffer; the GPU kernel polls
+/// `write_idx` and processes commands sequentially.
+#[allow(dead_code)]
+pub struct CommandBuffer {
+    host_ptr: *mut u8,
+    dev_ptr: sys::CUdeviceptr,
+    size: usize,
+    capacity: u32,
+}
+
+unsafe impl Send for CommandBuffer {}
+unsafe impl Sync for CommandBuffer {}
+
+/// Command to submit to the GPU via command buffer.
+#[allow(dead_code)]
+pub enum Command {
+    /// No-op (for testing).
+    Nop,
+    /// Execute a computation. op_code 0 = vector add, 1 = scalar multiply, etc.
+    Compute {
+        /// Device pointer to input data.
+        input_ptr: u64,
+        /// Device pointer to output buffer.
+        output_ptr: u64,
+        /// Number of elements to process.
+        count: u32,
+        /// Operation code (application-defined).
+        op_code: u32,
+    },
+    /// Print a message via hostcall (max 52 bytes).
+    Print {
+        /// Message bytes to print.
+        msg: Vec<u8>,
+    },
+    /// Exit the command processing loop.
+    Exit,
+}
+
+#[allow(dead_code)]
+impl CommandBuffer {
+    /// Allocate a command buffer with the given slot capacity.
+    pub fn new(capacity: u32) -> Result<Self, HostcallError> {
+        let size = CMD_BUF_HEADER_SIZE + (capacity as usize) * CMD_SLOT_SIZE;
+
+        let mut host_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
+        unsafe {
+            let cu = cuda_lib();
+            let flags = sys::CU_MEMHOSTALLOC_DEVICEMAP | sys::CU_MEMHOSTALLOC_PORTABLE;
+            let r = cu.cuMemHostAlloc(&mut host_ptr, size, flags);
+            if r != sys::CUresult::CUDA_SUCCESS {
+                return Err(HostcallError::CudaAlloc(r));
+            }
+            std::ptr::write_bytes(host_ptr as *mut u8, 0, size);
+        }
+
+        let mut dev_ptr: sys::CUdeviceptr = 0;
+        unsafe {
+            let cu = cuda_lib();
+            let r = cu.cuMemHostGetDevicePointer_v2(&mut dev_ptr, host_ptr, 0);
+            if r != sys::CUresult::CUDA_SUCCESS {
+                cu.cuMemFreeHost(host_ptr);
+                return Err(HostcallError::CudaGetDevPtr(r));
+            }
+        }
+
+        let host_ptr = host_ptr as *mut u8;
+
+        // Write capacity to header
+        unsafe {
+            std::ptr::write_volatile(host_ptr.add(CMD_OFF_CAPACITY) as *mut u32, capacity);
+        }
+
+        Ok(Self {
+            host_ptr,
+            dev_ptr,
+            size,
+            capacity,
+        })
+    }
+
+    /// Get device pointer for kernel arg.
+    pub fn dev_ptr(&self) -> sys::CUdeviceptr {
+        self.dev_ptr
+    }
+
+    /// Submit a command to the buffer.
+    ///
+    /// Blocks if the buffer is full (busy-waits for GPU to drain).
+    pub fn submit(&self, cmd: &Command) {
+        unsafe {
+            // Wait for space (backpressure)
+            loop {
+                let write_idx =
+                    std::ptr::read_volatile(self.host_ptr.add(CMD_OFF_WRITE_IDX) as *const u64);
+                let read_idx =
+                    std::ptr::read_volatile(self.host_ptr.add(CMD_OFF_READ_IDX) as *const u64);
+                if (write_idx - read_idx) < self.capacity as u64 {
+                    break;
+                }
+                std::thread::yield_now();
+            }
+
+            let write_idx =
+                std::ptr::read_volatile(self.host_ptr.add(CMD_OFF_WRITE_IDX) as *const u64);
+            let slot_idx = (write_idx % self.capacity as u64) as usize;
+            let slot_ptr = self
+                .host_ptr
+                .add(CMD_BUF_HEADER_SIZE + slot_idx * CMD_SLOT_SIZE);
+
+            // Write command type and payload
+            match cmd {
+                Command::Nop => {
+                    std::ptr::write_volatile(slot_ptr.add(CMD_SLOT_OFF_TYPE) as *mut u32, CMD_NOP);
+                }
+                Command::Compute {
+                    input_ptr,
+                    output_ptr,
+                    count,
+                    op_code,
+                } => {
+                    std::ptr::write_volatile(
+                        slot_ptr.add(CMD_SLOT_OFF_TYPE) as *mut u32,
+                        CMD_COMPUTE,
+                    );
+                    let payload = slot_ptr.add(CMD_SLOT_OFF_PAYLOAD);
+                    std::ptr::write_volatile(payload as *mut u64, *input_ptr);
+                    std::ptr::write_volatile(payload.add(8) as *mut u64, *output_ptr);
+                    std::ptr::write_volatile(payload.add(16) as *mut u32, *count);
+                    std::ptr::write_volatile(payload.add(20) as *mut u32, *op_code);
+                }
+                Command::Print { msg } => {
+                    std::ptr::write_volatile(
+                        slot_ptr.add(CMD_SLOT_OFF_TYPE) as *mut u32,
+                        CMD_PRINT,
+                    );
+                    let payload = slot_ptr.add(CMD_SLOT_OFF_PAYLOAD);
+                    let len = msg.len().min(CMD_MAX_PAYLOAD - 4) as u32;
+                    std::ptr::write_volatile(payload as *mut u32, len);
+                    for i in 0..len as usize {
+                        std::ptr::write_volatile(payload.add(4 + i), msg[i]);
+                    }
+                }
+                Command::Exit => {
+                    std::ptr::write_volatile(slot_ptr.add(CMD_SLOT_OFF_TYPE) as *mut u32, CMD_EXIT);
+                }
+            }
+
+            // Increment write_idx with Release semantics
+            let write_idx_ptr = &*(self.host_ptr.add(CMD_OFF_WRITE_IDX) as *const AtomicU64);
+            write_idx_ptr.store(write_idx + 1, Ordering::Release);
+        }
+    }
+
+    /// Reset indices to 0 (between kernel launches).
+    pub fn reset(&self) {
+        unsafe {
+            std::ptr::write_volatile(self.host_ptr.add(CMD_OFF_WRITE_IDX) as *mut u64, 0);
+            std::ptr::write_volatile(self.host_ptr.add(CMD_OFF_READ_IDX) as *mut u64, 0);
+        }
+    }
+}
+
+impl Drop for CommandBuffer {
+    fn drop(&mut self) {
+        unsafe {
+            let cu = cuda_lib();
+            cu.cuMemFreeHost(self.host_ptr as *mut std::ffi::c_void);
+        }
+    }
+}
+
 impl Drop for HostcallBuffer {
     fn drop(&mut self) {
         unsafe {

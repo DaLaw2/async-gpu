@@ -10,12 +10,12 @@ status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.save"
+current_step = "do.select"
 current_task_id = ""
-last_summary = "async-yield.3 DONE: data pipeline demo (read→compute→write) with real async hostcall Futures + #[warp_cooperative]. PTX has 7x bar.warp.sync + 1x shfl.sync. All 3 async-yield theme criteria met. All 4 async-std epic criteria met."
+last_summary = "Brainstorm 76: user direction pivot — 5 priorities. New epic std-sysroot + 4 themes (std-sysroot-build, gpu-executor, ptx-codegen-fix, warp-batch-io) with 12 tasks. Priority: std in sysroot first, executor parallel."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 75
+brainstorm_seq = 76
 review_seq = 5
 
 # Brainstorm trigger control (event-driven, no fixed interval)
@@ -117,6 +117,18 @@ success_criteria = [
 # ALL 5 CRITERIA MET — closed by user 2026-03-14
 
 [[epics]]
+id = "std-sysroot"
+title = "Patched std in sysroot — use std::fs::File directly on GPU"
+status = "active"
+priority = "high"
+success_criteria = [
+    "Patched toolchain builds std for nvptx64-nvidia-cuda (x.py build succeeds with std patches)",
+    "GPU kernel with `use std::fs::File` compiles to valid PTX via patched sysroot",
+    "std::io::Write on GPU performs hostcall I/O correctly (end-to-end verified)",
+    "At least File, println!, Vec, String, Box work on GPU end-to-end",
+]
+
+[[epics]]
 id = "codebase-health"
 title = "Codebase Health — build system, CI, docs, workflow automation"
 type = "evergreen"  # Ongoing quality epic — work on when no other tasks are ready
@@ -148,70 +160,151 @@ success_criteria = [
 # ============================================================
 
 [[themes]]
-id = "async-yield"
-epic = "async-std"
-title = "Async yield for hostcall — I/O yields warp instead of spin-blocking"
-status = "completed"
-# ALL 3 CRITERIA MET — completed 2026-03-15
-goal = "gpu_hostcall_request returns Future; warp yields during I/O wait so other warps can run compute on the SM"
+id = "std-sysroot-build"
+epic = "std-sysroot"
+title = "Build patched std into sysroot for nvptx64"
+status = "active"
+goal = "x.py builds std with our patches for nvptx64-nvidia-cuda; kernel can use std::fs::File"
 success_criteria = [
-    "gpu_hostcall_request_async() returns impl Future that checks CONTROL_READY once per poll",
-    "PAL layer calls async hostcall under #[warp_cooperative] context",
-    "Demo: data pipeline (read→compute→write) with I/O yielding, verified on GPU",
+    "x.py build succeeds with patched std for nvptx64",
+    "Kernel with `use std::fs::File` compiles to PTX",
+    "End-to-end: File::create + write on GPU via hostcall",
 ]
 
 [[themes]]
-id = "codebase-restructure"
+id = "gpu-executor"
 epic = "async-std"
-title = "Reorganize codebase into categorized subdirectories"
-status = "completed"
-goal = "Crates organized into core/kernel/macro/test, test-warp-crate moved to examples/"
+title = "GPU-side async executor — block_on() with yield strategy"
+status = "active"
+goal = "Eliminate manual poll loop boilerplate; kernel calls executor::block_on(pipeline())"
 success_criteria = [
-    "Crates organized into crates/core/, crates/kernel/, crates/macro/, crates/test/",
-    "test-warp-crate moved to examples/warp-cooperative/",
-    "CI and scripts updated to reflect new structure",
+    "block_on<F: Future>(f: F) -> F::Output in gpu-runtime",
+    "async-pipeline example refactored to use block_on",
 ]
-# ALL 3 CRITERIA MET — completed 2026-03-15
+
+[[themes]]
+id = "ptx-codegen-fix"
+epic = "codebase-health"
+title = "Fix PTX codegen issues in patched rustc — .ptr .align + panic stubs"
+status = "active"
+goal = "PTX output is valid without post-processing; .ptr .align removed, panic stubs generate trap"
+success_criteria = [
+    "Root cause identified (LLVM or rustc_codegen_llvm)",
+    "Kernel entry params have no .ptr .align in PTX",
+    "panic_const stubs compile to trap; without referencing missing symbols",
+]
+
+[[themes]]
+id = "warp-batch-io"
+epic = "async-std"
+title = "Warp-batched hostcall — 32 lanes share 1 packet"
+status = "parked"
+goal = "Lane 0 submits hostcall, result broadcast via shfl.sync to all lanes"
+success_criteria = [
+    "GpuOpenFuture with lane-0-submits pattern",
+    "Full pipeline with 32 active lanes sharing hostcall",
+]
+# PARKED: depends on executor + std decisions settling first
 
 # ============================================================
 # Tasks (pending/active only — done tasks archived in archive/)
 # ============================================================
 
+# --- std-sysroot-build theme ---
+
 [[tasks]]
-id = "async-yield.1"
-theme = "async-yield"
-title = "Investigation: design async hostcall mechanism — how does a sync PAL fn yield?"
+id = "std-sysroot-build.1"
+theme = "std-sysroot-build"
+title = "Investigation: attempt x.py build with std patches, catalog all errors"
 kind = "investigation"
-status = "done"
+status = "pending"
 depends = []
 questions = [
-    "How can a sync fn (std::io::Write::write) yield to warp scheduler? It returns io::Result, not Poll.",
-    "Can the MIR pass transform sync I/O calls into .await points automatically?",
-    "Alternative: can gpu_hostcall_request itself yield via inline PTX (nanosleep/bar.warp.sync) between spin iterations?",
-    "What does 'yield to other warps' mean on GPU — is nanosleep sufficient or do we need actual deschedule?",
-    "How does CUDA cooperative groups / yield() work at PTX level?",
+    "Does x.py build library succeed for nvptx64 with patched std?",
+    "Which PAL modules fail? How many errors?",
+    "Is -Zbuild-std a viable fallback if sysroot build fails?",
 ]
 
 [[tasks]]
-id = "async-yield.2"
-theme = "async-yield"
-title = "Experiment: prototype async hostcall Future in gpu-runtime"
+id = "std-sysroot-build.2"
+theme = "std-sysroot-build"
+title = "Experiment: fix compilation errors — add missing cfg gates / PAL stubs"
 kind = "experiment"
-status = "done"
-depends = ["async-yield.1"]
+status = "pending"
+depends = ["std-sysroot-build.1"]
 
 [[tasks]]
-id = "async-yield.3"
-theme = "async-yield"
-title = "Experiment: data pipeline demo — read→compute→write with async I/O"
+id = "std-sysroot-build.3"
+theme = "std-sysroot-build"
+title = "Experiment: build test kernel with use std::fs::File, verify PTX"
 kind = "experiment"
-status = "done"
-depends = ["async-yield.2"]
+status = "pending"
+depends = ["std-sysroot-build.2"]
+
+[[tasks]]
+id = "std-sysroot-build.4"
+theme = "std-sysroot-build"
+title = "Experiment: end-to-end test — File::create + write on GPU via hostcall"
+kind = "experiment"
+status = "pending"
+depends = ["std-sysroot-build.3"]
+
+# --- gpu-executor theme ---
+
+[[tasks]]
+id = "gpu-executor.1"
+theme = "gpu-executor"
+title = "Design: executor API — block_on, yield strategy, timeout, warp-cooperative"
+kind = "design"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "gpu-executor.2"
+theme = "gpu-executor"
+title = "Experiment: implement block_on in gpu-runtime, refactor async-pipeline"
+kind = "experiment"
+status = "pending"
+depends = ["gpu-executor.1"]
+
+# --- ptx-codegen-fix theme ---
+
+[[tasks]]
+id = "ptx-codegen-fix.1"
+theme = "ptx-codegen-fix"
+title = "Investigation: root cause of .ptr .align N — LLVM or rustc_codegen_llvm?"
+kind = "investigation"
+status = "pending"
+depends = []
+questions = [
+    "Is .ptr .align emitted by LLVM NVPTXAsmPrinter or by rustc metadata?",
+    "Can targeting PTX ISA 7.8+ avoid the issue?",
+    "Can we fix this in rustc_codegen_llvm without patching LLVM source?",
+]
+
+[[tasks]]
+id = "ptx-codegen-fix.2"
+theme = "ptx-codegen-fix"
+title = "Experiment: patch panic_const stubs at codegen/linker level"
+kind = "experiment"
+status = "pending"
+depends = ["ptx-codegen-fix.1"]
 
 
 # ============================================================
 # Brainstorms (last 3 only — older brainstorms archived)
 # ============================================================
+
+[[brainstorms]]
+seq = 76
+at_cycle = 275
+trigger = "user direction pivot — 5 priorities after async-pipeline demo success"
+level = "standard"
+new_tasks_spawned = ["std-sysroot-build.1", "std-sysroot-build.2", "std-sysroot-build.3", "std-sysroot-build.4", "gpu-executor.1", "gpu-executor.2", "ptx-codegen-fix.1", "ptx-codegen-fix.2"]
+new_themes_spawned = ["std-sysroot-build", "gpu-executor", "ptx-codegen-fix", "warp-batch-io"]
+themes_parked = ["warp-batch-io"]
+themes_completed = ["async-yield"]
+key_insight = "5 directions in priority order: (1) patched std in sysroot — biggest impact, (2) GPU executor — small effort high value, (3) PTX codegen fixes — .ptr .align + panic stubs in rustc, (4) warp-batched hostcall — parked until executor done, (5) public API — defer. New epic std-sysroot created. First task: attempt x.py build with std patches to measure gap."
 
 [[brainstorms]]
 seq = 75
@@ -222,7 +315,7 @@ new_tasks_spawned = []
 new_themes_spawned = []
 themes_parked = []
 themes_completed = ["toolchain-auto"]
-key_insight = "async-std epic 4/6 criteria met (async hostcall, toolchain build, PTX postprocess, codebase reorg). Remaining: criterion 2 (PAL bridge) is satisfied by the async hostcall Futures themselves — they ARE the bridge. Criterion 3 (demo) blocked on user building patched toolchain. Setting awaiting_user."
+key_insight = "async-std epic 4/6 criteria met. Criterion 3 (demo) blocked on patched toolchain build. Setting awaiting_user."
 
 [[brainstorms]]
 seq = 74
@@ -233,48 +326,4 @@ new_tasks_spawned = ["async-yield.1", "async-yield.2", "async-yield.3"]
 new_themes_spawned = ["async-yield"]
 themes_parked = []
 themes_completed = ["codebase-restructure"]
-key_insight = "Warp-batching println (Approach C) is a debug optimization, not real use case. Real value: I/O yields warp to scheduler so other warps run compute. Need async hostcall Future. Core challenge: sync PAL fn returning io::Result can't return Poll — need MIR-level or runtime-level yield mechanism."
-
-[[brainstorms]]
-seq = 73
-at_cycle = 270
-trigger = "async-std epic kickoff — no themes or tasks"
-level = "standard"
-new_tasks_spawned = ["warp-io.1", "warp-io.2", "toolchain-auto.1", "toolchain-auto.2", "codebase-restructure.1", "codebase-restructure.2"]
-new_themes_spawned = ["warp-io", "toolchain-auto", "codebase-restructure"]
-themes_parked = []
-themes_completed = []
-key_insight = "Spin-wait in gpu_hostcall_request is the core blocker. Three approaches analyzed: (A) async PAL — too invasive, (B) yield from spin loop — doesn't help with sync API, (C) activemask-based warp batching — most practical. Lane 0 does hostcall, others wait via bar.warp.sync. Same pattern as warp_print! but automatic."
-
-[[brainstorms]]
-seq = 72
-at_cycle = 270
-trigger = "warp-verify theme completed — epic assessment"
-level = "quick"
-new_tasks_spawned = []
-new_themes_spawned = []
-themes_parked = []
-themes_completed = ["warp-verify"]
-key_insight = "All high-priority epics fully satisfied: native-warp-async (3/3), gpu-autonomous (7/7), gpu-perf (1/1 active + 3 parked), real-std (5/5). 4 epics ready for user close. Only evergreen epics (codebase-health, public-api) remain. Research loop at natural stopping point."
-
-[[brainstorms]]
-seq = 71
-at_cycle = 268
-trigger = "rustc-build theme completed — no active themes"
-level = "quick"
-new_tasks_spawned = ["warp-verify.1", "warp-verify.2"]
-new_themes_spawned = ["warp-verify"]
-themes_parked = []
-themes_completed = ["rustc-build"]
-key_insight = "Patched compiler verified: activemask + bar.warp.sync in PTX. Trivial async fn has no dispatch switch so no shfl.sync. Need multi-await test to trigger shfl.sync broadcast. Then GPU execution test."
-
-[[brainstorms]]
-seq = 70
-at_cycle = 266
-trigger = "rustc-impl theme completed + gen-rustc-patches.sh done — no active themes"
-level = "quick"
-new_tasks_spawned = ["rustc-build.1", "rustc-build.2"]
-new_themes_spawned = ["rustc-build"]
-themes_parked = []
-themes_completed = ["rustc-impl", "data-iter"]
-key_insight = "MIR pass code done, patch scripts done. Next step: actually build the patched compiler and test it. Clone fresh rustc, apply patches, x.py build compiler. If it compiles, test with a simple warp_cooperative async fn."
+key_insight = "Real value: I/O yields warp to scheduler so other warps run compute. Need async hostcall Future."

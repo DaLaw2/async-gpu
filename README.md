@@ -84,8 +84,8 @@ The `#[warp_cooperative]` MIR pass requires a patched rustc. Without it, example
 # Linux
 bash scripts/build-toolchain.sh
 
-# Windows (PowerShell)
-.\scripts\build-toolchain.ps1
+# Windows (cmd)
+.\scripts\build-toolchain.bat
 ```
 
 This clones rustc, applies patches from `rustc-patches/`, and builds a stage1 compiler at `patched-rustc/build/`. The `async-pipeline` example's `build.rs` automatically detects and uses it.
@@ -281,7 +281,7 @@ crates/
   gpu-kernel-std/    GPU kernels using patched Rust std (println!, Vec, File, stdin)
 
 rustc-patches/       Custom MIR pass patches for rustc: inserts bar.warp.sync at async yield points
-scripts/             build-toolchain.sh/.ps1: build patched rustc, ci-lint.sh: local CI checks
+scripts/             build-toolchain.sh/.bat: build patched rustc, ci-lint.sh: local CI checks
 
 examples/
   hello-gpu/         4 demos: vector_add, print, file I/O, bulk transfer

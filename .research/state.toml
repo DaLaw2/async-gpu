@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 287     # Monotonic counter, incremented after each completed phase
-completed_tasks = 287
+total_cycles = 289     # Monotonic counter, incremented after each completed phase
+completed_tasks = 292
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
 current_task_id = ""
-last_summary = "Both themes done: async-bulk-io (3/3 criteria) + build-fix (3/3 criteria). README updated with #[warp_cooperative] docs, patched toolchain section, async-pipeline example. Gitignore cleaned. No pending tasks — brainstorm needed."
+last_summary = "4 themes completed this session: async-bulk-io, build-fix, rustdoc-coverage (already met), arch-doc (ARCHITECTURE.md written). README updated with MIR pass docs. All current tasks done — brainstorm needed."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 78
@@ -256,6 +256,28 @@ success_criteria = [
     "End-to-end host test: output file has correct computed result",
 ]
 
+[[themes]]
+id = "rustdoc-coverage"
+epic = "public-api"
+title = "Rustdoc coverage for gpu-host public API"
+status = "completed"
+goal = "All pub items in gpu-host have doc comments; cargo doc builds cleanly"
+success_criteria = [
+    "cargo doc on gpu-host produces zero missing_docs warnings",
+    "All public types, functions, and modules have doc comments",
+]
+
+[[themes]]
+id = "arch-doc"
+epic = "public-api"
+title = "Write ARCHITECTURE.md for contributors"
+status = "completed"
+goal = "External-facing architecture document explaining system design"
+success_criteria = [
+    "ARCHITECTURE.md exists with hostcall protocol, MIR pass, PAL, crate map sections",
+    "A new contributor can understand the system from README + ARCHITECTURE.md alone",
+]
+
 # ============================================================
 # Tasks (pending/active only — done tasks archived in archive/)
 # ============================================================
@@ -423,9 +445,62 @@ kind = "experiment"
 status = "done"
 depends = ["build-fix.1"]
 
+# --- rustdoc-coverage theme ---
+
+[[tasks]]
+id = "rustdoc-coverage.1"
+theme = "rustdoc-coverage"
+title = "Investigation: run cargo doc on gpu-host, catalog missing doc warnings"
+kind = "investigation"
+status = "done"
+depends = []
+questions = [
+    "How many pub items lack doc comments?",
+    "Which modules have the worst coverage?",
+    "Does cargo doc build cleanly?",
+]
+
+[[tasks]]
+id = "rustdoc-coverage.2"
+theme = "rustdoc-coverage"
+title = "Experiment: add doc comments to all undocumented pub items in gpu-host"
+kind = "experiment"
+status = "done"
+# SKIPPED: rustdoc-coverage.1 found zero missing_docs warnings — nothing to fix
+depends = ["rustdoc-coverage.1"]
+
+# --- arch-doc theme ---
+
+[[tasks]]
+id = "arch-doc.1"
+theme = "arch-doc"
+title = "Design: outline ARCHITECTURE.md structure"
+kind = "design"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "arch-doc.2"
+theme = "arch-doc"
+title = "Experiment: write ARCHITECTURE.md"
+kind = "experiment"
+status = "done"
+depends = ["arch-doc.1"]
+
 # ============================================================
 # Brainstorms (last 3 only — older brainstorms archived)
 # ============================================================
+
+[[brainstorms]]
+seq = 79
+at_cycle = 287
+trigger = "all tasks done, no pending tasks — standard brainstorm for maintenance direction"
+level = "standard"
+new_tasks_spawned = ["rustdoc-coverage.1", "rustdoc-coverage.2", "arch-doc.1", "arch-doc.2"]
+new_themes_spawned = ["rustdoc-coverage", "arch-doc"]
+themes_parked = []
+themes_completed = ["async-bulk-io", "build-fix"]
+key_insight = "Both evergreen epics have remaining gaps: public-api needs rustdoc coverage for gpu-host, codebase-health README had stale .ps1 references (fixed inline). New themes: rustdoc-coverage + arch-doc. Deferred: release-prep, blog post."
 
 [[brainstorms]]
 seq = 78

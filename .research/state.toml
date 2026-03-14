@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 284     # Monotonic counter, incremented after each completed phase
-completed_tasks = 284
+total_cycles = 286     # Monotonic counter, incremented after each completed phase
+completed_tasks = 286
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "async-bulk-io.1"
-last_summary = "bs78 deep brainstorm: async-std closed, 2 new themes (async-bulk-io, build-fix). Sideband bulk I/O already exists — only need async Future wrappers. Starting async-bulk-io.1 + build-fix.1 in parallel."
+current_task_id = "build-fix.2"
+last_summary = "async-bulk-io theme COMPLETE: all 3 criteria met. GpuBulkReadFuture + GpuBulkWriteFuture implemented, end-to-end test PASSED (77 bytes via sideband). Next: build-fix.2 (README + git cleanup)."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 78
@@ -230,7 +230,7 @@ status = "completed"
 id = "async-bulk-io"
 epic = "codebase-health"
 title = "Async bulk I/O Futures — GpuBulkReadFuture + GpuBulkWriteFuture"
-status = "active"
+status = "completed"
 goal = "Async wrappers around sideband bulk I/O for use with #[warp_cooperative]"
 success_criteria = [
     "GpuBulkReadFuture implements Future, yields during sideband read",
@@ -376,7 +376,7 @@ id = "async-bulk-io.1"
 theme = "async-bulk-io"
 title = "Investigation: review existing sideband bulk I/O API, design async Future wrappers"
 kind = "investigation"
-status = "pending"
+status = "done"
 depends = []
 questions = [
     "What are gpu_bulk_read/gpu_bulk_write signatures and protocol?",
@@ -389,7 +389,7 @@ id = "async-bulk-io.2"
 theme = "async-bulk-io"
 title = "Experiment: implement GpuBulkReadFuture + GpuBulkWriteFuture in gpu-runtime"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["async-bulk-io.1"]
 
 [[tasks]]
@@ -397,7 +397,7 @@ id = "async-bulk-io.3"
 theme = "async-bulk-io"
 title = "Experiment: end-to-end test — async bulk file read + write from warp-cooperative kernel"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["async-bulk-io.2"]
 
 # --- build-fix theme ---
@@ -407,7 +407,7 @@ id = "build-fix.1"
 theme = "build-fix"
 title = "Investigation: audit build scripts, identify broken/missing pieces"
 kind = "investigation"
-status = "pending"
+status = "done"
 depends = []
 questions = [
     "Which scripts are broken or have uncommitted changes?",

@@ -2197,6 +2197,231 @@ pub mod std_future {
         }
     }
 
+    // ================================================================
+    // Async Bulk I/O Futures — sideband-based large data transfers
+    // ================================================================
+
+    /// A `Future` that writes data to a file via sideband bulk transfer.
+    ///
+    /// On first poll: allocates sideband space, copies data, submits SERVICE_BULK_WRITE.
+    /// On subsequent polls: checks for response.
+    /// Returns `Ok(bytes_written)` on success, `Err(-1)` on failure.
+    pub struct GpuBulkWriteFuture {
+        buf: *mut u8,
+        sideband: *mut u8,
+        fd: u64,
+        src: *const u8,
+        len: usize,
+        sideband_offset: u64,
+        state: HostcallState,
+    }
+
+    unsafe impl Send for GpuBulkWriteFuture {}
+
+    impl GpuBulkWriteFuture {
+        /// Create a new bulk write future.
+        ///
+        /// `buf` is the hostcall buffer, `sideband` is the sideband buffer,
+        /// `fd` is the file descriptor, `src`/`len` describe the data to write.
+        #[inline(always)]
+        pub fn new(buf: *mut u8, sideband: *mut u8, fd: u64, src: *const u8, len: usize) -> Self {
+            Self {
+                buf,
+                sideband,
+                fd,
+                src,
+                len,
+                sideband_offset: 0,
+                state: HostcallState::Init,
+            }
+        }
+    }
+
+    impl Future for GpuBulkWriteFuture {
+        type Output = Result<usize, i32>;
+
+        #[inline(always)]
+        fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+            let this = unsafe { self.get_unchecked_mut() };
+            match this.state {
+                HostcallState::Init => {
+                    if this.len == 0 {
+                        this.state = HostcallState::Done;
+                        return Poll::Ready(Ok(0));
+                    }
+
+                    // Allocate sideband space
+                    let offset =
+                        unsafe { crate::sideband::sideband_alloc(this.sideband, this.len as u64) };
+                    if offset == u64::MAX {
+                        return Poll::Pending; // Retry on next poll
+                    }
+                    this.sideband_offset = offset;
+
+                    // Copy data to sideband
+                    unsafe {
+                        let dst = this.sideband.add(SIDEBAND_DATA_OFFSET + offset as usize);
+                        let mut i = 0;
+                        while i < this.len {
+                            core::ptr::write_volatile(dst.add(i), *this.src.add(i));
+                            i += 1;
+                        }
+                    }
+
+                    // Submit hostcall
+                    let fd = this.fd;
+                    let sb_offset = this.sideband_offset;
+                    let len = this.len;
+                    match unsafe {
+                        submit_hostcall(this.buf, SERVICE_BULK_WRITE, |payload| {
+                            core::ptr::write_volatile(payload as *mut u64, fd);
+                            core::ptr::write_volatile(payload.add(8) as *mut u64, sb_offset);
+                            core::ptr::write_volatile(payload.add(16) as *mut u64, len as u64);
+                        })
+                    } {
+                        Ok(idx) => {
+                            this.state = HostcallState::Waiting { pkt_idx: idx };
+                            Poll::Pending
+                        }
+                        Err(()) => Poll::Pending,
+                    }
+                }
+                HostcallState::Waiting { pkt_idx } => unsafe {
+                    match check_response(this.buf, pkt_idx) {
+                        Some(pkt) => {
+                            let written =
+                                core::ptr::read_volatile(pkt.add(PKT_OFF_PAYLOAD) as *const u64);
+                            crate::hostcall::gpu_hostcall_release(this.buf, pkt);
+                            this.state = HostcallState::Done;
+                            if written == FILE_ERROR_SENTINEL {
+                                Poll::Ready(Err(-1))
+                            } else {
+                                Poll::Ready(Ok(written as usize))
+                            }
+                        }
+                        None => Poll::Pending,
+                    }
+                },
+                HostcallState::Done => Poll::Ready(Err(-1)),
+            }
+        }
+    }
+
+    /// A `Future` that reads data from a file via sideband bulk transfer.
+    ///
+    /// On first poll: allocates sideband space, submits SERVICE_BULK_READ.
+    /// On subsequent polls: checks for response, copies data from sideband.
+    /// Returns `Ok(bytes_read)` on success, `Err(-1)` on failure.
+    pub struct GpuBulkReadFuture {
+        buf: *mut u8,
+        sideband: *mut u8,
+        fd: u64,
+        dst: *mut u8,
+        max_len: usize,
+        sideband_offset: u64,
+        state: HostcallState,
+    }
+
+    unsafe impl Send for GpuBulkReadFuture {}
+
+    impl GpuBulkReadFuture {
+        /// Create a new bulk read future.
+        ///
+        /// `buf` is the hostcall buffer, `sideband` is the sideband buffer,
+        /// `fd` is the file descriptor, `dst`/`max_len` describe the output buffer.
+        #[inline(always)]
+        pub fn new(buf: *mut u8, sideband: *mut u8, fd: u64, dst: *mut u8, max_len: usize) -> Self {
+            Self {
+                buf,
+                sideband,
+                fd,
+                dst,
+                max_len,
+                sideband_offset: 0,
+                state: HostcallState::Init,
+            }
+        }
+    }
+
+    impl Future for GpuBulkReadFuture {
+        type Output = Result<usize, i32>;
+
+        #[inline(always)]
+        fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+            let this = unsafe { self.get_unchecked_mut() };
+            match this.state {
+                HostcallState::Init => {
+                    if this.max_len == 0 {
+                        this.state = HostcallState::Done;
+                        return Poll::Ready(Ok(0));
+                    }
+
+                    // Allocate sideband space for response data
+                    let offset = unsafe {
+                        crate::sideband::sideband_alloc(this.sideband, this.max_len as u64)
+                    };
+                    if offset == u64::MAX {
+                        return Poll::Pending; // Retry on next poll
+                    }
+                    this.sideband_offset = offset;
+
+                    // Submit hostcall
+                    let fd = this.fd;
+                    let sb_offset = this.sideband_offset;
+                    let max_len = this.max_len;
+                    match unsafe {
+                        submit_hostcall(this.buf, SERVICE_BULK_READ, |payload| {
+                            core::ptr::write_volatile(payload as *mut u64, fd);
+                            core::ptr::write_volatile(payload.add(8) as *mut u64, sb_offset);
+                            core::ptr::write_volatile(payload.add(16) as *mut u64, max_len as u64);
+                        })
+                    } {
+                        Ok(idx) => {
+                            this.state = HostcallState::Waiting { pkt_idx: idx };
+                            Poll::Pending
+                        }
+                        Err(()) => Poll::Pending,
+                    }
+                }
+                HostcallState::Waiting { pkt_idx } => unsafe {
+                    match check_response(this.buf, pkt_idx) {
+                        Some(pkt) => {
+                            let bytes_read =
+                                core::ptr::read_volatile(pkt.add(PKT_OFF_PAYLOAD) as *const u64);
+                            crate::hostcall::gpu_hostcall_release(this.buf, pkt);
+                            this.state = HostcallState::Done;
+
+                            if bytes_read == FILE_ERROR_SENTINEL || bytes_read == 0 {
+                                if bytes_read == 0 {
+                                    return Poll::Ready(Ok(0)); // EOF
+                                }
+                                return Poll::Ready(Err(-1));
+                            }
+
+                            // Copy data from sideband to destination
+                            let src = this
+                                .sideband
+                                .add(SIDEBAND_DATA_OFFSET + this.sideband_offset as usize);
+                            let n = bytes_read as usize;
+                            let mut i = 0;
+                            while i < n {
+                                core::ptr::write_volatile(
+                                    this.dst.add(i),
+                                    core::ptr::read_volatile(src.add(i)),
+                                );
+                                i += 1;
+                            }
+
+                            Poll::Ready(Ok(n))
+                        }
+                        None => Poll::Pending,
+                    }
+                },
+                HostcallState::Done => Poll::Ready(Err(-1)),
+            }
+        }
+    }
+
     /// Default maximum poll iterations before timeout.
     const DEFAULT_MAX_POLLS: u32 = 10_000_000;
 
@@ -2882,6 +3107,9 @@ pub mod prelude {
     // --- Commonly needed atomics ---
     pub use gpu_atomics::{sys_load_acquire_u32, sys_store_release_u32};
 
-    // --- Async executor ---
-    pub use crate::std_future::block_on;
+    // --- Async executor + futures ---
+    pub use crate::std_future::{
+        block_on, GpuBulkReadFuture, GpuBulkWriteFuture, GpuCloseFuture, GpuOpenFuture,
+        GpuReadFuture, GpuWriteFuture,
+    };
 }

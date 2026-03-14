@@ -4,18 +4,18 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 250     # Monotonic counter, incremented after each completed phase
-completed_tasks = 250
+total_cycles = 252     # Monotonic counter, incremented after each completed phase
+completed_tasks = 252
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.save"
+current_step = "do.route"
 current_task_id = ""
-last_summary = "BS61 batch done: host-async (tokio async_rt module) + batched-hc (latency is PCIe coherency, batching helps for printf). 250 tasks complete."
+last_summary = "printf-batch.2 done: GPU-side print_buffer module (init/print/flush) + SERVICE_BULK_PRINT in gpu-protocol + host handler. All CI passes."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 61
+brainstorm_seq = 62
 review_seq = 5
 
 # Brainstorm trigger control (event-driven, no fixed interval)
@@ -175,6 +175,18 @@ id = "batched-hc"
 epic = "gpu-perf"
 title = "Hostcall latency profiling — where does 20-100us go?"
 status = "completed"
+
+[[themes]]
+id = "printf-batch"
+epic = "gpu-perf"
+title = "GPU-side printf batching — reduce hostcall overhead for print-heavy kernels"
+status = "active"
+goal = "Buffer multiple print messages on GPU, flush as single hostcall"
+success_criteria = [
+    "GPU-side print buffer accumulates messages without hostcall per-print",
+    "Flush mechanism sends buffered messages as single sideband operation",
+    "Test: 10+ prints in one kernel, fewer hostcall round-trips than unbuffered",
+]
 goal = "Data-driven analysis of hostcall round-trip overhead"
 success_criteria = [
     "Latency breakdown: CAS contention vs mapped memory sync vs host processing",
@@ -210,6 +222,22 @@ status = "done"
 deps = ["host-async.1"]
 
 [[tasks]]
+id = "printf-batch.1"
+theme = "printf-batch"
+title = "Design GPU-side print buffer — layout, flush protocol, memory budget"
+kind = "design"
+status = "done"
+deps = []
+
+[[tasks]]
+id = "printf-batch.2"
+theme = "printf-batch"
+title = "Implement buffered print in gpu-runtime + flush via sideband"
+kind = "experiment"
+status = "done"
+deps = ["printf-batch.1"]
+
+[[tasks]]
 id = "batched-hc.1"
 theme = "batched-hc"
 title = "Profile hostcall latency breakdown — CAS vs mapped memory vs host processing"
@@ -220,6 +248,17 @@ deps = []
 # ============================================================
 # Brainstorms (last 3 only — older brainstorms archived)
 # ============================================================
+
+[[brainstorms]]
+seq = 62
+at_cycle = 250
+trigger = "host-async + batched-hc themes completed — reassess"
+level = "quick"
+new_tasks_spawned = ["printf-batch.1", "printf-batch.2"]
+new_themes_spawned = ["printf-batch"]
+themes_parked = []
+themes_completed = ["host-async", "batched-hc"]
+key_insight = "Follow-up from batched-hc.1: printf batching is the highest-impact latency optimization. GPU-side buffer + sideband flush. Also: async API complete, CI passes."
 
 [[brainstorms]]
 seq = 61

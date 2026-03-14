@@ -658,6 +658,20 @@ pub const SERVICE_TRACE: u32 = 13;
 /// and is designed for `gpu_assert!()` macro output.
 pub const SERVICE_ASSERT: u32 = 14;
 
+/// Flush buffered print messages from sideband buffer.
+///
+/// GPU-side code accumulates multiple print messages in a per-thread
+/// sideband buffer slot, then flushes them all in a single hostcall.
+/// Messages are length-prefixed: `[u16 len][len bytes data]...`
+///
+/// Request (lane 0):
+///   Slot 0: sideband_offset (u64) — start of this thread's buffer data in sideband
+///   Slot 1: data_len (u64) — total bytes of length-prefixed messages
+///   Slot 2: thread_idx (u32) | block_idx (u32) — packed metadata
+///
+/// Response: none (fire-and-forget, host sets CONTROL_READY).
+pub const SERVICE_BULK_PRINT: u32 = 15;
+
 // ============================================================
 // TRACE service payload layout (lane 0)
 // ============================================================

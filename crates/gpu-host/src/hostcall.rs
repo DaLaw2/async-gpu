@@ -595,6 +595,10 @@ impl HostcallBuffer {
                                     self.handle_assert(pkt);
                                     control.store(CONTROL_READY, Ordering::Release);
                                 }
+                                SERVICE_BULK_PRINT => {
+                                    self.handle_bulk_print(pkt, &mut on_print);
+                                    control.store(CONTROL_READY, Ordering::Release);
+                                }
                                 // Slow path — offload to I/O thread
                                 SERVICE_OPEN | SERVICE_WRITE | SERVICE_READ | SERVICE_CLOSE
                                 | SERVICE_STDIN | SERVICE_BULK_WRITE | SERVICE_BULK_READ => {
@@ -683,6 +687,53 @@ impl HostcallBuffer {
         full_msg.extend_from_slice(&msg_buf[..msg_len]);
 
         on_print(&full_msg);
+    }
+
+    /// Handle SERVICE_BULK_PRINT: flush a buffer of length-prefixed print messages.
+    ///
+    /// Request payload (lane 0):
+    ///   Slot 0: sideband_offset — offset in sideband data region
+    ///   Slot 1: data_len — total bytes of length-prefixed messages
+    ///   Slot 2: block_idx (high 32) | thread_idx (low 32)
+    ///
+    /// Message format in sideband: `[u16 len][len bytes data]...`
+    unsafe fn handle_bulk_print<F>(&self, pkt: *mut u8, on_print: &mut F)
+    where
+        F: FnMut(&[u8]),
+    {
+        let payload = pkt.add(PKT_OFF_PAYLOAD);
+        let sideband_offset = std::ptr::read_volatile(payload as *const u64) as usize;
+        let data_len = std::ptr::read_volatile(payload.add(8) as *const u64) as usize;
+        let metadata = std::ptr::read_volatile(payload.add(16) as *const u64);
+        let thread_idx = (metadata & 0xFFFF_FFFF) as u32;
+        let block_idx = (metadata >> 32) as u32;
+
+        if data_len == 0 || self.sideband_host_ptr.is_null() {
+            return;
+        }
+
+        // Read messages from sideband
+        let data_ptr = self
+            .sideband_host_ptr
+            .add(SIDEBAND_DATA_OFFSET + sideband_offset);
+        let prefix = format!("[B{block_idx}.T{thread_idx}] ");
+
+        let mut pos = 0;
+        while pos + 2 <= data_len {
+            let msg_len = u16::from_le_bytes([*data_ptr.add(pos), *data_ptr.add(pos + 1)]) as usize;
+            if msg_len == 0 || pos + 2 + msg_len > data_len {
+                break;
+            }
+
+            let mut full_msg = Vec::with_capacity(prefix.len() + msg_len);
+            full_msg.extend_from_slice(prefix.as_bytes());
+            for i in 0..msg_len {
+                full_msg.push(*data_ptr.add(pos + 2 + i));
+            }
+            on_print(&full_msg);
+
+            pos += 2 + msg_len;
+        }
     }
 
     // ================================================================

@@ -10,9 +10,9 @@ status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.execute"
+current_step = "awaiting_user"
 current_task_id = "rustc-build.1"
-last_summary = "BS70: spawned rustc-build theme. Building patched compiler in background (x.py build compiler). Phase 3 MIR pass work queued."
+last_summary = "gen-rustc-patches.sh done. rustc-src/ cloned + patches applied. Awaiting user to run: cd rustc-src && python x.py build compiler (30-60 min). Build too long for background task."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 70

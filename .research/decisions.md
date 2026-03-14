@@ -178,3 +178,18 @@ Record important technical decisions here as they emerge from research.
 - **Rationale**: (1) Ring buffer is simpler than lock-free stack for single-producer. (2) FIFO ordering preserved. (3) Uses proven sys-scope atomics pattern. (4) Independent from hostcall buffer.
 - **Alternatives**: (a) Repurpose hostcall buffer as bidirectional — overloads existing protocol. (b) Shared memory flag polling — no ordering guarantee.
 - **Sources**: cmd-buffer.1-c218, bs54.md
+
+### ADR-015: .await in #[warp_async] — proc macro transforms await to warp_poll_future
+- **Date**: 2026-03-14
+- **Status**: accepted (design in warp-async-v2.1)
+- **Context**: Current #[warp_async] only recognizes explicit `warp_*!()` macro calls. Users want standard async fn syntax with `.await` expressions.
+- **Decision**: The proc macro recognizes `expr.await` expressions in the function body and transforms each `.await` into a state that calls `warp_cooperative::warp_poll_future()`. The inner future is stored in the generated struct. Each `.await` becomes one state (not two like INIT+WAIT), because the inner future manages its own state machine.
+- **Rationale**: (1) Phase 1 proved `warp_poll_future()` works — lane 0 polls, broadcasts via shfl.sync, all lanes converge. (2) Inner futures are standard `impl Future` — they have no warp awareness. (3) One state per `.await` is cleaner than two (INIT+WAIT), because the inner future handles the submit/wait internally. (4) The no-op Waker is created once per `poll_warp()` call and passed to the inner future.
+- **Alternatives**: (a) Require users to write `warp_await!(expr)` instead of `expr.await` — less ergonomic. (b) Transform async fn into a real Rust coroutine — requires rustc changes (Phase 3).
+- **Key design points**:
+  - `.await` is parsed by syn as `ExprAwait { base, .. }` — easy to detect
+  - Inner future type must be known at macro expansion time (stored as field in generated struct)
+  - `let var = expr.await` captures the Output value; lane 0 writes to struct field, broadcasts
+  - `expr.await?` combines .await with ? — broadcasts Ok/Err discriminant after the future resolves
+  - Function must be marked `async` or the macro strips the `async` keyword (since it generates a WarpFuture, not an async fn)
+- **Sources**: warp-future-bridge.2-c233, bs57.md

@@ -136,6 +136,18 @@ fn main() -> Result<()> {
                 tests_hostcall::run_flight_recorder_test(Arc::clone(&dev))?;
                 return Ok(());
             }
+            "warp_try" => {
+                tests_warp::run_warp_try_test(Arc::clone(&dev))?;
+                return Ok(());
+            }
+            "warp_await" => {
+                tests_warp::run_warp_await_test(Arc::clone(&dev))?;
+                return Ok(());
+            }
+            "warp_e2e" => {
+                tests_warp::run_warp_e2e_test(Arc::clone(&dev))?;
+                return Ok(());
+            }
             "std_future" => {
                 tests_hostcall::run_std_future_print_test(Arc::clone(&dev))?;
                 tests_hostcall::run_std_future_two_prints_test(Arc::clone(&dev))?;

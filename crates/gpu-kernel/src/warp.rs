@@ -725,3 +725,77 @@ unsafe fn autonomous_pipeline(buf: *mut u8, mode: u64) -> bool {
 
     warp_print!(buf, b"auto: done");
 }
+
+// ============================================================
+// warp-async-v2.2: ? operator test
+// ============================================================
+//
+// Test the ? operator in #[warp_async] with Result<bool, u32> return type.
+// Opens a file with warp_open!, uses ? to propagate errors.
+// If the file open succeeds, prints a message and returns Ok(true).
+// If it fails, the ? operator causes all 32 lanes to return Err.
+//
+// State machine:
+//   0: INIT warp_open            → submit OPEN "/tmp/warp_try_test.txt"
+//   1: WAIT warp_open            → capture fd, goto 2
+//   2: TRY_DECISION              → if fd == NULL_INDEX → Err(0xFFFF), else → goto 3
+//   3: INIT warp_print           → submit PRINT "try: opened"
+//   4: WAIT warp_print           → DONE
+//   5: DONE
+#[warp_macro::warp_async]
+unsafe fn warp_try_open_test(buf: *mut u8) -> Result<bool, u32> {
+    let fd = warp_open!(buf, b"/tmp/warp_try_test.txt", 1)?;
+    warp_print!(buf, b"try: opened");
+}
+
+// ============================================================
+// warp-async-v2.3: .await test
+// ============================================================
+//
+// Test .await in #[warp_async] using standard GpuPrintFuture.
+// The macro:
+//   1. Infers the future type from GpuPrintFuture::new(...)
+//   2. Creates a MaybeUninit<GpuPrintFuture> struct field
+//   3. INIT state stores the future in the field
+//   4. POLL state calls warp_poll_future() for warp-cooperative polling
+//
+// State machine:
+//   0: AWAIT_INIT     → create GpuPrintFuture::new(buf, b"await: hello")
+//   1: AWAIT_POLL     → warp-cooperative poll via warp_poll_future()
+//   2: AWAIT_INIT     → create GpuPrintFuture::new(buf, b"await: done")
+//   3: AWAIT_POLL     → warp-cooperative poll
+//   4: DONE
+#[warp_macro::warp_async]
+unsafe fn warp_await_test(buf: *mut u8) -> bool {
+    let ok1 = gpu_runtime::std_future::GpuPrintFuture::new(buf, b"await: hello").await;
+    let ok2 = gpu_runtime::std_future::GpuPrintFuture::new(buf, b"await: done").await;
+}
+
+// ============================================================
+// warp-async-v2.4: End-to-end test
+// ============================================================
+//
+// Combines .await + warp_*!() + if/else in a single #[warp_async] function.
+// Tests that the proc macro correctly handles mixed CfgNode types.
+//
+// State machine:
+//   0: AWAIT_INIT     → create GpuPrintFuture::new(buf, b"e2e: start")
+//   1: AWAIT_POLL     → warp-cooperative poll, capture ok1
+//   2: DECISION       → branch on ok1
+//   3: AWAIT_INIT     → create GpuPrintFuture(b"e2e: ok")     (then branch)
+//   4: AWAIT_POLL     → poll
+//   5: AWAIT_INIT     → create GpuPrintFuture(b"e2e: fail")   (else branch)
+//   6: AWAIT_POLL     → poll
+//   7: INIT warp_print → submit "e2e: mixed"
+//   8: WAIT warp_print → capture result
+//   9: DONE
+#[warp_macro::warp_async]
+unsafe fn warp_e2e_test(buf: *mut u8) -> bool {
+    let ok1 = gpu_runtime::std_future::GpuPrintFuture::new(buf, b"e2e: start").await;
+    if ok1 > 0 {
+        let ok2 = gpu_runtime::std_future::GpuPrintFuture::new(buf, b"e2e: ok").await;
+    } else {
+        let ok3 = gpu_runtime::std_future::GpuPrintFuture::new(buf, b"e2e: fail").await;
+    }
+    warp_print!(buf, b"e2e: mixed");
+}

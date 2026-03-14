@@ -70,7 +70,7 @@
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
 use syn::parse::{Parse, ParseStream};
-use syn::{parse_macro_input, Expr, ExprMacro, ItemFn, ReturnType, Stmt};
+use syn::{parse_macro_input, Expr, ExprMacro, ItemFn, ReturnType, Stmt, Type};
 
 // ============================================================
 // Service definitions
@@ -135,6 +135,10 @@ struct WarpCall {
     result_var: Option<syn::Ident>,
     /// Arguments after `buf` — their meaning depends on ServiceKind.
     args: Vec<syn::Expr>,
+    /// Whether `?` operator was applied (e.g., `warp_open!(buf, path)?`).
+    /// When true, the WAIT state adds a TRY_DECISION state that broadcasts
+    /// Ok/Err discriminant. Err → early return `WarpPoll::Ready(Err(code))`.
+    try_op: bool,
 }
 
 // ============================================================
@@ -166,6 +170,14 @@ enum CfgNode {
         scrutinee: syn::Expr,
         arms: Vec<(syn::Pat, Vec<CfgNode>)>,
     },
+    /// An `.await` expression on a standard `impl Future<Output = bool>`.
+    /// Becomes INIT (create future) + POLL (warp-cooperative poll) = 2 states.
+    Await {
+        base_expr: syn::Expr,
+        result_var: Option<syn::Ident>,
+        future_type: Box<Type>,
+        index: usize,
+    },
 }
 
 // ============================================================
@@ -175,7 +187,13 @@ enum CfgNode {
 /// Count total state numbers consumed by a single CfgNode.
 fn count_node_states(node: &CfgNode) -> u32 {
     match node {
-        CfgNode::Call(_) => 2, // INIT + WAIT
+        CfgNode::Call(call) => {
+            if call.try_op {
+                3 // INIT + WAIT + TRY_DECISION
+            } else {
+                2 // INIT + WAIT
+            }
+        }
         CfgNode::IfElse {
             then_branch,
             else_branch,
@@ -189,6 +207,7 @@ fn count_node_states(node: &CfgNode) -> u32 {
                 .map(|(_, nodes)| count_sequence_states(nodes))
                 .sum::<u32>()
         }
+        CfgNode::Await { .. } => 2, // INIT + POLL
     }
 }
 
@@ -199,6 +218,42 @@ fn count_sequence_states(nodes: &[CfgNode]) -> u32 {
 
 /// Collect all user-defined variables from the CFG tree.
 /// Used to generate struct fields. Returns variables in definition order.
+/// Check if any CfgNode in the tree uses the `?` (try) operator.
+fn cfg_has_try_op(nodes: &[CfgNode]) -> bool {
+    for node in nodes {
+        match node {
+            CfgNode::Call(call) => {
+                if call.try_op {
+                    return true;
+                }
+            }
+            CfgNode::IfElse {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                if cfg_has_try_op(then_branch) || cfg_has_try_op(else_branch) {
+                    return true;
+                }
+            }
+            CfgNode::Loop { body } => {
+                if cfg_has_try_op(body) {
+                    return true;
+                }
+            }
+            CfgNode::BreakIf { .. } | CfgNode::Await { .. } => {}
+            CfgNode::Match { arms, .. } => {
+                for (_, arm_nodes) in arms {
+                    if cfg_has_try_op(arm_nodes) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
 fn collect_all_vars(nodes: &[CfgNode]) -> Vec<syn::Ident> {
     let mut vars = Vec::new();
     for node in nodes {
@@ -225,12 +280,121 @@ fn collect_all_vars(nodes: &[CfgNode]) -> Vec<syn::Ident> {
                     vars.extend(collect_all_vars(arm_nodes));
                 }
             }
+            CfgNode::Await { result_var, .. } => {
+                if let Some(ref var) = result_var {
+                    vars.push(var.clone());
+                }
+            }
         }
     }
     vars
 }
 
-/// Check if a slice of statements contains any warp_*!() macro calls (recursive).
+/// Infer the future type from the base expression of an `.await`.
+///
+/// - `Type::method(...)` → `Type`
+/// - `path::Type::method(...)` → `path::Type`
+/// - `Type { fields }` (struct literal) → `Type`
+///
+/// Returns None if the type cannot be inferred.
+fn infer_future_type(expr: &Expr) -> Option<Type> {
+    match expr {
+        // Type::method(args) or path::Type::method(args)
+        Expr::Call(call) => {
+            if let Expr::Path(ep) = call.func.as_ref() {
+                let segments = &ep.path.segments;
+                if segments.len() >= 2 {
+                    // Take all segments except the last (method name)
+                    let mut type_path = ep.path.clone();
+                    type_path.segments.pop(); // remove method
+                                              // Remove trailing punctuation
+                    if let Some(pair) = type_path.segments.pop() {
+                        type_path.segments.push_value(pair.into_value());
+                    }
+                    return Some(Type::Path(syn::TypePath {
+                        qself: ep.qself.clone(),
+                        path: type_path,
+                    }));
+                }
+            }
+            None
+        }
+        // Type { field: val, ... } (struct literal)
+        Expr::Struct(es) => Some(Type::Path(syn::TypePath {
+            qself: None,
+            path: es.path.clone(),
+        })),
+        _ => None,
+    }
+}
+
+/// Collect all Await nodes from the CFG tree, returning their indices.
+/// Used to generate MaybeUninit struct fields.
+fn collect_await_fields(nodes: &[CfgNode]) -> Vec<(usize, Type)> {
+    let mut fields = Vec::new();
+    for node in nodes {
+        match node {
+            CfgNode::Await {
+                future_type, index, ..
+            } => {
+                fields.push((*index, (**future_type).clone()));
+            }
+            CfgNode::IfElse {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                fields.extend(collect_await_fields(then_branch));
+                fields.extend(collect_await_fields(else_branch));
+            }
+            CfgNode::Loop { body } => {
+                fields.extend(collect_await_fields(body));
+            }
+            CfgNode::Match { arms, .. } => {
+                for (_, arm_nodes) in arms {
+                    fields.extend(collect_await_fields(arm_nodes));
+                }
+            }
+            CfgNode::Call(_) | CfgNode::BreakIf { .. } => {}
+        }
+    }
+    fields
+}
+
+/// Check if any CfgNode in the tree uses `.await`.
+#[allow(dead_code)]
+fn cfg_has_await(nodes: &[CfgNode]) -> bool {
+    for node in nodes {
+        match node {
+            CfgNode::Await { .. } => return true,
+            CfgNode::IfElse {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                if cfg_has_await(then_branch) || cfg_has_await(else_branch) {
+                    return true;
+                }
+            }
+            CfgNode::Loop { body } => {
+                if cfg_has_await(body) {
+                    return true;
+                }
+            }
+            CfgNode::Match { arms, .. } => {
+                for (_, arm_nodes) in arms {
+                    if cfg_has_await(arm_nodes) {
+                        return true;
+                    }
+                }
+            }
+            CfgNode::Call(_) | CfgNode::BreakIf { .. } => {}
+        }
+    }
+    false
+}
+
+/// Check if a slice of statements contains any warp_*!() macro calls or `.await` (recursive).
 fn stmts_contain_warp_call(stmts: &[Stmt]) -> bool {
     for stmt in stmts {
         match stmt {
@@ -241,10 +405,19 @@ fn stmts_contain_warp_call(stmts: &[Stmt]) -> bool {
             }
             Stmt::Local(local) => {
                 if let Some(init) = &local.init {
-                    if let Expr::Macro(ExprMacro { mac, .. }) = init.expr.as_ref() {
-                        if ServiceKind::from_name(&macro_name_str(mac)).is_some() {
-                            return true;
+                    match init.expr.as_ref() {
+                        Expr::Macro(ExprMacro { mac, .. }) => {
+                            if ServiceKind::from_name(&macro_name_str(mac)).is_some() {
+                                return true;
+                            }
                         }
+                        Expr::Await(_) => return true,
+                        Expr::Try(expr_try) => {
+                            if matches!(expr_try.expr.as_ref(), Expr::Macro(_)) {
+                                return true;
+                            }
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -259,12 +432,14 @@ fn stmts_contain_warp_call(stmts: &[Stmt]) -> bool {
     false
 }
 
-/// Check if an expression contains any warp_*!() macro calls (recursive).
+/// Check if an expression contains any warp_*!() macro calls or `.await` (recursive).
 fn expr_contains_warp_call(expr: &Expr) -> bool {
     match expr {
         Expr::Macro(ExprMacro { mac, .. }) => {
             ServiceKind::from_name(&macro_name_str(mac)).is_some()
         }
+        Expr::Await(_) => true,
+        Expr::Try(et) => expr_contains_warp_call(&et.expr),
         Expr::If(ei) => {
             stmts_contain_warp_call(&ei.then_branch.stmts)
                 || ei
@@ -311,12 +486,14 @@ const SUPPORTED_MACROS: &str =
     "warp_print, warp_open, warp_close, warp_read, warp_write, warp_bulk_read, warp_bulk_write";
 
 /// Build a CFG node tree from function body statements.
-/// Handles warp_*!() calls, let bindings, if/else, loop, and break.
+/// Handles warp_*!() calls, `.await`, let bindings, if/else, loop, and break.
 /// `in_loop`: true when parsing inside a loop body (enables `if cond { break; }` handling).
+/// `await_counter`: shared counter for unique await field naming.
 fn build_cfg(
     stmts: &[Stmt],
     buf_name: &str,
     in_loop: bool,
+    await_counter: &mut usize,
 ) -> Result<Vec<CfgNode>, proc_macro2::TokenStream> {
     let mut nodes = Vec::new();
 
@@ -358,23 +535,15 @@ fn build_cfg(
                 }
             }
 
-            // `let var = warp_xxx!(buf, args...);` — local binding
-            Stmt::Local(local) => {
-                let var_name = extract_local_ident(local)?;
-                let init_expr = local.init.as_ref().ok_or_else(|| {
-                    syn::Error::new_spanned(
-                        local,
-                        "#[warp_async] `let` bindings must have an initializer: \
-                         `let var = warp_xxx!(buf, ...);`",
-                    )
-                    .to_compile_error()
-                })?;
-
-                // The initializer must be a macro call
-                if let Expr::Macro(ExprMacro { mac, .. }) = init_expr.expr.as_ref() {
-                    let call = try_parse_macro_call(mac, buf_name, Some(var_name))?;
+            // `warp_xxx!(buf, args...)?` — expression with try operator
+            Stmt::Expr(Expr::Try(expr_try), _) => {
+                if let Expr::Macro(ExprMacro { mac, .. }) = expr_try.expr.as_ref() {
+                    let call = try_parse_macro_call(mac, buf_name, None)?;
                     match call {
-                        Some(c) => nodes.push(CfgNode::Call(c)),
+                        Some(mut c) => {
+                            c.try_op = true;
+                            nodes.push(CfgNode::Call(c));
+                        }
                         None => {
                             let name = macro_name_str(mac);
                             return Err(syn::Error::new_spanned(
@@ -388,10 +557,123 @@ fn build_cfg(
                     }
                 } else {
                     return Err(syn::Error::new_spanned(
-                        &init_expr.expr,
-                        "#[warp_async] `let` bindings must initialize from a warp_*!() call",
+                        &expr_try.expr,
+                        "#[warp_async] `?` can only be applied to warp_*!() calls",
                     )
                     .to_compile_error());
+                }
+            }
+
+            // `expr.await` — standalone await expression (no result captured)
+            Stmt::Expr(Expr::Await(expr_await), _) => {
+                let future_type = infer_future_type(&expr_await.base).ok_or_else(|| {
+                    syn::Error::new_spanned(
+                        &expr_await.base,
+                        "#[warp_async] cannot infer future type from `.await` expression. \
+                             Use `Type::new(...)` or `Type::method(...)` so the macro can \
+                             determine the concrete future type for the struct field.",
+                    )
+                    .to_compile_error()
+                })?;
+                let idx = *await_counter;
+                *await_counter += 1;
+                nodes.push(CfgNode::Await {
+                    base_expr: *expr_await.base.clone(),
+                    result_var: None,
+                    future_type: Box::new(future_type),
+                    index: idx,
+                });
+            }
+
+            // `let var = warp_xxx!(buf, args...);` — local binding
+            // `let var = warp_xxx!(buf, args...)?;` — local binding with try
+            // `let var = expr.await;` — local binding with await
+            Stmt::Local(local) => {
+                let var_name = extract_local_ident(local)?;
+                let init_expr = local.init.as_ref().ok_or_else(|| {
+                    syn::Error::new_spanned(
+                        local,
+                        "#[warp_async] `let` bindings must have an initializer: \
+                         `let var = warp_xxx!(buf, ...);`",
+                    )
+                    .to_compile_error()
+                })?;
+
+                // The initializer may be: macro call, try-wrapped macro, or .await
+                match init_expr.expr.as_ref() {
+                    // let var = expr.await;
+                    Expr::Await(expr_await) => {
+                        let future_type = infer_future_type(&expr_await.base).ok_or_else(|| {
+                            syn::Error::new_spanned(
+                                &expr_await.base,
+                                "#[warp_async] cannot infer future type from `.await` \
+                                     expression. Use `Type::new(...)` or `Type::method(...)` \
+                                     so the macro can determine the concrete future type.",
+                            )
+                            .to_compile_error()
+                        })?;
+                        let idx = *await_counter;
+                        *await_counter += 1;
+                        nodes.push(CfgNode::Await {
+                            base_expr: *expr_await.base.clone(),
+                            result_var: Some(var_name),
+                            future_type: Box::new(future_type),
+                            index: idx,
+                        });
+                    }
+                    // let var = warp_xxx!(buf, args...);
+                    Expr::Macro(ExprMacro { mac, .. }) => {
+                        let call = try_parse_macro_call(mac, buf_name, Some(var_name))?;
+                        match call {
+                            Some(c) => nodes.push(CfgNode::Call(c)),
+                            None => {
+                                let name = macro_name_str(mac);
+                                return Err(syn::Error::new_spanned(
+                                    &mac.path,
+                                    format!(
+                                        "#[warp_async] unsupported macro `{name}!`. Supported: {SUPPORTED_MACROS}",
+                                    ),
+                                )
+                                .to_compile_error());
+                            }
+                        }
+                    }
+                    // let var = warp_xxx!(buf, args...)?;
+                    Expr::Try(expr_try) => {
+                        if let Expr::Macro(ExprMacro { mac, .. }) = expr_try.expr.as_ref() {
+                            let call = try_parse_macro_call(mac, buf_name, Some(var_name))?;
+                            match call {
+                                Some(mut c) => {
+                                    c.try_op = true;
+                                    nodes.push(CfgNode::Call(c));
+                                }
+                                None => {
+                                    let name = macro_name_str(mac);
+                                    return Err(syn::Error::new_spanned(
+                                        &mac.path,
+                                        format!(
+                                            "#[warp_async] unsupported macro `{name}!`. Supported: {SUPPORTED_MACROS}",
+                                        ),
+                                    )
+                                    .to_compile_error());
+                                }
+                            }
+                        } else {
+                            return Err(syn::Error::new_spanned(
+                                &expr_try.expr,
+                                "#[warp_async] `?` can only be applied to warp_*!() calls",
+                            )
+                            .to_compile_error());
+                        }
+                    }
+                    _ => {
+                        return Err(syn::Error::new_spanned(
+                            &init_expr.expr,
+                            "#[warp_async] `let` bindings must initialize from a warp_*!() call, \
+                             `.await`, or `warp_*!()?`",
+                        )
+                        .to_compile_error());
+                    }
                 }
             }
 
@@ -430,8 +712,9 @@ fn build_cfg(
                     .to_compile_error()
                 })?;
 
-                let then_nodes = build_cfg(&expr_if.then_branch.stmts, buf_name, in_loop)?;
-                let else_nodes = build_cfg(&else_stmts, buf_name, in_loop)?;
+                let then_nodes =
+                    build_cfg(&expr_if.then_branch.stmts, buf_name, in_loop, await_counter)?;
+                let else_nodes = build_cfg(&else_stmts, buf_name, in_loop, await_counter)?;
 
                 if then_nodes.is_empty() || else_nodes.is_empty() {
                     return Err(syn::Error::new_spanned(
@@ -492,7 +775,7 @@ fn build_cfg(
                         .to_compile_error());
                     }
 
-                    let arm_nodes = build_cfg(&arm_stmts, buf_name, in_loop)?;
+                    let arm_nodes = build_cfg(&arm_stmts, buf_name, in_loop, await_counter)?;
                     if arm_nodes.is_empty() {
                         return Err(syn::Error::new_spanned(
                             &arm.body,
@@ -520,7 +803,7 @@ fn build_cfg(
                     .to_compile_error());
                 }
 
-                let body_nodes = build_cfg(&expr_loop.body.stmts, buf_name, true)?;
+                let body_nodes = build_cfg(&expr_loop.body.stmts, buf_name, true, await_counter)?;
 
                 if body_nodes.is_empty() {
                     return Err(syn::Error::new_spanned(
@@ -601,7 +884,7 @@ fn contains_break_if(nodes: &[CfgNode]) -> bool {
                     }
                 }
             }
-            CfgNode::Call(_) => {}
+            CfgNode::Call(_) | CfgNode::Await { .. } => {}
         }
     }
     false
@@ -680,6 +963,7 @@ fn try_parse_macro_call(
         service,
         result_var,
         args: parsed.args,
+        try_op: false,
     }))
 }
 
@@ -861,6 +1145,7 @@ fn gen_arms_for_sequence(
     done_state: u32,
     ready_value: &proc_macro2::TokenStream,
     param_names: &[syn::Ident],
+    buf_ident: &syn::Ident, // buf parameter name (for .await captures)
     known_vars: &mut Vec<syn::Ident>,
     break_target: Option<u32>, // set inside loops: where `break` jumps to
     arms: &mut Vec<proc_macro2::TokenStream>,
@@ -885,14 +1170,23 @@ fn gen_arms_for_sequence(
             CfgNode::Call(call) => {
                 let init_state = node_start;
                 let wait_state = node_start + 1;
+                // If try_op, WAIT transitions to try_decision_state instead of next_state
+                let after_wait = if call.try_op {
+                    node_start + 2
+                } else {
+                    next_state
+                };
 
                 let service_const = call.service.service_const();
                 let payload_fill = gen_payload_fill(call.service, &call.args, known_vars);
 
                 // INIT state: warp_hostcall_submit
+                // Note: warp_hostcall_submit returns WarpPoll<bool> which always
+                // evaluates to Pending. We discard the typed value and return
+                // WarpPoll::Pending to avoid type mismatch when Output != bool.
                 arms.push(quote! {
                     #init_state => unsafe {
-                        gpu_runtime::warp_future::warp_hostcall_submit(
+                        let _ = gpu_runtime::warp_future::warp_hostcall_submit(
                             self.buf, wcx, #service_const,
                             |payload| {
                                 #payload_fill
@@ -900,12 +1194,13 @@ fn gen_arms_for_sequence(
                             #wait_state,
                             &mut self.state,
                             &mut self.pkt_idx,
-                        )
+                        );
+                        WarpPoll::Pending
                     }
                 });
 
                 // WAIT state: warp_hostcall_wait_u64
-                let is_final = next_state == done_state;
+                let is_final = !call.try_op && next_state == done_state;
                 let on_ready = if let Some(ref var) = call.result_var {
                     if is_final {
                         quote! {
@@ -928,13 +1223,71 @@ fn gen_arms_for_sequence(
                     #wait_state => unsafe {
                         if let Some(val) = gpu_runtime::warp_future::warp_hostcall_wait_u64(
                             self.buf, wcx, self.pkt_idx,
-                            #next_state, &mut self.state,
+                            #after_wait, &mut self.state,
                         ) {
                             #on_ready
                         }
                         WarpPoll::Pending
                     }
                 });
+
+                // TRY_DECISION state: broadcast Ok/Err discriminant
+                if call.try_op {
+                    let try_state = node_start + 2;
+                    // The result_var (if set) holds the u64 return value.
+                    // Convention: high bit (bit 63) set = error, low bits = error code.
+                    // For file operations: fd == u16::MAX (0xFFFF) means error.
+                    // We use a simple convention: the result is the raw u64 from hostcall.
+                    // The user's warp_open! returns a u64 fd where 0xFFFF = failure.
+                    // We treat the value as: if high u32 is nonzero or value == 0xFFFF → Err.
+                    //
+                    // Actually, simpler: the result from hostcall is always a u64.
+                    // For Result, we define: value == u64::MAX → Err(value as u32), else Ok(value).
+                    // But let's keep it generic: any call with ? checks if the first payload
+                    // slot indicates error. For OPEN/WRITE/READ, error means fd == NULL_INDEX.
+                    //
+                    // Simplest approach: broadcast the result, let the user's value convention
+                    // determine Ok/Err. For now, we use: val == 0xFFFF → Err, else Ok.
+                    // This matches the existing hostcall error convention (NULL_INDEX = 0xFFFF).
+                    let var_read = if let Some(ref var) = call.result_var {
+                        quote! { self.#var }
+                    } else {
+                        // If no var captured, we need a temp field for the try result
+                        quote! { 0u64 }
+                    };
+
+                    let is_final_try = next_state == done_state;
+                    let on_ok = if is_final_try {
+                        quote! { return WarpPoll::Ready(#ready_value); }
+                    } else {
+                        quote! { return WarpPoll::Pending; }
+                    };
+
+                    arms.push(quote! {
+                        #try_state => {
+                            // Lane 0 checks if the result indicates error
+                            let mut __is_err: u32 = 0;
+                            let mut __err_code: u32 = 0;
+                            if wcx.is_leader() {
+                                let __val = #var_read;
+                                // Convention: NULL_INDEX (0xFFFF) = error
+                                if __val == gpu_protocol::NULL_INDEX as u64 {
+                                    __is_err = 1;
+                                    __err_code = __val as u32;
+                                }
+                                self.state = #next_state;
+                            }
+                            let __bc_err = unsafe { broadcast_u32(wcx.active_mask, __is_err) };
+                            let __bc_code = unsafe { broadcast_u32(wcx.active_mask, __err_code) };
+                            unsafe { gpu_atomics::syncwarp(wcx.active_mask) };
+                            if __bc_err != 0 {
+                                // Error: all lanes return Err with broadcast code
+                                return WarpPoll::Ready(Err(__bc_code));
+                            }
+                            #on_ok
+                        }
+                    });
+                }
 
                 // Track this variable for subsequent payload fills
                 if let Some(ref var) = call.result_var {
@@ -984,6 +1337,7 @@ fn gen_arms_for_sequence(
                     done_state,
                     ready_value,
                     param_names,
+                    buf_ident,
                     &mut then_vars,
                     break_target,
                     arms,
@@ -998,6 +1352,7 @@ fn gen_arms_for_sequence(
                     done_state,
                     ready_value,
                     param_names,
+                    buf_ident,
                     &mut else_vars,
                     break_target,
                     arms,
@@ -1020,6 +1375,7 @@ fn gen_arms_for_sequence(
                     done_state,
                     ready_value,
                     param_names,
+                    buf_ident,
                     &mut loop_vars,
                     Some(next_state), // break jumps to post-loop
                     arms,
@@ -1099,10 +1455,89 @@ fn gen_arms_for_sequence(
                         done_state,
                         ready_value,
                         param_names,
+                        buf_ident,
                         &mut arm_vars,
                         break_target,
                         arms,
                     );
+                }
+            }
+
+            CfgNode::Await {
+                base_expr,
+                result_var,
+                index,
+                ..
+            } => {
+                let init_state = node_start;
+                let poll_state = node_start + 1;
+                let await_field = format_ident!("__await_{}", index);
+
+                // Captures for the base expression (creating the future)
+                // Include buf (first param) since .await expressions may reference it
+                let captures: Vec<_> = core::iter::once(buf_ident)
+                    .chain(param_names.iter())
+                    .chain(known_vars.iter())
+                    .map(|v| quote! { let #v = self.#v; })
+                    .collect();
+
+                // INIT state: create the inner future and store in MaybeUninit field
+                arms.push(quote! {
+                    #init_state => {
+                        #(#captures)*
+                        self.#await_field.write(#base_expr);
+                        if wcx.is_leader() { self.state = #poll_state; }
+                        WarpPoll::Pending
+                    }
+                });
+
+                // POLL state: warp-cooperative poll of the inner future
+                let is_final = next_state == done_state;
+                let on_ready = if let Some(ref var) = result_var {
+                    if is_final {
+                        quote! {
+                            if wcx.is_leader() { self.#var = if __val { 1u64 } else { 0u64 }; }
+                            return WarpPoll::Ready(#ready_value);
+                        }
+                    } else {
+                        quote! {
+                            if wcx.is_leader() {
+                                self.#var = if __val { 1u64 } else { 0u64 };
+                                self.state = #next_state;
+                            }
+                            return WarpPoll::Pending;
+                        }
+                    }
+                } else if is_final {
+                    quote! { return WarpPoll::Ready(#ready_value); }
+                } else {
+                    quote! {
+                        if wcx.is_leader() { self.state = #next_state; }
+                        return WarpPoll::Pending;
+                    }
+                };
+
+                arms.push(quote! {
+                    #poll_state => unsafe {
+                        let __future_ref = self.#await_field.assume_init_mut();
+                        let __pinned = core::pin::Pin::new_unchecked(__future_ref);
+                        let __poll_result = gpu_runtime::warp_cooperative::warp_poll_future(
+                            __pinned, &mut __waker_cx,
+                        );
+                        match __poll_result {
+                            core::task::Poll::Ready(__val) => {
+                                #on_ready
+                            }
+                            core::task::Poll::Pending => {
+                                return WarpPoll::Pending;
+                            }
+                        }
+                    }
+                });
+
+                // Track result variable for subsequent expressions
+                if let Some(ref var) = result_var {
+                    known_vars.push(var.clone());
                 }
             }
 
@@ -1221,21 +1656,30 @@ pub fn warp_async(attr: TokenStream, item: TokenStream) -> TokenStream {
     let buf_name = params[0].0.to_string();
 
     // ---- Parse return type ----
+    // Supported: `-> bool`, `-> ()` (default), `-> Result<bool, u32>`
     let is_bool_return;
+    let is_result_return;
     let (return_type, ready_value) = match &input_fn.sig.output {
         ReturnType::Default => {
             is_bool_return = false;
+            is_result_return = false;
             (quote! { () }, quote! { () })
         }
         ReturnType::Type(_, ty) => {
-            let ty_str = quote! { #ty }.to_string();
+            let ty_str = quote! { #ty }.to_string().replace(' ', "");
             if ty_str == "bool" {
                 is_bool_return = true;
+                is_result_return = false;
                 (quote! { #ty }, quote! { true })
+            } else if ty_str == "Result<bool,u32>" || ty_str == "Result<bool, u32>" {
+                is_bool_return = false;
+                is_result_return = true;
+                (quote! { Result<bool, u32> }, quote! { Ok(true) })
             } else {
                 return syn::Error::new_spanned(
                     ty,
-                    "#[warp_async] only supports `-> bool` or no return type (-> ()). \
+                    "#[warp_async] supports `-> bool`, `-> Result<bool, u32>`, \
+                     or no return type (-> ()). \
                      For other return types, use a hand-written WarpFuture.",
                 )
                 .to_compile_error()
@@ -1245,7 +1689,8 @@ pub fn warp_async(attr: TokenStream, item: TokenStream) -> TokenStream {
     };
 
     // ---- Build CFG from function body ----
-    let cfg_nodes = match build_cfg(&input_fn.block.stmts, &buf_name, false) {
+    let mut await_counter: usize = 0;
+    let cfg_nodes = match build_cfg(&input_fn.block.stmts, &buf_name, false, &mut await_counter) {
         Ok(c) => c,
         Err(e) => return e.into(),
     };
@@ -1254,6 +1699,16 @@ pub fn warp_async(attr: TokenStream, item: TokenStream) -> TokenStream {
         return syn::Error::new_spanned(
             &input_fn.sig.ident,
             "#[warp_async] requires at least one warp_*!() call",
+        )
+        .to_compile_error()
+        .into();
+    }
+
+    // Validate: if any call uses ?, return type must be Result<bool, u32>
+    if !is_result_return && cfg_has_try_op(&cfg_nodes) {
+        return syn::Error::new_spanned(
+            &input_fn.sig.output,
+            "#[warp_async] using `?` requires return type `-> Result<bool, u32>`",
         )
         .to_compile_error()
         .into();
@@ -1282,16 +1737,34 @@ pub fn warp_async(attr: TokenStream, item: TokenStream) -> TokenStream {
         }
     }
 
+    // ---- Collect await fields (MaybeUninit<Type>) ----
+    let await_fields_info = collect_await_fields(&cfg_nodes);
+    let _has_awaits = !await_fields_info.is_empty();
+
     // ---- Generate struct fields ----
     let param_fields: Vec<_> = params
         .iter()
         .map(|(name, ty)| quote! { #name: #ty })
         .collect();
     let user_var_fields: Vec<_> = user_vars.iter().map(|v| quote! { #v: u64 }).collect();
+    let await_struct_fields: Vec<_> = await_fields_info
+        .iter()
+        .map(|(idx, ty)| {
+            let field_name = format_ident!("__await_{}", idx);
+            quote! { #field_name: core::mem::MaybeUninit<#ty> }
+        })
+        .collect();
 
     // ---- Generate constructor ----
     let param_names: Vec<_> = params.iter().map(|(name, _)| name).collect();
     let user_var_inits: Vec<_> = user_vars.iter().map(|v| quote! { #v: 0 }).collect();
+    let await_field_inits: Vec<_> = await_fields_info
+        .iter()
+        .map(|(idx, _)| {
+            let field_name = format_ident!("__await_{}", idx);
+            quote! { #field_name: core::mem::MaybeUninit::uninit() }
+        })
+        .collect();
 
     // ---- Generate match arms recursively ----
     // Param idents excluding buf (buf is passed separately, not in conditions)
@@ -1302,6 +1775,7 @@ pub fn warp_async(attr: TokenStream, item: TokenStream) -> TokenStream {
         .collect();
     let mut arms = Vec::new();
     let mut known_vars: Vec<syn::Ident> = Vec::new();
+    let buf_ident = &params[0].0;
     gen_arms_for_sequence(
         &cfg_nodes,
         0,          // base_state
@@ -1309,6 +1783,7 @@ pub fn warp_async(attr: TokenStream, item: TokenStream) -> TokenStream {
         done_state,
         &ready_value,
         &extra_param_idents,
+        buf_ident,
         &mut known_vars,
         None, // no break target at top level
         &mut arms,
@@ -1322,7 +1797,15 @@ pub fn warp_async(attr: TokenStream, item: TokenStream) -> TokenStream {
     let struct_init_args: Vec<_> = params.iter().map(|(name, _)| quote! { #name }).collect();
 
     // ---- Kernel result expression ----
-    let kernel_result_expr = if is_bool_return {
+    let kernel_result_expr = if is_result_return {
+        quote! {
+            match __output {
+                Ok(true) => 1u32,
+                Ok(false) => 0u32,
+                Err(e) => 0x8000_0000u32 | e,
+            }
+        }
+    } else if is_bool_return {
         quote! { if __output { 1u32 } else { 0u32 } }
     } else {
         quote! { 1u32 } // () return → always success
@@ -1335,6 +1818,7 @@ pub fn warp_async(attr: TokenStream, item: TokenStream) -> TokenStream {
             state: u32,
             pkt_idx: u16,
             #(#user_var_fields,)*
+            #(#await_struct_fields,)*
         }
 
         impl #struct_name {
@@ -1345,6 +1829,7 @@ pub fn warp_async(attr: TokenStream, item: TokenStream) -> TokenStream {
                     state: 0,
                     pkt_idx: gpu_protocol::NULL_INDEX,
                     #(#user_var_inits,)*
+                    #(#await_field_inits,)*
                 }
             }
         }
@@ -1360,6 +1845,22 @@ pub fn warp_async(attr: TokenStream, item: TokenStream) -> TokenStream {
                 use gpu_runtime::warp_future::{WarpPoll, broadcast_u32};
 
                 let state = unsafe { broadcast_u32(wcx.active_mask, self.state) };
+
+                // No-op waker + Context for polling inner futures via .await
+                // (only used if the function body contains .await expressions)
+                #[allow(unused_variables)]
+                let (__waker, mut __waker_cx);
+                unsafe {
+                    const __VTABLE: core::task::RawWakerVTable = core::task::RawWakerVTable::new(
+                        |_| core::task::RawWaker::new(core::ptr::null(), &__VTABLE),
+                        |_| {},
+                        |_| {},
+                        |_| {},
+                    );
+                    let __raw = core::task::RawWaker::new(core::ptr::null(), &__VTABLE);
+                    __waker = core::task::Waker::from_raw(__raw);
+                    __waker_cx = core::task::Context::from_waker(&__waker);
+                }
 
                 match state {
                     #(#arms,)*

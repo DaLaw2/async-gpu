@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 236     # Monotonic counter, incremented after each completed phase
-completed_tasks = 235
+total_cycles = 239     # Monotonic counter, incremented after each completed phase
+completed_tasks = 239
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.save"
 current_task_id = ""
-last_summary = "Phase 1 COMPLETE: all 4 warp-future-bridge tasks pass. Standard impl Future polled warp-cooperatively on GPU. Lane 0 polls, shfl broadcast, 32 lanes converge. Sequential .await + Result<T,E> ? operator all work. Next: do.save → Phase 2 (warp-async-v2)."
+last_summary = "Phase 2 COMPLETE: warp-async-v2 all 4 tasks done. .await, ?, if/else, warp_*!() all work in #[warp_async]. End-to-end GPU-verified. Next: do.save (lint, commit, push), then Phase 3 (rustc-warp)."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 57
@@ -477,7 +477,7 @@ success_criteria = [
 id = "warp-async-v2"
 epic = "native-warp-async"
 title = "Phase 2: Enhanced #[warp_async] with async fn syntax + ? operator"
-status = "active"
+status = "completed"
 goal = "Extend proc macro to accept async fn with .await and ? operator"
 success_criteria = [
     "? operator works in #[warp_async] — hostcall errors propagate as Result",
@@ -538,7 +538,7 @@ id = "warp-async-v2.1"
 theme = "warp-async-v2"
 title = "Design .await recognition in proc macro"
 kind = "design"
-status = "pending"
+status = "done"
 deps = []
 
 [[tasks]]
@@ -546,7 +546,7 @@ id = "warp-async-v2.2"
 theme = "warp-async-v2"
 title = "Implement ? operator in #[warp_async] (standalone win)"
 kind = "experiment"
-status = "pending"
+status = "done"
 deps = []
 
 [[tasks]]
@@ -554,7 +554,7 @@ id = "warp-async-v2.3"
 theme = "warp-async-v2"
 title = "Implement .await syntax recognition in proc macro"
 kind = "experiment"
-status = "pending"
+status = "done"
 deps = ["warp-async-v2.1"]
 
 [[tasks]]
@@ -562,7 +562,7 @@ id = "warp-async-v2.4"
 theme = "warp-async-v2"
 title = "End-to-end test: async fn with .await?, branching, error handling"
 kind = "experiment"
-status = "pending"
+status = "done"
 deps = ["warp-async-v2.2", "warp-async-v2.3"]
 
 # --- Phase 3: rustc-warp tasks ---

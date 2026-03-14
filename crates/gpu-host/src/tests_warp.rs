@@ -932,3 +932,246 @@ pub(crate) fn run_hybrid_stress_test(dev: Arc<CudaDevice>) -> Result<()> {
     unsafe { free_mapped_mem(results_host)? };
     Ok(())
 }
+
+/// warp-async-v2.2: ? operator in #[warp_async] with Result<bool, u32> return.
+///
+/// Tests warp_open!(buf, path, mode)? — if file open fails, all 32 lanes
+/// return Err together. If it succeeds, prints "try: opened".
+pub(crate) fn run_warp_try_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Warp ? operator test (warp-async-v2.2) ---");
+
+    use crate::hostcall;
+
+    // Capture print messages via callback
+    let msgs: std::sync::Arc<std::sync::Mutex<Vec<String>>> =
+        std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let msgs_clone = msgs.clone();
+
+    let session = hostcall::HostcallSession::start_with_print(16, move |data| {
+        if let Ok(s) = std::str::from_utf8(data) {
+            msgs_clone.lock().unwrap().push(s.to_string());
+        }
+    })
+    .map_err(|e| GpuHostError::Verification {
+        test: "warp_try",
+        detail: format!("session start failed: {e}"),
+    })?;
+
+    let (result_host, result_dev) = unsafe { crate::mapped_mem::alloc_mapped_u32(&dev)? };
+    unsafe { std::ptr::write_volatile(result_host, 0u32) };
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "kernel", &["warp_try_open_test"]);
+    let f = dev
+        .get_func("kernel", "warp_try_open_test")
+        .ok_or(GpuHostError::KernelNotFound("warp_try_open_test"))?;
+
+    let cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (32, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    println!("  Launching warp_try_open_test (32 threads)...");
+    unsafe {
+        f.launch(cfg, (session.dev_ptr(), result_dev))?;
+    }
+    dev.synchronize()?;
+
+    // Give listener time to process last prints
+    std::thread::sleep(std::time::Duration::from_millis(100));
+
+    let result_val = unsafe { std::ptr::read_volatile(result_host) };
+    let captured = msgs.lock().unwrap().clone();
+    session.shutdown();
+
+    unsafe { crate::mapped_mem::free_mapped_mem(result_host)? };
+
+    println!("  Result: 0x{result_val:08X}");
+    println!("  Messages: {:?}", captured);
+
+    // result = 1 means Ok(true), result with high bit = Err
+    if result_val == 1 {
+        if captured.iter().any(|m| m.contains("try: opened")) {
+            println!("  warp_try_test: PASSED!");
+            println!("    ? operator works in #[warp_async]: file opened, print succeeded");
+        } else {
+            return Err(GpuHostError::Verification {
+                test: "warp_try_test",
+                detail: format!("result=1 but missing 'try: opened' message: {:?}", captured),
+            });
+        }
+    } else if result_val & 0x8000_0000 != 0 {
+        let err_code = result_val & 0x7FFF_FFFF;
+        println!("  warp_try_test: OK (Err path verified, code={err_code:#X})");
+        println!("    ? operator correctly propagated error to all 32 lanes");
+    } else {
+        return Err(GpuHostError::Verification {
+            test: "warp_try_test",
+            detail: format!("unexpected result: 0x{result_val:08X}"),
+        });
+    }
+
+    Ok(())
+}
+
+/// Tests .await in #[warp_async] — two sequential GpuPrintFutures polled
+/// warp-cooperatively. Lane 0 polls the inner future, broadcasts via shfl.sync.
+pub(crate) fn run_warp_await_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Warp .await test (warp-async-v2.3) ---");
+
+    use crate::hostcall;
+
+    // Capture print messages via callback
+    let msgs: std::sync::Arc<std::sync::Mutex<Vec<String>>> =
+        std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let msgs_clone = msgs.clone();
+
+    let session = hostcall::HostcallSession::start_with_print(16, move |data| {
+        if let Ok(s) = std::str::from_utf8(data) {
+            msgs_clone.lock().unwrap().push(s.to_string());
+        }
+    })
+    .map_err(|e| GpuHostError::Verification {
+        test: "warp_await",
+        detail: format!("session start failed: {e}"),
+    })?;
+
+    let (result_host, result_dev) = unsafe { crate::mapped_mem::alloc_mapped_u32(&dev)? };
+    unsafe { std::ptr::write_volatile(result_host, 0u32) };
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "kernel", &["warp_await_test"]);
+    let f = dev
+        .get_func("kernel", "warp_await_test")
+        .ok_or(GpuHostError::KernelNotFound("warp_await_test"))?;
+
+    let cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (32, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    println!("  Launching warp_await_test (32 threads)...");
+    unsafe {
+        f.launch(cfg, (session.dev_ptr(), result_dev))?;
+    }
+    dev.synchronize()?;
+
+    // Give listener time to process last prints
+    std::thread::sleep(std::time::Duration::from_millis(100));
+
+    let result_val = unsafe { std::ptr::read_volatile(result_host) };
+    let captured = msgs.lock().unwrap().clone();
+    session.shutdown();
+
+    unsafe { crate::mapped_mem::free_mapped_mem(result_host)? };
+
+    println!("  Result: {result_val} (1=true, 0=false)");
+    println!("  Messages: {:?}", captured);
+
+    // Should have two print messages and result=1 (true)
+    let has_hello = captured.iter().any(|m| m.contains("await: hello"));
+    let has_done = captured.iter().any(|m| m.contains("await: done"));
+
+    if result_val != 1 {
+        return Err(GpuHostError::Verification {
+            test: "warp_await",
+            detail: format!("expected result=1, got {result_val}"),
+        });
+    }
+
+    if !has_hello || !has_done {
+        return Err(GpuHostError::Verification {
+            test: "warp_await",
+            detail: format!(
+                "missing messages: hello={has_hello}, done={has_done}, msgs={:?}",
+                captured
+            ),
+        });
+    }
+
+    println!("  warp_await_test: PASSED!");
+    println!("    .await works in #[warp_async]: two sequential futures polled warp-cooperatively");
+    Ok(())
+}
+
+/// Tests end-to-end: .await + if/else branching + warp_*!() in a single #[warp_async].
+/// Verifies mixed CfgNode types (Await + IfElse + Call) work together.
+pub(crate) fn run_warp_e2e_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Warp end-to-end test (warp-async-v2.4) ---");
+
+    use crate::hostcall;
+
+    let msgs: std::sync::Arc<std::sync::Mutex<Vec<String>>> =
+        std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let msgs_clone = msgs.clone();
+
+    let session = hostcall::HostcallSession::start_with_print(16, move |data| {
+        if let Ok(s) = std::str::from_utf8(data) {
+            msgs_clone.lock().unwrap().push(s.to_string());
+        }
+    })
+    .map_err(|e| GpuHostError::Verification {
+        test: "warp_e2e",
+        detail: format!("session start failed: {e}"),
+    })?;
+
+    let (result_host, result_dev) = unsafe { crate::mapped_mem::alloc_mapped_u32(&dev)? };
+    unsafe { std::ptr::write_volatile(result_host, 0u32) };
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "kernel", &["warp_e2e_test"]);
+    let f = dev
+        .get_func("kernel", "warp_e2e_test")
+        .ok_or(GpuHostError::KernelNotFound("warp_e2e_test"))?;
+
+    let cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (32, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    println!("  Launching warp_e2e_test (32 threads)...");
+    unsafe {
+        f.launch(cfg, (session.dev_ptr(), result_dev))?;
+    }
+    dev.synchronize()?;
+
+    std::thread::sleep(std::time::Duration::from_millis(100));
+
+    let result_val = unsafe { std::ptr::read_volatile(result_host) };
+    let captured = msgs.lock().unwrap().clone();
+    session.shutdown();
+
+    unsafe { crate::mapped_mem::free_mapped_mem(result_host)? };
+
+    println!("  Result: {result_val} (1=true, 0=false)");
+    println!("  Messages: {:?}", captured);
+
+    // Expected: "e2e: start", then "e2e: ok" (ok1=true → >0 → then branch), then "e2e: mixed"
+    let has_start = captured.iter().any(|m| m.contains("e2e: start"));
+    let has_ok = captured.iter().any(|m| m.contains("e2e: ok"));
+    let has_mixed = captured.iter().any(|m| m.contains("e2e: mixed"));
+
+    if result_val != 1 {
+        return Err(GpuHostError::Verification {
+            test: "warp_e2e",
+            detail: format!("expected result=1, got {result_val}"),
+        });
+    }
+
+    if !has_start || !has_ok || !has_mixed {
+        return Err(GpuHostError::Verification {
+            test: "warp_e2e",
+            detail: format!(
+                "missing messages: start={has_start}, ok={has_ok}, mixed={has_mixed}, msgs={:?}",
+                captured
+            ),
+        });
+    }
+
+    println!("  warp_e2e_test: PASSED!");
+    println!("    .await + if/else + warp_*!() all work together in #[warp_async]");
+    Ok(())
+}

@@ -57,8 +57,9 @@ run "check gpu-host" "cargo +stable check --manifest-path crates/core/gpu-host/C
 # Must cd into each dir so .cargo/config.toml (target, build-std) is picked up.
 # Read nightly version from rust-toolchain.toml (single source of truth)
 NIGHTLY=$(grep '^channel' rust-toolchain.toml | sed 's/.*= *"\(.*\)"/\1/')
-PTX_KERNELS="crates/kernel/gpu-kernel crates/test/async-hostcall-test crates/test/async-pipeline-test crates/test/embassy-test crates/test/multi-warp-test crates/test/gpu-std-test examples/hello-gpu/kernel examples/async-io/kernel examples/vector-math/kernel"
+PTX_KERNELS="crates/kernel/gpu-kernel crates/test/async-hostcall-test crates/test/async-pipeline-test crates/test/embassy-test crates/test/multi-warp-test crates/test/gpu-std-test examples/hello-gpu/kernel examples/async-io/kernel examples/vector-math/kernel examples/parallel-search/kernel"
 # Note: crates/test/std-build-test and crates/kernel/gpu-kernel-std excluded — require patched std to build
+# Note: examples/async-pipeline/kernel and examples/warp-cooperative excluded — require patched rustc MIR pass (#[warp_cooperative])
 for k in $PTX_KERNELS; do
     name=$(basename "$k")
     run "ptx $name" "(cd $k && cargo +$NIGHTLY build --release)"
@@ -67,6 +68,7 @@ done
 # --- example hosts ---
 run "check hello-gpu-host" "cargo +stable check --manifest-path examples/hello-gpu/host/Cargo.toml"
 run "check async-io-host" "cargo +stable check --manifest-path examples/async-io/host/Cargo.toml"
+run "check async-pipeline-host" "cargo +stable check --manifest-path examples/async-pipeline/host/Cargo.toml"
 run "check vector-math-host" "cargo +stable check --manifest-path examples/vector-math/host/Cargo.toml"
 run "check parallel-search-host" "cargo +stable check --manifest-path examples/parallel-search/host/Cargo.toml"
 

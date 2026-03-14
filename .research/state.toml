@@ -4,18 +4,18 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 291     # Monotonic counter, incremented after each completed phase
-completed_tasks = 300
+total_cycles = 292     # Monotonic counter, incremented after each completed phase
+completed_tasks = 307
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
-current_mode = "think"
-current_step = "think.triage"
+current_mode = "do"
+current_step = "do.save"
 current_task_id = ""
-last_summary = "ci-update.1 + blog-draft.1 DONE (both were already completed in previous session). 300 tasks done. All themes completed. Need brainstorm for next direction."
+last_summary = "All bs82 tasks done: CI coverage extended (parallel-search kernel + async-pipeline host), run scripts added, 5 example READMEs written. build-scripts.1 skipped (already clean). Need brainstorm."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 81
+brainstorm_seq = 82
 review_seq = 5
 
 # Brainstorm trigger control (event-driven, no fixed interval)
@@ -574,7 +574,98 @@ depends = ["showcase-demo.1"]
 # Brainstorms (last 3 only — older brainstorms archived)
 # ============================================================
 
-# --- ci-update theme ---
+# --- ci-hygiene theme ---
+
+[[themes]]
+id = "ci-hygiene"
+epic = "codebase-health"
+title = "CI coverage for all examples + cleanup"
+status = "completed"
+goal = "All examples covered by CI; no broken artifacts in tree"
+success_criteria = [
+    "async-pipeline + parallel-search kernels and hosts in ci-lint.sh",
+    "Missing run scripts added",
+    "warp-cooperative scratch dir cleaned up",
+]
+
+[[themes]]
+id = "build-scripts"
+epic = "codebase-health"
+title = "Commit pending build script changes"
+status = "completed"
+goal = "Clean git status for build scripts"
+success_criteria = [
+    "build-toolchain.bat committed, .ps1 removed or updated, postprocess-ptx.sh removed",
+]
+
+[[themes]]
+id = "example-docs"
+epic = "public-api"
+title = "Per-example README documentation"
+status = "completed"
+goal = "Each example has a README with expected output and key observations"
+success_criteria = [
+    "async-pipeline and parallel-search have README.md",
+    "hello-gpu, async-io, vector-math have README.md",
+]
+
+# --- ci-hygiene theme ---
+
+[[tasks]]
+id = "ci-hygiene.1"
+theme = "ci-hygiene"
+title = "Experiment: add async-pipeline + parallel-search kernels and hosts to ci-lint.sh"
+kind = "experiment"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "ci-hygiene.2"
+theme = "ci-hygiene"
+title = "Experiment: add missing run scripts (parallel-search, async-pipeline)"
+kind = "experiment"
+status = "done"
+depends = ["ci-hygiene.1"]
+
+[[tasks]]
+id = "ci-hygiene.3"
+theme = "ci-hygiene"
+title = "Experiment: clean up warp-cooperative scratch directory"
+kind = "experiment"
+status = "done"
+depends = []
+# SKIPPED: ICE logs and mir_dump already in .gitignore; host/ dir exists, it's a proper example
+
+# --- build-scripts theme ---
+
+[[tasks]]
+id = "build-scripts.1"
+theme = "build-scripts"
+title = "Experiment: commit build-toolchain.bat, clean up .ps1 and postprocess-ptx.sh"
+kind = "experiment"
+status = "done"
+depends = []
+# SKIPPED: already committed in previous session
+
+# --- example-docs theme ---
+
+[[tasks]]
+id = "example-docs.1"
+theme = "example-docs"
+title = "Experiment: write README.md for async-pipeline and parallel-search"
+kind = "experiment"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "example-docs.2"
+theme = "example-docs"
+title = "Experiment: write README.md for hello-gpu, async-io, vector-math"
+kind = "experiment"
+status = "done"
+depends = []
+
+# --- ci-update theme (completed) ---
 
 [[tasks]]
 id = "ci-update.1"
@@ -597,6 +688,17 @@ depends = []
 # ============================================================
 # Brainstorms (last 3 only — older brainstorms archived)
 # ============================================================
+
+[[brainstorms]]
+seq = 82
+at_cycle = 291
+trigger = "all themes completed — standard brainstorm for evergreen epic refresh"
+level = "standard"
+new_tasks_spawned = ["ci-hygiene.1", "ci-hygiene.2", "ci-hygiene.3", "build-scripts.1", "example-docs.1", "example-docs.2"]
+new_themes_spawned = ["ci-hygiene", "build-scripts", "example-docs"]
+themes_parked = []
+themes_completed = ["ci-update", "blog-draft"]
+key_insight = "Project graduated to polish phase. 8 concrete gaps found: CI holes, missing run scripts, warp-cooperative cleanup, build script dirt, no per-example READMEs. No new epic needed."
 
 [[brainstorms]]
 seq = 81

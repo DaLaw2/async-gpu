@@ -12,7 +12,7 @@ status = "running"     # ready | running | blocked | completed
 current_mode = "do"
 current_step = "do.route"
 current_task_id = ""
-last_summary = "trace-protocol theme DONE: SERVICE_TRACE+ASSERT protocol, gpu_trace!/gpu_assert! macros, host-side handlers, 32-thread test passed. Next: gpu-assert-diag theme."
+last_summary = "trace-protocol theme DONE. User decisions: gpu-error CLOSED, public-api+codebase-health marked evergreen (low-pri quality work), gpu-perf+real-std+gpu-debug continue. Next: gpu-assert-diag theme."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 53
@@ -64,7 +64,7 @@ success_criteria = [
 [[epics]]
 id = "gpu-error"
 title = "GPU-side error handling — Result propagation from GPU to host"
-status = "active"
+status = "completed"
 priority = "medium"
 success_criteria = [
     "GPU kernel can use `?` operator and return Result<T, E> to host",
@@ -72,13 +72,14 @@ success_criteria = [
     "Host receives structured error info (error type + message), not just trap/exit code",
     "std::io and std::fs errors on GPU produce proper std::io::Error, not panic",
 ]
-# ALL 4 CRITERIA MET — pending user confirmation to close
+# ALL 4 CRITERIA MET — closed by user 2026-03-14
 
 [[epics]]
 id = "codebase-health"
 title = "Codebase Health — build system, CI, docs, workflow automation"
+type = "evergreen"  # Ongoing quality epic — work on when no other tasks are ready
 status = "active"
-priority = "medium"
+priority = "low"
 success_criteria = [
     "Single workspace with all crates — `cargo build -p <any-crate>` works from root",
     "Nightly toolchain version defined in one place, CI + scripts derive from it",
@@ -102,8 +103,9 @@ success_criteria = [
 [[epics]]
 id = "public-api"
 title = "Public API — Host SDK + Reusable GPU Kernel Library"
+type = "evergreen"  # Ongoing quality epic — work on when no other tasks are ready
 status = "active"
-priority = "medium"
+priority = "low"
 success_criteria = [
     "gpu-host is a library crate with documented public API (GpuDevice, KernelBuilder, HostcallRuntime)",
     "A standalone example program uses gpu-host as a dependency to run a GPU kernel",

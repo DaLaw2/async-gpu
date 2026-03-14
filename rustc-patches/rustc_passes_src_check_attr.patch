@@ -1,0 +1,11 @@
+--- a/compiler/rustc_passes/src/check_attr.rs
++++ b/compiler/rustc_passes/src/check_attr.rs
+@@ -399,6 +399,8 @@
+                             | sym::forbid,
+                             ..
+                         ] => {}
++                        // GPU warp-cooperative attribute — validated by MIR pass, not frontend
++                        [sym::warp_cooperative] => {}
+                         [name, rest@..] => {
+                             match BUILTIN_ATTRIBUTE_MAP.get(name) {
+                                 Some(_) => {

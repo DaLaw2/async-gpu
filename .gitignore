@@ -12,4 +12,6 @@ patched-std/
 patched-rustc/
 rustc-src/
 models/
+test-warp-crate/target/
+test-warp-crate/rustc-ice-*.txt
 scripts/pre-push.sh

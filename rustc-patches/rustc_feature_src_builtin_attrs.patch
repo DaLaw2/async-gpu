@@ -1,0 +1,15 @@
+--- a/compiler/rustc_feature/src/builtin_attrs.rs
++++ b/compiler/rustc_feature/src/builtin_attrs.rs
+@@ -763,6 +763,12 @@
+         template!(Word, "https://doc.rust-lang.org/reference/attributes/codegen.html#the-track_caller-attribute"),
+         WarnFollowing, EncodeCrossCrate::Yes
+     ),
++    // GPU warp-cooperative async/await (custom MIR pass for nvptx64)
++    ungated!(
++        warp_cooperative, Normal,
++        template!(Word),
++        WarnFollowing, EncodeCrossCrate::No
++    ),
+     ungated!(
+         instruction_set, Normal,
+         template!(List: &["set"], "https://doc.rust-lang.org/reference/attributes/codegen.html#the-instruction_set-attribute"),

@@ -70,18 +70,19 @@ impl<'tcx> MirPass<'tcx> for WarpCooperativeTransform {
     fn run_pass(&self, tcx: TyCtxt<'tcx>, body: &mut Body<'tcx>) {
         let def_id = body.source.def_id();
 
-        // Only transform functions annotated with `#[warp_cooperative]`.
-        if !has_warp_cooperative_attr(tcx, def_id) {
+        // Only process coroutine bodies (the inner state machine of async fn).
+        // After StateTransform the body retains `body.coroutine` metadata.
+        if body.coroutine.is_none() {
             return;
         }
 
-        // After StateTransform the body retains `body.coroutine` metadata even
-        // though Yield terminators have been lowered to a dispatch switch.
-        if body.coroutine.is_none() {
-            tcx.dcx().span_warn(
-                body.span,
-                "#[warp_cooperative] on a non-coroutine function has no effect",
-            );
+        // For async fn, the coroutine body has a different def_id than the
+        // outer function that holds `#[warp_cooperative]`. Check the parent.
+        let parent_def_id = tcx.parent(def_id);
+        let has_attr = has_warp_cooperative_attr(tcx, def_id)
+            || has_warp_cooperative_attr(tcx, parent_def_id);
+
+        if !has_attr {
             return;
         }
 

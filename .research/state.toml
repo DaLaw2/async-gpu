@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 266     # Monotonic counter, incremented after each completed phase
-completed_tasks = 266
+total_cycles = 268     # Monotonic counter, incremented after each completed phase
+completed_tasks = 268
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "awaiting_user"
-current_task_id = "rustc-build.1"
-last_summary = "gen-rustc-patches.sh done. rustc-src/ cloned + patches applied. Awaiting user to run: cd rustc-src && python x.py build compiler (30-60 min). Build too long for background task."
+current_step = "do.save"
+current_task_id = ""
+last_summary = "rustc-build.2 DONE: patched compiler emits activemask.b32 + bar.warp.sync in PTX for #[warp_cooperative] async fn. No shfl.sync because trivial async fn has no .await points. Theme rustc-build complete (both criteria met). Next: brainstorm for multi-await test or next theme."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 70
@@ -151,7 +151,7 @@ success_criteria = [
 id = "rustc-build"
 epic = "native-warp-async"
 title = "Build patched rustc and verify WarpCooperativeTransform compiles"
-status = "active"
+status = "completed"
 goal = "Patched compiler builds successfully with our MIR pass"
 success_criteria = [
     "x.py build compiler succeeds with warp_cooperative.rs in the pipeline",
@@ -167,7 +167,7 @@ id = "rustc-build.1"
 theme = "rustc-build"
 title = "Build patched rustc from rustc-src/ with applied patches"
 kind = "experiment"
-status = "active"
+status = "done"
 deps = []
 
 [[tasks]]
@@ -175,7 +175,7 @@ id = "rustc-build.2"
 theme = "rustc-build"
 title = "Test patched compiler — compile a #[warp_cooperative] async fn and inspect PTX"
 kind = "experiment"
-status = "pending"
+status = "done"
 deps = ["rustc-build.1"]
 
 # ============================================================

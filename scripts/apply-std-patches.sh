@@ -4,35 +4,36 @@
 #
 # Usage: ./scripts/apply-std-patches.sh [output_dir]
 #
-# Copies std source from sysroot into output_dir (flat structure: output_dir/src/...),
-# then applies patches.
+# Copies std source from rustc-src/ into output_dir, then applies patches.
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
 PATCH_DIR="$REPO_DIR/std-patches"
+STOCK_STD="$REPO_DIR/rustc-src/library/std"
 OUTPUT_DIR="${1:-$REPO_DIR/patched-std}"
 
-SYSROOT=$(rustc +nightly --print sysroot)
-SRC_STD="$SYSROOT/lib/rustlib/src/rust/library/std"
-
-if [ ! -d "$SRC_STD" ]; then
-    echo "ERROR: rust-src not found at $SRC_STD"
-    echo "Install: rustup +nightly component add rust-src"
+if [ ! -d "$STOCK_STD" ]; then
+    echo "ERROR: rustc-src/library/std/ not found."
+    echo "Clone stock rustc first:"
+    echo "  git clone --depth 1 https://github.com/rust-lang/rust.git rustc-src"
     exit 1
 fi
 
-echo "Copying std source from sysroot..."
+echo "Copying std source from rustc-src/..."
 rm -rf "$OUTPUT_DIR"
 mkdir -p "$OUTPUT_DIR"
-cp -r "$SRC_STD"/* "$OUTPUT_DIR/"
+cp -r "$STOCK_STD"/* "$OUTPUT_DIR/"
 
 echo "Applying patches..."
 cd "$OUTPUT_DIR"
 
 echo "  [PATCH] src/io/stdio.rs"
 patch -p0 --binary < "$PATCH_DIR/io_stdio.patch"
+
+echo "  [PATCH] src/os/fd/raw.rs"
+patch -p0 --binary < "$PATCH_DIR/os_fd_raw.patch"
 
 echo "  [PATCH] src/sys/alloc/mod.rs"
 patch -p0 --binary < "$PATCH_DIR/sys_alloc_mod.patch"
@@ -42,6 +43,9 @@ patch -p0 --binary < "$PATCH_DIR/sys_fs_mod.patch"
 
 echo "  [PATCH] src/sys/io/error/mod.rs"
 patch -p0 --binary < "$PATCH_DIR/sys_io_error_mod.patch"
+
+echo "  [PATCH] src/sys/net/connection/sgx.rs"
+patch -p0 --binary < "$PATCH_DIR/sys_net_connection_sgx.patch"
 
 echo "  [PATCH] src/sys/random/mod.rs"
 patch -p0 --binary < "$PATCH_DIR/sys_random_mod.patch"

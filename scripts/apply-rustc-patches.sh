@@ -4,8 +4,7 @@
 #
 # Usage: ./scripts/apply-rustc-patches.sh <rustc-source-dir>
 #
-# <rustc-source-dir> should be a fresh rustc source checkout (e.g., from
-# `git clone https://github.com/rust-lang/rust.git`).
+# <rustc-source-dir> should be a fresh rustc source checkout.
 
 set -e
 

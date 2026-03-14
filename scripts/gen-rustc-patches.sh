@@ -1,125 +1,82 @@
 #!/bin/bash
-# Generate rustc-patches/ from the diff between stock rustc and patched-rustc/.
+# Generate rustc-patches/ by diffing patched-rustc/ against rustc-src/ (stock).
 #
 # Usage: ./scripts/gen-rustc-patches.sh
 #
-# Like gen-std-patches.sh (for std), this diffs our modified files against the
-# stock originals. Since sysroot doesn't include compiler/ source, we fetch
-# stock files from GitHub using the nightly commit hash.
+# Automatically scans compiler/ for differences — no manifest needed.
+# - Modified files → unified diff (.patch)
+# - New files (only in patched-rustc/) → copied as-is (.rs)
 #
-# The manifest file (rustc-patches/manifest.txt) lists which files under
-# compiler/ we've modified or added. Format:
-#   PATCH compiler/rustc_mir_transform/src/lib.rs
-#   NEW   compiler/rustc_mir_transform/src/warp_cooperative.rs
-#
-# For PATCH entries: downloads stock version from GitHub, generates unified diff.
-# For NEW entries: copies the file from patched-rustc/ into rustc-patches/.
+# Prerequisites:
+#   rustc-src/  — clean rustc clone (git clone --depth 1 https://github.com/rust-lang/rust.git rustc-src)
+#   patched-rustc/ — copy of rustc-src/ with our modifications
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
 PATCH_DIR="$REPO_DIR/rustc-patches"
-PATCHED_RUSTC="$REPO_DIR/toolchain"
-MANIFEST="$PATCH_DIR/manifest.txt"
+STOCK_DIR="$REPO_DIR/rustc-src"
+PATCHED_DIR="$REPO_DIR/patched-rustc"
 
-if [ ! -d "$PATCHED_RUSTC" ]; then
-    echo "ERROR: patched-rustc/ directory not found."
-    echo "Clone rustc source into patched-rustc/ first."
+if [ ! -d "$STOCK_DIR/compiler" ]; then
+    echo "ERROR: rustc-src/ not found or missing compiler/."
+    echo "Clone stock rustc first:"
+    echo "  git clone --depth 1 https://github.com/rust-lang/rust.git rustc-src"
     exit 1
 fi
 
-if [ ! -f "$MANIFEST" ]; then
-    echo "ERROR: rustc-patches/manifest.txt not found."
-    echo "Create it with lines like:"
-    echo "  PATCH compiler/rustc_mir_transform/src/lib.rs"
-    echo "  NEW   compiler/rustc_mir_transform/src/warp_cooperative.rs"
-    exit 1
-fi
-
-# Get nightly commit hash for fetching stock files
-COMMIT_HASH=$(rustc +nightly --version -v 2>/dev/null | grep "commit-hash" | awk '{print $2}')
-if [ -z "$COMMIT_HASH" ]; then
-    echo "ERROR: Could not determine nightly commit hash."
-    echo "Ensure nightly toolchain is installed: rustup toolchain install nightly"
+if [ ! -d "$PATCHED_DIR/compiler" ]; then
+    echo "ERROR: patched-rustc/ not found or missing compiler/."
     exit 1
 fi
 
 NIGHTLY_VER=$(rustc +nightly --version 2>/dev/null | head -1 || echo "unknown")
-echo "Nightly: $NIGHTLY_VER"
-echo "Commit:  $COMMIT_HASH"
+echo "Baseline: $NIGHTLY_VER"
+echo "Stock:    $STOCK_DIR"
+echo "Patched:  $PATCHED_DIR"
 echo ""
 
-# Clean old generated patches (but not manifest.txt or PATCHES.md)
+# Clean old generated patches
 cd "$PATCH_DIR"
-rm -f *.patch
+rm -f *.patch *.rs
 
 PATCHES=()
 NEW_FILES=()
 
-while IFS= read -r line; do
-    # Skip comments and blank lines
-    [[ "$line" =~ ^[[:space:]]*# ]] && continue
-    [[ -z "${line// /}" ]] && continue
+# --- Scan for modified files under compiler/ ---
+while IFS= read -r patched_file; do
+    # rel_path = compiler/rustc_mir_transform/src/lib.rs
+    rel_path="${patched_file#$PATCHED_DIR/}"
+    stock_file="$STOCK_DIR/$rel_path"
 
-    kind=$(echo "$line" | awk '{print $1}')
-    rel_path=$(echo "$line" | awk '{print $2}')
+    # Flatten path for output filename:
+    # compiler/rustc_mir_transform/src/lib.rs → rustc_mir_transform_src_lib
+    flat_base=$(echo "$rel_path" | sed 's|compiler/||; s|/|_|g; s|\.rs$||')
 
-    if [ -z "$rel_path" ]; then
-        echo "WARN: skipping malformed manifest line: $line"
-        continue
-    fi
-
-    local_file="$PATCHED_RUSTC/$rel_path"
-    if [ ! -f "$local_file" ]; then
-        echo "WARN: $rel_path not found in patched-rustc/, skipping"
-        continue
-    fi
-
-    case "$kind" in
-        PATCH)
-            # Flatten path for patch filename:
-            # compiler/rustc_mir_transform/src/lib.rs → rustc_mir_transform_src_lib.patch
-            flat_base=$(echo "$rel_path" | sed 's|compiler/||; s|/|_|g; s|\.rs$||')
+    if [ ! -f "$stock_file" ]; then
+        # New file — not in stock
+        base_name=$(basename "$rel_path")
+        cp "$patched_file" "$PATCH_DIR/$base_name"
+        NEW_FILES+=("$rel_path:$base_name")
+        echo "[NEW]   $rel_path → $base_name"
+    else
+        # Compare against stock
+        if ! diff -q "$stock_file" "$patched_file" > /dev/null 2>&1; then
             patch_name="${flat_base}.patch"
-
-            # Fetch stock file from GitHub
-            raw_url="https://raw.githubusercontent.com/rust-lang/rust/$COMMIT_HASH/$rel_path"
-            stock_file=$(mktemp)
-            if ! curl -sS -f "$raw_url" -o "$stock_file" 2>/dev/null; then
-                echo "ERROR: Failed to fetch $raw_url"
-                rm -f "$stock_file"
-                continue
-            fi
-
-            # Generate unified diff (like gen-std-patches.sh)
-            diff -u "$stock_file" "$local_file" \
+            diff -u "$stock_file" "$patched_file" \
                 --label "a/$rel_path" --label "b/$rel_path" \
                 > "$PATCH_DIR/$patch_name" || true
-            rm -f "$stock_file"
 
             if [ -s "$PATCH_DIR/$patch_name" ]; then
                 PATCHES+=("$rel_path:$patch_name")
                 echo "[PATCH] $rel_path → $patch_name"
             else
                 rm -f "$PATCH_DIR/$patch_name"
-                echo "[SKIP]  $rel_path (no diff)"
             fi
-            ;;
-
-        NEW)
-            # Copy new file from patched-rustc/ to rustc-patches/
-            base_name=$(basename "$rel_path")
-            cp "$local_file" "$PATCH_DIR/$base_name"
-            NEW_FILES+=("$rel_path:$base_name")
-            echo "[NEW]   $rel_path → $base_name"
-            ;;
-
-        *)
-            echo "WARN: unknown kind '$kind' in manifest, skipping: $line"
-            ;;
-    esac
-done < "$MANIFEST"
+        fi
+    fi
+done < <(find "$PATCHED_DIR/compiler" -name "*.rs" -type f | sort)
 
 echo ""
 echo "Generated ${#PATCHES[@]} patch(es), ${#NEW_FILES[@]} new file(s)."
@@ -132,8 +89,7 @@ cat > "$SCRIPT_DIR/apply-rustc-patches.sh" << 'HEADER'
 #
 # Usage: ./scripts/apply-rustc-patches.sh <rustc-source-dir>
 #
-# <rustc-source-dir> should be a fresh rustc source checkout (e.g., from
-# `git clone https://github.com/rust-lang/rust.git`).
+# <rustc-source-dir> should be a fresh rustc source checkout.
 
 set -e
 
@@ -196,20 +152,17 @@ Baseline: \`$NIGHTLY_VER\`
 ## Setup
 
 \`\`\`bash
-# Clone rustc source (matching nightly)
-git clone --depth 1 https://github.com/rust-lang/rust.git rustc-src
-
-# Apply patches
-./scripts/apply-rustc-patches.sh rustc-src
+# Apply patches to patched-rustc/ (already done if you cloned from rustc-src/)
+./scripts/apply-rustc-patches.sh patched-rustc
 
 # Build the patched compiler
-cd rustc-src && ./x.py build compiler
+cd patched-rustc && python x.py build compiler
 \`\`\`
 
 ## Regenerate patches after editing patched-rustc/
 
 \`\`\`bash
-./scripts/gen-rustc-patches.sh
+./scripts/gen-rustc-patches.sh    # diffs patched-rustc/ vs rustc-src/
 \`\`\`
 
 ## Modified files (patches)

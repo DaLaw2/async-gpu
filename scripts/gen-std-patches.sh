@@ -1,120 +1,82 @@
 #!/bin/bash
-# Generate std-patches/ from the diff between stock std and patched-std/.
+# Generate std-patches/ by diffing patched-std/ against rustc-src/library/std/ (stock).
 #
 # Usage: ./scripts/gen-std-patches.sh
 #
-# Like gen-rustc-patches.sh, this fetches stock files from GitHub using the
-# nightly commit hash, so patches are reproducible regardless of local sysroot.
+# Automatically scans src/ for differences — no manifest needed.
+# - Modified files → unified diff (.patch)
+# - New files (only in patched-std/) → copied as-is (.rs)
 #
-# The manifest file (std-patches/manifest.txt) lists which files we've
-# modified or added. Paths are relative to patched-std/ (std crate root).
-# GitHub URLs are constructed by prepending library/std/ to these paths.
-#
-# Format:
-#   PATCH src/sys/alloc/mod.rs
-#   NEW   src/sys/alloc/cuda.rs
+# Prerequisites:
+#   rustc-src/  — clean rustc clone (git clone --depth 1 https://github.com/rust-lang/rust.git rustc-src)
+#   patched-std/ — std crate root with our modifications (src/...)
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
 PATCH_DIR="$REPO_DIR/std-patches"
+STOCK_STD="$REPO_DIR/rustc-src/library/std"
 PATCHED_STD="$REPO_DIR/patched-std"
-MANIFEST="$PATCH_DIR/manifest.txt"
 
-if [ ! -d "$PATCHED_STD" ]; then
-    echo "ERROR: patched-std/ directory not found."
+if [ ! -d "$STOCK_STD/src" ]; then
+    echo "ERROR: rustc-src/library/std/ not found."
+    echo "Clone stock rustc first:"
+    echo "  git clone --depth 1 https://github.com/rust-lang/rust.git rustc-src"
+    exit 1
+fi
+
+if [ ! -d "$PATCHED_STD/src" ]; then
+    echo "ERROR: patched-std/src/ not found."
     echo "Run apply-std-patches.sh first, or copy std source manually."
     exit 1
 fi
 
-if [ ! -f "$MANIFEST" ]; then
-    echo "ERROR: std-patches/manifest.txt not found."
-    exit 1
-fi
-
-# Get nightly commit hash for fetching stock files
-COMMIT_HASH=$(rustc +nightly --version -v 2>/dev/null | grep "commit-hash" | awk '{print $2}')
-if [ -z "$COMMIT_HASH" ]; then
-    echo "ERROR: Could not determine nightly commit hash."
-    echo "Ensure nightly toolchain is installed: rustup toolchain install nightly"
-    exit 1
-fi
-
 NIGHTLY_VER=$(rustc +nightly --version 2>/dev/null | head -1 || echo "unknown")
-echo "Nightly: $NIGHTLY_VER"
-echo "Commit:  $COMMIT_HASH"
+echo "Baseline: $NIGHTLY_VER"
+echo "Stock:    $STOCK_STD"
+echo "Patched:  $PATCHED_STD"
 echo ""
 
-# Clean old generated patches (but not manifest.txt or PATCHES.md)
+# Clean old generated patches
 cd "$PATCH_DIR"
 rm -f *.patch *.rs
 
 PATCHES=()
 NEW_FILES=()
 
-while IFS= read -r line; do
-    # Skip comments and blank lines
-    [[ "$line" =~ ^[[:space:]]*# ]] && continue
-    [[ -z "${line// /}" ]] && continue
-
-    kind=$(echo "$line" | awk '{print $1}')
-    rel_path=$(echo "$line" | awk '{print $2}')
-
-    if [ -z "$rel_path" ]; then
-        echo "WARN: skipping malformed manifest line: $line"
-        continue
-    fi
-
-    local_file="$PATCHED_STD/$rel_path"
-    if [ ! -f "$local_file" ]; then
-        echo "WARN: $rel_path not found in patched-std/, skipping"
-        continue
-    fi
+# --- Scan for modified/new .rs files under src/ ---
+while IFS= read -r patched_file; do
+    # rel_path = src/sys/alloc/mod.rs
+    rel_path="${patched_file#$PATCHED_STD/}"
+    stock_file="$STOCK_STD/$rel_path"
 
     # Flatten path for output filename:
     # src/sys/fs/cuda.rs → sys_fs_cuda.rs
     flat_base=$(echo "$rel_path" | sed 's|src/||; s|/|_|g')
 
-    case "$kind" in
-        PATCH)
+    if [ ! -f "$stock_file" ]; then
+        # New file — not in stock
+        cp "$patched_file" "$PATCH_DIR/$flat_base"
+        NEW_FILES+=("$rel_path:$flat_base")
+        echo "[NEW]   $rel_path → $flat_base"
+    else
+        # Compare against stock
+        if ! diff -q "$stock_file" "$patched_file" > /dev/null 2>&1; then
             patch_name="${flat_base%.rs}.patch"
-
-            # Fetch stock file from GitHub (std lives under library/std/ in the repo)
-            raw_url="https://raw.githubusercontent.com/rust-lang/rust/$COMMIT_HASH/library/std/$rel_path"
-            stock_file=$(mktemp)
-            if ! curl -sS -f "$raw_url" -o "$stock_file" 2>/dev/null; then
-                echo "ERROR: Failed to fetch $raw_url"
-                rm -f "$stock_file"
-                continue
-            fi
-
-            # Generate unified diff
-            diff -u "$stock_file" "$local_file" \
+            diff -u "$stock_file" "$patched_file" \
                 --label "a/$rel_path" --label "b/$rel_path" \
                 > "$PATCH_DIR/$patch_name" || true
-            rm -f "$stock_file"
 
             if [ -s "$PATCH_DIR/$patch_name" ]; then
                 PATCHES+=("$rel_path:$patch_name")
                 echo "[PATCH] $rel_path → $patch_name"
             else
                 rm -f "$PATCH_DIR/$patch_name"
-                echo "[SKIP]  $rel_path (no diff)"
             fi
-            ;;
-
-        NEW)
-            cp "$local_file" "$PATCH_DIR/$flat_base"
-            NEW_FILES+=("$rel_path:$flat_base")
-            echo "[NEW]   $rel_path → $flat_base"
-            ;;
-
-        *)
-            echo "WARN: unknown kind '$kind' in manifest, skipping: $line"
-            ;;
-    esac
-done < "$MANIFEST"
+        fi
+    fi
+done < <(find "$PATCHED_STD/src" -name "*.rs" -type f | sort)
 
 echo ""
 echo "Generated ${#PATCHES[@]} patch(es), ${#NEW_FILES[@]} new file(s)."
@@ -127,29 +89,27 @@ cat > "$SCRIPT_DIR/apply-std-patches.sh" << 'HEADER'
 #
 # Usage: ./scripts/apply-std-patches.sh [output_dir]
 #
-# Copies std source from sysroot into output_dir (flat structure: output_dir/src/...),
-# then applies patches.
+# Copies std source from rustc-src/ into output_dir, then applies patches.
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
 PATCH_DIR="$REPO_DIR/std-patches"
+STOCK_STD="$REPO_DIR/rustc-src/library/std"
 OUTPUT_DIR="${1:-$REPO_DIR/patched-std}"
 
-SYSROOT=$(rustc +nightly --print sysroot)
-SRC_STD="$SYSROOT/lib/rustlib/src/rust/library/std"
-
-if [ ! -d "$SRC_STD" ]; then
-    echo "ERROR: rust-src not found at $SRC_STD"
-    echo "Install: rustup +nightly component add rust-src"
+if [ ! -d "$STOCK_STD" ]; then
+    echo "ERROR: rustc-src/library/std/ not found."
+    echo "Clone stock rustc first:"
+    echo "  git clone --depth 1 https://github.com/rust-lang/rust.git rustc-src"
     exit 1
 fi
 
-echo "Copying std source from sysroot..."
+echo "Copying std source from rustc-src/..."
 rm -rf "$OUTPUT_DIR"
 mkdir -p "$OUTPUT_DIR"
-cp -r "$SRC_STD"/* "$OUTPUT_DIR/"
+cp -r "$STOCK_STD"/* "$OUTPUT_DIR/"
 
 echo "Applying patches..."
 cd "$OUTPUT_DIR"
@@ -195,13 +155,13 @@ Baseline: \`$NIGHTLY_VER\`
 ## Setup
 
 \`\`\`bash
-./scripts/apply-std-patches.sh        # copies sysroot std + applies patches → patched-std/
+./scripts/apply-std-patches.sh    # copies rustc-src/library/std/ + applies patches → patched-std/
 \`\`\`
 
 ## Regenerate patches after editing patched-std/
 
 \`\`\`bash
-./scripts/gen-std-patches.sh
+./scripts/gen-std-patches.sh      # diffs patched-std/ vs rustc-src/library/std/
 \`\`\`
 
 ## Modified files (patches)

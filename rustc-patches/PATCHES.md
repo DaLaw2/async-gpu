@@ -8,20 +8,17 @@ Baseline: `rustc 1.96.0-nightly (3b1b0ef4d 2026-03-11)`
 ## Setup
 
 ```bash
-# Clone rustc source (matching nightly)
-git clone --depth 1 https://github.com/rust-lang/rust.git rustc-src
-
-# Apply patches
-./scripts/apply-rustc-patches.sh rustc-src
+# Apply patches to patched-rustc/ (already done if you cloned from rustc-src/)
+./scripts/apply-rustc-patches.sh patched-rustc
 
 # Build the patched compiler
-cd rustc-src && ./x.py build compiler
+cd patched-rustc && python x.py build compiler
 ```
 
 ## Regenerate patches after editing patched-rustc/
 
 ```bash
-./scripts/gen-rustc-patches.sh
+./scripts/gen-rustc-patches.sh    # diffs patched-rustc/ vs rustc-src/
 ```
 
 ## Modified files (patches)

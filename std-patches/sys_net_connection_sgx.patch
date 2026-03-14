@@ -1,0 +1,13 @@
+--- a/src/sys/net/connection/sgx.rs
++++ b/src/sys/net/connection/sgx.rs
+@@ -68,8 +68,8 @@
+ ///
+ /// SGX doesn't support DNS resolution but rather accepts hostnames in
+ /// the same place as socket addresses. So, to make e.g.
+-/// ```rust,ignore (incomplete example)
+-/// TcpStream::connect("example.com:80")
++/// ```rust
++/// TcpStream::connect("example.com:80")`
+ /// ```
+ /// work, the DNS lookup returns a special error (`NonIpSockAddr`) instead,
+ /// which contains the hostname being looked up. When `.to_socket_addrs()`

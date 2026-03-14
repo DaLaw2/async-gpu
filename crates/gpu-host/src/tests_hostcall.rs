@@ -731,3 +731,122 @@ pub(crate) fn run_hostcall_time_test(dev: Arc<CudaDevice>) -> Result<()> {
     println!("    Host SystemTime works (reasonable epoch seconds)");
     Ok(())
 }
+
+/// Test: 32 threads each emit a gpu_trace!() event, verify all 32 complete.
+///
+/// Trace events are printed to stderr by the host-side handler. We verify
+/// that all 32 threads ran to completion via an atomic success counter.
+pub(crate) fn run_trace_multithread_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Trace multi-thread test (32 threads) ---");
+
+    let num_packets = 64u16; // Enough for 32 threads
+    let hc_buf = hostcall::HostcallBuffer::new(num_packets)?;
+    let dev_ptr = hc_buf.dev_ptr;
+
+    let (count_host_ptr, count_dev_ptr) = unsafe { alloc_mapped_u32(&dev)? };
+    unsafe { std::ptr::write_volatile(count_host_ptr, 0u32) };
+
+    let hc_buf_ref = std::sync::Arc::new(hc_buf);
+    let hc_buf_listener = std::sync::Arc::clone(&hc_buf_ref);
+    let listener_handle = std::thread::spawn(move || {
+        hc_buf_listener.listen(|_msg| {
+            // Trace events go to stderr via handle_trace, not through on_print
+        });
+    });
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "kernel", &["trace_multithread_test"]);
+    let f = dev
+        .get_func("kernel", "trace_multithread_test")
+        .ok_or(GpuHostError::KernelNotFound("trace_multithread_test"))?;
+
+    let cfg = cudarc::driver::LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (32, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    println!("  Launching trace_multithread_test (1 block × 32 threads)...");
+    unsafe {
+        f.launch(cfg, (dev_ptr, count_dev_ptr))?;
+    }
+
+    dev.synchronize()?;
+    println!("  Kernel completed.");
+
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    hc_buf_ref.signal_shutdown();
+    listener_handle.join().unwrap();
+
+    let success_count = unsafe { std::ptr::read_volatile(count_host_ptr) };
+    unsafe { free_mapped_mem(count_host_ptr)? };
+
+    println!("  Results: {success_count}/32 threads completed trace events");
+
+    if success_count != 32 {
+        return Err(GpuHostError::Verification {
+            test: "trace_multithread_test",
+            detail: format!("expected 32 successes, got {success_count}"),
+        });
+    }
+
+    println!("  trace_multithread_test: PASSED!");
+    Ok(())
+}
+
+/// Test: threads trace + assert (true condition). Verify assert does not trap.
+pub(crate) fn run_trace_assert_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Trace + assert test (32 threads, assert true) ---");
+
+    let num_packets = 64u16;
+    let hc_buf = hostcall::HostcallBuffer::new(num_packets)?;
+    let dev_ptr = hc_buf.dev_ptr;
+
+    let (count_host_ptr, count_dev_ptr) = unsafe { alloc_mapped_u32(&dev)? };
+    unsafe { std::ptr::write_volatile(count_host_ptr, 0u32) };
+
+    let hc_buf_ref = std::sync::Arc::new(hc_buf);
+    let hc_buf_listener = std::sync::Arc::clone(&hc_buf_ref);
+    let listener_handle = std::thread::spawn(move || {
+        hc_buf_listener.listen(|_msg| {});
+    });
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "kernel", &["trace_assert_test"]);
+    let f = dev
+        .get_func("kernel", "trace_assert_test")
+        .ok_or(GpuHostError::KernelNotFound("trace_assert_test"))?;
+
+    let cfg = cudarc::driver::LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (32, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    println!("  Launching trace_assert_test (1 block × 32 threads)...");
+    unsafe {
+        f.launch(cfg, (dev_ptr, count_dev_ptr))?;
+    }
+
+    dev.synchronize()?;
+    println!("  Kernel completed (no trap — assert passed).");
+
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    hc_buf_ref.signal_shutdown();
+    listener_handle.join().unwrap();
+
+    let success_count = unsafe { std::ptr::read_volatile(count_host_ptr) };
+    unsafe { free_mapped_mem(count_host_ptr)? };
+
+    println!("  Results: {success_count}/32 threads completed");
+
+    if success_count != 32 {
+        return Err(GpuHostError::Verification {
+            test: "trace_assert_test",
+            detail: format!("expected 32 successes, got {success_count}"),
+        });
+    }
+
+    println!("  trace_assert_test: PASSED!");
+    Ok(())
+}

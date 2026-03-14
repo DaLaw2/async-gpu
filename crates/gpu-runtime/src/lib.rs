@@ -428,6 +428,187 @@ pub mod hostcall {
 
         Ok(())
     }
+
+    /// Send a TRACE hostcall with a structured trace event.
+    ///
+    /// Emits a trace event with thread/block/warp metadata and GPU timestamp.
+    /// Fire-and-forget: the host acknowledges but no response data is used.
+    ///
+    /// # Arguments
+    /// - `buf`: hostcall buffer pointer
+    /// - `level`: trace level (TRACE_LEVEL_DEBUG/INFO/WARN/ERROR)
+    /// - `msg`: message bytes (max 48 bytes, truncated if longer)
+    /// - `msg_len`: message length
+    #[inline(always)]
+    pub unsafe fn gpu_hostcall_trace(
+        buf: *mut u8,
+        level: u8,
+        msg: *const u8,
+        msg_len: u32,
+    ) -> Result<(), GpuError> {
+        let (num_shards, shard_array_off, _) = read_shard_info(buf as *const u8);
+        let free_ptr = get_free_stack_ptr(buf, num_shards, shard_array_off);
+        let ready_ptr = get_ready_stack_ptr(buf, num_shards, shard_array_off);
+
+        let pkt_idx = hc_pop_free_from(buf, free_ptr, num_shards, shard_array_off);
+        if pkt_idx == NULL_INDEX {
+            return Err(GpuError::pool_exhausted());
+        }
+
+        let pkt_off = if num_shards == 0 {
+            packet_offset(pkt_idx)
+        } else {
+            packet_offset_sharded(pkt_idx, shard_array_off as usize, num_shards)
+        };
+        let pkt = buf.add(pkt_off);
+
+        let mask = activemask();
+        core::ptr::write_volatile(pkt.add(PKT_OFF_ACTIVE_MASK) as *mut u32, mask);
+        core::ptr::write_volatile(pkt.add(PKT_OFF_SERVICE) as *mut u32, SERVICE_TRACE);
+        sys_store_release_u32(pkt.add(PKT_OFF_CONTROL) as *mut u32, 0);
+
+        let payload = pkt.add(PKT_OFF_PAYLOAD);
+
+        // Slot 0: trace metadata
+        let thread_idx = crate::nvptx_shim::thread_idx_x() as u16;
+        let block_idx = crate::nvptx_shim::block_idx_x() as u16;
+        let lane = gpu_atomics::lane_id() as u16;
+        let copy_len = if msg_len > TRACE_MAX_MSG_LEN as u32 {
+            TRACE_MAX_MSG_LEN as u32
+        } else {
+            msg_len
+        };
+        let meta =
+            encode_trace_metadata(thread_idx, block_idx, level, copy_len as u8, lane);
+        core::ptr::write_volatile(payload as *mut u64, meta);
+
+        // Slot 1: GPU timestamp
+        let timestamp: u64;
+        #[cfg(target_arch = "nvptx64")]
+        {
+            core::arch::asm!("mov.u64 {}, %clock64;", out(reg64) timestamp);
+        }
+        #[cfg(not(target_arch = "nvptx64"))]
+        {
+            timestamp = 0;
+        }
+        core::ptr::write_volatile(payload.add(8) as *mut u64, timestamp);
+
+        // Slots 2-7: message bytes (up to 48 bytes)
+        let dst = payload.add(16);
+        let mut i: u32 = 0;
+        while i < copy_len {
+            core::ptr::write_volatile(dst.add(i as usize), *msg.add(i as usize));
+            i += 1;
+        }
+
+        sys_store_release_u32(pkt.add(PKT_OFF_CONTROL) as *mut u32, CONTROL_FILLED);
+
+        hc_push_with(ready_ptr, buf, pkt_idx, num_shards, shard_array_off);
+
+        sys_fetch_add_u64(buf.add(BUF_OFF_DOORBELL) as *mut u64, 1);
+
+        // Wait for host acknowledgment
+        let control_ptr = pkt.add(PKT_OFF_CONTROL) as *const u32;
+        let mut spins: u32 = 0;
+        loop {
+            let ctrl = sys_spin_load_acquire_u32(control_ptr);
+            if ctrl & CONTROL_READY != 0 {
+                break;
+            }
+            spins += 1;
+            if spins >= GPU_MAX_SPIN {
+                return Err(GpuError::timeout());
+            }
+        }
+
+        hc_push_with(free_ptr, buf, pkt_idx, num_shards, shard_array_off);
+
+        Ok(())
+    }
+
+    /// Send a GPU assert diagnostic via hostcall, then trap.
+    ///
+    /// Sends the assertion message to the host (SERVICE_ASSERT), waits for
+    /// acknowledgment, then executes PTX `trap` to halt the kernel.
+    /// The host can display the assertion failure with thread coordinates.
+    ///
+    /// # Arguments
+    /// - `buf`: hostcall buffer pointer
+    /// - `msg`: assertion message bytes (max 56 bytes)
+    /// - `msg_len`: message length
+    #[inline(always)]
+    pub unsafe fn gpu_hostcall_assert(
+        buf: *mut u8,
+        msg: *const u8,
+        msg_len: u32,
+    ) -> ! {
+        let (num_shards, shard_array_off, _) = read_shard_info(buf as *const u8);
+        let free_ptr = get_free_stack_ptr(buf, num_shards, shard_array_off);
+        let ready_ptr = get_ready_stack_ptr(buf, num_shards, shard_array_off);
+
+        let pkt_idx = hc_pop_free_from(buf, free_ptr, num_shards, shard_array_off);
+        if pkt_idx != NULL_INDEX {
+            let pkt_off = if num_shards == 0 {
+                packet_offset(pkt_idx)
+            } else {
+                packet_offset_sharded(pkt_idx, shard_array_off as usize, num_shards)
+            };
+            let pkt = buf.add(pkt_off);
+
+            let mask = activemask();
+            core::ptr::write_volatile(pkt.add(PKT_OFF_ACTIVE_MASK) as *mut u32, mask);
+            core::ptr::write_volatile(pkt.add(PKT_OFF_SERVICE) as *mut u32, SERVICE_ASSERT);
+            sys_store_release_u32(pkt.add(PKT_OFF_CONTROL) as *mut u32, 0);
+
+            let payload = pkt.add(PKT_OFF_PAYLOAD);
+
+            // Slot 0: metadata (same format as PANIC)
+            let thread_idx = crate::nvptx_shim::thread_idx_x() as u16;
+            let block_idx = crate::nvptx_shim::block_idx_x() as u16;
+            let copy_len = if msg_len > ASSERT_MAX_MSG_LEN as u32 {
+                ASSERT_MAX_MSG_LEN as u32
+            } else {
+                msg_len
+            };
+            let meta = encode_panic_metadata(thread_idx, block_idx, copy_len as u16);
+            core::ptr::write_volatile(payload as *mut u64, meta);
+
+            // Slots 1-7: message bytes
+            let dst = payload.add(8);
+            let mut i: u32 = 0;
+            while i < copy_len {
+                core::ptr::write_volatile(dst.add(i as usize), *msg.add(i as usize));
+                i += 1;
+            }
+
+            sys_store_release_u32(pkt.add(PKT_OFF_CONTROL) as *mut u32, CONTROL_FILLED);
+
+            hc_push_with(ready_ptr, buf, pkt_idx, num_shards, shard_array_off);
+
+            sys_fetch_add_u64(buf.add(BUF_OFF_DOORBELL) as *mut u64, 1);
+
+            // Wait for acknowledgment before trap
+            let control_ptr = pkt.add(PKT_OFF_CONTROL) as *const u32;
+            let mut spins: u32 = 0;
+            loop {
+                let ctrl = sys_spin_load_acquire_u32(control_ptr);
+                if ctrl & CONTROL_READY != 0 {
+                    break;
+                }
+                spins += 1;
+                if spins >= GPU_MAX_SPIN {
+                    break; // Give up waiting, trap anyway
+                }
+            }
+        }
+
+        // Trap — halts the entire device
+        #[cfg(target_arch = "nvptx64")]
+        core::arch::asm!("trap;", options(noreturn));
+        #[cfg(not(target_arch = "nvptx64"))]
+        core::hint::unreachable_unchecked();
+    }
 }
 
 /// Sideband buffer helpers for bulk data transfer (>56 bytes).
@@ -835,6 +1016,92 @@ macro_rules! panic_handler {
     };
 }
 
+/// Emit a structured trace event from GPU to host.
+///
+/// Usage:
+/// ```rust,ignore
+/// gpu_trace!(buf, INFO, "processing item {}", idx);
+/// gpu_trace!(buf, DEBUG, "loop iteration");
+/// gpu_trace!(buf, WARN, "buffer nearly full");
+/// gpu_trace!(buf, ERROR, "unexpected value");
+/// ```
+///
+/// `buf` is the hostcall buffer pointer. Level is one of DEBUG, INFO, WARN, ERROR.
+/// The message is formatted into a fixed-size buffer (max 48 bytes) and sent via
+/// SERVICE_TRACE hostcall with thread/block/warp metadata and GPU timestamp.
+///
+/// Compile out with `#[cfg(not(feature = "gpu-trace"))]` to remove all trace
+/// overhead in release builds.
+#[macro_export]
+macro_rules! gpu_trace {
+    ($buf:expr, DEBUG, $($arg:tt)*) => {
+        $crate::_gpu_trace_impl!($buf, $crate::prelude::TRACE_LEVEL_DEBUG, $($arg)*)
+    };
+    ($buf:expr, INFO, $($arg:tt)*) => {
+        $crate::_gpu_trace_impl!($buf, $crate::prelude::TRACE_LEVEL_INFO, $($arg)*)
+    };
+    ($buf:expr, WARN, $($arg:tt)*) => {
+        $crate::_gpu_trace_impl!($buf, $crate::prelude::TRACE_LEVEL_WARN, $($arg)*)
+    };
+    ($buf:expr, ERROR, $($arg:tt)*) => {
+        $crate::_gpu_trace_impl!($buf, $crate::prelude::TRACE_LEVEL_ERROR, $($arg)*)
+    };
+}
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! _gpu_trace_impl {
+    ($buf:expr, $level:expr, $($arg:tt)*) => {{
+        let mut tbuf = $crate::panic::PanicBuf::new();
+        {
+            use core::fmt::Write;
+            let _ = write!(tbuf, $($arg)*);
+        }
+        let msg = tbuf.as_slice();
+        let _ = unsafe {
+            $crate::hostcall::gpu_hostcall_trace($buf, $level, msg.as_ptr(), msg.len() as u32)
+        };
+    }};
+}
+
+/// Assert a condition on GPU, sending diagnostic info to host before trapping.
+///
+/// Usage:
+/// ```rust,ignore
+/// gpu_assert!(buf, x > 0, "x must be positive, got {}", x);
+/// gpu_assert!(buf, ptr != core::ptr::null(), "null pointer");
+/// ```
+///
+/// On assertion failure, sends the message (with thread/block coordinates) to
+/// the host via SERVICE_ASSERT, then executes PTX `trap` to halt the kernel.
+/// The host displays a formatted assertion failure.
+#[macro_export]
+macro_rules! gpu_assert {
+    ($buf:expr, $cond:expr, $($arg:tt)*) => {
+        if !($cond) {
+            let mut tbuf = $crate::panic::PanicBuf::new();
+            {
+                use core::fmt::Write;
+                let _ = write!(tbuf, "assertion failed: {}", stringify!($cond));
+                let _ = write!(tbuf, " — ");
+                let _ = write!(tbuf, $($arg)*);
+            }
+            let msg = tbuf.as_slice();
+            unsafe {
+                $crate::hostcall::gpu_hostcall_assert($buf, msg.as_ptr(), msg.len() as u32);
+            }
+        }
+    };
+    ($buf:expr, $cond:expr) => {
+        if !($cond) {
+            let msg = concat!("assertion failed: ", stringify!($cond));
+            unsafe {
+                $crate::hostcall::gpu_hostcall_assert($buf, msg.as_ptr(), msg.len() as u32);
+            }
+        }
+    };
+}
+
 /// Warp-level Future — SIMT-convergent async on GPU.
 ///
 /// A `WarpFuture` represents an entire warp (32 lanes) executing in lockstep.
@@ -1089,7 +1356,10 @@ pub mod warp_future {
 /// ```
 pub mod prelude {
     // --- High-level hostcall API ---
-    pub use crate::hostcall::{gpu_hostcall_print, gpu_hostcall_release, gpu_hostcall_request};
+    pub use crate::hostcall::{
+        gpu_hostcall_assert, gpu_hostcall_print, gpu_hostcall_release, gpu_hostcall_request,
+        gpu_hostcall_trace,
+    };
     pub use crate::panic::{gpu_panic_init, gpu_result_init};
     pub use crate::sideband::{gpu_bulk_read, gpu_bulk_write, sideband_alloc, sideband_reset};
 
@@ -1109,7 +1379,8 @@ pub mod prelude {
         FILE_OPEN_WRITE_CREATE, NULL_INDEX, PACKET_SIZE, PKT_OFF_ACTIVE_MASK, PKT_OFF_CONTROL,
         PKT_OFF_PAYLOAD, PKT_OFF_SERVICE, PRINT_MAX_MSG_LEN, SERVICE_BULK_READ, SERVICE_BULK_WRITE,
         SERVICE_CLOSE, SERVICE_OPEN, SERVICE_PANIC, SERVICE_PRINT, SERVICE_READ, SERVICE_STDIN,
-        SERVICE_TIME, SERVICE_WRITE,
+        SERVICE_ASSERT, SERVICE_TIME, SERVICE_TRACE, SERVICE_WRITE, TRACE_LEVEL_DEBUG,
+        TRACE_LEVEL_ERROR, TRACE_LEVEL_INFO, TRACE_LEVEL_WARN,
     };
 
     // --- Warp intrinsics ---

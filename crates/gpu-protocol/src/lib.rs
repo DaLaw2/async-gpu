@@ -640,3 +640,121 @@ pub const STDIN_MAX_READ_LEN: usize = 56;
 // Response:
 //   Slot 0: seconds since Unix epoch (u64)
 //   Slot 1: nanoseconds within second (u64)
+
+// ============================================================
+// TRACE service — structured GPU trace events
+// ============================================================
+
+/// Emit a structured trace event from GPU to host.
+///
+/// Unlike `SERVICE_PRINT` (plain text), trace events carry structured
+/// metadata: thread/block coordinates, severity level, and a GPU
+/// timestamp. The host can collect, sort, and filter events.
+pub const SERVICE_TRACE: u32 = 13;
+
+/// Emit a GPU assertion failure diagnostic to host (before trap).
+///
+/// Similar to `SERVICE_PANIC` but includes the assertion expression
+/// and is designed for `gpu_assert!()` macro output.
+pub const SERVICE_ASSERT: u32 = 14;
+
+// ============================================================
+// TRACE service payload layout (lane 0)
+// ============================================================
+//
+// Request:
+//   Slot 0: metadata (u64)
+//     - Bits 15..0:  threadIdx.x (u16)
+//     - Bits 31..16: blockIdx.x (u16)
+//     - Bits 39..32: trace level (u8) — see TRACE_LEVEL_* constants
+//     - Bits 47..40: message length (u8, 0..48)
+//     - Bits 63..48: warp lane ID (u16)
+//   Slot 1: GPU timestamp (u64) — from %clock64 or %globaltimer
+//   Slots 2-7: message bytes (up to 48 bytes, UTF-8)
+// Response:
+//   (CONTROL_READY set — no response data needed, fire-and-forget)
+
+/// Trace level: debug (verbose, lowest priority).
+pub const TRACE_LEVEL_DEBUG: u8 = 0;
+/// Trace level: info (normal events).
+pub const TRACE_LEVEL_INFO: u8 = 1;
+/// Trace level: warn (potential issues).
+pub const TRACE_LEVEL_WARN: u8 = 2;
+/// Trace level: error (failures that don't trap).
+pub const TRACE_LEVEL_ERROR: u8 = 3;
+
+/// Maximum trace message length (6 slots × 8 bytes).
+pub const TRACE_MAX_MSG_LEN: usize = 48;
+
+/// Encode trace metadata: thread index, block index, level, msg_len, lane ID.
+///
+/// ```
+/// use gpu_protocol::*;
+/// let meta = encode_trace_metadata(5, 3, TRACE_LEVEL_INFO, 20, 0);
+/// assert_eq!(trace_thread_idx(meta), 5);
+/// assert_eq!(trace_block_idx(meta), 3);
+/// assert_eq!(trace_level(meta), TRACE_LEVEL_INFO);
+/// assert_eq!(trace_msg_len(meta), 20);
+/// assert_eq!(trace_lane_id(meta), 0);
+/// ```
+#[inline(always)]
+pub const fn encode_trace_metadata(
+    thread_idx: u16,
+    block_idx: u16,
+    level: u8,
+    msg_len: u8,
+    lane_id: u16,
+) -> u64 {
+    (thread_idx as u64)
+        | ((block_idx as u64) << 16)
+        | ((level as u64) << 32)
+        | ((msg_len as u64) << 40)
+        | ((lane_id as u64) << 48)
+}
+
+/// Decode `threadIdx.x` from trace metadata.
+#[inline(always)]
+pub const fn trace_thread_idx(meta: u64) -> u16 {
+    (meta & 0xFFFF) as u16
+}
+
+/// Decode `blockIdx.x` from trace metadata.
+#[inline(always)]
+pub const fn trace_block_idx(meta: u64) -> u16 {
+    ((meta >> 16) & 0xFFFF) as u16
+}
+
+/// Decode trace level from trace metadata.
+#[inline(always)]
+pub const fn trace_level(meta: u64) -> u8 {
+    ((meta >> 32) & 0xFF) as u8
+}
+
+/// Decode message length from trace metadata.
+#[inline(always)]
+pub const fn trace_msg_len(meta: u64) -> u8 {
+    ((meta >> 40) & 0xFF) as u8
+}
+
+/// Decode warp lane ID from trace metadata.
+#[inline(always)]
+pub const fn trace_lane_id(meta: u64) -> u16 {
+    ((meta >> 48) & 0xFFFF) as u16
+}
+
+// ============================================================
+// ASSERT service payload layout (lane 0)
+// ============================================================
+//
+// Request:
+//   Slot 0: metadata (u64) — same format as PANIC
+//     - Bits 15..0:  threadIdx.x (u16)
+//     - Bits 31..16: blockIdx.x (u16)
+//     - Bits 47..32: message length (u16)
+//     - Bits 63..48: reserved
+//   Slots 1-7: assertion message bytes (up to 56 bytes, UTF-8)
+// Response:
+//   (CONTROL_READY set — GPU will trap after sending)
+
+/// Maximum assertion message length (7 slots × 8 bytes).
+pub const ASSERT_MAX_MSG_LEN: usize = 56;

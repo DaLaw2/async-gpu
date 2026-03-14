@@ -503,6 +503,14 @@ impl HostcallBuffer {
                                     self.handle_panic(pkt);
                                     control.store(CONTROL_READY, Ordering::Release);
                                 }
+                                SERVICE_TRACE => {
+                                    self.handle_trace(pkt);
+                                    control.store(CONTROL_READY, Ordering::Release);
+                                }
+                                SERVICE_ASSERT => {
+                                    self.handle_assert(pkt);
+                                    control.store(CONTROL_READY, Ordering::Release);
+                                }
                                 // Slow path — offload to I/O thread
                                 SERVICE_OPEN | SERVICE_WRITE | SERVICE_READ | SERVICE_CLOSE
                                 | SERVICE_STDIN | SERVICE_BULK_WRITE | SERVICE_BULK_READ => {
@@ -804,6 +812,85 @@ impl HostcallBuffer {
         eprintln!("\x1b[1;31m[GPU PANIC]\x1b[0m block={block_idx} thread={thread_idx}: {msg}");
 
         false // No error — GPU thread will trap after receiving response
+    }
+
+    /// Handle SERVICE_TRACE: receive and display a structured trace event.
+    ///
+    /// Request payload (lane 0):
+    ///   Slot 0: metadata (threadIdx:16 | blockIdx:16 | level:8 | msg_len:8 | lane_id:16)
+    ///   Slot 1: clock64 timestamp (u64)
+    ///   Slots 2-7: message bytes (up to 48 bytes)
+    /// Response: CONTROL_READY (no error)
+    unsafe fn handle_trace(&self, pkt: *mut u8) -> bool {
+        let payload = pkt.add(PKT_OFF_PAYLOAD);
+
+        // Decode metadata from slot 0
+        let meta = std::ptr::read_volatile(payload as *const u64);
+        let thread_idx = trace_thread_idx(meta);
+        let block_idx = trace_block_idx(meta);
+        let level = trace_level(meta);
+        let msg_len = trace_msg_len(meta) as usize;
+        let msg_len = msg_len.min(TRACE_MAX_MSG_LEN);
+
+        // Slot 1: timestamp
+        let timestamp = std::ptr::read_volatile(payload.add(8) as *const u64);
+
+        // Slots 2-7: message bytes (starting at offset 16)
+        let msg_ptr = payload.add(16);
+        let mut msg_buf = [0u8; TRACE_MAX_MSG_LEN];
+        for i in 0..msg_len {
+            msg_buf[i] = std::ptr::read_volatile(msg_ptr.add(i));
+        }
+
+        let msg = std::str::from_utf8(&msg_buf[..msg_len]).unwrap_or("<invalid UTF-8>");
+        let level_str = match level {
+            TRACE_LEVEL_DEBUG => "DEBUG",
+            TRACE_LEVEL_INFO => "INFO",
+            TRACE_LEVEL_WARN => "WARN",
+            TRACE_LEVEL_ERROR => "ERROR",
+            _ => "UNKNOWN",
+        };
+        let color = match level {
+            TRACE_LEVEL_DEBUG => "\x1b[36m",   // cyan
+            TRACE_LEVEL_INFO => "\x1b[32m",    // green
+            TRACE_LEVEL_WARN => "\x1b[33m",    // yellow
+            TRACE_LEVEL_ERROR => "\x1b[1;31m", // bold red
+            _ => "\x1b[0m",
+        };
+        eprintln!("{color}[GPU {level_str}]\x1b[0m B{block_idx}.T{thread_idx} @{timestamp}: {msg}");
+
+        false
+    }
+
+    /// Handle SERVICE_ASSERT: receive and display a GPU assertion failure.
+    ///
+    /// Request payload (lane 0):
+    ///   Slot 0: metadata (threadIdx:16 | blockIdx:16 | msg_len:16 — same as PANIC format)
+    ///   Slots 1-7: assertion message bytes (up to 56 bytes)
+    /// Response: CONTROL_READY (GPU will trap after receiving response)
+    unsafe fn handle_assert(&self, pkt: *mut u8) -> bool {
+        let payload = pkt.add(PKT_OFF_PAYLOAD);
+
+        // Decode metadata — uses same format as PANIC
+        let meta = std::ptr::read_volatile(payload as *const u64);
+        let thread_idx = panic_thread_idx(meta);
+        let block_idx = panic_block_idx(meta);
+        let msg_len = panic_msg_len(meta) as usize;
+        let msg_len = msg_len.min(ASSERT_MAX_MSG_LEN);
+
+        // Read message bytes from slots 1-7
+        let msg_ptr = payload.add(8);
+        let mut msg_buf = [0u8; ASSERT_MAX_MSG_LEN];
+        for i in 0..msg_len {
+            msg_buf[i] = std::ptr::read_volatile(msg_ptr.add(i));
+        }
+
+        let msg = std::str::from_utf8(&msg_buf[..msg_len]).unwrap_or("<invalid UTF-8>");
+        eprintln!(
+            "\x1b[1;31m[GPU ASSERT FAILED]\x1b[0m block={block_idx} thread={thread_idx}: {msg}"
+        );
+
+        false // GPU will trap after receiving response
     }
 
     /// Handle SERVICE_CLOSE: close an open file.

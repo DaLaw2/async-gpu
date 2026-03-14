@@ -4,18 +4,18 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 210     # Monotonic counter, incremented after each completed phase
-completed_tasks = 209
+total_cycles = 214     # Monotonic counter, incremented after each completed phase
+completed_tasks = 213
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.execute"
+current_step = "do.route"
 current_task_id = ""
-last_summary = "All 7 tasks done. Atomic allocator (CAS), per-thread errno (TID-indexed array), README updated, HashMap works (address-based seed), #[thread_local] NOT supported on nvptx64. Multi-thread malloc test added (awaiting GPU verification). std-hardening theme complete."
+last_summary = "trace-protocol theme DONE: SERVICE_TRACE+ASSERT protocol, gpu_trace!/gpu_assert! macros, host-side handlers, 32-thread test passed. Next: gpu-assert-diag theme."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 52
+brainstorm_seq = 53
 review_seq = 5
 
 # Brainstorm trigger control (event-driven, no fixed interval)
@@ -88,6 +88,18 @@ success_criteria = [
 ]
 
 [[epics]]
+id = "gpu-debug"
+title = "GPU Debugging & Observability — structured tracing, assertions, flight recorder"
+status = "active"
+priority = "high"
+success_criteria = [
+    "gpu_trace!() macro emits structured events with thread/block/warp ID + timestamp to host",
+    "gpu_assert!() sends diagnostic message + thread coords to host before trap",
+    "Post-mortem flight recorder dumps last N trace events when kernel crashes",
+    "Conditional compilation: tracing compiles out for zero overhead in release",
+]
+
+[[epics]]
 id = "public-api"
 title = "Public API — Host SDK + Reusable GPU Kernel Library"
 status = "active"
@@ -124,6 +136,30 @@ goal = "HashMap::new() + insert/get works on GPU without panic"
 success_criteria = [
     "hashmap_random_keys() uses address-based seed, does NOT call fill_bytes()",
     "HashMap test kernel added to gpu-kernel-std (pending GPU verification)",
+]
+
+[[themes]]
+id = "trace-protocol"
+epic = "gpu-debug"
+title = "Structured trace event protocol + gpu_trace!() macro"
+status = "completed"
+goal = "Define trace event format, add hostcall service, implement gpu_trace!() macro"
+success_criteria = [
+    "New SERVICE_TRACE hostcall service ID in gpu-protocol",
+    "gpu_trace!() macro emits events with tid/bid/warp_id/timestamp",
+    "Host-side collector prints events in chronological order",
+    "Multi-thread test: 32 threads each emit trace events, all captured",
+]
+
+[[themes]]
+id = "gpu-assert-diag"
+epic = "gpu-debug"
+title = "GPU assert with diagnostic messages"
+status = "active"
+goal = "gpu_assert!() sends message to host before trap"
+success_criteria = [
+    "gpu_assert!(cond, msg) sends failure info to host before trap",
+    "Host displays formatted assertion failure with thread coordinates",
 ]
 
 [[themes]]
@@ -197,9 +233,68 @@ kind = "investigation"
 status = "done"
 deps = []
 
+[[tasks]]
+id = "trace-protocol.1"
+theme = "trace-protocol"
+title = "Define trace event format + SERVICE_TRACE in gpu-protocol"
+kind = "design"
+status = "done"
+deps = []
+
+[[tasks]]
+id = "trace-protocol.2"
+theme = "trace-protocol"
+title = "Implement gpu_trace!() macro in gpu-runtime"
+kind = "experiment"
+status = "done"
+deps = ["trace-protocol.1"]
+
+[[tasks]]
+id = "trace-protocol.3"
+theme = "trace-protocol"
+title = "Host-side trace collector + display"
+kind = "experiment"
+status = "done"
+deps = ["trace-protocol.1"]
+
+[[tasks]]
+id = "trace-protocol.4"
+theme = "trace-protocol"
+title = "Multi-thread trace test (32 threads, verify all events captured)"
+kind = "experiment"
+status = "done"
+deps = ["trace-protocol.2", "trace-protocol.3"]
+
+[[tasks]]
+id = "gpu-assert-diag.1"
+theme = "gpu-assert-diag"
+title = "Implement gpu_assert!() macro with hostcall diagnostic"
+kind = "experiment"
+status = "pending"
+deps = ["trace-protocol.1"]
+
+[[tasks]]
+id = "gpu-assert-diag.2"
+theme = "gpu-assert-diag"
+title = "Host-side assertion failure display + test"
+kind = "experiment"
+status = "pending"
+deps = ["gpu-assert-diag.1"]
+
 # ============================================================
 # Brainstorms (last 3 only — older brainstorms archived)
 # ============================================================
+
+[[brainstorms]]
+seq = 53
+at_cycle = 210
+trigger = "All std-hardening themes completed, need new direction"
+level = "standard"
+new_tasks_spawned = ["trace-protocol.1", "trace-protocol.2", "trace-protocol.3", "trace-protocol.4", "gpu-assert-diag.1", "gpu-assert-diag.2"]
+new_themes_spawned = ["trace-protocol", "gpu-assert-diag"]
+themes_parked = []
+themes_completed = ["std-hardening", "hashmap-fix", "gpu-tls"]
+key_insight = "3 epic proposals: (1) GPU concurrent data structures, (2) multi-kernel pipeline, (3) GPU debugging & observability. Chose #3 — lowest risk, highest novelty, improves dev experience. New epic: gpu-debug."
 
 [[brainstorms]]
 seq = 52

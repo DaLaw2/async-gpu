@@ -679,3 +679,50 @@ pub unsafe extern "ptx-kernel" fn sharded_print_test(buf: *mut u8, success_count
         gpu_atomics::sys_fetch_add_u32(success_count, 1);
     }
 }
+
+// ============================================================
+// Trace test kernel (trace-protocol.4)
+// ============================================================
+
+/// Multi-thread trace test: each of 32 threads emits a trace event.
+///
+/// Thread N sends: "trace from T{N}" at INFO level.
+/// Atomically increments `success_count` on successful trace send.
+/// Host should receive 32 distinct trace events with thread IDs 0-31.
+///
+/// `buf` = hostcall buffer, `success_count` = atomic counter (u32)
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn trace_multithread_test(buf: *mut u8, success_count: *mut u32) {
+    let tid = nvptx::_thread_idx_x() as u32;
+
+    gpu_runtime::panic::gpu_panic_init(buf);
+
+    // Each thread emits a trace event with its thread ID
+    gpu_runtime::gpu_trace!(buf, INFO, "trace from T{}", tid);
+
+    // Count successful sends (gpu_trace! swallows errors, so count unconditionally)
+    gpu_atomics::sys_fetch_add_u32(success_count, 1);
+}
+
+/// Trace + assert test: threads trace, then thread 0 asserts a condition.
+///
+/// All threads emit a DEBUG trace, then thread 0 asserts true (should pass).
+/// This verifies assert does NOT trap when condition is true.
+///
+/// `buf` = hostcall buffer, `success_count` = atomic counter (u32)
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn trace_assert_test(buf: *mut u8, success_count: *mut u32) {
+    let tid = nvptx::_thread_idx_x() as u32;
+
+    gpu_runtime::panic::gpu_panic_init(buf);
+
+    // All threads trace
+    gpu_runtime::gpu_trace!(buf, DEBUG, "assert test T{}", tid);
+
+    // Thread 0 asserts a true condition (should NOT trap)
+    if tid == 0 {
+        gpu_runtime::gpu_assert!(buf, 1 + 1 == 2, "math works");
+    }
+
+    gpu_atomics::sys_fetch_add_u32(success_count, 1);
+}

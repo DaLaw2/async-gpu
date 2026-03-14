@@ -4,18 +4,18 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 255     # Monotonic counter, incremented after each completed phase
-completed_tasks = 255
+total_cycles = 257     # Monotonic counter, incremented after each completed phase
+completed_tasks = 257
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.route"
 current_task_id = ""
-last_summary = "api-docs.1 done: #![warn(missing_docs)] enabled in gpu-host, 7 items fixed (all in model.rs). Zero warnings. api-docs theme completed."
+last_summary = "gpu-test-harness.2 done: 3 integration tests via cargo test (write_thread_idx, hostcall_print, buffered_print). PTX constants + mapped_mem now public API. Theme completed."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 64
+brainstorm_seq = 65
 review_seq = 5
 
 # Brainstorm trigger control (event-driven, no fixed interval)
@@ -204,6 +204,17 @@ id = "api-docs"
 epic = "public-api"
 title = "GPU-host public API documentation — missing_docs lint + rustdoc coverage"
 status = "completed"
+
+[[themes]]
+id = "gpu-test-harness"
+epic = "public-api"
+title = "GPU integration test harness — cargo test for GPU kernels"
+status = "completed"
+goal = "GPU tests can run via cargo test with proper test isolation"
+success_criteria = [
+    "At least 3 GPU tests runnable via cargo test (not just main.rs)",
+    "Each test has proper setup/teardown (device init, hostcall cleanup)",
+]
 goal = "gpu-host public API is fully documented with rustdoc"
 success_criteria = [
     "#![warn(missing_docs)] enabled in gpu-host without new warnings",
@@ -286,9 +297,37 @@ kind = "experiment"
 status = "done"
 deps = []
 
+[[tasks]]
+id = "gpu-test-harness.1"
+theme = "gpu-test-harness"
+title = "Design GPU test harness — investigate cargo test integration for GPU kernels"
+kind = "investigation"
+status = "done"
+deps = []
+
+[[tasks]]
+id = "gpu-test-harness.2"
+theme = "gpu-test-harness"
+title = "Implement cargo test integration harness — 3 proof-of-concept GPU tests"
+kind = "experiment"
+status = "done"
+deps = ["gpu-test-harness.1"]
+deps = []
+
 # ============================================================
 # Brainstorms (last 3 only — older brainstorms archived)
 # ============================================================
+
+[[brainstorms]]
+seq = 65
+at_cycle = 255
+trigger = "api-docs.1 completed — no pending tasks, all crates documented"
+level = "quick"
+new_tasks_spawned = ["gpu-test-harness.1"]
+new_themes_spawned = ["gpu-test-harness"]
+themes_parked = []
+themes_completed = ["api-docs"]
+key_insight = "All crates fully documented (zero doc warnings). Next value: extract GPU tests from monolithic main.rs into cargo test integration tests. Serves public-api automated testing criterion."
 
 [[brainstorms]]
 seq = 64
@@ -311,14 +350,3 @@ new_themes_spawned = ["example-verify"]
 themes_parked = []
 themes_completed = []
 key_insight = "Printf-batch marked completed prematurely — criterion 3 (e2e test) unmet. Reopened. Also: 3 examples exist but unverified post-refactoring. Two parallel tasks. Recommend user close real-std + native-warp-async + gpu-autonomous."
-
-[[brainstorms]]
-seq = 62
-at_cycle = 250
-trigger = "host-async + batched-hc themes completed — reassess"
-level = "quick"
-new_tasks_spawned = ["printf-batch.1", "printf-batch.2"]
-new_themes_spawned = ["printf-batch"]
-themes_parked = []
-themes_completed = ["host-async", "batched-hc"]
-key_insight = "Follow-up from batched-hc.1: printf batching is the highest-impact latency optimization. GPU-side buffer + sideband flush. Also: async API complete, CI passes."

@@ -9,9 +9,11 @@ use crate::error::{GpuHostError, Result};
 
 /// Allocates a single u32 of pinned, device-mapped host memory.
 /// Returns (host_ptr, device_ptr).
-pub(crate) unsafe fn alloc_mapped_u32(
-    _dev: &Arc<CudaDevice>,
-) -> Result<(*mut u32, sys::CUdeviceptr)> {
+///
+/// # Safety
+/// Caller must free the returned host pointer via [`free_mapped_mem`].
+/// The CUDA context must be initialized.
+pub unsafe fn alloc_mapped_u32(_dev: &Arc<CudaDevice>) -> Result<(*mut u32, sys::CUdeviceptr)> {
     let cu = cuda_lib();
 
     let mut host_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
@@ -32,7 +34,11 @@ pub(crate) unsafe fn alloc_mapped_u32(
 }
 
 /// Frees pinned host memory allocated with cuMemHostAlloc.
-pub(crate) unsafe fn free_mapped_mem(host_ptr: *mut u32) -> Result<()> {
+///
+/// # Safety
+/// `host_ptr` must have been returned by [`alloc_mapped_u32`] or
+/// [`alloc_mapped_result_array`] and not yet freed.
+pub unsafe fn free_mapped_mem(host_ptr: *mut u32) -> Result<()> {
     let cu = cuda_lib();
     let result = cu.cuMemFreeHost(host_ptr as *mut std::ffi::c_void);
     if result != sys::CUresult::CUDA_SUCCESS {
@@ -42,7 +48,11 @@ pub(crate) unsafe fn free_mapped_mem(host_ptr: *mut u32) -> Result<()> {
 }
 
 /// Allocates an array of u32 values in pinned, device-mapped host memory.
-pub(crate) unsafe fn alloc_mapped_result_array(
+///
+/// # Safety
+/// Caller must free the returned host pointer via [`free_mapped_mem`].
+/// The CUDA context must be initialized.
+pub unsafe fn alloc_mapped_result_array(
     _dev: &Arc<CudaDevice>,
     count: usize,
 ) -> Result<(*mut u32, sys::CUdeviceptr)> {
@@ -68,7 +78,11 @@ pub(crate) unsafe fn alloc_mapped_result_array(
 }
 
 /// Allocate a mapped u64 array for benchmark results.
-pub(crate) unsafe fn alloc_mapped_u64_array(
+///
+/// # Safety
+/// Caller must free the returned host pointer via [`free_mapped_u64_array`].
+/// The CUDA context must be initialized.
+pub unsafe fn alloc_mapped_u64_array(
     _dev: &Arc<CudaDevice>,
     count: usize,
 ) -> Result<(*mut u64, sys::CUdeviceptr)> {
@@ -94,7 +108,10 @@ pub(crate) unsafe fn alloc_mapped_u64_array(
 }
 
 /// Free a mapped u64 array.
-pub(crate) unsafe fn free_mapped_u64_array(host_ptr: *mut u64) -> Result<()> {
+///
+/// # Safety
+/// `host_ptr` must have been returned by [`alloc_mapped_u64_array`] and not yet freed.
+pub unsafe fn free_mapped_u64_array(host_ptr: *mut u64) -> Result<()> {
     let cu = cuda_lib();
     let result = cu.cuMemFreeHost(host_ptr as *mut std::ffi::c_void);
     if result != sys::CUresult::CUDA_SUCCESS {

@@ -18,6 +18,8 @@
 
 pub mod error;
 pub mod hostcall;
+/// Low-level CUDA mapped memory allocation helpers.
+pub mod mapped_mem;
 pub mod memory;
 pub mod runtime;
 
@@ -28,6 +30,26 @@ pub mod async_rt;
 pub mod model;
 #[cfg(feature = "gpt2")]
 pub mod tokenizer;
+
+/// Embedded PTX sources for GPU kernels.
+///
+/// These are compiled from the various kernel crates and embedded at build time.
+pub mod ptx {
+    /// Main GPU kernel PTX (from crates/gpu-kernel).
+    pub const KERNEL: &str = include_str!("../kernel.ptx");
+    /// Embassy async/await test PTX (from crates/embassy-test).
+    pub const EMBASSY_TEST: &str = include_str!("../embassy_test.ptx");
+    /// Async hostcall test PTX (from crates/async-hostcall-test).
+    pub const ASYNC_HOSTCALL_TEST: &str = include_str!("../async_hostcall_test.ptx");
+    /// Std-build-test PTX (from crates/std-build-test, -Zbuild-std=std).
+    pub const STD_BUILD_TEST: &str = include_str!("../std_build_test.ptx");
+    /// Async pipeline test PTX (from crates/async-pipeline-test).
+    pub const ASYNC_PIPELINE_TEST: &str = include_str!("../async_pipeline_test.ptx");
+    /// Multi-warp scaling test PTX (from crates/multi-warp-test).
+    pub const MULTI_WARP_TEST: &str = include_str!("../multi_warp_test.ptx");
+    /// Kernel-std PTX (from crates/gpu-kernel-std, -Zbuild-std=std).
+    pub const KERNEL_STD: &str = include_str!("../kernel_std.ptx");
+}
 
 // Convenience re-exports for common types.
 pub use error::{GpuHostError, Result};

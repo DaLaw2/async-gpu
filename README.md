@@ -67,6 +67,9 @@ cargo run --manifest-path examples/parallel-search/host/Cargo.toml
 
 # Vector Math — SAXPY, dot product, softmax (pure GPU compute)
 cargo run --manifest-path examples/vector-math/host/Cargo.toml
+
+# TCP Echo — GPU-initiated TCP networking via hostcall
+cargo run --manifest-path examples/tcp-echo/host/Cargo.toml
 ```
 
 <details>
@@ -125,6 +128,10 @@ Write pipeline: GPU creates 3 files in sequence. Transform pipeline: GPU reads a
 ### vector-math — Pure GPU Compute
 
 SAXPY, dot product (GPU multiply + CPU reduce), and softmax (multi-pass GPU-CPU cooperation with numerically stable exp via PTX `ex2.approx.ftz.f32`).
+
+### tcp-echo — GPU-Initiated TCP Networking
+
+GPU kernel connects to a local TCP echo server, sends "Hello from GPU!", receives the echo response, and verifies it. Demonstrates the TCP hostcall services (connect, write, read, close) with async Futures and `block_on()`.
 
 ### warp-cooperative — MIR Pass Verification (requires patched rustc)
 
@@ -303,6 +310,7 @@ examples/
   parallel-search/   32-lane GPU grep with shfl.sync warp reduction
   async-io/          Multi-file write pipeline + read-transform-write
   vector-math/       SAXPY, dot product, softmax (pure compute, no hostcall)
+  tcp-echo/          GPU-initiated TCP networking: connect, send, receive, close
   warp-cooperative/  MIR pass verification: simple, multi-await, 6-stage pipeline (requires patched rustc)
 ```
 
@@ -310,7 +318,7 @@ examples/
 
 | Category | What works |
 |----------|-----------|
-| **I/O from GPU** | `println!()`, `std::fs::File`, `std::io::stdin()`, bulk sideband transfer (sync + async Futures) |
+| **I/O from GPU** | `println!()`, `std::fs::File`, `std::io::stdin()`, bulk sideband transfer (sync + async Futures), TCP networking (connect/send/recv) |
 | **Std library** | `Vec`, `String`, `Box`, `format!()`, `?` operator — real Rust std via patched PAL (multi-thread safe) |
 | **Error handling** | `Result<T, E>` propagation from GPU to host, `std::io::Error` |
 | **Async runtime** | `block_on()` executor, Embassy on GPU, `futures::join!()`, per-thread and per-warp executors |

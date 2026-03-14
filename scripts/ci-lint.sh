@@ -57,8 +57,8 @@ run "check gpu-host" "cargo +stable check --manifest-path crates/gpu-host/Cargo.
 # Must cd into each dir so .cargo/config.toml (target, build-std) is picked up.
 # Read nightly version from rust-toolchain.toml (single source of truth)
 NIGHTLY=$(grep '^channel' rust-toolchain.toml | sed 's/.*= *"\(.*\)"/\1/')
-PTX_KERNELS="crates/gpu-kernel crates/async-hostcall-test crates/async-pipeline-test crates/embassy-test crates/multi-warp-test crates/gpu-std-test crates/gpu-kernel-std examples/hello-gpu/kernel examples/async-io/kernel examples/vector-math/kernel"
-# Note: crates/std-build-test excluded — requires patched std (apply-patches.sh) to build
+PTX_KERNELS="crates/gpu-kernel crates/async-hostcall-test crates/async-pipeline-test crates/embassy-test crates/multi-warp-test crates/gpu-std-test examples/hello-gpu/kernel examples/async-io/kernel examples/vector-math/kernel"
+# Note: crates/std-build-test and crates/gpu-kernel-std excluded — require patched std to build
 for k in $PTX_KERNELS; do
     name=$(basename "$k")
     run "ptx $name" "(cd $k && cargo +$NIGHTLY build --release)"

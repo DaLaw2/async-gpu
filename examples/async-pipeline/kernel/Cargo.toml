@@ -1,0 +1,17 @@
+[workspace]
+
+[package]
+name = "async-pipeline-kernel"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+gpu-runtime = { path = "../../../crates/core/gpu-runtime" }
+
+[profile.release]
+panic = "abort"
+opt-level = 3
+lto = "fat"

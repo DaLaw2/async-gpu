@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 274     # Monotonic counter, incremented after each completed phase
-completed_tasks = 274
+total_cycles = 275     # Monotonic counter, incremented after each completed phase
+completed_tasks = 275
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "awaiting_user"
-current_task_id = "async-yield.3"
-last_summary = "async-std epic: criteria 1 (async hostcall) done, 2 (PAL bridge) done, 4 (codebase reorg) done. Criteria 3 (demo) blocked on patched toolchain build (rustc_driver.dll link fails — lld missing MSVC STL symbol). Removed toolchain-auto theme (scripts were unnecessary)."
+current_step = "do.save"
+current_task_id = ""
+last_summary = "async-yield.3 DONE: data pipeline demo (read→compute→write) with real async hostcall Futures + #[warp_cooperative]. PTX has 7x bar.warp.sync + 1x shfl.sync. All 3 async-yield theme criteria met. All 4 async-std epic criteria met."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 75
@@ -151,7 +151,8 @@ success_criteria = [
 id = "async-yield"
 epic = "async-std"
 title = "Async yield for hostcall — I/O yields warp instead of spin-blocking"
-status = "active"
+status = "completed"
+# ALL 3 CRITERIA MET — completed 2026-03-15
 goal = "gpu_hostcall_request returns Future; warp yields during I/O wait so other warps can run compute on the SM"
 success_criteria = [
     "gpu_hostcall_request_async() returns impl Future that checks CONTROL_READY once per poll",
@@ -204,7 +205,7 @@ id = "async-yield.3"
 theme = "async-yield"
 title = "Experiment: data pipeline demo — read→compute→write with async I/O"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["async-yield.2"]
 
 

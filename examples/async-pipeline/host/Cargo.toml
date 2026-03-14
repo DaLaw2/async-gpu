@@ -1,0 +1,11 @@
+[workspace]
+
+[package]
+name = "async-pipeline-host"
+version = "0.1.0"
+edition = "2021"
+description = "Async Pipeline — warp-cooperative data pipeline with real I/O from GPU"
+
+[dependencies]
+cudarc = { version = "0.12", features = ["cuda-12060"] }
+gpu-host = { path = "../../../crates/core/gpu-host", default-features = false }

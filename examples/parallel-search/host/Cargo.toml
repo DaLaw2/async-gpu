@@ -1,0 +1,11 @@
+[workspace]
+
+[package]
+name = "parallel-search-host"
+version = "0.1.0"
+edition = "2021"
+description = "Parallel Search — 32-lane GPU grep with warp-cooperative async I/O"
+
+[dependencies]
+cudarc = { version = "0.12", features = ["cuda-12060"] }
+gpu-host = { path = "../../../crates/core/gpu-host", default-features = false }

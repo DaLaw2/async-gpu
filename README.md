@@ -59,6 +59,9 @@ cargo run --manifest-path examples/async-pipeline/host/Cargo.toml
 # Async I/O — multi-file write pipeline + read-transform-write
 cargo run --manifest-path examples/async-io/host/Cargo.toml
 
+# Parallel Search — 32-lane GPU grep with warp reduction
+cargo run --manifest-path examples/parallel-search/host/Cargo.toml
+
 # Vector Math — SAXPY, dot product, softmax (pure GPU compute)
 cargo run --manifest-path examples/vector-math/host/Cargo.toml
 ```
@@ -107,6 +110,10 @@ Four demos: vector addition (pure compute), GPU-to-host print, file write from G
 ### async-pipeline — Warp-Cooperative Async I/O
 
 `#[warp_cooperative] async fn` with real hostcall Futures: read file → transform on GPU → write output. Two demos: small I/O (48-byte packet payload) and bulk I/O (sideband, up to 1MB). PTX has `bar.warp.sync` at every `.await` point.
+
+### parallel-search — 32-Lane GPU Grep
+
+ALL 32 warp lanes active: thread 0 reads 4KB file via sideband bulk I/O, then each lane searches 1/32 of the data for a byte pattern. Results gathered via `shfl.sync.idx` warp reduction. Exact match with CPU reference count.
 
 ### async-io — Multi-Step File I/O
 
@@ -286,6 +293,7 @@ scripts/             build-toolchain.sh/.bat: build patched rustc, ci-lint.sh: l
 examples/
   hello-gpu/         4 demos: vector_add, print, file I/O, bulk transfer
   async-pipeline/    #[warp_cooperative] async fn: small I/O + bulk sideband I/O
+  parallel-search/   32-lane GPU grep with shfl.sync warp reduction
   async-io/          Multi-file write pipeline + read-transform-write
   vector-math/       SAXPY, dot product, softmax (pure compute, no hostcall)
 ```

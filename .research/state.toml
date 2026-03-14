@@ -5,14 +5,14 @@
 [meta]
 created = "2026-03-11"
 total_cycles = 290     # Monotonic counter, incremented after each completed phase
-completed_tasks = 293
+completed_tasks = 298
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "release-prep.1"
-last_summary = "bs80: new themes release-prep + showcase-demo. Starting release-prep.1 (CHANGELOG milestones)."
+current_task_id = ""
+last_summary = "showcase-demo COMPLETE: parallel file search, 32 lanes, 168/168 exact match. release-prep COMPLETE: CHANGELOG + v0.1.0 tag. All current themes done — brainstorm needed."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 78
@@ -277,7 +277,7 @@ status = "completed"
 id = "release-prep"
 epic = "codebase-health"
 title = "Tag v0.1.0 release with CHANGELOG"
-status = "active"
+status = "completed"
 goal = "Signal project maturity with versioned release"
 success_criteria = [
     "CHANGELOG.md exists with key milestones",
@@ -288,7 +288,7 @@ success_criteria = [
 id = "showcase-demo"
 epic = "public-api"
 title = "Showcase demo — parallel file search on GPU"
-status = "active"
+status = "completed"
 goal = "A compelling demo where GPU parallelism matters for file I/O"
 success_criteria = [
     "Kernel searches file contents in parallel across 32 lanes",
@@ -529,7 +529,7 @@ id = "release-prep.2"
 theme = "release-prep"
 title = "Experiment: create CHANGELOG.md and git tag v0.1.0"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["release-prep.1"]
 
 # --- showcase-demo theme ---
@@ -539,7 +539,7 @@ id = "showcase-demo.1"
 theme = "showcase-demo"
 title = "Design: parallel search kernel architecture"
 kind = "design"
-status = "pending"
+status = "done"
 depends = []
 
 [[tasks]]
@@ -547,7 +547,7 @@ id = "showcase-demo.2"
 theme = "showcase-demo"
 title = "Experiment: implement parallel file search kernel + host"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["showcase-demo.1"]
 
 # ============================================================

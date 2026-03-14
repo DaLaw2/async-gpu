@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 260     # Monotonic counter, incremented after each completed phase
-completed_tasks = 260
+total_cycles = 261     # Monotonic counter, incremented after each completed phase
+completed_tasks = 261
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.route"
-current_task_id = ""
-last_summary = "rustc-warp-async.1 done: mapped rustc async pipeline (4 stages). Best insertion point: MIR pass after StateTransform — intercept SwitchInt on poll discriminant, insert shfl.sync broadcast. Key files: rustc_ast_lowering/src/expr.rs, rustc_mir_transform/src/coroutine.rs. Next: prototype minimal rustc patch."
+current_step = "do.execute"
+current_task_id = "rustc-warp-async.3"
+last_summary = "rustc-warp-async.2 done: designed WarpCooperativeTransform MIR pass — 4 rewrite rules (dispatch broadcast, leader-only poll, payload broadcast, syncwarp barrier). Inline PTX asm for shfl.sync. ADR-019 recorded. Next: write patch files for skeleton MIR pass."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 67
@@ -176,15 +176,15 @@ id = "rustc-warp-async.2"
 theme = "rustc-warp-async"
 title = "Design MIR pass for warp-cooperative poll — specify pass inputs/outputs and MIR rewrites"
 kind = "design"
-status = "pending"
+status = "done"
 deps = ["rustc-warp-async.1"]
 
 [[tasks]]
 id = "rustc-warp-async.3"
 theme = "rustc-warp-async"
-title = "Clone rustc source and implement minimal MIR pass — no-op marker at Yield terminators for nvptx64"
+title = "Write rustc patch files for skeleton WarpCooperativeTransform MIR pass"
 kind = "experiment"
-status = "pending"
+status = "active"
 deps = ["rustc-warp-async.2"]
 
 # ============================================================

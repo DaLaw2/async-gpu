@@ -18,7 +18,7 @@ git clone --depth 1 https://github.com/rust-lang/rust.git rustc-src
 cd rustc-src && ./x.py build compiler
 ```
 
-## Regenerate patches after editing toolchain/
+## Regenerate patches after editing patched-rustc/
 
 ```bash
 ./scripts/gen-rustc-patches.sh

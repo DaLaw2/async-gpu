@@ -1,5 +1,5 @@
---- a/library/std/src/sys/thread_local/mod.rs
-+++ b/library/std/src/sys/thread_local/mod.rs
+--- a/src/sys/thread_local/mod.rs
++++ b/src/sys/thread_local/mod.rs
 @@ -24,6 +24,11 @@
  )]
  

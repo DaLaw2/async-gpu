@@ -1,5 +1,5 @@
---- a/library/std/src/sys/stdio/mod.rs
-+++ b/library/std/src/sys/stdio/mod.rs
+--- a/src/sys/stdio/mod.rs
++++ b/src/sys/stdio/mod.rs
 @@ -45,6 +45,10 @@
          mod zkvm;
          pub use zkvm::*;

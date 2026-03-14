@@ -1,5 +1,5 @@
---- a/library/std/src/sys/io/error/mod.rs
-+++ b/library/std/src/sys/io/error/mod.rs
+--- a/src/sys/io/error/mod.rs
++++ b/src/sys/io/error/mod.rs
 @@ -39,6 +39,10 @@
          mod xous;
          pub use xous::*;

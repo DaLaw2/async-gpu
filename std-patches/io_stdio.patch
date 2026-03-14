@@ -1,5 +1,5 @@
---- a/library/std/src/io/stdio.rs
-+++ b/library/std/src/io/stdio.rs
+--- a/src/io/stdio.rs
++++ b/src/io/stdio.rs
 @@ -1272,6 +1272,15 @@
  #[doc(hidden)]
  #[cfg(not(test))]

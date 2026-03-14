@@ -1,5 +1,5 @@
---- a/library/std/src/sys/alloc/mod.rs
-+++ b/library/std/src/sys/alloc/mod.rs
+--- a/src/sys/alloc/mod.rs
++++ b/src/sys/alloc/mod.rs
 @@ -40,6 +40,7 @@
      target_arch = "sparc64",
      target_arch = "riscv64",

@@ -1,19 +1,19 @@
 # Std library files modified/added for nvptx64 GPU (target_os = "cuda").
 # Format: PATCH <path> | NEW <path>
-# Paths are relative to rust source root (= patched-std/).
+# Paths are relative to patched-std/ (which mirrors std crate root).
 #
 # PATCH = modified stock file (gen-std-patches.sh fetches original from GitHub to diff)
 # NEW   = entirely new file (copied as-is into std-patches/)
 
-PATCH library/std/src/io/stdio.rs
-PATCH library/std/src/sys/alloc/mod.rs
-PATCH library/std/src/sys/fs/mod.rs
-PATCH library/std/src/sys/io/error/mod.rs
-PATCH library/std/src/sys/random/mod.rs
-PATCH library/std/src/sys/stdio/mod.rs
-PATCH library/std/src/sys/thread_local/mod.rs
-NEW   library/std/src/sys/alloc/cuda.rs
-NEW   library/std/src/sys/fs/cuda.rs
-NEW   library/std/src/sys/io/error/cuda.rs
-NEW   library/std/src/sys/stdio/cuda.rs
-NEW   library/std/src/sys/thread_local/gpu_threads.rs
+PATCH src/io/stdio.rs
+PATCH src/sys/alloc/mod.rs
+PATCH src/sys/fs/mod.rs
+PATCH src/sys/io/error/mod.rs
+PATCH src/sys/random/mod.rs
+PATCH src/sys/stdio/mod.rs
+PATCH src/sys/thread_local/mod.rs
+NEW   src/sys/alloc/cuda.rs
+NEW   src/sys/fs/cuda.rs
+NEW   src/sys/io/error/cuda.rs
+NEW   src/sys/stdio/cuda.rs
+NEW   src/sys/thread_local/gpu_threads.rs

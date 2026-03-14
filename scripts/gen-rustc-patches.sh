@@ -1,5 +1,5 @@
 #!/bin/bash
-# Generate rustc-patches/ from the diff between stock rustc and toolchain/.
+# Generate rustc-patches/ from the diff between stock rustc and patched-rustc/.
 #
 # Usage: ./scripts/gen-rustc-patches.sh
 #
@@ -13,19 +13,19 @@
 #   NEW   compiler/rustc_mir_transform/src/warp_cooperative.rs
 #
 # For PATCH entries: downloads stock version from GitHub, generates unified diff.
-# For NEW entries: copies the file from toolchain/ into rustc-patches/.
+# For NEW entries: copies the file from patched-rustc/ into rustc-patches/.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
 PATCH_DIR="$REPO_DIR/rustc-patches"
-TOOLCHAIN_DIR="$REPO_DIR/toolchain"
+PATCHED_RUSTC="$REPO_DIR/toolchain"
 MANIFEST="$PATCH_DIR/manifest.txt"
 
-if [ ! -d "$TOOLCHAIN_DIR" ]; then
-    echo "ERROR: toolchain/ directory not found."
-    echo "Clone rustc source into toolchain/ first."
+if [ ! -d "$PATCHED_RUSTC" ]; then
+    echo "ERROR: patched-rustc/ directory not found."
+    echo "Clone rustc source into patched-rustc/ first."
     exit 1
 fi
 
@@ -70,9 +70,9 @@ while IFS= read -r line; do
         continue
     fi
 
-    local_file="$TOOLCHAIN_DIR/$rel_path"
+    local_file="$PATCHED_RUSTC/$rel_path"
     if [ ! -f "$local_file" ]; then
-        echo "WARN: $rel_path not found in toolchain/, skipping"
+        echo "WARN: $rel_path not found in patched-rustc/, skipping"
         continue
     fi
 
@@ -108,7 +108,7 @@ while IFS= read -r line; do
             ;;
 
         NEW)
-            # Copy new file from toolchain/ to rustc-patches/
+            # Copy new file from patched-rustc/ to rustc-patches/
             base_name=$(basename "$rel_path")
             cp "$local_file" "$PATCH_DIR/$base_name"
             NEW_FILES+=("$rel_path:$base_name")
@@ -206,7 +206,7 @@ git clone --depth 1 https://github.com/rust-lang/rust.git rustc-src
 cd rustc-src && ./x.py build compiler
 \`\`\`
 
-## Regenerate patches after editing toolchain/
+## Regenerate patches after editing patched-rustc/
 
 \`\`\`bash
 ./scripts/gen-rustc-patches.sh

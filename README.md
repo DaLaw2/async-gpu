@@ -257,8 +257,10 @@ crates/
   gpu-libc/          Minimal libc shim for GPU: routes sys calls to hostcall
   gpu-critical-section/  No-op critical-section impl for GPU Embassy executor
   warp-macro/        #[warp_async] proc macro (generates WarpFuture state machines)
-  gpu-kernel/        Main GPU kernel crate (68 kernels: compute, hostcall, pipeline)
+  gpu-kernel/        Main GPU kernel crate (94 kernels: compute, hostcall, pipeline)
   gpu-kernel-std/    GPU kernels using patched Rust std (println!, Vec, File, stdin)
+
+rustc-patches/       Skeleton MIR pass for warp-cooperative async/await (future rustc integration)
 
 examples/
   hello-gpu/         4 demos: vector_add, print, file I/O, bulk transfer
@@ -278,6 +280,9 @@ examples/
 | **Compute** | GEMM (f32 FMA), FlashAttention, LayerNorm, GELU, softmax — all in Rust inline PTX |
 | **Inference** | GPT-2 small (124M params) with KV cache: 68ms/token (2.07x speedup) |
 | **Scaling** | Multi-block with per-block sharding, 512+ concurrent threads |
+| **Buffered I/O** | `println!()` auto-buffers via sideband, flushed as single hostcall (O(1) vs O(N)) |
+| **Autonomous GPU** | Data-dependent iteration (Newton's method convergence loop), multi-command kernels, cross-launch pipelines |
+| **Testing** | `cargo test` integration harness for GPU kernels, 3 proof-of-concept tests |
 | **Safety** | GPU panic handler with visible `[GPU PANIC]` messages via hostcall |
 
 ## Performance

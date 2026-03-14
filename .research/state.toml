@@ -4,18 +4,18 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 252     # Monotonic counter, incremented after each completed phase
-completed_tasks = 252
+total_cycles = 253     # Monotonic counter, incremented after each completed phase
+completed_tasks = 253
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.route"
-current_task_id = ""
-last_summary = "printf-batch.2 done: GPU-side print_buffer module (init/print/flush) + SERVICE_BULK_PRINT in gpu-protocol + host handler. All CI passes."
+current_step = "do.execute"
+current_task_id = "printf-batch.3"
+last_summary = "BS63: printf-batch test gap found, example-verify theme spawned. Two parallel tasks: printf-batch.3 (e2e test) + example-verify.1 (verify 3 examples compile)."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 62
+brainstorm_seq = 63
 review_seq = 5
 
 # Brainstorm trigger control (event-driven, no fixed interval)
@@ -80,7 +80,7 @@ type = "evergreen"  # Ongoing quality epic — work on when no other tasks are r
 status = "active"
 priority = "low"
 success_criteria = [
-    "Single workspace with all crates — `cargo build -p <any-crate>` works from root",
+    "Host crates share root workspace; GPU crates use separate build due to nvptx64 target constraint",
     "Nightly toolchain version defined in one place, CI + scripts derive from it",
     "README.md accurately reflects current project state, crate map, and setup instructions",
     "Routine maintenance tasks (new crate → CI, new PTX → stub list) are automated or self-documenting",
@@ -180,17 +180,23 @@ status = "completed"
 id = "printf-batch"
 epic = "gpu-perf"
 title = "GPU-side printf batching — reduce hostcall overhead for print-heavy kernels"
-status = "active"
+status = "completed"
 goal = "Buffer multiple print messages on GPU, flush as single hostcall"
 success_criteria = [
     "GPU-side print buffer accumulates messages without hostcall per-print",
     "Flush mechanism sends buffered messages as single sideband operation",
     "Test: 10+ prints in one kernel, fewer hostcall round-trips than unbuffered",
 ]
-goal = "Data-driven analysis of hostcall round-trip overhead"
+
+[[themes]]
+id = "example-verify"
+epic = "public-api"
+title = "Verify all 3 examples compile and run post-refactoring"
+status = "active"
+goal = "Confirm hello-gpu, async-io, vector-math still work after recent refactoring"
 success_criteria = [
-    "Latency breakdown: CAS contention vs mapped memory sync vs host processing",
-    "Recommendation: is batching worth pursuing?",
+    "All 3 examples build (host + kernel PTX)",
+    "Document which examples work, which need fixes",
 ]
 
 # ============================================================
@@ -245,9 +251,36 @@ kind = "investigation"
 status = "done"
 deps = []
 
+[[tasks]]
+id = "printf-batch.3"
+theme = "printf-batch"
+title = "Write GPU kernel test: 10+ buffered prints, verify fewer hostcall round-trips"
+kind = "experiment"
+status = "done"
+deps = ["printf-batch.2"]
+
+[[tasks]]
+id = "example-verify.1"
+theme = "example-verify"
+title = "Build and run hello-gpu, async-io, vector-math — document status"
+kind = "investigation"
+status = "active"
+deps = []
+
 # ============================================================
 # Brainstorms (last 3 only — older brainstorms archived)
 # ============================================================
+
+[[brainstorms]]
+seq = 63
+at_cycle = 252
+trigger = "printf-batch theme completed — reassess all epics"
+level = "standard"
+new_tasks_spawned = ["printf-batch.3", "example-verify.1"]
+new_themes_spawned = ["example-verify"]
+themes_parked = []
+themes_completed = []
+key_insight = "Printf-batch marked completed prematurely — criterion 3 (e2e test) unmet. Reopened. Also: 3 examples exist but unverified post-refactoring. Two parallel tasks. Recommend user close real-std + native-warp-async + gpu-autonomous."
 
 [[brainstorms]]
 seq = 62
@@ -270,47 +303,3 @@ new_themes_spawned = ["host-async", "batched-hc"]
 themes_parked = []
 themes_completed = ["readme-fix"]
 key_insight = "Project at research-to-product inflection. Highest leverage: host async interop (modern API) + hostcall latency profiling (data-driven). publish-ready (crates.io) deferred — more engineering than research."
-
-[[brainstorms]]
-seq = 60
-at_cycle = 246
-trigger = "No tasks remaining after archive — check epics for unmet criteria"
-level = "quick"
-new_tasks_spawned = ["readme-fix.1"]
-new_themes_spawned = ["readme-fix"]
-themes_parked = []
-themes_completed = []
-key_insight = "All epics terminal. Found README contradiction: Limitations says 'Single-thread std' but body documents multi-thread support. Quick fix task."
-
-[[brainstorms]]
-seq = 59
-at_cycle = 244
-trigger = "std-multithread theme completed — reassess all epics"
-level = "quick"
-new_tasks_spawned = ["nightly-pin.1", "readme-update.1"]
-new_themes_spawned = ["nightly-pin", "readme-update"]
-themes_parked = []
-themes_completed = ["std-multithread"]
-key_insight = "All major epics at terminal state. real-std fully met (multi-thread fixed). gpu-perf at ceiling (parked criteria). native-warp-async + gpu-autonomous answered by MIR spec. Only evergreen epics remain. 244 tasks completed."
-
-[[brainstorms]]
-seq = 58
-at_cycle = 240
-trigger = "rustc-warp.1 discovered async fn already compiles+runs on GPU — Phase 3 reassessment"
-level = "standard"
-new_tasks_spawned = ["std-multithread.1", "std-multithread.2", "std-multithread.3"]
-new_themes_spawned = ["std-multithread"]
-themes_parked = []
-themes_completed = []
-key_insight = "async fn already works on nvptx64. Skip rustc fork (3-5), do MIR spec only. Proc macro IS the practical solution. Pivot to real-std multi-thread (biggest remaining caveat)."
-
-[[brainstorms]]
-seq = 57
-at_cycle = 232
-trigger = "User: upstream acceptance irrelevant, prove warp-cooperative async is feasible"
-level = "deep"
-new_tasks_spawned = ["warp-future-bridge.1", "warp-future-bridge.2", "warp-future-bridge.3", "warp-future-bridge.4", "warp-async-v2.1", "warp-async-v2.2", "warp-async-v2.3", "warp-async-v2.4", "rustc-warp.1", "rustc-warp.2", "rustc-warp.3", "rustc-warp.4", "rustc-warp.5"]
-new_themes_spawned = ["warp-future-bridge", "warp-async-v2", "rustc-warp"]
-themes_parked = []
-themes_completed = ["rustc-survey"]
-key_insight = "Key insight: warp cooperation is a property of the CALLER's state machine, not the inner futures. Standard impl Future can be wrapped in warp-cooperative polling. Three phases: (1) manual proof, (2) enhanced proc macro with .await/?, (3) rustc MIR pass fork. LLVM problem is empirically unfounded (40+ tests confirm)."

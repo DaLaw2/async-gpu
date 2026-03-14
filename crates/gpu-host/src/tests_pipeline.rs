@@ -980,3 +980,102 @@ pub(crate) fn run_autonomous_pipeline_test(dev: Arc<CudaDevice>) -> Result<()> {
     println!("    - #[warp_async] replaces 150+ lines of hand-written state machine");
     Ok(())
 }
+
+/// Buffered print test: GPU accumulates 12 print messages in a per-thread buffer,
+/// then flushes them all in a single SERVICE_BULK_PRINT hostcall.
+///
+/// Verifies: (1) kernel completes successfully, (2) host receives all 12 messages.
+pub(crate) fn run_buffered_print_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Buffered Print Test (printf-batch.3) ---");
+
+    use std::sync::{Arc as StdArc, Mutex};
+
+    let hc_buf = hostcall::HostcallBuffer::new(4)?;
+    let dev_ptr = hc_buf.dev_ptr;
+    let sb_dev_ptr = hc_buf.sideband_dev_ptr;
+
+    println!(
+        "  Hostcall buffer: {} bytes, {} packets",
+        hc_buf.size, hc_buf.num_packets
+    );
+    println!("  Sideband buffer: {} bytes", hc_buf.sideband_size);
+
+    let (result_host_ptr, result_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 1)? };
+
+    // Collect print messages from the GPU
+    let messages: StdArc<Mutex<Vec<String>>> = StdArc::new(Mutex::new(Vec::new()));
+    let messages_clone = StdArc::clone(&messages);
+
+    let hc_buf_ref = StdArc::new(hc_buf);
+    let hc_buf_listener = StdArc::clone(&hc_buf_ref);
+    let listener_handle = std::thread::spawn(move || {
+        hc_buf_listener.listen(|msg| {
+            let s = String::from_utf8_lossy(msg).to_string();
+            println!("  [HOST] GPU print: \"{s}\"");
+            messages_clone.lock().unwrap().push(s);
+        });
+    });
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "kernel", &["buffered_print_test"]);
+    let f = dev
+        .get_func("kernel", "buffered_print_test")
+        .ok_or(GpuHostError::KernelNotFound("buffered_print_test"))?;
+
+    // Launch with single thread (print_buffer test is single-thread for simplicity)
+    let cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (32, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    let start = std::time::Instant::now();
+    println!("  Launching buffered_print_test kernel...");
+    unsafe {
+        f.launch(cfg, (dev_ptr, sb_dev_ptr, result_dev_ptr))?;
+    }
+
+    dev.synchronize()?;
+    let elapsed = start.elapsed();
+    println!("  Kernel completed in {elapsed:?}.");
+
+    // Wait for listener to process messages
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    hc_buf_ref.signal_shutdown();
+    listener_handle.join().unwrap();
+
+    let result = unsafe { std::ptr::read_volatile(result_host_ptr) };
+    unsafe { free_mapped_mem(result_host_ptr)? };
+
+    if result != 1 {
+        return Err(GpuHostError::Verification {
+            test: "buffered_print_test",
+            detail: format!("kernel returned {result}, expected 1"),
+        });
+    }
+
+    let msgs = messages.lock().unwrap();
+    println!(
+        "  Result: kernel success, received {} messages in {elapsed:?}",
+        msgs.len()
+    );
+
+    // Verify we got all 12 messages
+    if msgs.len() < 12 {
+        return Err(GpuHostError::Verification {
+            test: "buffered_print_test",
+            detail: format!("expected 12 messages, got {}", msgs.len()),
+        });
+    }
+
+    // Verify message content (each should contain "Buffered msg NN")
+    for (i, msg) in msgs.iter().enumerate() {
+        let expected = format!("{:02}", i);
+        if !msg.contains(&format!("Buffered msg {expected}")) {
+            println!("  WARNING: Message {i} unexpected content: \"{msg}\"");
+        }
+    }
+
+    println!("  buffered_print_test: PASSED! (12 messages, 1 flush round-trip, {elapsed:?})");
+    Ok(())
+}

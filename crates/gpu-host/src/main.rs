@@ -450,6 +450,9 @@ fn main() -> Result<()> {
     // Warp-cooperative Result<T,E> broadcasting (warp-future-bridge.4)
     tests_hostcall::run_warp_result_future_test(Arc::clone(&dev))?;
 
+    // Buffered print test (printf-batch.3)
+    tests_pipeline::run_buffered_print_test(Arc::clone(&dev))?;
+
     println!("\nAll tests PASSED.");
     Ok(())
 }

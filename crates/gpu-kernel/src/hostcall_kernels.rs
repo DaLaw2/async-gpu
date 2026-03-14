@@ -1284,3 +1284,75 @@ pub unsafe extern "ptx-kernel" fn warp_result_future_kernel(
         }
     }
 }
+
+// ============================================================
+// Buffered print test — uses gpu-runtime's print_buffer module
+// ============================================================
+
+/// Test kernel: accumulate 12 print messages via print_buffer, flush once.
+/// Verifies that buffered printing works end-to-end via SERVICE_BULK_PRINT.
+///
+/// Thread 0 prints 12 messages, each ~20 bytes. With a 504-byte slot,
+/// all 12 fit in one flush (12 * ~22 = ~264 bytes < 504).
+///
+/// `buf` = hostcall buffer
+/// `sideband` = sideband buffer
+/// `result` = output: 1 if all prints + flush succeeded, 0 on error
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn buffered_print_test(
+    buf: *mut u8,
+    sideband: *mut u8,
+    result: *mut u32,
+) {
+    let thread_x = nvptx::_thread_idx_x() as u32;
+    let block_x = nvptx::_block_idx_x() as u32;
+    let block_dim_x = nvptx::_block_dim_x() as u32;
+    let global_idx = block_x * block_dim_x + thread_x;
+    if global_idx != 0 {
+        return;
+    }
+
+    gpu_runtime::panic::gpu_panic_init(buf);
+    core::ptr::write_volatile(result, 0);
+
+    // Initialize print buffer for this thread
+    gpu_runtime::print_buffer::init(sideband, 1);
+
+    // Buffer 12 print messages without hostcall
+    let mut i: u32 = 0;
+    while i < 12 {
+        // Format: "Buffered msg NN\n" — manual formatting
+        let mut msg: [u8; 20] = [0u8; 20];
+        msg[0] = b'B';
+        msg[1] = b'u';
+        msg[2] = b'f';
+        msg[3] = b'f';
+        msg[4] = b'e';
+        msg[5] = b'r';
+        msg[6] = b'e';
+        msg[7] = b'd';
+        msg[8] = b' ';
+        msg[9] = b'm';
+        msg[10] = b's';
+        msg[11] = b'g';
+        msg[12] = b' ';
+        // Two-digit number
+        msg[13] = b'0' + (i / 10) as u8;
+        msg[14] = b'0' + (i % 10) as u8;
+        msg[15] = b'\n';
+        let len: u32 = 16;
+
+        if gpu_runtime::print_buffer::print(buf, sideband, msg.as_ptr(), len).is_err() {
+            return; // Failed to buffer
+        }
+        i += 1;
+    }
+
+    // Flush all 12 messages in a single SERVICE_BULK_PRINT hostcall
+    if gpu_runtime::print_buffer::flush(buf, sideband).is_err() {
+        return; // Flush failed
+    }
+
+    // Success — all 12 messages buffered and flushed
+    core::ptr::write_volatile(result, 1);
+}

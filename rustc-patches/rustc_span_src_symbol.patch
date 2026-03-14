@@ -1,0 +1,10 @@
+--- a/compiler/rustc_span/src/symbol.rs
++++ b/compiler/rustc_span/src/symbol.rs
+@@ -2215,6 +2215,7 @@
+         vtable_align,
+         vtable_size,
+         warn,
++        warp_cooperative,
+         wasip2,
+         wasm32,
+         wasm64,

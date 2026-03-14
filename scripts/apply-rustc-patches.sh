@@ -26,6 +26,10 @@ echo "  [PATCH] compiler/rustc_mir_transform/src/lib.rs"
 (cd "$TARGET_DIR" && git apply "$PATCH_DIR/rustc_mir_transform_src_lib.patch") || \
     patch -p0 --binary -d "$TARGET_DIR" < "$PATCH_DIR/rustc_mir_transform_src_lib.patch"
 
+echo "  [PATCH] compiler/rustc_span/src/symbol.rs"
+(cd "$TARGET_DIR" && git apply "$PATCH_DIR/rustc_span_src_symbol.patch") || \
+    patch -p0 --binary -d "$TARGET_DIR" < "$PATCH_DIR/rustc_span_src_symbol.patch"
+
 echo "  [NEW]   compiler/rustc_mir_transform/src/warp_cooperative.rs"
 mkdir -p "$TARGET_DIR/compiler/rustc_mir_transform/src"
 cp "$PATCH_DIR/warp_cooperative.rs" "$TARGET_DIR/compiler/rustc_mir_transform/src/warp_cooperative.rs"

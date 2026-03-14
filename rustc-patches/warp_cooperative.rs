@@ -27,10 +27,10 @@ use rustc_ast::{InlineAsmOptions, InlineAsmTemplatePiece};
 use rustc_middle::mir::*;
 use rustc_middle::ty::{self, TyCtxt};
 use rustc_session::Session;
-use rustc_span::Symbol;
 use rustc_span::def_id::DefId;
-use rustc_target::asm::{InlineAsmRegClass, InlineAsmRegOrRegClass};
-use rustc_target::asm::nvptx::NvptxInlineAsmRegClass;
+use rustc_span::sym;
+use rustc_target::asm::{InlineAsmRegClass, InlineAsmRegOrRegClass, NvptxInlineAsmRegClass};
+use rustc_target::spec::Arch;
 use tracing::debug;
 
 use crate::MirPass;
@@ -60,7 +60,11 @@ pub(super) struct WarpCooperativeTransform;
 
 impl<'tcx> MirPass<'tcx> for WarpCooperativeTransform {
     fn is_enabled(&self, sess: &Session) -> bool {
-        sess.target.arch == "nvptx64"
+        sess.target.arch == Arch::Nvptx64
+    }
+
+    fn is_required(&self) -> bool {
+        false
     }
 
     fn run_pass(&self, tcx: TyCtxt<'tcx>, body: &mut Body<'tcx>) {
@@ -117,10 +121,10 @@ impl<'tcx> MirPass<'tcx> for WarpCooperativeTransform {
 // ---------------------------------------------------------------------------
 
 fn has_warp_cooperative_attr(tcx: TyCtxt<'_>, def_id: DefId) -> bool {
-    let warp_sym = Symbol::intern("warp_cooperative");
-    tcx.get_attrs_unchecked(def_id)
+    #[allow(deprecated)]
+    tcx.get_all_attrs(def_id)
         .iter()
-        .any(|attr| attr.has_name(warp_sym))
+        .any(|attr| attr.has_name(sym::warp_cooperative))
 }
 
 // ---------------------------------------------------------------------------
@@ -213,7 +217,7 @@ fn resolve_callee_def_id<'tcx>(func: &Operand<'tcx>) -> Option<DefId> {
 }
 
 fn is_future_poll(tcx: TyCtxt<'_>, def_id: DefId) -> bool {
-    let Some(trait_def_id) = tcx.trait_of_item(def_id) else {
+    let Some(trait_def_id) = tcx.trait_of_assoc(def_id) else {
         return false;
     };
     let Some(future_trait) = tcx.lang_items().future_trait() else {
@@ -222,8 +226,7 @@ fn is_future_poll(tcx: TyCtxt<'_>, def_id: DefId) -> bool {
     if trait_def_id != future_trait {
         return false;
     }
-    let poll_sym = Symbol::intern("poll");
-    tcx.item_name(def_id) == poll_sym
+    tcx.item_name(def_id) == sym::poll
 }
 
 // ---------------------------------------------------------------------------

@@ -24,6 +24,7 @@ cd patched-rustc && python x.py build compiler
 ## Modified files (patches)
 
 - `compiler/rustc_mir_transform/src/lib.rs` → `rustc-patches/rustc_mir_transform_src_lib.patch`
+- `compiler/rustc_span/src/symbol.rs` → `rustc-patches/rustc_span_src_symbol.patch`
 
 ## New files
 

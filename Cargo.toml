@@ -5,3 +5,4 @@ members = [
     "crates/warp-macro",
 ]
 resolver = "2"
+exclude = ["patched-rustc", "rustc-src"]

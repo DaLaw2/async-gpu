@@ -44,39 +44,43 @@ rm -f *.patch *.rs
 PATCHES=()
 NEW_FILES=()
 
-# --- Scan for modified files under compiler/ ---
-while IFS= read -r patched_file; do
-    # rel_path = compiler/rustc_mir_transform/src/lib.rs
-    rel_path="${patched_file#$PATCHED_DIR/}"
-    stock_file="$STOCK_DIR/$rel_path"
+# --- Fast scan: use diff -rq to find only changed/new .rs files ---
+# Much faster than scanning every file individually on large trees.
+while IFS= read -r line; do
+    if [[ "$line" == "Only in $PATCHED_DIR/"* ]]; then
+        # New file — extract path
+        # "Only in /path/to/patched-rustc/compiler/foo/src: bar.rs"
+        dir_part=$(echo "$line" | sed "s|Only in $PATCHED_DIR/||; s|: |/|")
+        rel_path="$dir_part"
+        [[ "$rel_path" != *.rs ]] && continue
 
-    # Flatten path for output filename:
-    # compiler/rustc_mir_transform/src/lib.rs → rustc_mir_transform_src_lib
-    flat_base=$(echo "$rel_path" | sed 's|compiler/||; s|/|_|g; s|\.rs$||')
-
-    if [ ! -f "$stock_file" ]; then
-        # New file — not in stock
         base_name=$(basename "$rel_path")
-        cp "$patched_file" "$PATCH_DIR/$base_name"
+        cp "$PATCHED_DIR/$rel_path" "$PATCH_DIR/$base_name"
         NEW_FILES+=("$rel_path:$base_name")
         echo "[NEW]   $rel_path → $base_name"
-    else
-        # Compare against stock
-        if ! diff -q "$stock_file" "$patched_file" > /dev/null 2>&1; then
-            patch_name="${flat_base}.patch"
-            diff -u "$stock_file" "$patched_file" \
-                --label "a/$rel_path" --label "b/$rel_path" \
-                > "$PATCH_DIR/$patch_name" || true
 
-            if [ -s "$PATCH_DIR/$patch_name" ]; then
-                PATCHES+=("$rel_path:$patch_name")
-                echo "[PATCH] $rel_path → $patch_name"
-            else
-                rm -f "$PATCH_DIR/$patch_name"
-            fi
+    elif [[ "$line" == "Files "* && "$line" == *" differ" ]]; then
+        # Modified file — extract paths
+        # "Files /stock/compiler/foo.rs and /patched/compiler/foo.rs differ"
+        patched_file=$(echo "$line" | sed 's|.* and ||; s| differ$||')
+        rel_path="${patched_file#$PATCHED_DIR/}"
+        stock_file="$STOCK_DIR/$rel_path"
+        [[ "$rel_path" != *.rs ]] && continue
+
+        flat_base=$(echo "$rel_path" | sed 's|compiler/||; s|/|_|g; s|\.rs$||')
+        patch_name="${flat_base}.patch"
+        diff -u "$stock_file" "$patched_file" \
+            --label "a/$rel_path" --label "b/$rel_path" \
+            > "$PATCH_DIR/$patch_name" || true
+
+        if [ -s "$PATCH_DIR/$patch_name" ]; then
+            PATCHES+=("$rel_path:$patch_name")
+            echo "[PATCH] $rel_path → $patch_name"
+        else
+            rm -f "$PATCH_DIR/$patch_name"
         fi
     fi
-done < <(find "$PATCHED_DIR/compiler" -name "*.rs" -type f | sort)
+done < <(diff -rq "$STOCK_DIR/compiler" "$PATCHED_DIR/compiler" 2>/dev/null || true)
 
 echo ""
 echo "Generated ${#PATCHES[@]} patch(es), ${#NEW_FILES[@]} new file(s)."

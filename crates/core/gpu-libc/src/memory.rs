@@ -140,6 +140,14 @@ pub unsafe extern "C" fn gpu_heap_init(heap_start: *mut u8, heap_size: usize) {
 /// threads can allocate concurrently without data races.
 #[no_mangle]
 pub unsafe extern "C" fn malloc(size: size_t) -> *mut c_void {
+    // SAFETY: Thread-safe bump allocator. The CAS loop ensures each thread
+    // atomically claims a unique region: `current` is read, aligned up, and
+    // advanced by `size`. If another thread advances the pointer first, CAS
+    // fails and we retry with the updated value. The returned `aligned` pointer
+    // is unique to the winning thread. Relaxed ordering suffices because the
+    // bump pointer has no cross-thread data dependency (each allocation is
+    // independent). The heap region [current..end) was set up by gpu_heap_init
+    // before any allocations.
     if size == 0 {
         return core::ptr::null_mut();
     }
@@ -217,15 +225,13 @@ pub unsafe extern "C" fn realloc(ptr: *mut c_void, new_size: size_t) -> *mut c_v
         return core::ptr::null_mut();
     }
 
-    // Copy old data. We don't know the old size, so we copy new_size bytes.
-    // This is safe because:
-    // - If shrinking, we only copy new_size bytes (correct)
-    // - If growing, we copy new_size bytes from the old region. The old
-    //   allocation must have been at least old_size bytes, and the caller
-    //   is responsible for ensuring new_size >= old_size for the valid region.
-    //
-    // Note: In a real implementation, we'd track allocation sizes.
-    // For now, the bump allocator makes this acceptable.
+    // SAFETY: Known limitation — the bump allocator does not track allocation
+    // sizes, so we copy `new_size` bytes from the old region. This is correct
+    // when shrinking (copies fewer bytes than old allocation). When growing,
+    // the bytes beyond the old allocation's valid range are uninitialized but
+    // still within the bump heap (not out-of-bounds), so no segfault occurs,
+    // though the extra bytes are garbage. Callers must initialize the extended
+    // region after realloc when growing.
     memcpy(new_ptr, ptr as *const c_void, new_size);
     new_ptr
 }
@@ -240,6 +246,10 @@ pub unsafe extern "C" fn posix_memalign(
     align: size_t,
     size: size_t,
 ) -> c_int {
+    // SAFETY: Same CAS-based bump allocator as malloc(), but with caller-
+    // specified alignment. The alignment is validated (power-of-2, multiple of
+    // pointer size) before the CAS loop. Each successful CAS atomically claims
+    // a unique, correctly-aligned region.
     if size == 0 {
         *memptr = core::ptr::null_mut();
         return 0;

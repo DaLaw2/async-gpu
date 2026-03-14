@@ -4,18 +4,18 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 298     # Monotonic counter, incremented after each completed phase
-completed_tasks = 319
+total_cycles = 303     # Monotonic counter, incremented after each completed phase
+completed_tasks = 323
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
-current_mode = "think"
-current_step = "think.triage"
+current_mode = "do"
+current_step = "do.save"
 current_task_id = ""
-last_summary = "blog-update.1 done: TCP networking Innovation 4 added to BLOG_DRAFT.md. changelog-update.1 done: v0.2.0 section in CHANGELOG.md."
+last_summary = "safety-audit done: ~83 SAFETY comments added to gpu-runtime, gpu-host, gpu-libc. api-docs done: module docs for gpu-host. All bs86 tasks complete."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 85
+brainstorm_seq = 86
 review_seq = 5
 
 # Brainstorm trigger control (event-driven, no fixed interval)
@@ -151,11 +151,12 @@ type = "evergreen"  # Ongoing quality epic — work on when no other tasks are r
 status = "active"
 priority = "low"
 success_criteria = [
-    "gpu-host is a library crate with documented public API (GpuDevice, KernelBuilder, HostcallRuntime)",
+    "gpu-host is a library crate with documented public API (GpuRuntime, HostcallBuffer, HostcallSession)",
     "A standalone example program uses gpu-host as a dependency to run a GPU kernel",
     "Build system automated — single cargo command compiles host + kernel",
     "At least 3 working examples (hello-gpu, async-io, compute) with documentation",
 ]
+# Criteria 1 updated 2026-03-15: names match actual API (GpuRuntime not GpuDevice, etc.)
 
 [[epics]]
 id = "network-io"
@@ -230,6 +231,28 @@ goal = "Working TCP demo kernel + updated docs"
 success_criteria = [
     "examples/tcp-echo/ with kernel + host that connects to a TCP server",
     "README updated with TCP networking section",
+]
+
+[[themes]]
+id = "safety-audit"
+epic = "codebase-health"
+title = "Unsafe safety documentation for hostcall protocol"
+status = "completed"
+goal = "Document safety invariants for all high/medium-risk unsafe blocks"
+success_criteria = [
+    "All unsafe blocks in hostcall CAS/packet paths have // SAFETY comments",
+    "Unsafe blocks classified by risk level (lock-free CAS > raw pointer > inline PTX > FFI)",
+]
+
+[[themes]]
+id = "api-docs"
+epic = "public-api"
+title = "Module-level API documentation for gpu-host"
+status = "completed"
+goal = "Add //! module docs with usage overview to gpu-host public modules"
+success_criteria = [
+    "gpu-host/src/lib.rs has //! module doc with usage pattern overview",
+    "gpu-host/src/hostcall.rs has //! module doc with protocol overview",
 ]
 
 [[themes]]
@@ -330,9 +353,54 @@ kind = "experiment"
 status = "done"
 depends = ["net-protocol.2"]
 
+# --- safety-audit theme ---
+
+[[tasks]]
+id = "safety-audit.1"
+theme = "safety-audit"
+title = "Investigation: catalog unsafe blocks in hostcall CAS/packet/PAL code, classify by risk"
+kind = "investigation"
+status = "done"
+depends = []
+questions = [
+    "How many unsafe blocks in hostcall.rs, gpu-runtime CAS paths, std-patches?",
+    "Which blocks are highest risk (lock-free CAS, ordering assumptions)?",
+    "Which blocks already have SAFETY comments?",
+    "What safety invariants are assumed but undocumented?",
+]
+
+[[tasks]]
+id = "safety-audit.2"
+theme = "safety-audit"
+title = "Experiment: add // SAFETY comments to high/medium-risk unsafe blocks"
+kind = "experiment"
+status = "done"
+depends = ["safety-audit.1"]
+
+# --- api-docs theme ---
+
+[[tasks]]
+id = "api-docs.1"
+theme = "api-docs"
+title = "Experiment: add //! module docs to gpu-host lib.rs and hostcall.rs"
+kind = "experiment"
+status = "done"
+depends = []
+
 # ============================================================
 # Brainstorms (last 3 only — older brainstorms archived)
 # ============================================================
+
+[[brainstorms]]
+seq = 86
+at_cycle = 299
+trigger = "all bs85 tasks completed — standard brainstorm for next direction"
+level = "standard"
+new_tasks_spawned = ["safety-audit.1", "safety-audit.2", "api-docs.1"]
+new_themes_spawned = ["safety-audit", "api-docs"]
+themes_parked = []
+themes_completed = ["blog-update", "changelog-update"]
+key_insight = "Project at natural plateau. Safety audit is highest-value remaining work (202 unsafe, only 10 with SAFETY). Updated public-api epic criteria to match actual API names."
 
 [[brainstorms]]
 seq = 85
@@ -377,14 +445,3 @@ new_themes_spawned = ["ci-hygiene", "build-scripts", "example-docs"]
 themes_parked = []
 themes_completed = ["ci-update", "blog-draft"]
 key_insight = "Project graduated to polish phase. 8 concrete gaps found: CI holes, missing run scripts, warp-cooperative cleanup, build script dirt, no per-example READMEs. No new epic needed."
-
-[[brainstorms]]
-seq = 81
-at_cycle = 290
-trigger = "all themes completed — quick brainstorm for post-release direction"
-level = "quick"
-new_tasks_spawned = ["ci-update.1", "blog-draft.1"]
-new_themes_spawned = ["ci-update", "blog-draft"]
-themes_parked = []
-themes_completed = ["release-prep", "showcase-demo"]
-key_insight = "v0.1.0 released. Highest-value remaining work: visibility (blog post) and CI hygiene (add parallel-search to CI)."

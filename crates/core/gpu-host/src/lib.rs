@@ -1,7 +1,59 @@
 //! gpu-host — host-side GPU runtime library.
 //!
-//! Provides a high-level SDK for GPU kernel management, hostcall communication,
-//! and pinned memory allocation.
+//! This crate provides the host-side SDK for launching GPU kernels and managing
+//! GPU-host communication via the hostcall protocol. It handles CUDA device
+//! initialization, PTX module loading, pinned memory allocation, and the
+//! hostcall listener that services GPU requests (print, file I/O, networking).
+//!
+//! # Typical usage pattern
+//!
+//! ```text
+//! 1. Create a GpuRuntime           → initialize CUDA device
+//! 2. Load PTX module               → register kernel functions
+//! 3. Allocate HostcallBuffer       → shared memory for GPU-host RPC
+//! 4. Start HostcallSession         → spawn listener thread
+//! 5. Launch kernel                 → pass hostcall dev_ptr as kernel arg
+//! 6. Synchronize + collect results → read back from mapped memory
+//! 7. Shutdown session              → stop listener, close file handles
+//! ```
+//!
+//! # Example
+//!
+//! ```no_run
+//! use gpu_host::{GpuRuntime, ptx};
+//! use gpu_host::hostcall::HostcallSession;
+//!
+//! // 1. Init GPU
+//! let rt = GpuRuntime::new(0).expect("CUDA init");
+//!
+//! // 2. Load PTX
+//! rt.load_ptx(ptx::KERNEL, "kernel", &["my_kernel"]).expect("PTX load");
+//!
+//! // 3-4. Start hostcall session (allocates buffer + spawns listener)
+//! let session = HostcallSession::start(64).expect("hostcall init");
+//!
+//! // 5. Launch kernel with hostcall pointer
+//! let dev = rt.device();
+//! let f = dev.get_func("kernel", "my_kernel").unwrap();
+//! let cfg = cudarc::driver::LaunchConfig::for_num_elems(32);
+//! unsafe { cudarc::driver::LaunchAsync::launch(f, cfg, (session.dev_ptr(),)) }
+//!     .expect("launch");
+//!
+//! // 6. Wait for completion
+//! dev.synchronize().expect("sync");
+//!
+//! // 7. Shutdown
+//! session.shutdown();
+//! ```
+//!
+//! # Key types
+//!
+//! - [`GpuRuntime`] — CUDA device wrapper (init, PTX loading, kernel launch, memory ops)
+//! - [`HostcallBuffer`] — Shared pinned memory packet pool for GPU-host RPC
+//! - [`hostcall::HostcallSession`] — Persistent hostcall listener across kernel launches
+//! - [`MappedBuffer`] — RAII wrapper for CUDA pinned device-mapped memory
+//! - [`hostcall::Pipeline`] — Multi-stage kernel pipeline with automatic packet reinit
+//! - [`hostcall::FlightRecorder`] — Mapped-memory ring buffer for post-mortem tracing
 //!
 //! # Core modules
 //! - [`runtime`] — [`GpuRuntime`] for device init, PTX loading, kernel launch

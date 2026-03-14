@@ -185,6 +185,20 @@ pub mod hostcall {
         num_shards: u32,
         shard_array_off: u32,
     ) -> u16 {
+        // SAFETY: Lock-free Treiber stack pop with ABA prevention.
+        //
+        // The stack head is a tagged pointer: bits 48-63 = epoch tag, bits 0-15
+        // = packet index (NULL_INDEX 0xFFFF = empty). The CAS compares the full
+        // 64-bit tagged value, so even if a packet is popped and re-pushed at
+        // the same index, the epoch tag will differ, preventing ABA.
+        //
+        // Acquire load on the head ensures we see the `next` pointer written by
+        // the most recent push. System-scope CAS (sys_cas_u64) provides
+        // visibility across all GPU SMs and the host CPU.
+        //
+        // Ownership protocol: a successful CAS transfers exclusive ownership of
+        // the packet to the popping thread. The packet is not on any stack until
+        // explicitly pushed back.
         loop {
             let old_head = sys_load_acquire_u64(free_ptr as *const u64);
             let idx = tagged_index(old_head);
@@ -220,6 +234,17 @@ pub mod hostcall {
         num_shards: u32,
         shard_array_off: u32,
     ) {
+        // SAFETY: Lock-free Treiber stack push with ABA prevention.
+        //
+        // We write the current head into the packet's `next` field, then CAS
+        // the stack head from old_head to a new tagged value containing our
+        // packet index and an incremented epoch tag. The epoch tag (bits 48-63)
+        // is incremented on every push to prevent ABA: even if a concurrent
+        // pop+push restores the same index, the tag will differ.
+        //
+        // The caller must have exclusive ownership of the packet (obtained via
+        // hc_pop_free_from or initial allocation). After a successful CAS, the
+        // packet is visible to other threads via the stack.
         let pkt_off = if num_shards == 0 {
             packet_offset(pkt_idx)
         } else {
@@ -268,6 +293,17 @@ pub mod hostcall {
         service: u32,
         fill_payload: impl FnOnce(*mut u8),
     ) -> Result<*mut u8, GpuError> {
+        // SAFETY: Hostcall request protocol — packet ownership lifecycle:
+        //
+        // 1. Pop from free stack: CAS grants exclusive ownership of the packet.
+        // 2. Fill header + payload: only the owning thread writes to the packet.
+        // 3. Release-store CONTROL_FILLED: makes all prior writes visible to host.
+        // 4. Push to ready stack: transfers packet to the host for processing.
+        // 5. Doorbell fetch_add: wakes the host poller (system-scope atomic).
+        // 6. Spin-wait on CONTROL_READY: acquire-load ensures host's response
+        //    writes are visible before we read the payload.
+        // 7. On success, caller owns the packet and must call gpu_hostcall_release.
+        //    On error/timeout, packet is pushed back to free stack here.
         let (num_shards, shard_array_off, _) = read_shard_info(buf as *const u8);
         let free_ptr = get_free_stack_ptr(buf, num_shards, shard_array_off);
         let ready_ptr = get_ready_stack_ptr(buf, num_shards, shard_array_off);
@@ -339,6 +375,8 @@ pub mod hostcall {
         max_spin: u32,
         fill_payload: impl FnOnce(*mut u8),
     ) -> Result<*mut u8, GpuError> {
+        // SAFETY: Same packet ownership protocol as gpu_hostcall_request,
+        // but with a caller-specified spin limit instead of GPU_MAX_SPIN.
         let (num_shards, shard_array_off, _) = read_shard_info(buf as *const u8);
         let free_ptr = get_free_stack_ptr(buf, num_shards, shard_array_off);
         let ready_ptr = get_ready_stack_ptr(buf, num_shards, shard_array_off);
@@ -653,6 +691,12 @@ pub mod sideband {
     /// Returns offset from data region start, or u64::MAX if insufficient space.
     #[inline(always)]
     pub unsafe fn sideband_alloc(sideband: *mut u8, size: u64) -> u64 {
+        // SAFETY: System-scope atomic fetch_add on the bump pointer ensures each
+        // thread gets a unique, non-overlapping offset. The returned old_offset
+        // is exclusive to this thread because fetch_add is atomic. The capacity
+        // check after fetch_add may over-commit (the pointer advances even if
+        // we return u64::MAX), but this is acceptable because sideband_reset()
+        // is called between operations.
         let alloc_ptr = sideband.add(SIDEBAND_OFF_ALLOC) as *mut u64;
         let capacity = core::ptr::read_volatile(sideband.add(SIDEBAND_OFF_CAPACITY) as *const u64);
         let old_offset = sys_fetch_add_u64(alloc_ptr, size);
@@ -986,10 +1030,17 @@ pub mod panic {
 
     /// Global hostcall buffer pointer. Set by `gpu_panic_init()`.
     /// Each GPU thread reads this when a panic occurs.
+    ///
+    /// SAFETY invariant: written exactly once at kernel entry via gpu_panic_init(),
+    /// then read-only by all threads. The single-writer-then-read-only pattern
+    /// prevents data races. No synchronization is needed because the kernel entry
+    /// point completes init before any thread can panic.
     static mut PANIC_BUF: *mut u8 = core::ptr::null_mut();
 
     /// Global kernel result buffer pointer. Set by `gpu_result_init()`.
     /// The panic handler writes error info here before trapping.
+    ///
+    /// SAFETY invariant: same single-writer-then-read-only pattern as PANIC_BUF.
     static mut RESULT_BUF: *mut GpuKernelResult = core::ptr::null_mut();
 
     /// Initialize the panic handler with the hostcall buffer pointer.
@@ -1119,7 +1170,9 @@ pub mod panic {
             }
         }
 
-        // Pop a free packet
+        // SAFETY: Inline Treiber stack pop — same ABA-tagged CAS protocol as
+        // hc_pop_free_from. Duplicated here because the panic path must be
+        // self-contained (cannot rely on other functions being reachable).
         let pkt_idx;
         loop {
             let old_head = sys_load_acquire_u64(free_ptr as *const u64);
@@ -1166,7 +1219,8 @@ pub mod panic {
         // Mark filled and push to ready stack
         sys_store_release_u32(pkt.add(PKT_OFF_CONTROL) as *mut u32, CONTROL_FILLED);
 
-        // Push inline to ready stack
+        // SAFETY: Inline Treiber stack push — same ABA-tagged CAS protocol as
+        // hc_push_with. Epoch tag incremented to prevent ABA.
         loop {
             let old_head = sys_load_acquire_u64(ready_ptr as *const u64);
             core::ptr::write_volatile(pkt.add(PKT_OFF_NEXT) as *mut u64, old_head);
@@ -1194,7 +1248,8 @@ pub mod panic {
             }
         }
 
-        // Release packet back to free stack
+        // SAFETY: Inline Treiber stack push to free stack — returns packet
+        // after host acknowledgment. Same ABA-tagged CAS as above.
         loop {
             let old_head = sys_load_acquire_u64(free_ptr as *const u64);
             core::ptr::write_volatile(pkt.add(PKT_OFF_NEXT) as *mut u64, old_head);
@@ -1686,6 +1741,14 @@ pub mod std_future {
 
         #[inline(always)]
         fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<bool> {
+            // SAFETY: This future has no self-referential fields (all fields are
+            // raw pointers, integers, or a plain enum), so unpinning is safe.
+            // The future is never moved after first poll — the executor (block_on
+            // / SpinExecutor) pins it in place and polls via Pin::as_mut().
+            //
+            // All subsequent GPU futures (GpuOpenFuture, GpuReadFuture, etc.)
+            // use the same get_unchecked_mut() pattern with identical structural
+            // pinning justification and are not re-documented individually.
             let this = unsafe { self.get_unchecked_mut() };
 
             match this.state {
@@ -1794,6 +1857,7 @@ pub mod std_future {
 
         #[inline(always)]
         fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<bool, u32>> {
+            // SAFETY: Same structural pinning argument as GpuPrintFuture::poll.
             let inner = unsafe { &mut self.get_unchecked_mut().inner };
             match unsafe { Pin::new_unchecked(inner) }.poll(cx) {
                 Poll::Ready(true) => Poll::Ready(Ok(true)),
@@ -1906,6 +1970,7 @@ pub mod std_future {
 
         #[inline(always)]
         fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+            // SAFETY: Same structural pinning argument as GpuPrintFuture::poll.
             let this = unsafe { self.get_unchecked_mut() };
             match this.state {
                 HostcallState::Init => {
@@ -1988,6 +2053,7 @@ pub mod std_future {
 
         #[inline(always)]
         fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+            // SAFETY: Same structural pinning argument as GpuPrintFuture::poll.
             let this = unsafe { self.get_unchecked_mut() };
             match this.state {
                 HostcallState::Init => {
@@ -2075,6 +2141,7 @@ pub mod std_future {
 
         #[inline(always)]
         fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+            // SAFETY: Same structural pinning argument as GpuPrintFuture::poll.
             let this = unsafe { self.get_unchecked_mut() };
             match this.state {
                 HostcallState::Init => {
@@ -2160,6 +2227,7 @@ pub mod std_future {
 
         #[inline(always)]
         fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+            // SAFETY: Same structural pinning argument as GpuPrintFuture::poll.
             let this = unsafe { self.get_unchecked_mut() };
             match this.state {
                 HostcallState::Init => {
@@ -2242,6 +2310,7 @@ pub mod std_future {
 
         #[inline(always)]
         fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+            // SAFETY: Same structural pinning argument as GpuPrintFuture::poll.
             let this = unsafe { self.get_unchecked_mut() };
             match this.state {
                 HostcallState::Init => {
@@ -2348,6 +2417,7 @@ pub mod std_future {
 
         #[inline(always)]
         fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+            // SAFETY: Same structural pinning argument as GpuPrintFuture::poll.
             let this = unsafe { self.get_unchecked_mut() };
             match this.state {
                 HostcallState::Init => {
@@ -2465,6 +2535,7 @@ pub mod std_future {
 
         #[inline(always)]
         fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+            // SAFETY: Same structural pinning argument as GpuPrintFuture::poll.
             let this = unsafe { self.get_unchecked_mut() };
             match this.state {
                 HostcallState::Init => {
@@ -2550,6 +2621,7 @@ pub mod std_future {
 
         #[inline(always)]
         fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+            // SAFETY: Same structural pinning argument as GpuPrintFuture::poll.
             let this = unsafe { self.get_unchecked_mut() };
             match this.state {
                 HostcallState::Init => {
@@ -2639,6 +2711,7 @@ pub mod std_future {
 
         #[inline(always)]
         fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+            // SAFETY: Same structural pinning argument as GpuPrintFuture::poll.
             let this = unsafe { self.get_unchecked_mut() };
             match this.state {
                 HostcallState::Init => {
@@ -2725,6 +2798,7 @@ pub mod std_future {
 
         #[inline(always)]
         fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+            // SAFETY: Same structural pinning argument as GpuPrintFuture::poll.
             let this = unsafe { self.get_unchecked_mut() };
             match this.state {
                 HostcallState::Init => {
@@ -2803,6 +2877,7 @@ pub mod std_future {
 
         #[inline(always)]
         fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+            // SAFETY: Same structural pinning argument as GpuPrintFuture::poll.
             let this = unsafe { self.get_unchecked_mut() };
             match this.state {
                 HostcallState::Init => {
@@ -2909,6 +2984,7 @@ pub mod std_future {
 
         #[inline(always)]
         fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+            // SAFETY: Same structural pinning argument as GpuPrintFuture::poll.
             let this = unsafe { self.get_unchecked_mut() };
             match this.state {
                 HostcallState::Init => {
@@ -3037,6 +3113,8 @@ pub mod std_future {
         #[allow(unused_variables)] nanosleep_ns: u32,
     ) -> Option<F::Output> {
         let mut future = future;
+        // SAFETY: The future is stack-pinned here and never moved — we poll it
+        // in a loop via Pin::as_mut() until completion or timeout.
         let mut future = Pin::new_unchecked(&mut future);
         let waker = noop_waker();
         let mut cx = Context::from_waker(&waker);
@@ -3080,6 +3158,8 @@ pub mod std_future {
         /// The future must be safe to poll repeatedly on the current thread.
         #[inline(always)]
         pub unsafe fn run<F: Future>(future: &mut F) -> Option<F::Output> {
+            // SAFETY: The caller provides a mutable reference that we pin in place.
+            // We only poll via Pin::as_mut() and never move the future.
             let mut future = Pin::new_unchecked(future);
             let waker = noop_waker();
             let mut cx = Context::from_waker(&waker);

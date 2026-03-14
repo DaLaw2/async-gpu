@@ -15,6 +15,9 @@ static mut HC_BUF: *mut u8 = core::ptr::null_mut();
 /// Must be called at kernel entry before any file I/O operations.
 #[inline(always)]
 pub unsafe fn gpu_libc_io_init(buf: *mut u8) {
+    // SAFETY: HC_BUF is a static mut written once at kernel entry before any I/O.
+    // After init, all threads only read this pointer. The single-writer-then-
+    // read-only pattern prevents data races.
     HC_BUF = buf;
 }
 

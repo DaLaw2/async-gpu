@@ -71,6 +71,10 @@ fn errno_index() -> usize {
 /// concurrent threads per block.
 #[no_mangle]
 pub unsafe extern "C" fn __errno_location() -> *mut c_int {
+    // SAFETY: ERRNO_ARRAY is a static mut accessed by per-thread index. Each
+    // CUDA thread reads/writes only its own slot (indexed by thread_id_in_block()),
+    // so no two threads alias the same element. The index is clamped to
+    // MAX_GPU_THREADS-1 by errno_index(), preventing out-of-bounds access.
     let idx = errno_index();
     core::ptr::addr_of_mut!(ERRNO_ARRAY[idx])
 }
@@ -78,6 +82,7 @@ pub unsafe extern "C" fn __errno_location() -> *mut c_int {
 /// Set errno to the given value for the current thread.
 #[inline(always)]
 pub unsafe fn set_errno(val: c_int) {
+    // SAFETY: Per-thread indexing via errno_index() — see __errno_location.
     let idx = errno_index();
     ERRNO_ARRAY[idx] = val;
 }
@@ -85,6 +90,7 @@ pub unsafe fn set_errno(val: c_int) {
 /// Get the current errno value for the current thread.
 #[inline(always)]
 pub unsafe fn get_errno() -> c_int {
+    // SAFETY: Per-thread indexing via errno_index() — see __errno_location.
     let idx = errno_index();
     ERRNO_ARRAY[idx]
 }

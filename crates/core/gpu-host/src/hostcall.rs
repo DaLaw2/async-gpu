@@ -1,7 +1,47 @@
 //! Host-side hostcall listener and buffer management.
 //!
-//! Allocates a pinned, device-mapped hostcall buffer and runs a listener
-//! thread that polls for GPU requests and dispatches to service handlers.
+//! This module implements the host half of the GPU-host hostcall protocol.
+//! It allocates a pinned, device-mapped packet buffer and runs a listener
+//! thread that polls for GPU requests and dispatches them to service handlers.
+//!
+//! # Hostcall protocol overview
+//!
+//! The GPU and host communicate through a shared memory region containing a
+//! pool of fixed-size packet slots. Each packet has a control word, a service
+//! ID, and a 56-byte payload. The protocol flow is:
+//!
+//! 1. **GPU** acquires a free packet slot from the lock-free stack
+//! 2. **GPU** writes the service ID + payload, then sets the doorbell flag
+//! 3. **Host listener** polls doorbell flags in a tight loop, detects the request
+//! 4. **Host** dispatches to the appropriate service handler (print, file I/O,
+//!    TCP networking, stdin, etc.)
+//! 5. **Host** writes the response payload and clears the doorbell (ACK)
+//! 6. **GPU** reads the response and releases the packet back to the free stack
+//!
+//! For bulk data exceeding 56 bytes, a separate sideband buffer provides a
+//! bump-allocated scratch region shared between GPU and host.
+//!
+//! # Sharding
+//!
+//! The buffer can be sharded across CUDA blocks (`new_sharded`) so that each
+//! block uses `blockIdx.x % num_shards`, reducing contention on the free stack.
+//!
+//! # FdResource model
+//!
+//! File descriptors returned to the GPU live in a unified fd table that holds
+//! three resource types: [`std::fs::File`], [`std::net::TcpStream`], and
+//! [`std::net::TcpListener`]. The GPU uses the same fd namespace for all I/O
+//! operations (read, write, close) regardless of the underlying resource type.
+//! File handles persist across kernel launches within the same [`HostcallSession`].
+//!
+//! # Key types
+//!
+//! - [`HostcallBuffer`] — Pinned shared-memory packet pool with host + device pointers
+//! - [`HostcallSession`] — Persistent listener that survives across kernel launches
+//! - [`Pipeline`] — Multi-stage kernel pipeline with automatic packet reinitialization
+//! - [`CommandBuffer`] — Host-to-GPU command ring buffer
+//! - [`FlightRecorder`] — Mapped-memory ring buffer for post-mortem GPU tracing
+//! - [`HostcallError`] — Error type for buffer allocation failures
 
 use cudarc::driver::sys::{self, lib as cuda_lib};
 use gpu_protocol::*;
@@ -117,6 +157,9 @@ fn io_error_to_category(e: &std::io::Error) -> u16 {
 unsafe fn write_error_response(payload: *mut u8, e: &std::io::Error) -> bool {
     let category = io_error_to_category(e);
     let raw_errno = e.raw_os_error().unwrap_or(0) as u16;
+    // SAFETY: Caller guarantees payload points to slot 0 within a valid packet's
+    // payload region (PKT_OFF_PAYLOAD offset from a valid packet pointer).
+    // Volatile write ensures the GPU observes the error value.
     std::ptr::write_volatile(payload as *mut u64, encode_error(category, raw_errno));
     true
 }
@@ -225,23 +268,30 @@ impl HostcallBuffer {
         } else {
             buffer_size_sharded(num_packets, num_shards)
         };
+        // SAFETY: cuda_lib() returns the lazily-loaded CUDA driver function table.
         let cu = unsafe { cuda_lib() };
         let flags = sys::CU_MEMHOSTALLOC_DEVICEMAP | sys::CU_MEMHOSTALLOC_PORTABLE;
 
         // Allocate hostcall buffer (pinned, device-mapped)
         let mut host_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
+        // SAFETY: cuMemHostAlloc writes a valid pointer to host_ptr on success.
+        // The allocation is `size` bytes with DEVICEMAP|PORTABLE flags.
         let result = unsafe { cu.cuMemHostAlloc(&mut host_ptr, size, flags) };
         if result != sys::CUresult::CUDA_SUCCESS {
             return Err(HostcallError::CudaAlloc(result));
         }
 
         let mut dev_ptr: sys::CUdeviceptr = 0;
+        // SAFETY: host_ptr was allocated with DEVICEMAP flag, so the driver can
+        // provide a GPU-visible address.
         let result = unsafe { cu.cuMemHostGetDevicePointer_v2(&mut dev_ptr, host_ptr, 0) };
         if result != sys::CUresult::CUDA_SUCCESS {
+            // SAFETY: host_ptr was allocated above; freeing on error path.
             unsafe { cu.cuMemFreeHost(host_ptr) };
             return Err(HostcallError::CudaGetDevPtr(result));
         }
 
+        // SAFETY: host_ptr is valid for `size` bytes. No kernel is running yet.
         unsafe {
             std::ptr::write_bytes(host_ptr as *mut u8, 0, size);
         }
@@ -249,6 +299,7 @@ impl HostcallBuffer {
         // Allocate sideband buffer for bulk data transfer
         let sideband_total = SIDEBAND_HEADER_SIZE + sideband_data_size;
         let mut sb_host_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
+        // SAFETY: Same CUDA alloc pattern as the hostcall buffer above.
         let result = unsafe { cu.cuMemHostAlloc(&mut sb_host_ptr, sideband_total, flags) };
         if result != sys::CUresult::CUDA_SUCCESS {
             unsafe { cu.cuMemFreeHost(host_ptr) };
@@ -256,8 +307,10 @@ impl HostcallBuffer {
         }
 
         let mut sb_dev_ptr: sys::CUdeviceptr = 0;
+        // SAFETY: sb_host_ptr was allocated with DEVICEMAP flag.
         let result = unsafe { cu.cuMemHostGetDevicePointer_v2(&mut sb_dev_ptr, sb_host_ptr, 0) };
         if result != sys::CUresult::CUDA_SUCCESS {
+            // SAFETY: Both pointers were allocated above; freeing on error path.
             unsafe {
                 cu.cuMemFreeHost(sb_host_ptr);
                 cu.cuMemFreeHost(host_ptr);
@@ -265,7 +318,8 @@ impl HostcallBuffer {
             return Err(HostcallError::CudaGetDevPtr(result));
         }
 
-        // Zero-initialize sideband and set capacity
+        // SAFETY: sb_host_ptr is valid for `sideband_total` bytes. No kernel running.
+        // SIDEBAND_OFF_CAPACITY is within the sideband header region.
         unsafe {
             std::ptr::write_bytes(sb_host_ptr as *mut u8, 0, sideband_total);
             let cap_ptr = (sb_host_ptr as *mut u8).add(SIDEBAND_OFF_CAPACITY) as *mut u64;
@@ -293,6 +347,11 @@ impl HostcallBuffer {
     /// Handles both legacy (num_shards == 0) and sharded modes.
     fn init(&self) {
         let base = self.host_ptr;
+        // SAFETY: All pointer arithmetic below stays within the cuMemHostAlloc region
+        // of `self.size` bytes. The buffer layout offsets (BUF_OFF_*, PKT_OFF_*) are
+        // computed by gpu_protocol to fit within buffer_size(num_packets). write_volatile
+        // is used because the GPU may read this memory once a kernel is launched.
+        // This is called during construction, before any kernel launch.
         unsafe {
             // Common header fields
             let doorbell = base.add(BUF_OFF_DOORBELL) as *mut u64;
@@ -385,6 +444,11 @@ impl HostcallBuffer {
     /// free stacks are only popped by GPU (which is idle).
     pub fn reinit_packets(&self) {
         let base = self.host_ptr;
+        // SAFETY: Must only be called after cuCtxSynchronize() — no GPU kernel is
+        // accessing the buffer. All pointer arithmetic stays within the allocated
+        // region. write_volatile is used because the listener thread may be polling
+        // ready stacks concurrently (setting them to NULL is safe — listener sees
+        // empty stacks). Free stacks are only popped by GPU code (which is idle).
         unsafe {
             // Reset shutdown flag (may have been set by previous session use)
             std::ptr::write_volatile(base.add(BUF_OFF_SHUTDOWN) as *mut u32, 0);
@@ -459,21 +523,32 @@ impl HostcallBuffer {
 
     /// Get a reference to the doorbell as an AtomicU64.
     fn doorbell(&self) -> &AtomicU64 {
+        // SAFETY: BUF_OFF_DOORBELL is within the buffer header. The pointer is
+        // 8-byte aligned (buffer is page-aligned from cuMemHostAlloc). The
+        // resulting reference is valid for the lifetime of HostcallBuffer.
         unsafe { &*(self.host_ptr.add(BUF_OFF_DOORBELL) as *const AtomicU64) }
     }
 
     /// Get a reference to the ready_stack as an AtomicU64.
     fn ready_stack(&self) -> &AtomicU64 {
+        // SAFETY: Same as doorbell() — BUF_OFF_READY_STACK is within the header,
+        // 8-byte aligned, valid for the buffer's lifetime.
         unsafe { &*(self.host_ptr.add(BUF_OFF_READY_STACK) as *const AtomicU64) }
     }
 
     /// Get a reference to the shutdown flag as an AtomicU32.
     fn shutdown(&self) -> &AtomicU32 {
+        // SAFETY: BUF_OFF_SHUTDOWN is within the buffer header, 4-byte aligned,
+        // valid for the buffer's lifetime.
         unsafe { &*(self.host_ptr.add(BUF_OFF_SHUTDOWN) as *const AtomicU32) }
     }
 
     /// Get pointer to a packet by index. Handles both legacy and sharded layouts.
     fn packet_ptr(&self, index: u16) -> *mut u8 {
+        // SAFETY: packet_offset / packet_offset_sharded compute offsets that stay
+        // within the allocated buffer (index must be < num_packets, which is
+        // guaranteed by the lock-free stack protocol — only indices that were
+        // originally placed in the free stack can appear in the ready stack).
         unsafe {
             if self.num_shards == 0 {
                 self.host_ptr.add(packet_offset(index))
@@ -553,10 +628,15 @@ impl HostcallBuffer {
                     self.num_shards
                 };
                 for s in 0..stacks_to_scan {
+                    // Atomically drain the ready stack: swap head with NULL to
+                    // claim all enqueued packets. AcqRel ordering ensures we see
+                    // all writes the GPU made before pushing to the ready stack.
                     let ready_head = if self.num_shards == 0 {
                         self.ready_stack().swap(null_tagged(), Ordering::AcqRel)
                     } else {
                         let entry_off = shard_entry_offset(BUFFER_HEADER_SIZE, s);
+                        // SAFETY: entry_off + SHARD_OFF_READY_STACK is within the
+                        // shard array region of the buffer, 8-byte aligned.
                         let shard_ready = unsafe {
                             &*(self.host_ptr.add(entry_off + SHARD_OFF_READY_STACK)
                                 as *const AtomicU64)
@@ -572,6 +652,11 @@ impl HostcallBuffer {
                         let idx = tagged_index(current);
                         let pkt = self.packet_ptr(idx);
 
+                        // SAFETY: pkt points to a valid packet slot (index came from
+                        // the ready stack, which only contains indices < num_packets).
+                        // All read_volatile/write calls target offsets within the
+                        // packet's fixed-size region (PKT_OFF_NEXT, PKT_OFF_CONTROL,
+                        // PKT_OFF_SERVICE are all < PACKET_SIZE).
                         unsafe {
                             let next = std::ptr::read_volatile(pkt.add(PKT_OFF_NEXT) as *const u64);
 
@@ -666,6 +751,9 @@ impl HostcallBuffer {
 
         while let Ok(req) = rx.recv() {
             let pkt = self.packet_ptr(req.pkt_idx);
+            // SAFETY: pkt_idx came from the listener's ready stack traversal, so
+            // it is a valid packet index. All service handlers read/write within
+            // the packet's payload region (offsets < PACKET_SIZE).
             let has_error = unsafe {
                 match req.service {
                     SERVICE_OPEN => self.handle_open(pkt, &mut fd_table, &mut next_fd),
@@ -690,6 +778,7 @@ impl HostcallBuffer {
                 }
             };
 
+            // SAFETY: PKT_OFF_CONTROL is within the packet, 4-byte aligned.
             let control = unsafe { &*(pkt.add(PKT_OFF_CONTROL) as *const AtomicU32) };
             let flags = if has_error {
                 CONTROL_READY | CONTROL_ERROR
@@ -707,6 +796,12 @@ impl HostcallBuffer {
     where
         F: FnMut(&[u8]),
     {
+        // SAFETY (applies to all service handlers): pkt points to a valid packet
+        // obtained via packet_ptr(). PKT_OFF_PAYLOAD is within the packet. All
+        // read_volatile/write_volatile target payload slots 0-7 which occupy bytes
+        // [PKT_OFF_PAYLOAD .. PKT_OFF_PAYLOAD + 64) within the packet — well within
+        // the packet's total size. Volatile access is required because the GPU wrote
+        // these values and we must observe them.
         let payload = pkt.add(PKT_OFF_PAYLOAD);
 
         // Slot 0 = message length (u64)
@@ -745,6 +840,9 @@ impl HostcallBuffer {
     where
         F: FnMut(&[u8]),
     {
+        // SAFETY: Same payload access pattern as handle_print. Additionally,
+        // sideband_host_ptr + SIDEBAND_DATA_OFFSET + sideband_offset is within
+        // the sideband buffer (the GPU's bump allocator ensures offset < capacity).
         let payload = pkt.add(PKT_OFF_PAYLOAD);
         let sideband_offset = std::ptr::read_volatile(payload as *const u64) as usize;
         let data_len = std::ptr::read_volatile(payload.add(8) as *const u64) as usize;
@@ -799,6 +897,9 @@ impl HostcallBuffer {
         fd_table: &mut HashMap<u64, FdResource>,
         next_fd: &mut u64,
     ) -> bool {
+        // SAFETY: Same payload access pattern as handle_print — all slot reads/writes
+        // are within the 64-byte payload region. Path bytes are clamped to
+        // FILE_MAX_PATH_LEN (56 bytes = slots 1-7).
         let payload = pkt.add(PKT_OFF_PAYLOAD);
 
         // Read slot 0: path_len (low 32) + flags (high 32)
@@ -859,6 +960,7 @@ impl HostcallBuffer {
     /// Response payload (lane 0):
     ///   Slot 0: bytes written on success, FILE_ERROR_SENTINEL on error
     unsafe fn handle_write(&self, pkt: *mut u8, fd_table: &mut HashMap<u64, FdResource>) -> bool {
+        // SAFETY: Same as handle_open — payload slot reads within packet bounds.
         let payload = pkt.add(PKT_OFF_PAYLOAD);
 
         let fd = std::ptr::read_volatile(payload as *const u64);
@@ -910,6 +1012,7 @@ impl HostcallBuffer {
     ///   Slot 0: bytes read on success, FILE_ERROR_SENTINEL on error
     ///   Slots 1-7: data bytes (up to 56 bytes)
     unsafe fn handle_read(&self, pkt: *mut u8, fd_table: &mut HashMap<u64, FdResource>) -> bool {
+        // SAFETY: Same as handle_open — payload slot reads/writes within packet bounds.
         let payload = pkt.add(PKT_OFF_PAYLOAD);
 
         let fd = std::ptr::read_volatile(payload as *const u64);
@@ -956,6 +1059,7 @@ impl HostcallBuffer {
     ///   Slot 0: seconds since Unix epoch (u64)
     ///   Slot 1: nanoseconds within second (u64)
     unsafe fn handle_time(&self, pkt: *mut u8) -> bool {
+        // SAFETY: Same as handle_open — payload slot writes within packet bounds.
         let payload = pkt.add(PKT_OFF_PAYLOAD);
 
         match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
@@ -981,6 +1085,7 @@ impl HostcallBuffer {
     ///   Slots 1-7: panic message bytes (up to 56 bytes)
     /// Response: CONTROL_READY (no error — GPU will trap regardless)
     unsafe fn handle_panic(&self, pkt: *mut u8) -> bool {
+        // SAFETY: Same as handle_open — payload slot reads within packet bounds.
         let payload = pkt.add(PKT_OFF_PAYLOAD);
 
         // Decode metadata from slot 0
@@ -1011,6 +1116,7 @@ impl HostcallBuffer {
     ///   Slots 2-7: message bytes (up to 48 bytes)
     /// Response: CONTROL_READY (no error)
     unsafe fn handle_trace(&self, pkt: *mut u8) -> bool {
+        // SAFETY: Same as handle_open — payload slot reads within packet bounds.
         let payload = pkt.add(PKT_OFF_PAYLOAD);
 
         // Decode metadata from slot 0
@@ -1058,6 +1164,7 @@ impl HostcallBuffer {
     ///   Slots 1-7: assertion message bytes (up to 56 bytes)
     /// Response: CONTROL_READY (GPU will trap after receiving response)
     unsafe fn handle_assert(&self, pkt: *mut u8) -> bool {
+        // SAFETY: Same as handle_open — payload slot reads within packet bounds.
         let payload = pkt.add(PKT_OFF_PAYLOAD);
 
         // Decode metadata — uses same format as PANIC
@@ -1089,6 +1196,7 @@ impl HostcallBuffer {
     /// Response payload (lane 0):
     ///   Slot 0: 0 on success, FILE_ERROR_SENTINEL on error
     unsafe fn handle_close(&self, pkt: *mut u8, fd_table: &mut HashMap<u64, FdResource>) -> bool {
+        // SAFETY: Same as handle_open — payload slot reads/writes within packet bounds.
         let payload = pkt.add(PKT_OFF_PAYLOAD);
 
         let fd = std::ptr::read_volatile(payload as *const u64);
@@ -1121,6 +1229,7 @@ impl HostcallBuffer {
     ///   Slot 0: bytes read (u64)
     ///   Slots 1-7: data bytes (up to 56 bytes)
     unsafe fn handle_stdin_from_source<S: StdinSource>(&self, pkt: *mut u8, stdin: &mut S) -> bool {
+        // SAFETY: Same as handle_open — payload slot reads/writes within packet bounds.
         let payload = pkt.add(PKT_OFF_PAYLOAD);
         let max_len = std::ptr::read_volatile(payload as *const u64) as usize;
         let max_len = max_len.min(STDIN_MAX_READ_LEN);
@@ -1150,6 +1259,9 @@ impl HostcallBuffer {
         pkt: *mut u8,
         fd_table: &mut HashMap<u64, FdResource>,
     ) -> bool {
+        // SAFETY: Payload slot reads within packet bounds. Sideband access at
+        // SIDEBAND_DATA_OFFSET + sb_offset is bounds-checked against sideband
+        // capacity below. from_raw_parts creates a slice within the sideband region.
         let payload = pkt.add(PKT_OFF_PAYLOAD);
 
         let fd = std::ptr::read_volatile(payload as *const u64);
@@ -1212,6 +1324,8 @@ impl HostcallBuffer {
         pkt: *mut u8,
         fd_table: &mut HashMap<u64, FdResource>,
     ) -> bool {
+        // SAFETY: Same as handle_bulk_write — payload reads within packet bounds,
+        // sideband access is bounds-checked against capacity below.
         let payload = pkt.add(PKT_OFF_PAYLOAD);
 
         let fd = std::ptr::read_volatile(payload as *const u64);
@@ -1269,6 +1383,9 @@ impl HostcallBuffer {
     /// Slot 0 contains `port(u32) | addr_len(u32)` packed as `u64`.
     /// Returns `(address_string, port)` or writes an error response and returns `None`.
     unsafe fn extract_tcp_addr(&self, payload: *mut u8) -> Option<(String, u16)> {
+        // SAFETY: payload points to a valid packet payload region. Slot reads
+        // (0 and 1-7) are within the 64-byte payload. addr_len is clamped to
+        // TCP_MAX_ADDR_LEN (56 bytes).
         let slot0 = std::ptr::read_volatile(payload as *const u64);
         let port = (slot0 & 0xFFFF_FFFF) as u32;
         let addr_len = ((slot0 >> 32) & 0xFFFF_FFFF) as usize;
@@ -1300,6 +1417,7 @@ impl HostcallBuffer {
         fd_table: &mut HashMap<u64, FdResource>,
         next_fd: &mut u64,
     ) -> bool {
+        // SAFETY: Same as handle_open — payload slot reads/writes within packet bounds.
         let payload = pkt.add(PKT_OFF_PAYLOAD);
 
         let (addr, port) = match self.extract_tcp_addr(payload) {
@@ -1341,6 +1459,7 @@ impl HostcallBuffer {
         pkt: *mut u8,
         fd_table: &mut HashMap<u64, FdResource>,
     ) -> bool {
+        // SAFETY: Same as handle_open — payload slot reads/writes within packet bounds.
         let payload = pkt.add(PKT_OFF_PAYLOAD);
 
         let fd = std::ptr::read_volatile(payload as *const u64);
@@ -1395,6 +1514,7 @@ impl HostcallBuffer {
         pkt: *mut u8,
         fd_table: &mut HashMap<u64, FdResource>,
     ) -> bool {
+        // SAFETY: Same as handle_open — payload slot reads/writes within packet bounds.
         let payload = pkt.add(PKT_OFF_PAYLOAD);
 
         let fd = std::ptr::read_volatile(payload as *const u64);
@@ -1449,6 +1569,7 @@ impl HostcallBuffer {
         pkt: *mut u8,
         fd_table: &mut HashMap<u64, FdResource>,
     ) -> bool {
+        // SAFETY: Same as handle_open — payload slot reads/writes within packet bounds.
         let payload = pkt.add(PKT_OFF_PAYLOAD);
 
         let fd = std::ptr::read_volatile(payload as *const u64);
@@ -1486,6 +1607,7 @@ impl HostcallBuffer {
         fd_table: &mut HashMap<u64, FdResource>,
         next_fd: &mut u64,
     ) -> bool {
+        // SAFETY: Same as handle_open — payload slot reads/writes within packet bounds.
         let payload = pkt.add(PKT_OFF_PAYLOAD);
 
         let (addr, port) = match self.extract_tcp_addr(payload) {
@@ -1526,6 +1648,7 @@ impl HostcallBuffer {
         fd_table: &mut HashMap<u64, FdResource>,
         next_fd: &mut u64,
     ) -> bool {
+        // SAFETY: Same as handle_open — payload slot reads/writes within packet bounds.
         let payload = pkt.add(PKT_OFF_PAYLOAD);
 
         let listener_fd = std::ptr::read_volatile(payload as *const u64);
@@ -1575,6 +1698,8 @@ impl HostcallBuffer {
         pkt: *mut u8,
         fd_table: &mut HashMap<u64, FdResource>,
     ) -> bool {
+        // SAFETY: Same as handle_bulk_write — payload reads within packet bounds,
+        // sideband access is bounds-checked against capacity below.
         let payload = pkt.add(PKT_OFF_PAYLOAD);
 
         let fd = std::ptr::read_volatile(payload as *const u64);
@@ -1637,6 +1762,8 @@ impl HostcallBuffer {
         pkt: *mut u8,
         fd_table: &mut HashMap<u64, FdResource>,
     ) -> bool {
+        // SAFETY: Same as handle_bulk_write — payload reads within packet bounds,
+        // sideband access is bounds-checked against capacity below.
         let payload = pkt.add(PKT_OFF_PAYLOAD);
 
         let fd = std::ptr::read_volatile(payload as *const u64);
@@ -1883,6 +2010,10 @@ pub struct CommandBuffer {
     capacity: u32,
 }
 
+// SAFETY: CommandBuffer wraps pinned CUDA mapped memory (cuMemHostAlloc with DEVICEMAP).
+// The raw pointer is valid for the lifetime of the struct and freed in Drop.
+// Thread safety is ensured by the protocol: only one writer (host submit) at a time,
+// and the GPU reads via the device pointer after observing write_idx updates.
 unsafe impl Send for CommandBuffer {}
 unsafe impl Sync for CommandBuffer {}
 
@@ -1918,6 +2049,8 @@ impl CommandBuffer {
         let size = CMD_BUF_HEADER_SIZE + (capacity as usize) * CMD_SLOT_SIZE;
 
         let mut host_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
+        // SAFETY: cuMemHostAlloc allocates `size` bytes of pinned device-mapped memory.
+        // write_bytes zero-initializes the region; no kernel is running yet.
         unsafe {
             let cu = cuda_lib();
             let flags = sys::CU_MEMHOSTALLOC_DEVICEMAP | sys::CU_MEMHOSTALLOC_PORTABLE;
@@ -1929,6 +2062,8 @@ impl CommandBuffer {
         }
 
         let mut dev_ptr: sys::CUdeviceptr = 0;
+        // SAFETY: host_ptr was allocated with DEVICEMAP flag above.
+        // On failure, we free host_ptr before returning.
         unsafe {
             let cu = cuda_lib();
             let r = cu.cuMemHostGetDevicePointer_v2(&mut dev_ptr, host_ptr, 0);
@@ -1940,7 +2075,7 @@ impl CommandBuffer {
 
         let host_ptr = host_ptr as *mut u8;
 
-        // Write capacity to header
+        // SAFETY: CMD_OFF_CAPACITY is within the header region of the command buffer.
         unsafe {
             std::ptr::write_volatile(host_ptr.add(CMD_OFF_CAPACITY) as *mut u32, capacity);
         }
@@ -1962,6 +2097,12 @@ impl CommandBuffer {
     ///
     /// Blocks if the buffer is full (busy-waits for GPU to drain).
     pub fn submit(&self, cmd: &Command) {
+        // SAFETY: All read_volatile/write_volatile target offsets within the command
+        // buffer's allocated region (CMD_OFF_WRITE_IDX, CMD_OFF_READ_IDX are in the
+        // header; slot_ptr is computed from CMD_BUF_HEADER_SIZE + slot_idx * CMD_SLOT_SIZE
+        // where slot_idx < capacity). Volatile access is required because the GPU
+        // reads these values concurrently. The final AtomicU64 store with Release
+        // ordering ensures the GPU sees the command data before the index update.
         unsafe {
             // Wait for space (backpressure)
             loop {
@@ -2028,6 +2169,8 @@ impl CommandBuffer {
 
     /// Reset indices to 0 (between kernel launches).
     pub fn reset(&self) {
+        // SAFETY: CMD_OFF_WRITE_IDX and CMD_OFF_READ_IDX are within the header.
+        // Must only be called when no kernel is accessing the buffer (after sync).
         unsafe {
             std::ptr::write_volatile(self.host_ptr.add(CMD_OFF_WRITE_IDX) as *mut u64, 0);
             std::ptr::write_volatile(self.host_ptr.add(CMD_OFF_READ_IDX) as *mut u64, 0);
@@ -2037,6 +2180,8 @@ impl CommandBuffer {
 
 impl Drop for CommandBuffer {
     fn drop(&mut self) {
+        // SAFETY: host_ptr was allocated by cuMemHostAlloc in new() and has not
+        // been freed yet (Drop is called exactly once).
         unsafe {
             let cu = cuda_lib();
             cu.cuMemFreeHost(self.host_ptr as *mut std::ffi::c_void);
@@ -2063,6 +2208,10 @@ pub struct FlightRecorder {
     capacity: u32,
 }
 
+// SAFETY: FlightRecorder wraps pinned CUDA mapped memory (cuMemHostAlloc with DEVICEMAP).
+// The raw pointer is valid for the lifetime of the struct and freed in Drop.
+// The GPU writes events atomically via write_idx; the host only reads after
+// kernel completion (cuCtxSynchronize), so there is no data race.
 unsafe impl Send for FlightRecorder {}
 unsafe impl Sync for FlightRecorder {}
 
@@ -2073,6 +2222,8 @@ impl FlightRecorder {
         let size = FR_HEADER_SIZE + (capacity as usize) * FR_SLOT_SIZE;
 
         let mut host_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
+        // SAFETY: Same CUDA alloc pattern as CommandBuffer::new — allocates pinned
+        // device-mapped memory of `size` bytes and zero-initializes it.
         unsafe {
             let cu = cuda_lib();
             let flags = sys::CU_MEMHOSTALLOC_DEVICEMAP | sys::CU_MEMHOSTALLOC_PORTABLE;
@@ -2084,6 +2235,7 @@ impl FlightRecorder {
         }
 
         let mut dev_ptr: sys::CUdeviceptr = 0;
+        // SAFETY: host_ptr was allocated with DEVICEMAP flag. On failure, we free it.
         unsafe {
             let cu = cuda_lib();
             let r = cu.cuMemHostGetDevicePointer_v2(&mut dev_ptr, host_ptr, 0);
@@ -2095,7 +2247,7 @@ impl FlightRecorder {
 
         let host_ptr = host_ptr as *mut u8;
 
-        // Write capacity to header
+        // SAFETY: FR_OFF_CAPACITY is within the flight recorder header.
         unsafe {
             std::ptr::write_volatile(host_ptr.add(FR_OFF_CAPACITY) as *mut u32, capacity);
         }
@@ -2115,6 +2267,7 @@ impl FlightRecorder {
 
     /// Check if the kernel set the crashed flag.
     pub fn crashed(&self) -> bool {
+        // SAFETY: FR_OFF_FLAGS is within the flight recorder header, 4-byte aligned.
         let flags =
             unsafe { std::ptr::read_volatile(self.host_ptr.add(FR_OFF_FLAGS) as *const u32) };
         (flags & FR_FLAG_CRASHED) != 0
@@ -2122,6 +2275,7 @@ impl FlightRecorder {
 
     /// Get the number of events written (may exceed capacity for wrap-around).
     pub fn write_count(&self) -> u64 {
+        // SAFETY: FR_OFF_WRITE_IDX is within the header, 8-byte aligned.
         unsafe { std::ptr::read_volatile(self.host_ptr.add(FR_OFF_WRITE_IDX) as *const u64) }
     }
 
@@ -2147,6 +2301,10 @@ impl FlightRecorder {
 
         for i in start..write_idx {
             let slot_idx = (i % self.capacity as u64) as usize;
+            // SAFETY: slot_idx < capacity, so FR_HEADER_SIZE + slot_idx * FR_SLOT_SIZE
+            // is within the allocated flight recorder buffer. All slot offset reads
+            // (FR_SLOT_OFF_META, FR_SLOT_OFF_TIMESTAMP, FR_SLOT_OFF_MSG) are within
+            // FR_SLOT_SIZE bytes of the slot start.
             let slot = unsafe { self.host_ptr.add(FR_HEADER_SIZE + slot_idx * FR_SLOT_SIZE) };
 
             let meta = unsafe { std::ptr::read_volatile(slot.add(FR_SLOT_OFF_META) as *const u64) };
@@ -2182,6 +2340,8 @@ impl FlightRecorder {
 
     /// Reset the flight recorder (between kernel launches).
     pub fn reset(&self) {
+        // SAFETY: FR_OFF_WRITE_IDX and FR_OFF_FLAGS are within the header.
+        // Must only be called when no kernel is accessing the buffer (after sync).
         unsafe {
             std::ptr::write_volatile(self.host_ptr.add(FR_OFF_WRITE_IDX) as *mut u64, 0);
             std::ptr::write_volatile(self.host_ptr.add(FR_OFF_FLAGS) as *mut u32, 0);
@@ -2191,6 +2351,8 @@ impl FlightRecorder {
 
 impl Drop for FlightRecorder {
     fn drop(&mut self) {
+        // SAFETY: host_ptr was allocated by cuMemHostAlloc in new() and has not
+        // been freed yet (Drop is called exactly once).
         unsafe {
             let cu = cuda_lib();
             cu.cuMemFreeHost(self.host_ptr as *mut std::ffi::c_void);
@@ -2200,6 +2362,8 @@ impl Drop for FlightRecorder {
 
 impl Drop for HostcallBuffer {
     fn drop(&mut self) {
+        // SAFETY: Both host_ptr and sideband_host_ptr were allocated by
+        // cuMemHostAlloc in alloc_internal() and have not been freed yet.
         unsafe {
             let cu = cuda_lib();
             cu.cuMemFreeHost(self.host_ptr as *mut std::ffi::c_void);

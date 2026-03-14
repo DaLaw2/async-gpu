@@ -39,23 +39,31 @@ impl<T> MappedBuffer<T> {
         let size = len * std::mem::size_of::<T>();
         assert!(size > 0, "cannot allocate zero-sized mapped buffer");
 
+        // SAFETY: cuda_lib() returns a lazily-loaded CUDA driver function table.
         let cu = unsafe { cuda_lib() };
         let flags = sys::CU_MEMHOSTALLOC_DEVICEMAP | sys::CU_MEMHOSTALLOC_PORTABLE;
 
         let mut host_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
+        // SAFETY: cuMemHostAlloc writes to `host_ptr`; flags request pinned device-mapped memory.
+        // The returned pointer is valid for `size` bytes until freed with cuMemFreeHost.
         let result = unsafe { cu.cuMemHostAlloc(&mut host_ptr, size, flags) };
         if result != sys::CUresult::CUDA_SUCCESS {
             return Err(GpuHostError::CudaAlloc(result));
         }
 
         let mut dev_ptr: sys::CUdeviceptr = 0;
+        // SAFETY: host_ptr was successfully allocated above with DEVICEMAP flag,
+        // so cuMemHostGetDevicePointer_v2 can retrieve the GPU-visible address.
         let result = unsafe { cu.cuMemHostGetDevicePointer_v2(&mut dev_ptr, host_ptr, 0) };
         if result != sys::CUresult::CUDA_SUCCESS {
+            // SAFETY: host_ptr was allocated by cuMemHostAlloc above; freeing on error path.
             unsafe { cu.cuMemFreeHost(host_ptr) };
             return Err(GpuHostError::CudaGetDevPtr(result));
         }
 
         // Zero-initialize
+        // SAFETY: host_ptr is valid for `size` bytes (just allocated). No GPU kernel
+        // is running yet, so there is no concurrent access.
         unsafe { std::ptr::write_bytes(host_ptr as *mut u8, 0, size) };
 
         Ok(Self {
@@ -92,6 +100,10 @@ impl<T> MappedBuffer<T> {
     /// finished writing to this location (e.g., after `dev.synchronize()`).
     pub unsafe fn read(&self, index: usize) -> T {
         assert!(index < self.len, "index out of bounds");
+        // SAFETY: Caller guarantees index is in bounds (asserted above) and that the
+        // GPU has finished writing. host_ptr is valid for self.len elements (pinned
+        // CUDA memory). Volatile read is used because the GPU may have written this
+        // location and we need to observe the latest value.
         unsafe { std::ptr::read_volatile(self.host_ptr.add(index)) }
     }
 
@@ -102,6 +114,9 @@ impl<T> MappedBuffer<T> {
     /// is concurrently reading this location.
     pub unsafe fn write(&mut self, index: usize, value: T) {
         assert!(index < self.len, "index out of bounds");
+        // SAFETY: Caller guarantees index is in bounds (asserted above) and that no
+        // GPU kernel is concurrently reading this location. host_ptr is valid for
+        // self.len elements. Volatile write ensures the store is not elided.
         unsafe { std::ptr::write_volatile(self.host_ptr.add(index), value) };
     }
 
@@ -110,6 +125,9 @@ impl<T> MappedBuffer<T> {
     /// # Safety
     /// The caller must ensure the GPU is not concurrently writing to this memory.
     pub unsafe fn as_slice(&self) -> &[T] {
+        // SAFETY: Caller guarantees the GPU is not concurrently writing. host_ptr
+        // is non-null, properly aligned, and valid for self.len elements for the
+        // lifetime of this borrow (pinned CUDA memory is not freed until Drop).
         unsafe { std::slice::from_raw_parts(self.host_ptr, self.len) }
     }
 
@@ -118,13 +136,19 @@ impl<T> MappedBuffer<T> {
     /// # Safety
     /// The caller must ensure no GPU kernel is concurrently accessing this memory.
     pub unsafe fn as_mut_slice(&mut self) -> &mut [T] {
+        // SAFETY: Caller guarantees no GPU kernel is concurrently accessing this
+        // memory. host_ptr is non-null, properly aligned, and valid for self.len
+        // elements. The &mut self borrow prevents aliasing from Rust code.
         unsafe { std::slice::from_raw_parts_mut(self.host_ptr, self.len) }
     }
 }
 
 impl<T> Drop for MappedBuffer<T> {
     fn drop(&mut self) {
+        // SAFETY: cuda_lib() returns the CUDA driver function table.
         let cu = unsafe { cuda_lib() };
+        // SAFETY: host_ptr was allocated by cuMemHostAlloc in new_zeroed() and has
+        // not been freed yet (this is the Drop impl, called exactly once).
         let result = unsafe { cu.cuMemFreeHost(self.host_ptr as *mut std::ffi::c_void) };
         if result != sys::CUresult::CUDA_SUCCESS {
             eprintln!(

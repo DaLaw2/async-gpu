@@ -12,7 +12,7 @@ status = "running"     # ready | running | blocked | completed
 current_mode = "think"
 current_step = "think.triage"
 current_task_id = ""
-last_summary = "ALL HIGH-PRIORITY EPICS SATISFIED. native-warp-async 3/3, gpu-autonomous 7/7, gpu-perf 1/1+3 parked, real-std 5/5. warp-cooperative async fn verified on GPU: activemask + shfl.sync + bar.warp.sync all working. 4 epics ready for user close. Only evergreen epics remain."
+last_summary = "Opened async-std epic. Closed native-warp-async, gpu-autonomous, gpu-perf, real-std. New direction: #[warp_cooperative] async fn + patched std — make println!() and File I/O warp-cooperative automatically via MIR pass. Also need codebase restructuring (legacy crates → archive)."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 72
@@ -25,40 +25,18 @@ review_seq = 5
 # ============================================================
 
 [[epics]]
-id = "gpu-perf"
-title = "GPU Inference Performance Optimization"
+id = "async-std"
+title = "Async Std on GPU — real async/await with patched rustc + patched std"
 status = "active"
 priority = "high"
 success_criteria = [
-    "KV cache eliminates redundant recomputation — only new token passes through model per step",
-    "PARKED: Per-token generation latency < 20ms (down from ~143ms)",
-    "PARKED: BF16/TF32 MMA inference matches f32 FMA output (top-5 agreement for 3+ prompts)",
-    "PARKED: Mixed precision pipeline: GEMM via Tensor Core, everything else f32",
+    "#[warp_cooperative] async fn using println!() works on GPU — patched std I/O is warp-cooperative automatically",
+    "#[warp_cooperative] async fn using std::fs::File works on GPU — open/read/write/close via .await",
+    "Patched std PAL yields instead of spin-waiting under #[warp_cooperative] context",
+    "Toolchain build automated — single script from rustc-patches/ + std-patches/ to usable toolchain",
+    "PTX post-processing automated in build pipeline (remove .ptr .align 1, stub extern panic fn)",
+    "Legacy crates (warp-macro, Embassy tests, gpu-critical-section) archived — codebase restructured",
 ]
-# Criterion 1: DONE — KV cache verified (50/50 tokens match, 2.07x speedup, 68ms/tok)
-# Criterion 2: PARKED — 68ms with KV cache, 35ms full forward; reaching 20ms requires
-#   persistent kernels, fused ops, reduced sync overhead. Significant engineering investment
-#   with uncertain ROI given single-SM workload and per-kernel launch overhead.
-# Criterion 3: PARKED — f16, bf16, tf32 MMA all fail 12-layer inference (0/3 top-1 match).
-#   Root cause: naive f32→reduced-precision truncation causes cascading error through residual
-#   connections. Requires quantization-aware training or post-training calibration (PTQ) with
-#   per-channel scaling — out of scope for this project.
-# Criterion 4: PARKED — depends on criterion 3.
-
-[[epics]]
-id = "real-std"
-title = "Real std on GPU — replace macros with actual Rust std"
-status = "active"
-priority = "high"
-success_criteria = [
-    "GPU kernel can `use std::io::Write` and call `println!()` without custom macros",
-    "Vec, String, Box work on GPU via #[global_allocator] backed by hostcall-aware allocator",
-    "std::fs::File::create() and write_all() work on GPU via hostcall",
-    "std::io::stdin().read_line() works on GPU via hostcall",
-    "PAL/libc facade routes std sys calls to hostcall framework",
-]
-# Criteria 1-5 fully met. Multi-thread ThreadLocal fixed by gpu_threads.rs (std-multithread theme).
-# println! (4 threads) + Vec (32 threads) GPU-verified. Ready for user close.
 
 [[epics]]
 id = "gpu-error"
@@ -72,6 +50,73 @@ success_criteria = [
     "std::io and std::fs errors on GPU produce proper std::io::Error, not panic",
 ]
 # ALL 4 CRITERIA MET — closed by user 2026-03-14
+
+[[epics]]
+id = "gpu-debug"
+title = "GPU Debugging & Observability — structured tracing, assertions, flight recorder"
+status = "completed"
+priority = "high"
+success_criteria = [
+    "gpu_trace!() macro emits structured events with thread/block/warp ID + timestamp to host",
+    "gpu_assert!() sends diagnostic message + thread coords to host before trap",
+    "Post-mortem flight recorder dumps last N trace events when kernel crashes",
+    "Conditional compilation: tracing compiles out for zero overhead in release",
+]
+
+[[epics]]
+id = "native-warp-async"
+title = "Native Warp-Cooperative Async/Await — compiler-level SIMT async"
+status = "completed"
+priority = "high"
+success_criteria = [
+    "Standard impl Future polled warp-cooperatively (lane 0 polls, shfl broadcast)",
+    "#[warp_async] accepts async fn syntax with .await and ? operator",
+    "#[warp_cooperative] async fn compiles via rustc MIR pass and runs on GPU",
+]
+# ALL 3 CRITERIA MET — closed by user 2026-03-14
+
+[[epics]]
+id = "gpu-autonomous"
+title = "GPU as Autonomous Compute Environment v3 — native warp-cooperative async/await"
+status = "completed"
+priority = "high"
+success_criteria = [
+    "Multi-command kernel: processes 3+ command types (COMPUTE, PRINT, EXIT) from mapped memory command buffer in a single launch, TDR-safe",
+    "Cross-launch pipeline: two kernels share device buffer (A writes → B reads, zero host copy), with minimal Pipeline API",
+    "Data-dependent iteration: kernel autonomously loops (read → process → check convergence → iterate or finalize), pattern not yet demonstrated",
+    "Hostcall session persistence: HostcallSession keeps listener + fd table + buffer alive across multiple kernel launches, packet pool reinit between launches",
+    "Standard impl Future can be polled warp-cooperatively (lane 0 polls, broadcast result via shfl.sync)",
+    "#[warp_async] accepts async fn syntax with .await and ? operator",
+    "#[warp_cooperative] async fn compiles via rustc MIR pass and runs correctly on GPU",
+]
+# ALL 7 CRITERIA MET — closed by user 2026-03-14
+
+[[epics]]
+id = "gpu-perf"
+title = "GPU Inference Performance Optimization"
+status = "completed"
+priority = "high"
+success_criteria = [
+    "KV cache eliminates redundant recomputation — only new token passes through model per step",
+    "PARKED: Per-token generation latency < 20ms (down from ~143ms)",
+    "PARKED: BF16/TF32 MMA inference matches f32 FMA output (top-5 agreement for 3+ prompts)",
+    "PARKED: Mixed precision pipeline: GEMM via Tensor Core, everything else f32",
+]
+# Criterion 1 DONE. Criteria 2-4 PARKED (out of scope). Closed by user 2026-03-14.
+
+[[epics]]
+id = "real-std"
+title = "Real std on GPU — replace macros with actual Rust std"
+status = "completed"
+priority = "high"
+success_criteria = [
+    "GPU kernel can `use std::io::Write` and call `println!()` without custom macros",
+    "Vec, String, Box work on GPU via #[global_allocator] backed by hostcall-aware allocator",
+    "std::fs::File::create() and write_all() work on GPU via hostcall",
+    "std::io::stdin().read_line() works on GPU via hostcall",
+    "PAL/libc facade routes std sys calls to hostcall framework",
+]
+# ALL 5 CRITERIA MET — closed by user 2026-03-14
 
 [[epics]]
 id = "codebase-health"
@@ -88,18 +133,6 @@ success_criteria = [
 ]
 
 [[epics]]
-id = "gpu-debug"
-title = "GPU Debugging & Observability — structured tracing, assertions, flight recorder"
-status = "completed"
-priority = "high"
-success_criteria = [
-    "gpu_trace!() macro emits structured events with thread/block/warp ID + timestamp to host",
-    "gpu_assert!() sends diagnostic message + thread coords to host before trap",
-    "Post-mortem flight recorder dumps last N trace events when kernel crashes",
-    "Conditional compilation: tracing compiles out for zero overhead in release",
-]
-
-[[epics]]
 id = "public-api"
 title = "Public API — Host SDK + Reusable GPU Kernel Library"
 type = "evergreen"  # Ongoing quality epic — work on when no other tasks are ready
@@ -112,107 +145,17 @@ success_criteria = [
     "At least 3 working examples (hello-gpu, async-io, compute) with documentation",
 ]
 
-[[epics]]
-id = "native-warp-async"
-title = "Native Warp-Cooperative Async/Await — compiler-level SIMT async"
-status = "active"
-priority = "high"
-success_criteria = [
-    "Standard impl Future polled warp-cooperatively (lane 0 polls, shfl broadcast)",
-    "#[warp_async] accepts async fn syntax with .await and ? operator",
-    "#[warp_cooperative] async fn compiles via rustc MIR pass and runs on GPU",
-]
-# ALL 3 CRITERIA MET:
-# Criterion 1: DONE — warp-future-bridge theme (WarpFuture trait + shfl broadcast)
-# Criterion 2: DONE — warp-async-v2 theme (proc macro with async fn syntax + ? operator)
-# Criterion 3: DONE — rustc-build + warp-verify themes (MIR pass + GPU execution verified)
-# Ready for user close.
-
-[[epics]]
-id = "gpu-autonomous"
-title = "GPU as Autonomous Compute Environment v3 — native warp-cooperative async/await"
-status = "active"
-priority = "high"
-success_criteria = [
-    "Multi-command kernel: processes 3+ command types (COMPUTE, PRINT, EXIT) from mapped memory command buffer in a single launch, TDR-safe",
-    "Cross-launch pipeline: two kernels share device buffer (A writes → B reads, zero host copy), with minimal Pipeline API",
-    "Data-dependent iteration: kernel autonomously loops (read → process → check convergence → iterate or finalize), pattern not yet demonstrated",
-    "Hostcall session persistence: HostcallSession keeps listener + fd table + buffer alive across multiple kernel launches, packet pool reinit between launches",
-    "Standard impl Future can be polled warp-cooperatively (lane 0 polls, broadcast result via shfl.sync)",
-    "#[warp_async] accepts async fn syntax with .await and ? operator",
-    "#[warp_cooperative] async fn compiles via rustc MIR pass and runs correctly on GPU",
-]
-# v1 completed: GPT-2 inference, basic autonomous compute
-# v2 completed: criteria 1-4 (multi-command, cross-pipeline, iteration, session persistence)
-# v3 completed: criteria 5-7 (warp-future, warp-async proc macro, rustc MIR pass)
-# ALL 7 CRITERIA MET. Ready for user close.
-
 # ============================================================
 # Themes (active only — completed/parked archived in archive/)
 # ============================================================
 
-[[themes]]
-id = "rustc-build"
-epic = "native-warp-async"
-title = "Build patched rustc and verify WarpCooperativeTransform compiles"
-status = "completed"
-goal = "Patched compiler builds successfully with our MIR pass"
-success_criteria = [
-    "x.py build compiler succeeds with warp_cooperative.rs in the pipeline",
-    "Compiler can compile a simple #[warp_cooperative] async fn to PTX with shfl.sync instructions",
-]
-
-[[themes]]
-id = "warp-verify"
-epic = "native-warp-async"
-title = "Verify warp-cooperative async with multi-await and GPU execution"
-status = "completed"
-goal = "Verify shfl.sync broadcast with multi-await and run on actual GPU"
-success_criteria = [
-    "Multi-await async fn produces PTX with shfl.sync.idx.b32 discriminant broadcast",
-    "Warp-cooperative kernel runs on GPU and returns correct result",
-]
-goal = "Patched compiler builds successfully with our MIR pass"
-success_criteria = [
-    "x.py build compiler succeeds with warp_cooperative.rs in the pipeline",
-    "Compiler can compile a simple #[warp_cooperative] async fn to PTX with shfl.sync instructions",
-]
+# (none active — awaiting brainstorm for async-std epic)
 
 # ============================================================
 # Tasks (pending/active only — done tasks archived in archive/)
 # ============================================================
 
-[[tasks]]
-id = "rustc-build.1"
-theme = "rustc-build"
-title = "Build patched rustc from rustc-src/ with applied patches"
-kind = "experiment"
-status = "done"
-deps = []
-
-[[tasks]]
-id = "rustc-build.2"
-theme = "rustc-build"
-title = "Test patched compiler — compile a #[warp_cooperative] async fn and inspect PTX"
-kind = "experiment"
-status = "done"
-deps = ["rustc-build.1"]
-
-[[tasks]]
-id = "warp-verify.1"
-theme = "warp-verify"
-title = "Multi-await async fn: verify shfl.sync broadcast in PTX"
-kind = "experiment"
-status = "done"
-deps = []
-
-[[tasks]]
-id = "warp-verify.2"
-theme = "warp-verify"
-title = "GPU execution: run warp-cooperative kernel and verify correctness"
-kind = "experiment"
-status = "done"
-deps = ["warp-verify.1"]
+# (none — awaiting theme creation)
 
 # ============================================================
 # Brainstorms (last 3 only — older brainstorms archived)
@@ -250,36 +193,3 @@ new_themes_spawned = ["rustc-build"]
 themes_parked = []
 themes_completed = ["rustc-impl", "data-iter"]
 key_insight = "MIR pass code done, patch scripts done. Next step: actually build the patched compiler and test it. Clone fresh rustc, apply patches, x.py build compiler. If it compiles, test with a simple warp_cooperative async fn."
-
-[[brainstorms]]
-seq = 67
-at_cycle = 259
-trigger = "println-buffer theme completed — no pending tasks, no active themes"
-level = "quick"
-new_tasks_spawned = ["rustc-warp-async.1"]
-new_themes_spawned = ["rustc-warp-async"]
-themes_parked = []
-themes_completed = ["println-buffer"]
-key_insight = "All incremental optimizations done. native-warp-async epic is highest-priority unmet goal. Starting with rustc async transform investigation to find MIR insertion points for warp-cooperative shfl.sync. gpu-perf and real-std ready for user close."
-
-[[brainstorms]]
-seq = 68
-at_cycle = 262
-trigger = "rustc-warp-async theme completed — no pending tasks"
-level = "quick"
-new_tasks_spawned = ["data-iter.1"]
-new_themes_spawned = ["data-iter"]
-themes_parked = []
-themes_completed = ["rustc-warp-async"]
-key_insight = "rustc MIR pass feasibility proven (pipeline mapped, design complete, skeleton written). Phase 2 blocked on rustc clone. Pivot to gpu-autonomous criterion 3: data-dependent iteration pattern not yet demonstrated. Newton's method sqrt is ideal — deterministic convergence, easy to verify."
-
-[[brainstorms]]
-seq = 69
-at_cycle = 263
-trigger = "User unblocked rustc clone — toolchain/ now has full rustc source"
-level = "quick"
-new_tasks_spawned = ["rustc-impl.1", "rustc-impl.2", "rustc-impl.3"]
-new_themes_spawned = ["rustc-impl"]
-themes_parked = []
-themes_completed = []
-key_insight = "rustc source available in toolchain/ (flattened, no .git). Can now implement WarpCooperativeTransform directly in compiler/rustc_mir_transform/ and generate diffs for rustc-patches/."

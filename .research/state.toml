@@ -4,18 +4,18 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 247     # Monotonic counter, incremented after each completed phase
-completed_tasks = 247
+total_cycles = 249     # Monotonic counter, incremented after each completed phase
+completed_tasks = 249
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.save"
-current_task_id = ""
-last_summary = "BS60 + readme-fix.1 DONE. Fixed README Limitations: removed outdated single-thread std claim, updated HashMap status. All 247 tasks complete."
+current_step = "do.execute"
+current_task_id = "host-async.2"
+last_summary = "BS61: host-async (tokio interop) + batched-hc (latency profiling) themes created. 3 tasks ready."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 60
+brainstorm_seq = 61
 review_seq = 5
 
 # Brainstorm trigger control (event-driven, no fixed interval)
@@ -158,6 +158,29 @@ success_criteria = [
     "No contradictions between README body and Limitations",
 ]
 
+[[themes]]
+id = "host-async"
+epic = "public-api"
+title = "Host-side async/await integration — tokio-compatible GPU launch"
+status = "active"
+goal = "Host programs can .await GPU kernel completion and consume hostcall events as async Stream"
+success_criteria = [
+    "Host can gpu_runtime.launch_kernel().await inside tokio runtime",
+    "Hostcall events consumable as async Stream",
+    "GPU launch coexists with other tokio tasks (no thread monopolization)",
+]
+
+[[themes]]
+id = "batched-hc"
+epic = "gpu-perf"
+title = "Hostcall latency profiling — where does 20-100us go?"
+status = "active"
+goal = "Data-driven analysis of hostcall round-trip overhead"
+success_criteria = [
+    "Latency breakdown: CAS contention vs mapped memory sync vs host processing",
+    "Recommendation: is batching worth pursuing?",
+]
+
 # ============================================================
 # Tasks (pending/active only — done tasks archived in archive/)
 # ============================================================
@@ -170,9 +193,44 @@ kind = "experiment"
 status = "done"
 deps = []
 
+[[tasks]]
+id = "host-async.1"
+theme = "host-async"
+title = "Design async API surface — launch().await, Stream<HostcallEvent>, cancellation"
+kind = "design"
+status = "done"
+deps = []
+
+[[tasks]]
+id = "host-async.2"
+theme = "host-async"
+title = "Implement tokio-compatible GPU launch future + hostcall Stream"
+kind = "experiment"
+status = "done"
+deps = ["host-async.1"]
+
+[[tasks]]
+id = "batched-hc.1"
+theme = "batched-hc"
+title = "Profile hostcall latency breakdown — CAS vs mapped memory vs host processing"
+kind = "investigation"
+status = "pending"
+deps = []
+
 # ============================================================
 # Brainstorms (last 3 only — older brainstorms archived)
 # ============================================================
+
+[[brainstorms]]
+seq = 61
+at_cycle = 247
+trigger = "readme-fix theme completed, no tasks remaining — need new directions"
+level = "standard"
+new_tasks_spawned = ["host-async.1", "host-async.2", "batched-hc.1"]
+new_themes_spawned = ["host-async", "batched-hc"]
+themes_parked = []
+themes_completed = ["readme-fix"]
+key_insight = "Project at research-to-product inflection. Highest leverage: host async interop (modern API) + hostcall latency profiling (data-driven). publish-ready (crates.io) deferred — more engineering than research."
 
 [[brainstorms]]
 seq = 60

@@ -20,6 +20,9 @@ pub mod hostcall;
 pub mod memory;
 pub mod runtime;
 
+#[cfg(feature = "async")]
+pub mod async_rt;
+
 #[cfg(feature = "gpt2")]
 pub mod model;
 #[cfg(feature = "gpt2")]

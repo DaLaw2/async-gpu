@@ -1,5 +1,8 @@
 # async_gpu — Rust Async/Await on NVIDIA GPUs
 
+[![CI](https://github.com/DaLaw2/async-gpu/actions/workflows/build.yml/badge.svg)](https://github.com/DaLaw2/async-gpu/actions/workflows/build.yml)
+[![License: MIT/Apache-2.0](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](LICENSE-MIT)
+
 **What if the GPU could drive its own computation?** Open files, read data, branch on results, loop until convergence, write output — all from GPU code, with zero CPU orchestration between steps.
 
 async_gpu makes this real: **Rust async/await running natively on NVIDIA GPUs**, with a custom rustc MIR pass that turns standard `async fn` into warp-cooperative state machines — and GPU compute kernels powerful enough to run **end-to-end GPT-2 inference** entirely from Rust inline PTX.
@@ -122,6 +125,10 @@ Write pipeline: GPU creates 3 files in sequence. Transform pipeline: GPU reads a
 ### vector-math — Pure GPU Compute
 
 SAXPY, dot product (GPU multiply + CPU reduce), and softmax (multi-pass GPU-CPU cooperation with numerically stable exp via PTX `ex2.approx.ftz.f32`).
+
+### warp-cooperative — MIR Pass Verification (requires patched rustc)
+
+Tests the `#[warp_cooperative]` MIR pass directly: `simple_add` (no `.await`, bar.warp.sync only), `multi_await` (2 `.await` points, `shfl.sync.idx` broadcast), and `async_pipeline` (6 `.await` points simulating I/O). Verifies all 32 lanes produce correct results.
 
 ## Real Rust `std` on GPU
 
@@ -296,6 +303,7 @@ examples/
   parallel-search/   32-lane GPU grep with shfl.sync warp reduction
   async-io/          Multi-file write pipeline + read-transform-write
   vector-math/       SAXPY, dot product, softmax (pure compute, no hostcall)
+  warp-cooperative/  MIR pass verification: simple, multi-await, 6-stage pipeline (requires patched rustc)
 ```
 
 ## Capabilities

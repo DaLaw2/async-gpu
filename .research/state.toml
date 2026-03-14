@@ -4,18 +4,18 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 292     # Monotonic counter, incremented after each completed phase
-completed_tasks = 307
+total_cycles = 293     # Monotonic counter, incremented after each completed phase
+completed_tasks = 311
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.save"
 current_task_id = ""
-last_summary = "All bs82 tasks done: CI coverage extended (parallel-search kernel + async-pipeline host), run scripts added, 5 example READMEs written. build-scripts.1 skipped (already clean). Need brainstorm."
+last_summary = "bs83 done: CI badge, warp-cooperative README + README listing, CONTRIBUTING.md. 311 tasks completed."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 82
+brainstorm_seq = 83
 review_seq = 5
 
 # Brainstorm trigger control (event-driven, no fixed interval)
@@ -574,6 +574,27 @@ depends = ["showcase-demo.1"]
 # Brainstorms (last 3 only — older brainstorms archived)
 # ============================================================
 
+[[themes]]
+id = "readme-polish"
+epic = "codebase-health"
+title = "CI badge + warp-cooperative in README"
+status = "completed"
+goal = "README has CI badge and lists all 6 examples"
+success_criteria = [
+    "CI badge in README header",
+    "warp-cooperative listed in examples section",
+]
+
+[[themes]]
+id = "contributing-guide"
+epic = "public-api"
+title = "CONTRIBUTING.md for developer onboarding"
+status = "completed"
+goal = "Developer guide for adding examples, running tests, code style"
+success_criteria = [
+    "CONTRIBUTING.md exists with dev workflow, adding examples, code style",
+]
+
 # --- ci-hygiene theme ---
 
 [[themes]]
@@ -608,6 +629,34 @@ success_criteria = [
     "async-pipeline and parallel-search have README.md",
     "hello-gpu, async-io, vector-math have README.md",
 ]
+
+# --- readme-polish theme ---
+
+[[tasks]]
+id = "readme-polish.1"
+theme = "readme-polish"
+title = "Experiment: add CI badge to README header"
+kind = "experiment"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "readme-polish.2"
+theme = "readme-polish"
+title = "Experiment: add warp-cooperative to README examples + write its README"
+kind = "experiment"
+status = "done"
+depends = []
+
+# --- contributing-guide theme ---
+
+[[tasks]]
+id = "contributing-guide.1"
+theme = "contributing-guide"
+title = "Experiment: write CONTRIBUTING.md"
+kind = "experiment"
+status = "done"
+depends = []
 
 # --- ci-hygiene theme ---
 
@@ -688,6 +737,17 @@ depends = []
 # ============================================================
 # Brainstorms (last 3 only — older brainstorms archived)
 # ============================================================
+
+[[brainstorms]]
+seq = 83
+at_cycle = 292
+trigger = "all bs82 tasks done — quick brainstorm for remaining polish"
+level = "quick"
+new_tasks_spawned = ["readme-polish.1", "readme-polish.2", "contributing-guide.1"]
+new_themes_spawned = ["readme-polish", "contributing-guide"]
+themes_parked = []
+themes_completed = ["ci-hygiene", "build-scripts", "example-docs"]
+key_insight = "Last polish items: CI badge, warp-cooperative README/listing, CONTRIBUTING.md. test-expansion deferred (needs GPU hw). safety-docs deferred (large effort)."
 
 [[brainstorms]]
 seq = 82

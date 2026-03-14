@@ -879,3 +879,65 @@ title = "Implement buffered println — modify gpu_stdout_write() to use print_b
 kind = "experiment"
 status = "done"
 deps = ["println-buffer.1"]
+
+# --- rustc-warp-async (native-warp-async) --- archived at cycle 266
+
+[[tasks]]
+id = "rustc-warp-async.1"
+theme = "rustc-warp-async"
+title = "Map rustc async transform pipeline — where does async fn become a state machine?"
+kind = "investigation"
+status = "done"
+deps = []
+
+[[tasks]]
+id = "rustc-warp-async.2"
+theme = "rustc-warp-async"
+title = "Design MIR pass for warp-cooperative poll — specify pass inputs/outputs and MIR rewrites"
+kind = "design"
+status = "done"
+deps = ["rustc-warp-async.1"]
+
+[[tasks]]
+id = "rustc-warp-async.3"
+theme = "rustc-warp-async"
+title = "Write rustc patch files for skeleton WarpCooperativeTransform MIR pass"
+kind = "experiment"
+status = "done"
+deps = ["rustc-warp-async.2"]
+
+# --- data-iter (gpu-autonomous) --- archived at cycle 266
+
+[[tasks]]
+id = "data-iter.1"
+theme = "data-iter"
+title = "Implement convergence-loop kernel — Newton's method sqrt on GPU"
+kind = "experiment"
+status = "done"
+deps = []
+
+# --- rustc-impl (native-warp-async) --- archived at cycle 266
+
+[[tasks]]
+id = "rustc-impl.1"
+theme = "rustc-impl"
+title = "Study actual rustc coroutine.rs StateTransform + lib.rs pass pipeline from source"
+kind = "investigation"
+status = "done"
+deps = []
+
+[[tasks]]
+id = "rustc-impl.2"
+theme = "rustc-impl"
+title = "Implement WarpCooperativeTransform in toolchain/compiler/ and register in pipeline"
+kind = "experiment"
+status = "done"
+deps = ["rustc-impl.1"]
+
+[[tasks]]
+id = "rustc-impl.3"
+theme = "rustc-impl"
+title = "Generate rustc-patches/ diffs from toolchain/ changes"
+kind = "experiment"
+status = "done"
+deps = ["rustc-impl.2"]

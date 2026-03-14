@@ -93,3 +93,16 @@ at_cycle = 232
 trigger = "User requested: align #[warp_async] with native async/await, including rustc modification"
 level = "deep"
 key_insight = "Initial analysis: WarpFuture and core::future::Future are fundamentally different execution models. Superseded by BS57 which reframed the problem."
+
+# --- archived at cycle 266 ---
+
+[[brainstorms]]
+seq = 66
+at_cycle = 257
+trigger = "gpu-test-harness theme completed — no pending tasks"
+level = "quick"
+new_tasks_spawned = ["println-buffer.1"]
+new_themes_spawned = ["println-buffer"]
+themes_parked = []
+themes_completed = ["gpu-test-harness"]
+key_insight = "Integration test harness done. Next: integrate print_buffer with gpu-libc write() so println!() auto-buffers — highest-impact remaining optimization. Bridges printf-batch infra with real-std println!()."

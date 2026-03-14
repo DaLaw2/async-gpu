@@ -252,3 +252,23 @@ id = "println-buffer"
 epic = "gpu-perf"
 title = "Integrate print_buffer with gpu-libc write() for automatic println buffering"
 status = "completed"
+
+# --- archived at cycle 266 ---
+
+[[themes]]
+id = "rustc-warp-async"
+epic = "native-warp-async"
+title = "Rustc MIR pass feasibility — warp-cooperative async/await compiler support"
+status = "completed"
+
+[[themes]]
+id = "data-iter"
+epic = "gpu-autonomous"
+title = "Data-dependent iteration — GPU kernel autonomously converges"
+status = "completed"
+
+[[themes]]
+id = "rustc-impl"
+epic = "native-warp-async"
+title = "Implement WarpCooperativeTransform MIR pass in rustc source"
+status = "completed"

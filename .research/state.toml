@@ -9,13 +9,13 @@ completed_tasks = 266
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
-current_mode = "think"
-current_step = "think.triage"
-current_task_id = ""
-last_summary = "rustc-impl theme COMPLETE: All 3 tasks done. WarpCooperativeTransform MIR pass (510 lines) implemented in toolchain/ with Phase 2 (shfl.sync discriminant broadcast) + Rule 4 (warp barrier). Registered after StateTransform. rustc-patches/ updated with reproducible diffs."
+current_mode = "do"
+current_step = "do.execute"
+current_task_id = "rustc-build.1"
+last_summary = "BS70: spawned rustc-build theme. Building patched compiler in background (x.py build compiler). Phase 3 MIR pass work queued."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 69
+brainstorm_seq = 70
 review_seq = 5
 
 # Brainstorm trigger control (event-driven, no fixed interval)
@@ -148,40 +148,14 @@ success_criteria = [
 # ============================================================
 
 [[themes]]
-id = "rustc-warp-async"
+id = "rustc-build"
 epic = "native-warp-async"
-title = "Rustc MIR pass feasibility — warp-cooperative async/await compiler support"
-status = "completed"
-
-[[themes]]
-id = "data-iter"
-epic = "gpu-autonomous"
-title = "Data-dependent iteration — GPU kernel autonomously converges"
-status = "completed"
-
-[[themes]]
-id = "rustc-impl"
-epic = "native-warp-async"
-title = "Implement WarpCooperativeTransform MIR pass in rustc source"
-status = "completed"
-goal = "Working MIR pass that modifies coroutine state machines for warp-cooperative execution on nvptx64"
+title = "Build patched rustc and verify WarpCooperativeTransform compiles"
+status = "active"
+goal = "Patched compiler builds successfully with our MIR pass"
 success_criteria = [
-    "MIR pass source file placed in toolchain/compiler/rustc_mir_transform/src/warp_cooperative.rs",
-    "Pass registered in lib.rs pipeline after StateTransform",
-    "Pass correctly identifies yield points and poll calls in coroutine MIR for #[warp_cooperative] fns",
-    "rustc-patches/ contains diff files that can reproduce the changes from stock rustc",
-]
-goal = "Demonstrate a GPU kernel that loops autonomously until convergence, without host intervention"
-success_criteria = [
-    "Kernel reads data, processes it, checks convergence, iterates or finalizes — all on GPU",
-    "Host receives iteration count and final result via hostcall/mapped memory",
-    "Test verifies convergence matches expected result",
-]
-goal = "Determine if rustc MIR pass can transform standard async fn into warp-cooperative coroutine"
-success_criteria = [
-    "Document rustc async transform pipeline: desugaring → generator → state machine → MIR",
-    "Identify insertion points for warp-cooperative shfl.sync in MIR/codegen",
-    "Prototype: minimal rustc patch that inserts a no-op marker at Future::poll call sites",
+    "x.py build compiler succeeds with warp_cooperative.rs in the pipeline",
+    "Compiler can compile a simple #[warp_cooperative] async fn to PTX with shfl.sync instructions",
 ]
 
 # ============================================================
@@ -189,64 +163,46 @@ success_criteria = [
 # ============================================================
 
 [[tasks]]
-id = "rustc-warp-async.1"
-theme = "rustc-warp-async"
-title = "Map rustc async transform pipeline — where does async fn become a state machine?"
-kind = "investigation"
-status = "done"
+id = "rustc-build.1"
+theme = "rustc-build"
+title = "Build patched rustc from rustc-src/ with applied patches"
+kind = "experiment"
+status = "active"
 deps = []
 
 [[tasks]]
-id = "rustc-warp-async.2"
-theme = "rustc-warp-async"
-title = "Design MIR pass for warp-cooperative poll — specify pass inputs/outputs and MIR rewrites"
-kind = "design"
-status = "done"
-deps = ["rustc-warp-async.1"]
-
-[[tasks]]
-id = "rustc-warp-async.3"
-theme = "rustc-warp-async"
-title = "Write rustc patch files for skeleton WarpCooperativeTransform MIR pass"
+id = "rustc-build.2"
+theme = "rustc-build"
+title = "Test patched compiler — compile a #[warp_cooperative] async fn and inspect PTX"
 kind = "experiment"
-status = "done"
-deps = ["rustc-warp-async.2"]
-
-[[tasks]]
-id = "data-iter.1"
-theme = "data-iter"
-title = "Implement convergence-loop kernel — Newton's method sqrt on GPU"
-kind = "experiment"
-status = "done"
-deps = []
-
-[[tasks]]
-id = "rustc-impl.1"
-theme = "rustc-impl"
-title = "Study actual rustc coroutine.rs StateTransform + lib.rs pass pipeline from source"
-kind = "investigation"
-status = "done"
-deps = []
-
-[[tasks]]
-id = "rustc-impl.2"
-theme = "rustc-impl"
-title = "Implement WarpCooperativeTransform in toolchain/compiler/ and register in pipeline"
-kind = "experiment"
-status = "done"
-deps = ["rustc-impl.1"]
-
-[[tasks]]
-id = "rustc-impl.3"
-theme = "rustc-impl"
-title = "Generate rustc-patches/ diffs from toolchain/ changes"
-kind = "experiment"
-status = "done"
-deps = ["rustc-impl.2"]
+status = "pending"
+deps = ["rustc-build.1"]
 
 # ============================================================
 # Brainstorms (last 3 only — older brainstorms archived)
 # ============================================================
+
+[[brainstorms]]
+seq = 70
+at_cycle = 266
+trigger = "rustc-impl theme completed + gen-rustc-patches.sh done — no active themes"
+level = "quick"
+new_tasks_spawned = ["rustc-build.1", "rustc-build.2"]
+new_themes_spawned = ["rustc-build"]
+themes_parked = []
+themes_completed = ["rustc-impl", "data-iter"]
+key_insight = "MIR pass code done, patch scripts done. Next step: actually build the patched compiler and test it. Clone fresh rustc, apply patches, x.py build compiler. If it compiles, test with a simple warp_cooperative async fn."
+
+[[brainstorms]]
+seq = 67
+at_cycle = 259
+trigger = "println-buffer theme completed — no pending tasks, no active themes"
+level = "quick"
+new_tasks_spawned = ["rustc-warp-async.1"]
+new_themes_spawned = ["rustc-warp-async"]
+themes_parked = []
+themes_completed = ["println-buffer"]
+key_insight = "All incremental optimizations done. native-warp-async epic is highest-priority unmet goal. Starting with rustc async transform investigation to find MIR insertion points for warp-cooperative shfl.sync. gpu-perf and real-std ready for user close."
 
 [[brainstorms]]
 seq = 68
@@ -260,17 +216,6 @@ themes_completed = ["rustc-warp-async"]
 key_insight = "rustc MIR pass feasibility proven (pipeline mapped, design complete, skeleton written). Phase 2 blocked on rustc clone. Pivot to gpu-autonomous criterion 3: data-dependent iteration pattern not yet demonstrated. Newton's method sqrt is ideal — deterministic convergence, easy to verify."
 
 [[brainstorms]]
-seq = 66
-at_cycle = 257
-trigger = "gpu-test-harness theme completed — no pending tasks"
-level = "quick"
-new_tasks_spawned = ["println-buffer.1"]
-new_themes_spawned = ["println-buffer"]
-themes_parked = []
-themes_completed = ["gpu-test-harness"]
-key_insight = "Integration test harness done. Next: integrate print_buffer with gpu-libc write() so println!() auto-buffers — highest-impact remaining optimization. Bridges printf-batch infra with real-std println!()."
-
-[[brainstorms]]
 seq = 69
 at_cycle = 263
 trigger = "User unblocked rustc clone — toolchain/ now has full rustc source"
@@ -280,14 +225,3 @@ new_themes_spawned = ["rustc-impl"]
 themes_parked = []
 themes_completed = []
 key_insight = "rustc source available in toolchain/ (flattened, no .git). Can now implement WarpCooperativeTransform directly in compiler/rustc_mir_transform/ and generate diffs for rustc-patches/."
-
-[[brainstorms]]
-seq = 67
-at_cycle = 259
-trigger = "println-buffer theme completed — no pending tasks, no active themes"
-level = "quick"
-new_tasks_spawned = ["rustc-warp-async.1"]
-new_themes_spawned = ["rustc-warp-async"]
-themes_parked = []
-themes_completed = ["println-buffer"]
-key_insight = "All incremental optimizations done. native-warp-async epic is highest-priority unmet goal. Starting with rustc async transform investigation to find MIR insertion points for warp-cooperative shfl.sync. gpu-perf and real-std ready for user close."

@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 249     # Monotonic counter, incremented after each completed phase
-completed_tasks = 249
+total_cycles = 250     # Monotonic counter, incremented after each completed phase
+completed_tasks = 250
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.execute"
-current_task_id = "host-async.2"
-last_summary = "BS61: host-async (tokio interop) + batched-hc (latency profiling) themes created. 3 tasks ready."
+current_step = "do.save"
+current_task_id = ""
+last_summary = "BS61 batch done: host-async (tokio async_rt module) + batched-hc (latency is PCIe coherency, batching helps for printf). 250 tasks complete."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 61
@@ -162,7 +162,7 @@ success_criteria = [
 id = "host-async"
 epic = "public-api"
 title = "Host-side async/await integration — tokio-compatible GPU launch"
-status = "active"
+status = "completed"
 goal = "Host programs can .await GPU kernel completion and consume hostcall events as async Stream"
 success_criteria = [
     "Host can gpu_runtime.launch_kernel().await inside tokio runtime",
@@ -174,7 +174,7 @@ success_criteria = [
 id = "batched-hc"
 epic = "gpu-perf"
 title = "Hostcall latency profiling — where does 20-100us go?"
-status = "active"
+status = "completed"
 goal = "Data-driven analysis of hostcall round-trip overhead"
 success_criteria = [
     "Latency breakdown: CAS contention vs mapped memory sync vs host processing",
@@ -214,7 +214,7 @@ id = "batched-hc.1"
 theme = "batched-hc"
 title = "Profile hostcall latency breakdown — CAS vs mapped memory vs host processing"
 kind = "investigation"
-status = "pending"
+status = "done"
 deps = []
 
 # ============================================================

@@ -1,5 +1,5 @@
---- a/std/src/sys/random/mod.rs
-+++ b/std/src/sys/random/mod.rs
+--- a/library/std/src/sys/random/mod.rs
++++ b/library/std/src/sys/random/mod.rs
 @@ -106,6 +106,7 @@
          all(target_family = "wasm", target_os = "unknown"),
          target_os = "xous",

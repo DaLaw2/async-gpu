@@ -1,69 +1,126 @@
 #!/bin/bash
-# Generate std-patches/ from the diff between nightly sysroot and patched-std/.
+# Generate std-patches/ from the diff between stock std and patched-std/.
 #
 # Usage: ./scripts/gen-std-patches.sh
 #
-# Compares only std/ subdirectory (we don't patch alloc/core/proc_macro).
-# For modified files: generates .patch files (unified diff, -p0 relative to library/)
-# For new files: copies them as .rs files with flattened names
-# Regenerates scripts/apply-std-patches.sh and std-patches/PATCHES.md automatically.
+# Like gen-rustc-patches.sh, this fetches stock files from GitHub using the
+# nightly commit hash, so patches are reproducible regardless of local sysroot.
+#
+# The manifest file (std-patches/manifest.txt) lists which files under
+# library/std/ we've modified or added. Format:
+#   PATCH library/std/src/sys/alloc/mod.rs
+#   NEW   library/std/src/sys/alloc/cuda.rs
+#
+# For PATCH entries: downloads stock version from GitHub, generates unified diff.
+# For NEW entries: copies the file from patched-std/ into std-patches/.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
 PATCH_DIR="$REPO_DIR/std-patches"
-PATCHED_STD="$REPO_DIR/patched-std/library/std"
+PATCHED_STD="$REPO_DIR/patched-std"
+MANIFEST="$PATCH_DIR/manifest.txt"
 
-SYSROOT=$(rustc +nightly --print sysroot 2>/dev/null)
-SYSROOT_STD="$SYSROOT/lib/rustlib/src/rust/library/std"
-
-if [ ! -d "$SYSROOT_STD" ]; then
-    echo "ERROR: rust-src not found. Install: rustup +nightly component add rust-src"
-    exit 1
-fi
 if [ ! -d "$PATCHED_STD" ]; then
-    echo "ERROR: patched-std/library/std/ not found"
+    echo "ERROR: patched-std/ directory not found."
+    echo "Run apply-std-patches.sh first, or copy std source manually."
     exit 1
 fi
 
-echo "Sysroot: $SYSROOT_STD"
-echo "Patched: $PATCHED_STD"
+if [ ! -f "$MANIFEST" ]; then
+    echo "ERROR: std-patches/manifest.txt not found."
+    echo "Create it with lines like:"
+    echo "  PATCH library/std/src/sys/alloc/mod.rs"
+    echo "  NEW   library/std/src/sys/alloc/cuda.rs"
+    exit 1
+fi
+
+# Get nightly commit hash for fetching stock files
+COMMIT_HASH=$(rustc +nightly --version -v 2>/dev/null | grep "commit-hash" | awk '{print $2}')
+if [ -z "$COMMIT_HASH" ]; then
+    echo "ERROR: Could not determine nightly commit hash."
+    echo "Ensure nightly toolchain is installed: rustup toolchain install nightly"
+    exit 1
+fi
+
+NIGHTLY_VER=$(rustc +nightly --version 2>/dev/null | head -1 || echo "unknown")
+echo "Nightly: $NIGHTLY_VER"
+echo "Commit:  $COMMIT_HASH"
 echo ""
 
-# Clean old generated files in std-patches/
+# Clean old generated patches (but not manifest.txt or PATCHES.md)
 cd "$PATCH_DIR"
 rm -f *.patch *.rs
 
 PATCHES=()
 NEW_FILES=()
 
-# Only scan std/ — relative paths like std/src/sys/fs/cuda.rs
-while IFS= read -r patched_file; do
-    rel_path="std/${patched_file#$PATCHED_STD/}"
-    sysroot_file="$SYSROOT_STD/${patched_file#$PATCHED_STD/}"
+while IFS= read -r line; do
+    # Skip comments and blank lines
+    [[ "$line" =~ ^[[:space:]]*# ]] && continue
+    [[ -z "${line// /}" ]] && continue
 
-    # Flatten: std/src/sys/fs/cuda.rs → sys_fs_cuda.rs
-    flat_base=$(echo "$rel_path" | sed 's|std/src/||; s|/|_|g')
+    kind=$(echo "$line" | awk '{print $1}')
+    rel_path=$(echo "$line" | awk '{print $2}')
 
-    if [ ! -f "$sysroot_file" ]; then
-        cp "$patched_file" "$PATCH_DIR/$flat_base"
-        NEW_FILES+=("$rel_path:$flat_base")
-        echo "[NEW]   $rel_path → $flat_base"
-    else
-        if ! diff -q "$sysroot_file" "$patched_file" > /dev/null 2>&1; then
+    if [ -z "$rel_path" ]; then
+        echo "WARN: skipping malformed manifest line: $line"
+        continue
+    fi
+
+    local_file="$PATCHED_STD/$rel_path"
+    if [ ! -f "$local_file" ]; then
+        echo "WARN: $rel_path not found in patched-std/, skipping"
+        continue
+    fi
+
+    # Flatten path for output filename:
+    # library/std/src/sys/fs/cuda.rs → sys_fs_cuda.rs
+    flat_base=$(echo "$rel_path" | sed 's|library/std/src/||; s|/|_|g')
+
+    case "$kind" in
+        PATCH)
             patch_name="${flat_base%.rs}.patch"
-            diff -u "$sysroot_file" "$patched_file" \
+
+            # Fetch stock file from GitHub
+            raw_url="https://raw.githubusercontent.com/rust-lang/rust/$COMMIT_HASH/$rel_path"
+            stock_file=$(mktemp)
+            if ! curl -sS -f "$raw_url" -o "$stock_file" 2>/dev/null; then
+                echo "ERROR: Failed to fetch $raw_url"
+                rm -f "$stock_file"
+                continue
+            fi
+
+            # Generate unified diff
+            diff -u "$stock_file" "$local_file" \
                 --label "a/$rel_path" --label "b/$rel_path" \
                 > "$PATCH_DIR/$patch_name" || true
-            PATCHES+=("$rel_path:$patch_name")
-            echo "[PATCH] $rel_path → $patch_name"
-        fi
-    fi
-done < <(find "$PATCHED_STD" -name "*.rs" -type f | sort)
+            rm -f "$stock_file"
+
+            if [ -s "$PATCH_DIR/$patch_name" ]; then
+                PATCHES+=("$rel_path:$patch_name")
+                echo "[PATCH] $rel_path → $patch_name"
+            else
+                rm -f "$PATCH_DIR/$patch_name"
+                echo "[SKIP]  $rel_path (no diff)"
+            fi
+            ;;
+
+        NEW)
+            cp "$local_file" "$PATCH_DIR/$flat_base"
+            NEW_FILES+=("$rel_path:$flat_base")
+            echo "[NEW]   $rel_path → $flat_base"
+            ;;
+
+        *)
+            echo "WARN: unknown kind '$kind' in manifest, skipping: $line"
+            ;;
+    esac
+done < "$MANIFEST"
 
 echo ""
-echo "Generated ${#PATCHES[@]} patches, ${#NEW_FILES[@]} new files."
+echo "Generated ${#PATCHES[@]} patch(es), ${#NEW_FILES[@]} new file(s)."
 
 # --- Generate apply-std-patches.sh ---
 cat > "$SCRIPT_DIR/apply-std-patches.sh" << 'HEADER'
@@ -130,13 +187,11 @@ FOOTER
 chmod +x "$SCRIPT_DIR/apply-std-patches.sh"
 
 # --- Generate PATCHES.md ---
-NIGHTLY_VER=$(rustc +nightly --version 2>/dev/null | head -1)
-
 cat > "$PATCH_DIR/PATCHES.md" << EOF
 # Patched std — CUDA/nvptx64 patches for Rust std library
 
 Patches for \`target_os = "cuda"\` (nvptx64-nvidia-cuda).
-Nightly: \`$NIGHTLY_VER\`
+Baseline: \`$NIGHTLY_VER\`
 
 ## Setup
 
@@ -149,7 +204,7 @@ __CARGO_TESTS_ONLY_SRC_ROOT="patched-std/library" cargo +nightly build --release
 ## Regenerate patches after editing patched-std/
 
 \`\`\`bash
-./scripts/gen-std-patches.sh          # diffs patched-std/ vs sysroot, updates std-patches/
+./scripts/gen-std-patches.sh
 \`\`\`
 
 ## Modified files (patches)

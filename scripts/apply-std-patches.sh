@@ -28,46 +28,46 @@ cp -r "$SRC_DIR" "$OUTPUT_DIR/library"
 echo "Applying patches..."
 cd "$OUTPUT_DIR/library"
 
-echo "  [PATCH] std/src/io/stdio.rs"
+echo "  [PATCH] library/std/src/io/stdio.rs"
 patch -p1 --binary < "$PATCH_DIR/io_stdio.patch"
 
-echo "  [PATCH] std/src/sys/alloc/mod.rs"
+echo "  [PATCH] library/std/src/sys/alloc/mod.rs"
 patch -p1 --binary < "$PATCH_DIR/sys_alloc_mod.patch"
 
-echo "  [PATCH] std/src/sys/fs/mod.rs"
+echo "  [PATCH] library/std/src/sys/fs/mod.rs"
 patch -p1 --binary < "$PATCH_DIR/sys_fs_mod.patch"
 
-echo "  [PATCH] std/src/sys/io/error/mod.rs"
+echo "  [PATCH] library/std/src/sys/io/error/mod.rs"
 patch -p1 --binary < "$PATCH_DIR/sys_io_error_mod.patch"
 
-echo "  [PATCH] std/src/sys/random/mod.rs"
+echo "  [PATCH] library/std/src/sys/random/mod.rs"
 patch -p1 --binary < "$PATCH_DIR/sys_random_mod.patch"
 
-echo "  [PATCH] std/src/sys/stdio/mod.rs"
+echo "  [PATCH] library/std/src/sys/stdio/mod.rs"
 patch -p1 --binary < "$PATCH_DIR/sys_stdio_mod.patch"
 
-echo "  [PATCH] std/src/sys/thread_local/mod.rs"
+echo "  [PATCH] library/std/src/sys/thread_local/mod.rs"
 patch -p1 --binary < "$PATCH_DIR/sys_thread_local_mod.patch"
 
-echo "  [NEW]   std/src/sys/alloc/cuda.rs"
-mkdir -p "std/src/sys/alloc"
-cp "$PATCH_DIR/sys_alloc_cuda.rs" "std/src/sys/alloc/cuda.rs"
+echo "  [NEW]   library/std/src/sys/alloc/cuda.rs"
+mkdir -p "library/std/src/sys/alloc"
+cp "$PATCH_DIR/sys_alloc_cuda.rs" "library/std/src/sys/alloc/cuda.rs"
 
-echo "  [NEW]   std/src/sys/fs/cuda.rs"
-mkdir -p "std/src/sys/fs"
-cp "$PATCH_DIR/sys_fs_cuda.rs" "std/src/sys/fs/cuda.rs"
+echo "  [NEW]   library/std/src/sys/fs/cuda.rs"
+mkdir -p "library/std/src/sys/fs"
+cp "$PATCH_DIR/sys_fs_cuda.rs" "library/std/src/sys/fs/cuda.rs"
 
-echo "  [NEW]   std/src/sys/io/error/cuda.rs"
-mkdir -p "std/src/sys/io/error"
-cp "$PATCH_DIR/sys_io_error_cuda.rs" "std/src/sys/io/error/cuda.rs"
+echo "  [NEW]   library/std/src/sys/io/error/cuda.rs"
+mkdir -p "library/std/src/sys/io/error"
+cp "$PATCH_DIR/sys_io_error_cuda.rs" "library/std/src/sys/io/error/cuda.rs"
 
-echo "  [NEW]   std/src/sys/stdio/cuda.rs"
-mkdir -p "std/src/sys/stdio"
-cp "$PATCH_DIR/sys_stdio_cuda.rs" "std/src/sys/stdio/cuda.rs"
+echo "  [NEW]   library/std/src/sys/stdio/cuda.rs"
+mkdir -p "library/std/src/sys/stdio"
+cp "$PATCH_DIR/sys_stdio_cuda.rs" "library/std/src/sys/stdio/cuda.rs"
 
-echo "  [NEW]   std/src/sys/thread_local/gpu_threads.rs"
-mkdir -p "std/src/sys/thread_local"
-cp "$PATCH_DIR/sys_thread_local_gpu_threads.rs" "std/src/sys/thread_local/gpu_threads.rs"
+echo "  [NEW]   library/std/src/sys/thread_local/gpu_threads.rs"
+mkdir -p "library/std/src/sys/thread_local"
+cp "$PATCH_DIR/sys_thread_local_gpu_threads.rs" "library/std/src/sys/thread_local/gpu_threads.rs"
 
 echo ""
 echo "Done! Patched std at: $OUTPUT_DIR/library"

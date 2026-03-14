@@ -2197,11 +2197,92 @@ pub mod std_future {
         }
     }
 
+    /// Default maximum poll iterations before timeout.
+    const DEFAULT_MAX_POLLS: u32 = 10_000_000;
+
+    /// Default nanosleep duration between polls (nanoseconds).
+    const DEFAULT_NANOSLEEP_NS: u32 = 1000;
+
+    /// No-op waker vtable for GPU (no real wake mechanism).
+    const NOOP_VTABLE: core::task::RawWakerVTable = core::task::RawWakerVTable::new(
+        |_| core::task::RawWaker::new(core::ptr::null(), &NOOP_VTABLE),
+        |_| {},
+        |_| {},
+        |_| {},
+    );
+
+    /// Create a no-op waker suitable for GPU spin-polling.
+    #[inline(always)]
+    fn noop_waker() -> core::task::Waker {
+        unsafe {
+            core::task::Waker::from_raw(core::task::RawWaker::new(core::ptr::null(), &NOOP_VTABLE))
+        }
+    }
+
+    /// Run a future to completion by spin-polling with nanosleep yield.
+    ///
+    /// This is the primary way to drive async code on GPU. Replaces the
+    /// manual waker/context/pin/poll boilerplate that every kernel previously
+    /// needed.
+    ///
+    /// Returns `Some(output)` on completion, `None` on timeout (10M polls).
+    ///
+    /// # Safety
+    /// The caller must ensure the future is safe to poll on the current thread
+    /// and that any raw pointers captured by the future remain valid.
+    ///
+    /// # Example
+    /// ```no_run
+    /// let result = unsafe { block_on(data_pipeline(buf)) };
+    /// ```
+    #[inline(always)]
+    pub unsafe fn block_on<F: Future>(future: F) -> Option<F::Output> {
+        block_on_with(future, DEFAULT_MAX_POLLS, DEFAULT_NANOSLEEP_NS)
+    }
+
+    /// Run a future with custom poll limit and nanosleep duration.
+    ///
+    /// # Safety
+    /// Same as [`block_on`].
+    #[inline(always)]
+    pub unsafe fn block_on_with<F: Future>(
+        future: F,
+        max_polls: u32,
+        #[allow(unused_variables)] nanosleep_ns: u32,
+    ) -> Option<F::Output> {
+        let mut future = future;
+        let mut future = Pin::new_unchecked(&mut future);
+        let waker = noop_waker();
+        let mut cx = Context::from_waker(&waker);
+
+        let mut polls: u32 = 0;
+        loop {
+            match future.as_mut().poll(&mut cx) {
+                Poll::Ready(output) => return Some(output),
+                Poll::Pending => {
+                    polls += 1;
+                    if polls >= max_polls {
+                        return None;
+                    }
+                    #[cfg(target_arch = "nvptx64")]
+                    {
+                        // Yield SM scheduler slot — gives host time to respond
+                        // and allows other warps to execute.
+                        match nanosleep_ns {
+                            64 => core::arch::asm!("nanosleep.u32 64;", options(nostack)),
+                            1000 => core::arch::asm!("nanosleep.u32 1000;", options(nostack)),
+                            _ => core::arch::asm!("nanosleep.u32 1000;", options(nostack)),
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /// Minimal spin-poll executor for a single `Future`.
     ///
     /// No waker, no task queue — just polls in a loop with nanosleep yield.
-    /// This is the simplest possible executor for GPU, serving as the baseline
-    /// for warp-future-bridge experiments.
+    /// Prefer the free function [`block_on`] for simpler usage.
     pub struct SpinExecutor;
 
     impl SpinExecutor {
@@ -2213,26 +2294,8 @@ pub mod std_future {
         /// The future must be safe to poll repeatedly on the current thread.
         #[inline(always)]
         pub unsafe fn run<F: Future>(future: &mut F) -> Option<F::Output> {
-            const MAX_POLLS: u32 = 10_000_000;
             let mut future = Pin::new_unchecked(future);
-
-            // Create a no-op waker
-            let raw_waker = core::task::RawWaker::new(
-                core::ptr::null(),
-                &core::task::RawWakerVTable::new(
-                    |_| core::task::RawWaker::new(core::ptr::null(), &VTABLE),
-                    |_| {},
-                    |_| {},
-                    |_| {},
-                ),
-            );
-            const VTABLE: core::task::RawWakerVTable = core::task::RawWakerVTable::new(
-                |_| core::task::RawWaker::new(core::ptr::null(), &VTABLE),
-                |_| {},
-                |_| {},
-                |_| {},
-            );
-            let waker = core::task::Waker::from_raw(raw_waker);
+            let waker = noop_waker();
             let mut cx = Context::from_waker(&waker);
 
             let mut polls: u32 = 0;
@@ -2241,12 +2304,11 @@ pub mod std_future {
                     Poll::Ready(output) => return Some(output),
                     Poll::Pending => {
                         polls += 1;
-                        if polls >= MAX_POLLS {
+                        if polls >= DEFAULT_MAX_POLLS {
                             return None;
                         }
-                        // Yield warp scheduler slot
                         #[cfg(target_arch = "nvptx64")]
-                        core::arch::asm!("nanosleep.u32 64;", options(nostack));
+                        core::arch::asm!("nanosleep.u32 1000;", options(nostack));
                     }
                 }
             }
@@ -2819,4 +2881,7 @@ pub mod prelude {
 
     // --- Commonly needed atomics ---
     pub use gpu_atomics::{sys_load_acquire_u32, sys_store_release_u32};
+
+    // --- Async executor ---
+    pub use crate::std_future::block_on;
 }

@@ -3,7 +3,7 @@ target = "nvptx64-nvidia-cuda"
 
 [target.nvptx64-nvidia-cuda]
 linker = "C:\\Users\\DaLaw2\\.rustup\\toolchains\\nightly-x86_64-pc-windows-msvc\\lib\\rustlib\\x86_64-pc-windows-msvc\\bin\\self-contained\\llvm-bitcode-linker.exe"
-rustflags = ["-C", "target-cpu=sm_86"]
+rustflags = ["-C", "target-cpu=sm_86", "-C", "target-feature=+ptx78"]
 
 [unstable]
 build-std = ["core"]

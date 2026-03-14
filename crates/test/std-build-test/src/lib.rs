@@ -927,3 +927,93 @@ pub extern "ptx-kernel" fn slab_concurrent_test_kernel(
         core::ptr::write_volatile(result.add(tid as usize), ok_cycles);
     }
 }
+
+// ============================================================
+// std-sysroot-build.3: std::fs::File on GPU — compile test
+// ============================================================
+
+/// Test: File::create + write using std::fs on GPU.
+///
+/// This verifies that `use std::fs::File` compiles to valid PTX
+/// through the patched std PAL (sys_fs_cuda.rs → gpu-libc hostcall).
+///
+/// `buf` = hostcall buffer (mapped memory)
+/// `result` = output array of u32[2]:
+///   [0] = 1 on success, error code on failure
+///   [1] = bytes written
+#[unsafe(no_mangle)]
+pub extern "ptx-kernel" fn std_file_write_kernel(
+    buf: *mut u8,
+    result: *mut u32,
+) {
+    use std::io::Write;
+
+    stdio_init(buf);
+
+    unsafe {
+        core::ptr::write_volatile(result.add(0), 0);
+        core::ptr::write_volatile(result.add(1), 0);
+    }
+
+    // Use std::fs::File::create — routes through PAL sys_fs_cuda.rs → gpu-libc open()
+    match std::fs::File::create("gpu_test_output.txt") {
+        Ok(mut f) => {
+            let data = b"Hello from GPU std::fs::File!";
+            match f.write_all(data) {
+                Ok(()) => unsafe {
+                    core::ptr::write_volatile(result.add(0), 1);
+                    core::ptr::write_volatile(result.add(1), data.len() as u32);
+                },
+                Err(_) => unsafe {
+                    core::ptr::write_volatile(result.add(0), 0xE002);
+                },
+            }
+        }
+        Err(_) => unsafe {
+            core::ptr::write_volatile(result.add(0), 0xE001);
+        },
+    }
+}
+
+/// Test: File::open + read using std::fs on GPU.
+///
+/// `buf` = hostcall buffer
+/// `result` = output array of u32[3]:
+///   [0] = 1 on success, error code on failure
+///   [1] = bytes read
+///   [2] = first byte of data
+#[unsafe(no_mangle)]
+pub extern "ptx-kernel" fn std_file_read_kernel(
+    buf: *mut u8,
+    result: *mut u32,
+) {
+    stdio_init(buf);
+
+    unsafe {
+        core::ptr::write_volatile(result.add(0), 0);
+        core::ptr::write_volatile(result.add(1), 0);
+        core::ptr::write_volatile(result.add(2), 0);
+    }
+
+    match std::fs::File::open("gpu_test_input.txt") {
+        Ok(mut f) => {
+            use std::io::Read;
+            let mut buf = [0u8; 64];
+            match f.read(&mut buf) {
+                Ok(n) => unsafe {
+                    core::ptr::write_volatile(result.add(0), 1);
+                    core::ptr::write_volatile(result.add(1), n as u32);
+                    if n > 0 {
+                        core::ptr::write_volatile(result.add(2), buf[0] as u32);
+                    }
+                },
+                Err(_) => unsafe {
+                    core::ptr::write_volatile(result.add(0), 0xE002);
+                },
+            }
+        }
+        Err(_) => unsafe {
+            core::ptr::write_volatile(result.add(0), 0xE001);
+        },
+    }
+}

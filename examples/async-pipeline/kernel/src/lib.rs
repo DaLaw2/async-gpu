@@ -14,25 +14,10 @@
 #![feature(register_tool)]
 #![register_tool(warp_cooperative)]
 
-use core::future::Future;
-use core::pin::Pin;
-use core::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
-
 use gpu_runtime::prelude::*;
 use gpu_runtime::std_future::{GpuCloseFuture, GpuOpenFuture, GpuReadFuture, GpuWriteFuture};
 
 gpu_runtime::panic_handler!();
-
-// ---------------------------------------------------------------------------
-// Minimal waker (GPU has no real wake mechanism)
-// ---------------------------------------------------------------------------
-
-static VTABLE: RawWakerVTable = RawWakerVTable::new(
-    |p| RawWaker::new(p, &VTABLE),
-    |_| {},
-    |_| {},
-    |_| {},
-);
 
 // ---------------------------------------------------------------------------
 // Warp-cooperative async data pipeline
@@ -102,7 +87,7 @@ pub async fn data_pipeline(buf: *mut u8) -> u32 {
 // GPU Kernel entry point
 // ---------------------------------------------------------------------------
 
-/// Entry point: thread 0 polls the async pipeline to completion.
+/// Entry point: thread 0 runs the async pipeline via `block_on`.
 ///
 /// The `data_pipeline` async fn is compiled with `#[warp_cooperative]`, so the
 /// MIR pass inserts `bar.warp.sync` + `shfl.sync` at each `.await` point.
@@ -121,29 +106,8 @@ pub unsafe extern "ptx-kernel" fn async_data_pipeline(buf: *mut u8, output: *mut
 
     gpu_panic_init(buf);
 
-    let waker = Waker::from_raw(RawWaker::new(core::ptr::null(), &VTABLE));
-    let mut cx = Context::from_waker(&waker);
-    let mut fut = data_pipeline(buf);
-    let mut pinned = Pin::new_unchecked(&mut fut);
-
-    // Poll to completion. Between polls, nanosleep to yield the SM and give
-    // the host listener time to process requests. This is the core yield
-    // pattern: GPU issues I/O → yields → host responds → GPU resumes.
-    let mut result = 0xDEADu32;
-    let mut polls = 0u32;
-    while polls < 10_000_000 {
-        match pinned.as_mut().poll(&mut cx) {
-            Poll::Ready(val) => {
-                result = val;
-                break;
-            }
-            Poll::Pending => {
-                // Yield SM to other warps / give host time to respond
-                core::arch::asm!("nanosleep.u32 1000;");
-            }
-        }
-        polls += 1;
-    }
-
+    // block_on drives the async pipeline to completion with nanosleep yield
+    // between polls, replacing the previous 30-line manual poll loop.
+    let result = block_on(data_pipeline(buf)).unwrap_or(0xDEAD);
     *output = result;
 }

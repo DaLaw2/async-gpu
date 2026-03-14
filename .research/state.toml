@@ -10,12 +10,12 @@ status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.route"
+current_step = "do.select"
 current_task_id = ""
-last_summary = "trace-protocol theme DONE. User decisions: gpu-error CLOSED, public-api+codebase-health marked evergreen (low-pri quality work), gpu-perf+real-std+gpu-debug continue. Next: gpu-assert-diag theme."
+last_summary = "BS54 deep brainstorm done. gpu-autonomous v2 criteria revised (skeptic challenged 3/4). 4 themes, 10 tasks spawned. Priority: hc-session → cmd-buffer → cross-pipeline → iter-workflow. Also pending: gpu-assert-diag (gpu-debug)."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 53
+brainstorm_seq = 54
 review_seq = 5
 
 # Brainstorm trigger control (event-driven, no fixed interval)
@@ -112,6 +112,21 @@ success_criteria = [
     "Build system automated — single cargo command compiles host + kernel",
     "At least 3 working examples (hello-gpu, async-io, compute) with documentation",
 ]
+
+[[epics]]
+id = "gpu-autonomous"
+title = "GPU as Autonomous Compute Environment v2 — command buffer, cross-launch pipeline, iterative workflows"
+status = "active"
+priority = "high"
+success_criteria = [
+    "Multi-command kernel: processes 3+ command types (COMPUTE, PRINT, EXIT) from mapped memory command buffer in a single launch, TDR-safe",
+    "Cross-launch pipeline: two kernels share device buffer (A writes → B reads, zero host copy), with minimal Pipeline API",
+    "Data-dependent iteration: kernel autonomously loops (read → process → check convergence → iterate or finalize), pattern not yet demonstrated",
+    "Hostcall session persistence: HostcallSession keeps listener + fd table + buffer alive across multiple kernel launches, packet pool reinit between launches",
+]
+# Reopened from archive 2026-03-14 with new success criteria (v2)
+# Original v1 completed: GPT-2 inference, basic autonomous compute demonstrated
+# Criteria revised after BS54 deep brainstorm (proposer + skeptic)
 
 # ============================================================
 # Themes (active only — completed/parked archived in archive/)
@@ -283,9 +298,148 @@ kind = "experiment"
 status = "pending"
 deps = ["gpu-assert-diag.1"]
 
+# --- gpu-autonomous v2 themes/tasks (BS54) ---
+
+[[themes]]
+id = "hc-session"
+epic = "gpu-autonomous"
+title = "Hostcall session persistence — listener + fd table across kernel launches"
+status = "active"
+goal = "HostcallSession keeps listener/buffer/fd table alive across multiple kernel launches"
+success_criteria = [
+    "HostcallSession API: start → launch kernels → shutdown lifecycle",
+    "Packet pool correctly reinitialized between launches (no leaked slots)",
+    "File handles opened by Kernel A are usable by Kernel B within same session",
+]
+
+[[themes]]
+id = "cmd-buffer"
+epic = "gpu-autonomous"
+title = "Multi-command kernel via mapped memory command buffer"
+status = "active"
+goal = "Host→GPU command channel: host submits commands, kernel processes batch"
+success_criteria = [
+    "Command buffer protocol defined (ring buffer, command types, atomic write_idx)",
+    "GPU kernel processes COMPUTE + PRINT + EXIT commands from buffer in one launch",
+    "Integration test verifies command ordering and result correctness",
+]
+
+[[themes]]
+id = "cross-pipeline"
+epic = "gpu-autonomous"
+title = "Cross-launch pipeline — device buffer persistence + Pipeline API"
+status = "active"
+goal = "Two kernels share device buffer with zero host copy, minimal Pipeline API"
+success_criteria = [
+    "Kernel A writes → Kernel B reads from same device buffer, verified",
+    "Pipeline API wraps multi-stage launch with automatic synchronization",
+]
+
+[[themes]]
+id = "iter-workflow"
+epic = "gpu-autonomous"
+title = "Data-dependent iteration — autonomous convergence loop on GPU"
+status = "active"
+goal = "Kernel loops autonomously until convergence condition met"
+success_criteria = [
+    "Kernel iterates: read → process → check residual → loop or finalize",
+    "Iteration count is data-dependent (not hardcoded), verified with different inputs",
+]
+
+[[tasks]]
+id = "hc-session.1"
+theme = "hc-session"
+title = "Design HostcallSession API — lifecycle, packet reinit, fd persistence"
+kind = "design"
+status = "pending"
+deps = []
+
+[[tasks]]
+id = "hc-session.2"
+theme = "hc-session"
+title = "Implement HostcallSession in gpu-host"
+kind = "experiment"
+status = "pending"
+deps = ["hc-session.1"]
+
+[[tasks]]
+id = "hc-session.3"
+theme = "hc-session"
+title = "Multi-launch session test — Kernel A opens file, Kernel B reads same fd"
+kind = "experiment"
+status = "pending"
+deps = ["hc-session.2"]
+
+[[tasks]]
+id = "cmd-buffer.1"
+theme = "cmd-buffer"
+title = "Command buffer protocol — ring buffer layout, command types, host→GPU signaling"
+kind = "design"
+status = "pending"
+deps = []
+
+[[tasks]]
+id = "cmd-buffer.2"
+theme = "cmd-buffer"
+title = "Host-side CommandBuffer + GPU-side polling kernel"
+kind = "experiment"
+status = "pending"
+deps = ["cmd-buffer.1", "hc-session.2"]
+
+[[tasks]]
+id = "cmd-buffer.3"
+theme = "cmd-buffer"
+title = "Integration test — COMPUTE → PRINT → EXIT sequence"
+kind = "experiment"
+status = "pending"
+deps = ["cmd-buffer.2"]
+
+[[tasks]]
+id = "cross-pipeline.1"
+theme = "cross-pipeline"
+title = "Cross-launch device buffer demo — Kernel A writes, Kernel B reads"
+kind = "experiment"
+status = "pending"
+deps = ["hc-session.2"]
+
+[[tasks]]
+id = "cross-pipeline.2"
+theme = "cross-pipeline"
+title = "Pipeline API — session.stage(k_a).stage(k_b).run() wrapper"
+kind = "experiment"
+status = "pending"
+deps = ["cross-pipeline.1"]
+
+[[tasks]]
+id = "iter-workflow.1"
+theme = "iter-workflow"
+title = "Iterative convergence kernel — loop until residual < threshold"
+kind = "experiment"
+status = "pending"
+deps = ["hc-session.2"]
+
+[[tasks]]
+id = "iter-workflow.2"
+theme = "iter-workflow"
+title = "Multi-step autonomous pipeline with iteration + file I/O"
+kind = "experiment"
+status = "pending"
+deps = ["iter-workflow.1"]
+
 # ============================================================
 # Brainstorms (last 3 only — older brainstorms archived)
 # ============================================================
+
+[[brainstorms]]
+seq = 54
+at_cycle = 214
+trigger = "User reopened gpu-autonomous, requested deep brainstorm for v2 criteria"
+level = "deep"
+new_tasks_spawned = ["hc-session.1", "hc-session.2", "hc-session.3", "cmd-buffer.1", "cmd-buffer.2", "cmd-buffer.3", "cross-pipeline.1", "cross-pipeline.2", "iter-workflow.1", "iter-workflow.2"]
+new_themes_spawned = ["hc-session", "cmd-buffer", "cross-pipeline", "iter-workflow"]
+themes_parked = []
+themes_completed = []
+key_insight = "Skeptic challenged 3/4 original criteria: persistent kernel blocked by TDR, cross-launch state is trivial, GPU-driven workflow already done. Revised: multi-command kernel (TDR-safe), Pipeline API (adds real value), data-dependent iteration (genuinely new), hostcall session (centerpiece). 4 themes, 10 tasks."
 
 [[brainstorms]]
 seq = 53

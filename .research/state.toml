@@ -4,18 +4,18 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 259     # Monotonic counter, incremented after each completed phase
-completed_tasks = 259
+total_cycles = 260     # Monotonic counter, incremented after each completed phase
+completed_tasks = 260
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.route"
 current_task_id = ""
-last_summary = "println-buffer.2 done: integrated print_buffer with gpu_stdout_write(). Fast path via STDIO_PRINT_BUF_READY flag + sideband global. Test kernel + host test added. All CI passes. println-buffer theme criteria met."
+last_summary = "rustc-warp-async.1 done: mapped rustc async pipeline (4 stages). Best insertion point: MIR pass after StateTransform — intercept SwitchInt on poll discriminant, insert shfl.sync broadcast. Key files: rustc_ast_lowering/src/expr.rs, rustc_mir_transform/src/coroutine.rs. Next: prototype minimal rustc patch."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 66
+brainstorm_seq = 67
 review_seq = 5
 
 # Brainstorm trigger control (event-driven, no fixed interval)
@@ -148,88 +148,15 @@ success_criteria = [
 # ============================================================
 
 [[themes]]
-id = "readme-fix"
-epic = "codebase-health"
-title = "Fix README contradictions — Limitations section vs body"
-status = "completed"
-goal = "README Limitations section accurately reflects multi-thread std capability"
+id = "rustc-warp-async"
+epic = "native-warp-async"
+title = "Rustc MIR pass feasibility — warp-cooperative async/await compiler support"
+status = "active"
+goal = "Determine if rustc MIR pass can transform standard async fn into warp-cooperative coroutine"
 success_criteria = [
-    "Limitations section updated: multi-thread std works (println 4 threads, Vec 32 threads)",
-    "No contradictions between README body and Limitations",
-]
-
-[[themes]]
-id = "host-async"
-epic = "public-api"
-title = "Host-side async/await integration — tokio-compatible GPU launch"
-status = "completed"
-goal = "Host programs can .await GPU kernel completion and consume hostcall events as async Stream"
-success_criteria = [
-    "Host can gpu_runtime.launch_kernel().await inside tokio runtime",
-    "Hostcall events consumable as async Stream",
-    "GPU launch coexists with other tokio tasks (no thread monopolization)",
-]
-
-[[themes]]
-id = "batched-hc"
-epic = "gpu-perf"
-title = "Hostcall latency profiling — where does 20-100us go?"
-status = "completed"
-
-[[themes]]
-id = "printf-batch"
-epic = "gpu-perf"
-title = "GPU-side printf batching — reduce hostcall overhead for print-heavy kernels"
-status = "completed"
-goal = "Buffer multiple print messages on GPU, flush as single hostcall"
-success_criteria = [
-    "GPU-side print buffer accumulates messages without hostcall per-print",
-    "Flush mechanism sends buffered messages as single sideband operation",
-    "Test: 10+ prints in one kernel, fewer hostcall round-trips than unbuffered",
-]
-
-[[themes]]
-id = "example-verify"
-epic = "public-api"
-title = "Verify all 3 examples compile and run post-refactoring"
-status = "completed"
-goal = "Confirm hello-gpu, async-io, vector-math still work after recent refactoring"
-success_criteria = [
-    "All 3 examples build (host + kernel PTX)",
-    "Document which examples work, which need fixes",
-]
-
-[[themes]]
-id = "api-docs"
-epic = "public-api"
-title = "GPU-host public API documentation — missing_docs lint + rustdoc coverage"
-status = "completed"
-
-[[themes]]
-id = "gpu-test-harness"
-epic = "public-api"
-title = "GPU integration test harness — cargo test for GPU kernels"
-status = "completed"
-
-[[themes]]
-id = "println-buffer"
-epic = "gpu-perf"
-title = "Integrate print_buffer with gpu-libc write() for automatic println buffering"
-status = "completed"
-goal = "GPU println!() automatically uses buffered print path instead of per-call hostcall"
-success_criteria = [
-    "gpu-libc write(STDOUT) routes through print_buffer when buffer is initialized",
-    "println!() on GPU uses 1 hostcall per flush instead of 1 per print call",
-]
-goal = "GPU tests can run via cargo test with proper test isolation"
-success_criteria = [
-    "At least 3 GPU tests runnable via cargo test (not just main.rs)",
-    "Each test has proper setup/teardown (device init, hostcall cleanup)",
-]
-goal = "gpu-host public API is fully documented with rustdoc"
-success_criteria = [
-    "#![warn(missing_docs)] enabled in gpu-host without new warnings",
-    "All public types and functions have rustdoc comments",
+    "Document rustc async transform pipeline: desugaring → generator → state machine → MIR",
+    "Identify insertion points for warp-cooperative shfl.sync in MIR/codegen",
+    "Prototype: minimal rustc patch that inserts a no-op marker at Future::poll call sites",
 ]
 
 # ============================================================
@@ -237,111 +164,28 @@ success_criteria = [
 # ============================================================
 
 [[tasks]]
-id = "readme-fix.1"
-theme = "readme-fix"
-title = "Fix README Limitations — single-thread std claim is outdated"
-kind = "experiment"
+id = "rustc-warp-async.1"
+theme = "rustc-warp-async"
+title = "Map rustc async transform pipeline — where does async fn become a state machine?"
+kind = "investigation"
 status = "done"
 deps = []
 
 [[tasks]]
-id = "host-async.1"
-theme = "host-async"
-title = "Design async API surface — launch().await, Stream<HostcallEvent>, cancellation"
+id = "rustc-warp-async.2"
+theme = "rustc-warp-async"
+title = "Design MIR pass for warp-cooperative poll — specify pass inputs/outputs and MIR rewrites"
 kind = "design"
-status = "done"
-deps = []
+status = "pending"
+deps = ["rustc-warp-async.1"]
 
 [[tasks]]
-id = "host-async.2"
-theme = "host-async"
-title = "Implement tokio-compatible GPU launch future + hostcall Stream"
+id = "rustc-warp-async.3"
+theme = "rustc-warp-async"
+title = "Clone rustc source and implement minimal MIR pass — no-op marker at Yield terminators for nvptx64"
 kind = "experiment"
-status = "done"
-deps = ["host-async.1"]
-
-[[tasks]]
-id = "printf-batch.1"
-theme = "printf-batch"
-title = "Design GPU-side print buffer — layout, flush protocol, memory budget"
-kind = "design"
-status = "done"
-deps = []
-
-[[tasks]]
-id = "printf-batch.2"
-theme = "printf-batch"
-title = "Implement buffered print in gpu-runtime + flush via sideband"
-kind = "experiment"
-status = "done"
-deps = ["printf-batch.1"]
-
-[[tasks]]
-id = "batched-hc.1"
-theme = "batched-hc"
-title = "Profile hostcall latency breakdown — CAS vs mapped memory vs host processing"
-kind = "investigation"
-status = "done"
-deps = []
-
-[[tasks]]
-id = "printf-batch.3"
-theme = "printf-batch"
-title = "Write GPU kernel test: 10+ buffered prints, verify fewer hostcall round-trips"
-kind = "experiment"
-status = "done"
-deps = ["printf-batch.2"]
-
-[[tasks]]
-id = "example-verify.1"
-theme = "example-verify"
-title = "Build and run hello-gpu, async-io, vector-math — document status"
-kind = "investigation"
-status = "done"
-deps = []
-
-[[tasks]]
-id = "api-docs.1"
-theme = "api-docs"
-title = "Audit gpu-host public API — add missing rustdoc + enable warn(missing_docs)"
-kind = "experiment"
-status = "done"
-deps = []
-
-[[tasks]]
-id = "gpu-test-harness.1"
-theme = "gpu-test-harness"
-title = "Design GPU test harness — investigate cargo test integration for GPU kernels"
-kind = "investigation"
-status = "done"
-deps = []
-
-[[tasks]]
-id = "gpu-test-harness.2"
-theme = "gpu-test-harness"
-title = "Implement cargo test integration harness — 3 proof-of-concept GPU tests"
-kind = "experiment"
-status = "done"
-deps = ["gpu-test-harness.1"]
-
-[[tasks]]
-id = "println-buffer.1"
-theme = "println-buffer"
-title = "Investigate gpu-libc write() path — where does println!() call write()?"
-kind = "investigation"
-status = "done"
-deps = []
-
-[[tasks]]
-id = "println-buffer.2"
-theme = "println-buffer"
-title = "Implement buffered println — modify gpu_stdout_write() to use print_buffer"
-kind = "experiment"
-status = "done"
-deps = ["println-buffer.1"]
-deps = []
-deps = ["gpu-test-harness.1"]
-deps = []
+status = "pending"
+deps = ["rustc-warp-async.2"]
 
 # ============================================================
 # Brainstorms (last 3 only — older brainstorms archived)
@@ -370,12 +214,12 @@ themes_completed = ["api-docs"]
 key_insight = "All crates fully documented (zero doc warnings). Next value: extract GPU tests from monolithic main.rs into cargo test integration tests. Serves public-api automated testing criterion."
 
 [[brainstorms]]
-seq = 64
-at_cycle = 254
-trigger = "printf-batch.3 + example-verify.1 completed — no pending tasks"
+seq = 67
+at_cycle = 259
+trigger = "println-buffer theme completed — no pending tasks, no active themes"
 level = "quick"
-new_tasks_spawned = ["api-docs.1"]
-new_themes_spawned = ["api-docs"]
+new_tasks_spawned = ["rustc-warp-async.1"]
+new_themes_spawned = ["rustc-warp-async"]
 themes_parked = []
-themes_completed = ["printf-batch", "example-verify"]
-key_insight = "Project at plateau — 254 tasks, all major epics terminal. Evergreen public-api has gap: gpu-host public API lacks rustdoc. Low-effort, high-value improvement. Also recommend user close gpu-perf, real-std, native-warp-async, gpu-autonomous."
+themes_completed = ["println-buffer"]
+key_insight = "All incremental optimizations done. native-warp-async epic is highest-priority unmet goal. Starting with rustc async transform investigation to find MIR insertion points for warp-cooperative shfl.sync. gpu-perf and real-std ready for user close."

@@ -202,3 +202,53 @@ id = "readme-update"
 epic = "codebase-health"
 title = "Update README with multi-thread std and native warp-async achievements"
 status = "completed"
+
+# --- Archived at cycle 259 ---
+
+[[themes]]
+id = "readme-fix"
+epic = "codebase-health"
+title = "Fix README contradictions — Limitations section vs body"
+status = "completed"
+
+[[themes]]
+id = "host-async"
+epic = "public-api"
+title = "Host-side async/await integration — tokio-compatible GPU launch"
+status = "completed"
+
+[[themes]]
+id = "batched-hc"
+epic = "gpu-perf"
+title = "Hostcall latency profiling — where does 20-100us go?"
+status = "completed"
+
+[[themes]]
+id = "printf-batch"
+epic = "gpu-perf"
+title = "GPU-side printf batching — reduce hostcall overhead for print-heavy kernels"
+status = "completed"
+
+[[themes]]
+id = "example-verify"
+epic = "public-api"
+title = "Verify all 3 examples compile and run post-refactoring"
+status = "completed"
+
+[[themes]]
+id = "api-docs"
+epic = "public-api"
+title = "GPU-host public API documentation — missing_docs lint + rustdoc coverage"
+status = "completed"
+
+[[themes]]
+id = "gpu-test-harness"
+epic = "public-api"
+title = "GPU integration test harness — cargo test for GPU kernels"
+status = "completed"
+
+[[themes]]
+id = "println-buffer"
+epic = "gpu-perf"
+title = "Integrate print_buffer with gpu-libc write() for automatic println buffering"
+status = "completed"

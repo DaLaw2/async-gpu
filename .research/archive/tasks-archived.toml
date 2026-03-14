@@ -765,3 +765,117 @@ title = "Update README with multi-thread std + warp-async achievements"
 kind = "experiment"
 status = "done"
 deps = []
+
+# --- Archived at cycle 259 ---
+
+# readme-fix
+[[tasks]]
+id = "readme-fix.1"
+theme = "readme-fix"
+title = "Fix README Limitations — single-thread std claim is outdated"
+kind = "experiment"
+status = "done"
+deps = []
+
+# host-async
+[[tasks]]
+id = "host-async.1"
+theme = "host-async"
+title = "Design async API surface — launch().await, Stream<HostcallEvent>, cancellation"
+kind = "design"
+status = "done"
+deps = []
+
+[[tasks]]
+id = "host-async.2"
+theme = "host-async"
+title = "Implement tokio-compatible GPU launch future + hostcall Stream"
+kind = "experiment"
+status = "done"
+deps = ["host-async.1"]
+
+# printf-batch
+[[tasks]]
+id = "printf-batch.1"
+theme = "printf-batch"
+title = "Design GPU-side print buffer — layout, flush protocol, memory budget"
+kind = "design"
+status = "done"
+deps = []
+
+[[tasks]]
+id = "printf-batch.2"
+theme = "printf-batch"
+title = "Implement buffered print in gpu-runtime + flush via sideband"
+kind = "experiment"
+status = "done"
+deps = ["printf-batch.1"]
+
+[[tasks]]
+id = "printf-batch.3"
+theme = "printf-batch"
+title = "Write GPU kernel test: 10+ buffered prints, verify fewer hostcall round-trips"
+kind = "experiment"
+status = "done"
+deps = ["printf-batch.2"]
+
+# batched-hc
+[[tasks]]
+id = "batched-hc.1"
+theme = "batched-hc"
+title = "Profile hostcall latency breakdown — CAS vs mapped memory vs host processing"
+kind = "investigation"
+status = "done"
+deps = []
+
+# example-verify
+[[tasks]]
+id = "example-verify.1"
+theme = "example-verify"
+title = "Build and run hello-gpu, async-io, vector-math — document status"
+kind = "investigation"
+status = "done"
+deps = []
+
+# api-docs
+[[tasks]]
+id = "api-docs.1"
+theme = "api-docs"
+title = "Audit gpu-host public API — add missing rustdoc + enable warn(missing_docs)"
+kind = "experiment"
+status = "done"
+deps = []
+
+# gpu-test-harness
+[[tasks]]
+id = "gpu-test-harness.1"
+theme = "gpu-test-harness"
+title = "Design GPU test harness — investigate cargo test integration for GPU kernels"
+kind = "investigation"
+status = "done"
+deps = []
+
+[[tasks]]
+id = "gpu-test-harness.2"
+theme = "gpu-test-harness"
+title = "Implement cargo test integration harness — 3 proof-of-concept GPU tests"
+kind = "experiment"
+status = "done"
+deps = ["gpu-test-harness.1"]
+
+# println-buffer
+[[tasks]]
+id = "println-buffer.1"
+theme = "println-buffer"
+title = "Investigate gpu-libc write() path — where does println!() call write()?"
+kind = "investigation"
+status = "done"
+deps = []
+
+[[tasks]]
+id = "println-buffer.2"
+theme = "println-buffer"
+title = "Implement buffered println — modify gpu_stdout_write() to use print_buffer"
+kind = "experiment"
+status = "done"
+deps = ["println-buffer.1"]

@@ -1500,3 +1500,78 @@ pub(crate) fn run_autonomous_pipeline_test(dev: Arc<CudaDevice>) -> Result<()> {
     println!("    Different datasets → different iteration counts");
     Ok(())
 }
+
+/// Test: Flight recorder captures trace events and dumps them.
+///
+/// 1. Allocate FlightRecorder (capacity 8)
+/// 2. Launch kernel that writes 5 events + sets crash flag
+/// 3. Verify event count and crash flag
+/// 4. Dump events to stderr
+pub(crate) fn run_flight_recorder_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Flight recorder test ---");
+
+    let session = hostcall::HostcallSession::start(16).map_err(|e| GpuHostError::Verification {
+        test: "flight_recorder",
+        detail: format!("session start failed: {e}"),
+    })?;
+
+    let fr = hostcall::FlightRecorder::new(8).map_err(|e| GpuHostError::Verification {
+        test: "flight_recorder",
+        detail: format!("flight recorder alloc failed: {e}"),
+    })?;
+
+    // should_crash = 1 to test the crash flag
+    let (crash_host, crash_dev) = unsafe { alloc_mapped_u32(&dev)? };
+    unsafe { std::ptr::write_volatile(crash_host, 1u32) };
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "kernel", &["flight_recorder_test"]);
+
+    let f = dev
+        .get_func("kernel", "flight_recorder_test")
+        .ok_or(GpuHostError::KernelNotFound("flight_recorder_test"))?;
+
+    let cfg = cudarc::driver::LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (1, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    println!("  Launching flight_recorder_test kernel...");
+    unsafe {
+        f.launch(cfg, (session.dev_ptr(), fr.dev_ptr(), crash_dev))?;
+    }
+    dev.synchronize()?;
+
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    session.shutdown();
+
+    // Check results
+    let event_count = fr.write_count();
+    let crashed = fr.crashed();
+    println!("  Events recorded: {event_count}");
+    println!("  Crash flag: {crashed}");
+
+    // Dump events
+    fr.dump();
+
+    unsafe { free_mapped_mem(crash_host)? };
+
+    if event_count != 5 {
+        return Err(GpuHostError::Verification {
+            test: "flight_recorder",
+            detail: format!("expected 5 events, got {event_count}"),
+        });
+    }
+
+    if !crashed {
+        return Err(GpuHostError::Verification {
+            test: "flight_recorder",
+            detail: "crash flag not set".to_string(),
+        });
+    }
+
+    println!("  flight_recorder: PASSED!");
+    println!("    5 events captured, crash flag set, dump printed");
+    Ok(())
+}

@@ -742,6 +742,20 @@ pub const fn trace_lane_id(meta: u64) -> u16 {
     ((meta >> 48) & 0xFFFF) as u16
 }
 
+/// Decode all fields from trace metadata in one call.
+///
+/// Returns `(thread_idx, block_idx, level, msg_len, lane_id)`.
+#[inline(always)]
+pub const fn decode_trace_metadata(meta: u64) -> (u16, u16, u8, u8, u16) {
+    (
+        trace_thread_idx(meta),
+        trace_block_idx(meta),
+        trace_level(meta),
+        trace_msg_len(meta),
+        trace_lane_id(meta),
+    )
+}
+
 // ============================================================
 // ASSERT service payload layout (lane 0)
 // ============================================================
@@ -802,3 +816,37 @@ pub const CMD_PRINT: u32 = 2;
 
 /// Command type: exit the command processing loop.
 pub const CMD_EXIT: u32 = 3;
+
+// ================================================================
+// Flight Recorder — GPU-side ring buffer for post-mortem trace events
+// ================================================================
+
+/// Size of the flight recorder header in bytes.
+pub const FR_HEADER_SIZE: usize = 64;
+
+/// Size of each flight recorder event slot in bytes.
+pub const FR_SLOT_SIZE: usize = 64;
+
+/// Offset of `write_idx` (u64, atomic) in the flight recorder header.
+pub const FR_OFF_WRITE_IDX: usize = 0;
+
+/// Offset of `capacity` (u32) in the flight recorder header.
+pub const FR_OFF_CAPACITY: usize = 8;
+
+/// Offset of `flags` (u32) in the flight recorder header.
+pub const FR_OFF_FLAGS: usize = 12;
+
+/// Offset of metadata (u64) in a flight recorder event slot.
+pub const FR_SLOT_OFF_META: usize = 0;
+
+/// Offset of timestamp (u64) in a flight recorder event slot.
+pub const FR_SLOT_OFF_TIMESTAMP: usize = 8;
+
+/// Offset of message bytes in a flight recorder event slot.
+pub const FR_SLOT_OFF_MSG: usize = 16;
+
+/// Maximum message length in a flight recorder event.
+pub const FR_MAX_MSG_LEN: usize = FR_SLOT_SIZE - FR_SLOT_OFF_MSG;
+
+/// Flag bit: kernel crashed (set by GPU before trap).
+pub const FR_FLAG_CRASHED: u32 = 1;

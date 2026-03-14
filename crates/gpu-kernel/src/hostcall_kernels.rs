@@ -1004,3 +1004,72 @@ pub unsafe extern "ptx-kernel" fn autonomous_pipeline_kernel(
     let msg: &[u8] = b"autonomous pipeline done";
     let _ = gpu_runtime::hostcall::gpu_hostcall_print(hc_buf, msg.as_ptr(), msg.len() as u32);
 }
+
+/// Flight recorder test kernel — writes N trace events to the ring buffer.
+///
+/// Thread 0 writes events with different levels, then optionally "crashes" if
+/// the crash flag in params is set.
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn flight_recorder_test(
+    hc_buf: *mut u8,
+    fr_buf: *mut u8,
+    should_crash: *const u32,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+    if tid != 0 {
+        return;
+    }
+
+    gpu_runtime::panic::gpu_panic_init(hc_buf);
+
+    // Write several trace events to flight recorder
+    let msg1: &[u8] = b"initializing";
+    gpu_runtime::flight_recorder::fr_record(
+        fr_buf,
+        gpu_protocol::TRACE_LEVEL_INFO,
+        msg1.as_ptr(),
+        msg1.len() as u32,
+    );
+
+    let msg2: &[u8] = b"processing data";
+    gpu_runtime::flight_recorder::fr_record(
+        fr_buf,
+        gpu_protocol::TRACE_LEVEL_DEBUG,
+        msg2.as_ptr(),
+        msg2.len() as u32,
+    );
+
+    let msg3: &[u8] = b"checkpoint reached";
+    gpu_runtime::flight_recorder::fr_record(
+        fr_buf,
+        gpu_protocol::TRACE_LEVEL_INFO,
+        msg3.as_ptr(),
+        msg3.len() as u32,
+    );
+
+    let msg4: &[u8] = b"warning: low memory";
+    gpu_runtime::flight_recorder::fr_record(
+        fr_buf,
+        gpu_protocol::TRACE_LEVEL_WARN,
+        msg4.as_ptr(),
+        msg4.len() as u32,
+    );
+
+    let msg5: &[u8] = b"computation complete";
+    gpu_runtime::flight_recorder::fr_record(
+        fr_buf,
+        gpu_protocol::TRACE_LEVEL_INFO,
+        msg5.as_ptr(),
+        msg5.len() as u32,
+    );
+
+    // Check if we should simulate a crash
+    let crash = core::ptr::read_volatile(should_crash);
+    if crash != 0 {
+        gpu_runtime::flight_recorder::fr_set_crashed(fr_buf);
+        // Don't actually trap — just set the flag for testing
+    }
+
+    let msg: &[u8] = b"flight recorder test done";
+    let _ = gpu_runtime::hostcall::gpu_hostcall_print(hc_buf, msg.as_ptr(), msg.len() as u32);
+}

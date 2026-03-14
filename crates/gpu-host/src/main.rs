@@ -132,6 +132,10 @@ fn main() -> Result<()> {
                 tests_hostcall::run_autonomous_pipeline_test(Arc::clone(&dev))?;
                 return Ok(());
             }
+            "flight" => {
+                tests_hostcall::run_flight_recorder_test(Arc::clone(&dev))?;
+                return Ok(());
+            }
             _ => println!("Unknown ONLY_TEST={only}, running all tests"),
         }
     }

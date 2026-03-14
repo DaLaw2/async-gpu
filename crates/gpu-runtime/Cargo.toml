@@ -9,6 +9,10 @@ description = "Facade crate for writing GPU kernels with async hostcall support"
 [lib]
 crate-type = ["rlib"]
 
+[features]
+default = ["gpu-trace"]
+gpu-trace = []  # Enable gpu_trace!/gpu_assert! macros. Disable for zero-overhead release.
+
 [dependencies]
 gpu-protocol = { path = "../gpu-protocol" }
 gpu-atomics = { path = "../gpu-atomics" }

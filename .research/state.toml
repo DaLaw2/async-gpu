@@ -4,18 +4,18 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 227     # Monotonic counter, incremented after each completed phase
-completed_tasks = 226
+total_cycles = 232     # Monotonic counter, incremented after each completed phase
+completed_tasks = 231
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
 current_task_id = ""
-last_summary = "gpu-autonomous v2 ALL 4 THEMES DONE: hc-session (HostcallSession), cmd-buffer (COMPUTE+PRINT+EXIT), cross-pipeline (Pipeline API), iter-workflow (Newton sqrt convergence, data-dependent). All 10 tasks verified on GPU."
+last_summary = "gpu-debug ALL 4 CRITERIA MET: trace protocol, assert diag, flight recorder (5 events + crash dump), conditional compilation (gpu-trace feature flag). gpu-autonomous also complete. All active epics at terminal state."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 54
+brainstorm_seq = 55
 review_seq = 5
 
 # Brainstorm trigger control (event-driven, no fixed interval)
@@ -429,9 +429,87 @@ kind = "experiment"
 status = "done"
 deps = ["iter-workflow.1"]
 
+# --- gpu-debug remaining criteria (BS55) ---
+
+[[themes]]
+id = "flight-recorder"
+epic = "gpu-debug"
+title = "Post-mortem flight recorder — ring buffer of last N trace events"
+status = "completed"
+goal = "GPU-side ring buffer stores last N trace events; host dumps on crash"
+success_criteria = [
+    "GPU-side ring buffer (mapped memory) stores last N trace events",
+    "Host can dump the ring buffer after kernel crash/trap for post-mortem analysis",
+]
+
+[[themes]]
+id = "cond-trace"
+epic = "gpu-debug"
+title = "Conditional compilation — tracing compiles out in release builds"
+status = "completed"
+goal = "gpu_trace!/gpu_assert! compile to no-ops when feature flag is off"
+success_criteria = [
+    "cfg(feature = 'gpu-trace') gates all trace/assert codegen",
+    "Release build without feature produces zero trace overhead (no hostcall calls)",
+]
+
+[[tasks]]
+id = "flight-recorder.1"
+theme = "flight-recorder"
+title = "Design flight recorder ring buffer layout + dump protocol"
+kind = "design"
+status = "done"
+deps = []
+
+[[tasks]]
+id = "flight-recorder.2"
+theme = "flight-recorder"
+title = "GPU-side ring buffer write + host-side dump implementation"
+kind = "experiment"
+status = "done"
+deps = ["flight-recorder.1"]
+
+[[tasks]]
+id = "flight-recorder.3"
+theme = "flight-recorder"
+title = "Test: kernel crash → host dumps last N events"
+kind = "experiment"
+status = "done"
+# Tested in flight-recorder.2: 5 events + crash flag verified, dump printed
+deps = ["flight-recorder.2"]
+
+[[tasks]]
+id = "cond-trace.1"
+theme = "cond-trace"
+title = "Add gpu-trace feature flag to gpu-runtime, gate trace/assert codegen"
+kind = "experiment"
+status = "done"
+deps = []
+
+[[tasks]]
+id = "cond-trace.2"
+theme = "cond-trace"
+title = "Verify release build without feature has zero trace overhead"
+kind = "experiment"
+status = "done"
+# gpu_trace! expands to `let _ = &$buf;` (no-op) when gpu-trace is off
+# gpu_assert! traps without hostcall when gpu-trace is off
+deps = ["cond-trace.1"]
+
 # ============================================================
 # Brainstorms (last 3 only — older brainstorms archived)
 # ============================================================
+
+[[brainstorms]]
+seq = 55
+at_cycle = 227
+trigger = "gpu-autonomous v2 complete, gpu-debug criteria 3-4 remain"
+level = "quick"
+new_tasks_spawned = ["flight-recorder.1", "flight-recorder.2", "flight-recorder.3", "cond-trace.1", "cond-trace.2"]
+new_themes_spawned = ["flight-recorder", "cond-trace"]
+themes_parked = []
+themes_completed = ["cmd-buffer", "cross-pipeline", "iter-workflow"]
+key_insight = "gpu-autonomous v2 all 4 themes done. gpu-debug has 2 remaining criteria: flight recorder (post-mortem trace dump) and conditional compilation (zero-overhead release builds). Both straightforward — no deep brainstorm needed."
 
 [[brainstorms]]
 seq = 54

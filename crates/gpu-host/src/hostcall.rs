@@ -1490,6 +1490,160 @@ impl Drop for CommandBuffer {
     }
 }
 
+// ================================================================
+// FlightRecorder — Post-mortem trace event ring buffer
+// ================================================================
+
+/// A mapped-memory ring buffer that stores the last N trace events.
+///
+/// Unlike hostcall-based tracing, the flight recorder writes directly to
+/// mapped memory with no round-trip. After a kernel crash, call [`dump()`]
+/// to print the last N events for post-mortem analysis.
+///
+/// [`dump()`]: FlightRecorder::dump
+#[allow(dead_code)]
+pub struct FlightRecorder {
+    host_ptr: *mut u8,
+    dev_ptr: sys::CUdeviceptr,
+    size: usize,
+    capacity: u32,
+}
+
+unsafe impl Send for FlightRecorder {}
+unsafe impl Sync for FlightRecorder {}
+
+#[allow(dead_code)]
+impl FlightRecorder {
+    /// Allocate a flight recorder with the given event slot capacity.
+    pub fn new(capacity: u32) -> Result<Self, HostcallError> {
+        let size = FR_HEADER_SIZE + (capacity as usize) * FR_SLOT_SIZE;
+
+        let mut host_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
+        unsafe {
+            let cu = cuda_lib();
+            let flags = sys::CU_MEMHOSTALLOC_DEVICEMAP | sys::CU_MEMHOSTALLOC_PORTABLE;
+            let r = cu.cuMemHostAlloc(&mut host_ptr, size, flags);
+            if r != sys::CUresult::CUDA_SUCCESS {
+                return Err(HostcallError::CudaAlloc(r));
+            }
+            std::ptr::write_bytes(host_ptr as *mut u8, 0, size);
+        }
+
+        let mut dev_ptr: sys::CUdeviceptr = 0;
+        unsafe {
+            let cu = cuda_lib();
+            let r = cu.cuMemHostGetDevicePointer_v2(&mut dev_ptr, host_ptr, 0);
+            if r != sys::CUresult::CUDA_SUCCESS {
+                cu.cuMemFreeHost(host_ptr);
+                return Err(HostcallError::CudaGetDevPtr(r));
+            }
+        }
+
+        let host_ptr = host_ptr as *mut u8;
+
+        // Write capacity to header
+        unsafe {
+            std::ptr::write_volatile(host_ptr.add(FR_OFF_CAPACITY) as *mut u32, capacity);
+        }
+
+        Ok(Self {
+            host_ptr,
+            dev_ptr,
+            size,
+            capacity,
+        })
+    }
+
+    /// Get device pointer for kernel arg.
+    pub fn dev_ptr(&self) -> sys::CUdeviceptr {
+        self.dev_ptr
+    }
+
+    /// Check if the kernel set the crashed flag.
+    pub fn crashed(&self) -> bool {
+        let flags =
+            unsafe { std::ptr::read_volatile(self.host_ptr.add(FR_OFF_FLAGS) as *const u32) };
+        (flags & FR_FLAG_CRASHED) != 0
+    }
+
+    /// Get the number of events written (may exceed capacity for wrap-around).
+    pub fn write_count(&self) -> u64 {
+        unsafe { std::ptr::read_volatile(self.host_ptr.add(FR_OFF_WRITE_IDX) as *const u64) }
+    }
+
+    /// Dump all recorded events to stderr.
+    ///
+    /// Events are printed in chronological order. If the buffer has wrapped
+    /// around, only the last `capacity` events are shown.
+    pub fn dump(&self) {
+        let write_idx = self.write_count();
+        if write_idx == 0 {
+            eprintln!("=== Flight Recorder: no events ===");
+            return;
+        }
+
+        let start = write_idx.saturating_sub(self.capacity as u64);
+
+        let crashed = self.crashed();
+        eprintln!(
+            "=== Flight Recorder Dump ({} events{}) ===",
+            write_idx - start,
+            if crashed { ", CRASHED" } else { "" }
+        );
+
+        for i in start..write_idx {
+            let slot_idx = (i % self.capacity as u64) as usize;
+            let slot = unsafe { self.host_ptr.add(FR_HEADER_SIZE + slot_idx * FR_SLOT_SIZE) };
+
+            let meta = unsafe { std::ptr::read_volatile(slot.add(FR_SLOT_OFF_META) as *const u64) };
+            let timestamp =
+                unsafe { std::ptr::read_volatile(slot.add(FR_SLOT_OFF_TIMESTAMP) as *const u64) };
+
+            let (tid, bid, level, msg_len, lane) = decode_trace_metadata(meta);
+
+            let msg_len = (msg_len as usize).min(FR_MAX_MSG_LEN);
+            let mut msg_buf = vec![0u8; msg_len];
+            for j in 0..msg_len {
+                msg_buf[j] = unsafe { std::ptr::read_volatile(slot.add(FR_SLOT_OFF_MSG + j)) };
+            }
+
+            let level_str = match level {
+                TRACE_LEVEL_DEBUG => "DEBUG",
+                TRACE_LEVEL_INFO => "INFO",
+                TRACE_LEVEL_WARN => "WARN",
+                TRACE_LEVEL_ERROR => "ERROR",
+                _ => "???",
+            };
+
+            let msg = String::from_utf8_lossy(&msg_buf);
+            eprintln!(
+                "  [{ts}] T{tid}.B{bid}.L{lane} {lvl}: {msg}",
+                ts = timestamp,
+                lvl = level_str,
+            );
+        }
+
+        eprintln!("=== End Flight Recorder ===");
+    }
+
+    /// Reset the flight recorder (between kernel launches).
+    pub fn reset(&self) {
+        unsafe {
+            std::ptr::write_volatile(self.host_ptr.add(FR_OFF_WRITE_IDX) as *mut u64, 0);
+            std::ptr::write_volatile(self.host_ptr.add(FR_OFF_FLAGS) as *mut u32, 0);
+        }
+    }
+}
+
+impl Drop for FlightRecorder {
+    fn drop(&mut self) {
+        unsafe {
+            let cu = cuda_lib();
+            cu.cuMemFreeHost(self.host_ptr as *mut std::ffi::c_void);
+        }
+    }
+}
+
 impl Drop for HostcallBuffer {
     fn drop(&mut self) {
         unsafe {

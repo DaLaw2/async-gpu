@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 269     # Monotonic counter, incremented after each completed phase
-completed_tasks = 269
+total_cycles = 270     # Monotonic counter, incremented after each completed phase
+completed_tasks = 270
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "warp-verify.2"
-last_summary = "rustc-build.2 DONE: patched compiler emits activemask.b32 + bar.warp.sync in PTX for #[warp_cooperative] async fn. No shfl.sync because trivial async fn has no .await points. Theme rustc-build complete (both criteria met). Next: brainstorm for multi-await test or next theme."
+current_task_id = ""
+last_summary = "warp-verify DONE: both test_simple_warp (bar.warp.sync only) and test_multi_await (shfl.sync.idx.b32 + bar.warp.sync) PASSED on real GPU (sm_86). All 32 lanes correct. PTX needs post-processing: remove .ptr .align 1, stub extern panic fn. native-warp-async criterion 3 MET. Next: brainstorm remaining criteria."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 71
@@ -162,7 +162,7 @@ success_criteria = [
 id = "warp-verify"
 epic = "native-warp-async"
 title = "Verify warp-cooperative async with multi-await and GPU execution"
-status = "active"
+status = "completed"
 goal = "Verify shfl.sync broadcast with multi-await and run on actual GPU"
 success_criteria = [
     "Multi-await async fn produces PTX with shfl.sync.idx.b32 discriminant broadcast",
@@ -207,7 +207,7 @@ id = "warp-verify.2"
 theme = "warp-verify"
 title = "GPU execution: run warp-cooperative kernel and verify correctness"
 kind = "experiment"
-status = "active"
+status = "done"
 deps = ["warp-verify.1"]
 
 # ============================================================

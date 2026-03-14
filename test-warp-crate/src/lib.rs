@@ -1,4 +1,6 @@
 #![no_std]
+#![feature(abi_ptx)]
+#![feature(asm_experimental_arch)]
 
 use core::future::Future;
 use core::pin::Pin;
@@ -36,7 +38,7 @@ impl Future for YieldOnce {
 
 // ---------------------------------------------------------------------------
 // Multi-await async fn: two .await points → coroutine with 3+ states
-// This should trigger shfl.sync discriminant broadcast in the MIR pass.
+// This triggers shfl.sync discriminant broadcast in the MIR pass.
 // ---------------------------------------------------------------------------
 
 #[warp_cooperative]
@@ -44,6 +46,15 @@ pub async fn multi_await(x: u32) -> u32 {
     let a = YieldOnce::new(x + 1).await;
     let b = YieldOnce::new(a + 10).await;
     a + b
+}
+
+// ---------------------------------------------------------------------------
+// Simple async fn (no .await): single-state, only bar.warp.sync
+// ---------------------------------------------------------------------------
+
+#[warp_cooperative]
+pub async fn simple_add(x: u32) -> u32 {
+    x + 1
 }
 
 // ---------------------------------------------------------------------------
@@ -58,27 +69,54 @@ static VTABLE: RawWakerVTable = RawWakerVTable::new(
 );
 
 // ---------------------------------------------------------------------------
-// Kernel entry: polls the multi-await future to completion
+// GPU Kernel: test simple warp-cooperative async fn
+// Each thread polls simple_add(thread_idx) and writes result to output[tid].
+// Expected: output[tid] = tid + 1
 // ---------------------------------------------------------------------------
 
 #[no_mangle]
-pub extern "C" fn kernel_entry(x: u32) -> u32 {
-    let waker = unsafe { Waker::from_raw(RawWaker::new(core::ptr::null(), &VTABLE)) };
-    let mut cx = Context::from_waker(&waker);
-    let mut fut = multi_await(x);
-    let mut pinned = unsafe { Pin::new_unchecked(&mut fut) };
+pub unsafe extern "ptx-kernel" fn test_simple_warp(output: *mut u32) {
+    let tid: u32;
+    core::arch::asm!("mov.u32 {}, %tid.x;", out(reg32) tid);
 
-    // Poll up to 10 times (should need 3: Pending, Pending, Ready)
-    let mut i = 0;
-    loop {
+    let waker = Waker::from_raw(RawWaker::new(core::ptr::null(), &VTABLE));
+    let mut cx = Context::from_waker(&waker);
+    let mut fut = simple_add(tid);
+    let mut pinned = Pin::new_unchecked(&mut fut);
+
+    match pinned.as_mut().poll(&mut cx) {
+        Poll::Ready(val) => *output.add(tid as usize) = val,
+        Poll::Pending => *output.add(tid as usize) = 0xDEAD,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// GPU Kernel: test multi-await warp-cooperative async fn
+// Each thread polls multi_await(thread_idx) to completion.
+// multi_await(x) = (x+1) + (x+1+10) = 2x + 12
+// Expected: output[tid] = 2*tid + 12
+// ---------------------------------------------------------------------------
+
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn test_multi_await(output: *mut u32) {
+    let tid: u32;
+    core::arch::asm!("mov.u32 {}, %tid.x;", out(reg32) tid);
+
+    let waker = Waker::from_raw(RawWaker::new(core::ptr::null(), &VTABLE));
+    let mut cx = Context::from_waker(&waker);
+    let mut fut = multi_await(tid);
+    let mut pinned = Pin::new_unchecked(&mut fut);
+
+    // Poll to completion (max 10 iterations)
+    let mut result = 0xDEADu32;
+    for _ in 0..10 {
         match pinned.as_mut().poll(&mut cx) {
-            Poll::Ready(val) => return val,
-            Poll::Pending => {
-                i += 1;
-                if i >= 10 {
-                    return 0xDEAD; // safety limit
-                }
+            Poll::Ready(val) => {
+                result = val;
+                break;
             }
+            Poll::Pending => {}
         }
     }
+    *output.add(tid as usize) = result;
 }

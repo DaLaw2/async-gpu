@@ -13,5 +13,8 @@ patched-rustc/
 rustc-src/
 models/
 test-warp-crate/target/
+test-warp-crate/mir_dump/
 test-warp-crate/rustc-ice-*.txt
+test-warp-crate/host/target/
+test-warp-crate/host/*.ptx
 scripts/pre-push.sh

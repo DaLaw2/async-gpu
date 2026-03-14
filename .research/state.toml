@@ -10,12 +10,12 @@ status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.execute"
-current_task_id = ""
-last_summary = "toolchain-auto theme DONE: build-toolchain.sh (clone+patch+build) and postprocess-ptx.sh (fix .ptr .align + stub panic externs) both complete. Next: async-yield.3 (GPU data pipeline demo) — needs user to run build-toolchain.sh first."
+current_step = "awaiting_user"
+current_task_id = "async-yield.3"
+last_summary = "toolchain-auto theme DONE (2/2 tasks). async-std epic 4/6 criteria met. async-yield.3 blocked: needs user to run build-toolchain.sh to build patched rustc with nvptx64 sysroot. Criterion 2 (PAL bridge) = async hostcall Futures ARE the bridge — needs user confirmation."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 74
+brainstorm_seq = 75
 review_seq = 5
 
 # Brainstorm trigger control (event-driven, no fixed interval)
@@ -239,6 +239,17 @@ depends = []
 # ============================================================
 # Brainstorms (last 3 only — older brainstorms archived)
 # ============================================================
+
+[[brainstorms]]
+seq = 75
+at_cycle = 274
+trigger = "toolchain-auto theme completed — assess remaining work"
+level = "quick"
+new_tasks_spawned = []
+new_themes_spawned = []
+themes_parked = []
+themes_completed = ["toolchain-auto"]
+key_insight = "async-std epic 4/6 criteria met (async hostcall, toolchain build, PTX postprocess, codebase reorg). Remaining: criterion 2 (PAL bridge) is satisfied by the async hostcall Futures themselves — they ARE the bridge. Criterion 3 (demo) blocked on user building patched toolchain. Setting awaiting_user."
 
 [[brainstorms]]
 seq = 74

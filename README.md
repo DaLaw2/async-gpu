@@ -2,36 +2,36 @@
 
 **What if the GPU could drive its own computation?** Open files, read data, branch on results, loop until convergence, write output — all from GPU code, with zero CPU orchestration between steps.
 
-async_gpu makes this real: **Rust async/await running natively on NVIDIA GPUs**, with a proc macro that turns sequential GPU code into warp-cooperative state machines — and GPU compute kernels powerful enough to run **end-to-end GPT-2 inference** entirely from Rust inline PTX.
+async_gpu makes this real: **Rust async/await running natively on NVIDIA GPUs**, with a custom rustc MIR pass that turns standard `async fn` into warp-cooperative state machines — and GPU compute kernels powerful enough to run **end-to-end GPT-2 inference** entirely from Rust inline PTX.
 
 ```rust
-#[warp_async]
-unsafe fn autonomous_pipeline(buf: *mut u8, mode: u64) -> bool {
-    warp_print!(buf, b"auto: start");
-    match mode {
-        0 => {
-            let fd = warp_open!(buf, b"data.txt", FILE_OPEN_WRITE_CREATE);
-            warp_write!(buf, fd, b"GPU-autonomous-output", 21);
-            warp_close!(buf, fd);
-            warp_print!(buf, b"auto: file-written");
-        }
-        1 => {
-            let fd = warp_open!(buf, b"data.txt", FILE_OPEN_READ);
-            let n = warp_read!(buf, fd, 56);
-            warp_close!(buf, fd);
-            if n > 10 {
-                warp_print!(buf, b"auto: large-payload");
-            } else {
-                warp_print!(buf, b"auto: small-payload");
-            }
-        }
-        _ => { warp_print!(buf, b"auto: unknown-mode"); }
-    }
-    warp_print!(buf, b"auto: done");
+#[warp_cooperative]
+pub async fn data_pipeline(buf: *mut u8) -> u32 {
+    // Open input file — yields warp during I/O wait
+    let fd = GpuOpenFuture::new(buf, b"input.txt", FILE_OPEN_READ).await?;
+
+    // Read data (each .await inserts bar.warp.sync for warp convergence)
+    let mut data = [0u8; 48];
+    let n = GpuReadFuture::new(buf, fd, &mut data).await?;
+    GpuCloseFuture::new(buf, fd).await?;
+
+    // Transform on GPU
+    let mut out = [0u8; 48];
+    for i in 0..n { out[i] = data[i].to_ascii_uppercase(); }
+
+    // Write output
+    let out_fd = GpuOpenFuture::new(buf, b"output.txt", FILE_OPEN_WRITE_CREATE).await?;
+    let written = GpuWriteFuture::new(buf, out_fd, &out[..n]).await?;
+    GpuCloseFuture::new(buf, out_fd).await?;
+
+    Ok(written as u32)
 }
+
+// Entry point: drive async pipeline with spin-polling executor
+let result = block_on(data_pipeline(buf)).unwrap_or(0xDEAD);
 ```
 
-The `#[warp_async]` proc macro compiles this into a warp-cooperative state machine where all 32 GPU lanes share one state, decisions are broadcast from lane 0 via `shfl.sync`, and hostcall I/O happens with a single CAS per warp. The code above replaces 150+ lines of hand-written state machine.
+The `#[warp_cooperative]` attribute is a **custom rustc MIR pass** that inserts `bar.warp.sync` + `shfl.sync` at every `.await` point, ensuring all 32 GPU lanes yield and resume together. Standard Rust `async fn` syntax, standard `Future` trait — no macros, no custom runtime.
 
 ## Quick Start
 
@@ -53,6 +53,9 @@ cd async-gpu
 # Hello GPU — vector add, GPU print, file I/O, bulk transfer
 cargo run --manifest-path examples/hello-gpu/host/Cargo.toml
 
+# Async Pipeline — #[warp_cooperative] async fn with real I/O
+cargo run --manifest-path examples/async-pipeline/host/Cargo.toml
+
 # Async I/O — multi-file write pipeline + read-transform-write
 cargo run --manifest-path examples/async-io/host/Cargo.toml
 
@@ -73,6 +76,20 @@ cargo run --release
 ```
 </details>
 
+### Patched Toolchain (for `#[warp_cooperative]`)
+
+The `#[warp_cooperative]` MIR pass requires a patched rustc. Without it, examples using stock nightly still work (hello-gpu, async-io, vector-math), but `async-pipeline` needs the MIR pass.
+
+```bash
+# Linux
+bash scripts/build-toolchain.sh
+
+# Windows (PowerShell)
+.\scripts\build-toolchain.ps1
+```
+
+This clones rustc, applies patches from `rustc-patches/`, and builds a stage1 compiler at `patched-rustc/build/`. The `async-pipeline` example's `build.rs` automatically detects and uses it.
+
 ## Examples
 
 All examples use the **gpu-host SDK** — three core types for GPU programming:
@@ -86,6 +103,10 @@ All examples use the **gpu-host SDK** — three core types for GPU programming:
 ### hello-gpu — Hostcall Basics
 
 Four demos: vector addition (pure compute), GPU-to-host print, file write from GPU, and bulk sideband read.
+
+### async-pipeline — Warp-Cooperative Async I/O
+
+`#[warp_cooperative] async fn` with real hostcall Futures: read file → transform on GPU → write output. Two demos: small I/O (48-byte packet payload) and bulk I/O (sideband, up to 1MB). PTX has `bar.warp.sync` at every `.await` point.
 
 ### async-io — Multi-Step File I/O
 
@@ -201,8 +222,8 @@ GPU compute kernels — all in Rust inline PTX, no CUDA C++ or cuBLAS:
 |  GPU Kernel (nvptx64, Rust nightly)                  |
 |                                                      |
 |  use std::{fs, io, vec};  // real Rust std on GPU    |
-|  #[warp_async]  -->  WarpFuture state machine        |
-|    match/if/loop       (auto-generated)              |
+|  #[warp_cooperative] async fn  (MIR pass)            |
+|  #[warp_async]  -->  WarpFuture (proc macro)         |
 |         |                                            |
 |  gpu-runtime: hostcall helpers, WarpFuture trait      |
 |  gpu-atomics: inline PTX (CAS, shfl, activemask)     |
@@ -228,20 +249,19 @@ GPU-host communication uses a ROCm-inspired two-stack design over CUDA mapped me
 - **Warp-granular packets**: 32 lanes share one packet (not 32 separate ones)
 - **Sideband buffer**: Separate mapped memory for bulk data beyond the 56-byte packet payload
 
-### `#[warp_async]` Proc Macro
+### Warp-Cooperative GPU Async — Two Approaches
 
-Transforms sequential Rust code with `warp_*!()` calls into a `WarpFuture` state machine:
+**`#[warp_cooperative]` MIR Pass** (recommended) — Standard Rust `async fn` with standard `Future` trait. A custom rustc MIR pass inserts `bar.warp.sync` + `shfl.sync` at every `.await` suspension point. Requires patched toolchain.
 
-| Feature | How it works |
-|---------|-------------|
-| Sequential calls | Each `warp_*!()` becomes an INIT + WAIT state pair |
-| `.await` | Standard `impl Future` polled warp-cooperatively (lane 0 polls, broadcast result) |
-| `?` operator | Error discriminant broadcast via `shfl.sync`, short-circuit on `Err` |
-| `if`/`else` | Lane 0 evaluates condition, broadcasts decision via `shfl.sync` |
-| `match` | Lane 0 evaluates scrutinee, maps to arm index, broadcasts |
-| `loop` + `break` | DECISION state: break condition checked by lane 0, broadcast |
-| Nesting | Full support (if inside match, match inside loop, etc.) |
-| Variable capture | `let fd = warp_open!(...)` stores result as struct field, available in later states |
+**`#[warp_async]` Proc Macro** — Sequential Rust code with `warp_*!()` macro calls, compiled into a `WarpFuture` state machine. Works on stock nightly.
+
+| Feature | `#[warp_cooperative]` | `#[warp_async]` |
+|---------|----------------------|-----------------|
+| Syntax | Standard `async fn` + `.await` | `warp_*!()` macros |
+| Toolchain | Patched rustc | Stock nightly |
+| Control flow | `if`/`match`/`loop`/`?` | `if`/`match`/`loop`/`?` |
+| Warp convergence | `bar.warp.sync` at `.await` | State machine by construction |
+| Future types | `GpuOpenFuture`, `GpuReadFuture`, etc. | `warp_open!()`, `warp_read!()`, etc. |
 
 All 32 lanes always agree on the current state — warp convergence is maintained by construction.
 
@@ -260,10 +280,12 @@ crates/
   gpu-kernel/        Main GPU kernel crate (94 kernels: compute, hostcall, pipeline)
   gpu-kernel-std/    GPU kernels using patched Rust std (println!, Vec, File, stdin)
 
-rustc-patches/       Skeleton MIR pass for warp-cooperative async/await (future rustc integration)
+rustc-patches/       Custom MIR pass patches for rustc: inserts bar.warp.sync at async yield points
+scripts/             build-toolchain.sh/.ps1: build patched rustc, ci-lint.sh: local CI checks
 
 examples/
   hello-gpu/         4 demos: vector_add, print, file I/O, bulk transfer
+  async-pipeline/    #[warp_cooperative] async fn: small I/O + bulk sideband I/O
   async-io/          Multi-file write pipeline + read-transform-write
   vector-math/       SAXPY, dot product, softmax (pure compute, no hostcall)
 ```
@@ -272,11 +294,11 @@ examples/
 
 | Category | What works |
 |----------|-----------|
-| **I/O from GPU** | `println!()`, `std::fs::File`, `std::io::stdin()`, bulk sideband transfer |
+| **I/O from GPU** | `println!()`, `std::fs::File`, `std::io::stdin()`, bulk sideband transfer (sync + async Futures) |
 | **Std library** | `Vec`, `String`, `Box`, `format!()`, `?` operator — real Rust std via patched PAL (multi-thread safe) |
 | **Error handling** | `Result<T, E>` propagation from GPU to host, `std::io::Error` |
-| **Async runtime** | Embassy executor on GPU, `futures::join!()`, per-thread and per-warp executors |
-| **Warp-cooperative** | `#[warp_async]` with if/else, loop/break, match, `.await`, `?` operator |
+| **Async runtime** | `block_on()` executor, Embassy on GPU, `futures::join!()`, per-thread and per-warp executors |
+| **Warp-cooperative** | `#[warp_cooperative]` MIR pass (async fn + .await), `#[warp_async]` proc macro (warp_*! macros) |
 | **Compute** | GEMM (f32 FMA), FlashAttention, LayerNorm, GELU, softmax — all in Rust inline PTX |
 | **Inference** | GPT-2 small (124M params) with KV cache: 68ms/token (2.07x speedup) |
 | **Scaling** | Multi-block with per-block sharding, 512+ concurrent threads |
@@ -316,7 +338,7 @@ Numbers vary by ~30% between runs depending on GPU load.
 
 ## Limitations
 
-- **Nightly Rust**: Requires `asm_experimental_arch`, `-Zbuild-std`, PTX target support
+- **Nightly Rust**: Requires `asm_experimental_arch`, `-Zbuild-std`, PTX target support. `#[warp_cooperative]` needs patched rustc (see build instructions)
 - **NVIDIA only**: `nvptx64-nvidia-cuda` target, SM 70+ GPU required
 - **Hostcall latency**: ~20-100 us round-trip, not suitable for per-element I/O in hot loops
 - **Uniform I/O**: `#[warp_async]` requires all 32 lanes to execute the same I/O sequence

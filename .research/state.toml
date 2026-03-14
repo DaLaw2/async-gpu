@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 286     # Monotonic counter, incremented after each completed phase
-completed_tasks = 286
+total_cycles = 287     # Monotonic counter, incremented after each completed phase
+completed_tasks = 287
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "build-fix.2"
-last_summary = "async-bulk-io theme COMPLETE: all 3 criteria met. GpuBulkReadFuture + GpuBulkWriteFuture implemented, end-to-end test PASSED (77 bytes via sideband). Next: build-fix.2 (README + git cleanup)."
+current_task_id = ""
+last_summary = "Both themes done: async-bulk-io (3/3 criteria) + build-fix (3/3 criteria). README updated with #[warp_cooperative] docs, patched toolchain section, async-pipeline example. Gitignore cleaned. No pending tasks — brainstorm needed."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 78
@@ -242,7 +242,7 @@ success_criteria = [
 id = "build-fix"
 epic = "codebase-health"
 title = "Fix build scripts and developer onboarding"
-status = "active"
+status = "completed"
 goal = "Reproducible build from clean checkout, working build scripts"
 success_criteria = [
     "build-toolchain scripts work end-to-end on Windows",
@@ -420,7 +420,7 @@ id = "build-fix.2"
 theme = "build-fix"
 title = "Experiment: fix build scripts, clean git status, update README build section"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["build-fix.1"]
 
 # ============================================================

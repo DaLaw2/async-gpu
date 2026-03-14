@@ -20,3 +20,8 @@ examples/warp-cooperative/rustc-ice-*.txt
 examples/warp-cooperative/host/target/
 examples/warp-cooperative/host/*.ptx
 scripts/pre-push.sh
+gpu_autonomous.txt
+gpu_roundtrip.txt
+examples/*/host/Cargo.lock
+examples/*/kernel/Cargo.lock
+.research/toolchain-build*.log

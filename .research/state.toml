@@ -12,7 +12,7 @@ status = "running"     # ready | running | blocked | completed
 current_mode = "do"
 current_step = "awaiting_user"
 current_task_id = "async-yield.3"
-last_summary = "toolchain-auto theme DONE (2/2 tasks). async-std epic 4/6 criteria met. async-yield.3 blocked: needs user to run build-toolchain.sh to build patched rustc with nvptx64 sysroot. Criterion 2 (PAL bridge) = async hostcall Futures ARE the bridge — needs user confirmation."
+last_summary = "async-std epic: criteria 1 (async hostcall) done, 2 (PAL bridge) done, 4 (codebase reorg) done. Criteria 3 (demo) blocked on patched toolchain build (rustc_driver.dll link fails — lld missing MSVC STL symbol). Removed toolchain-auto theme (scripts were unnecessary)."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 75
@@ -33,8 +33,6 @@ success_criteria = [
     "Async hostcall: gpu_hostcall_request returns impl Future — warp yields to scheduler during I/O wait instead of spin-blocking",
     "PAL async bridge: patched std I/O (write/read/open/close) calls async hostcall under #[warp_cooperative] context",
     "Practical demo: #[warp_cooperative] async fn runs data pipeline (read file → compute → write file) with I/O yielding",
-    "Toolchain build automated — single script from rustc-patches/ + std-patches/ to usable toolchain",
-    "PTX post-processing automated in build pipeline (remove .ptr .align 1, stub extern panic fn)",
     "Codebase reorganized into categorized subdirectories (core/kernel/macro/test)",
 ]
 
@@ -162,17 +160,6 @@ success_criteria = [
 ]
 
 [[themes]]
-id = "toolchain-auto"
-epic = "async-std"
-title = "Toolchain build + PTX post-processing automation"
-status = "completed"
-goal = "Single script builds patched rustc+std; PTX post-processing is automated"
-success_criteria = [
-    "scripts/build-toolchain.sh clones rustc, applies patches, builds compiler+library",
-    "PTX post-processing (remove .ptr .align 1, stub panic fn) integrated into build pipeline",
-]
-
-[[themes]]
 id = "codebase-restructure"
 epic = "async-std"
 title = "Reorganize codebase into categorized subdirectories"
@@ -218,23 +205,8 @@ theme = "async-yield"
 title = "Experiment: data pipeline demo — read→compute→write with async I/O"
 kind = "experiment"
 status = "pending"
-depends = ["async-yield.2", "toolchain-auto.1"]
+depends = ["async-yield.2"]
 
-[[tasks]]
-id = "toolchain-auto.1"
-theme = "toolchain-auto"
-title = "Experiment: create scripts/build-toolchain.sh"
-kind = "experiment"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "toolchain-auto.2"
-theme = "toolchain-auto"
-title = "Experiment: create scripts/postprocess-ptx.sh"
-kind = "experiment"
-status = "done"
-depends = []
 
 # ============================================================
 # Brainstorms (last 3 only — older brainstorms archived)

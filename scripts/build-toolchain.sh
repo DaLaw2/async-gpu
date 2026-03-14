@@ -1,6 +1,6 @@
 #!/bin/bash
 # Build a patched Rust toolchain with warp-cooperative async/await support.
-# For Linux/macOS only. On Windows, use build-toolchain.ps1 instead.
+# For Linux/macOS only. On Windows, use build-toolchain.bat instead.
 #
 # Usage:
 #   ./scripts/build-toolchain.sh [--from-scratch] [--print-sysroot] [--targets=t1,t2]
@@ -143,9 +143,10 @@ host = ["$HOST_TRIPLE"]
 target = [$(echo "$TARGETS" | sed 's/,/", "/g; s/^/"/; s/$/"/' )]
 
 [rust]
-incremental = true
-debug-assertions = true
-optimize = 1
+incremental = false
+debug-assertions = false
+optimize = 2
+codegen-units = 1
 
 [llvm]
 download-ci-llvm = true

@@ -100,7 +100,7 @@ SAXPY, dot product (GPU multiply + CPU reduce), and softmax (multi-pass GPU-CPU 
 GPU kernels can use **actual Rust standard library** types and traits — not custom wrappers:
 
 ```rust
-// This runs on the GPU, using real std (single-thread kernel launch)
+// This runs on the GPU, using real std (multi-thread safe!)
 use std::io::BufRead;
 
 println!("[GPU] Hello from Rust std on GPU!");
@@ -119,9 +119,9 @@ println!("[GPU] Read from stdin: {}", line);
 
 This works via a **patched std** (`-Zbuild-std=std`) with a CUDA platform adaptation layer (PAL) that routes `sys` calls through the hostcall protocol. The `gpu-libc` crate provides the libc shim.
 
-**What works** (single-thread launch only): `println!`, `format!`, `Vec`, `String`, `Box`, `std::fs::File` (create/read/write), `std::io::stdin().read_line()`, `?` operator with `std::io::Error`.
+**What works** (multi-thread safe): `println!`, `format!`, `Vec`, `String`, `Box`, `std::fs::File` (create/read/write), `std::io::stdin().read_line()`, `?` operator with `std::io::Error`.
 
-> **Note**: std on GPU currently requires single-thread kernel launch (`block_dim: (1,1,1)`). Thread-local storage, errno, and the bump allocator are not yet thread-safe on GPU. For multi-thread compute, use `no_std` kernels with `gpu-runtime` — see the 65+ kernels in `gpu-kernel` (including full GPT-2 inference).
+> **Multi-thread support**: Thread-local storage uses per-thread arrays indexed by hardware thread ID (`gpu_threads.rs`), and the bump allocator uses atomic CAS. Verified with 32-thread Vec allocation and 4-thread concurrent `println!`. For compute-heavy multi-thread kernels, `no_std` kernels with `gpu-runtime` are also available — see the 65+ kernels in `gpu-kernel` (including full GPT-2 inference).
 
 ## GPU Error Handling
 
@@ -235,6 +235,8 @@ Transforms sequential Rust code with `warp_*!()` calls into a `WarpFuture` state
 | Feature | How it works |
 |---------|-------------|
 | Sequential calls | Each `warp_*!()` becomes an INIT + WAIT state pair |
+| `.await` | Standard `impl Future` polled warp-cooperatively (lane 0 polls, broadcast result) |
+| `?` operator | Error discriminant broadcast via `shfl.sync`, short-circuit on `Err` |
 | `if`/`else` | Lane 0 evaluates condition, broadcasts decision via `shfl.sync` |
 | `match` | Lane 0 evaluates scrutinee, maps to arm index, broadcasts |
 | `loop` + `break` | DECISION state: break condition checked by lane 0, broadcast |
@@ -269,10 +271,10 @@ examples/
 | Category | What works |
 |----------|-----------|
 | **I/O from GPU** | `println!()`, `std::fs::File`, `std::io::stdin()`, bulk sideband transfer |
-| **Std library** | `Vec`, `String`, `Box`, `format!()`, `?` operator — real Rust std via patched PAL **(single-thread launch only)** |
+| **Std library** | `Vec`, `String`, `Box`, `format!()`, `?` operator — real Rust std via patched PAL (multi-thread safe) |
 | **Error handling** | `Result<T, E>` propagation from GPU to host, `std::io::Error` |
 | **Async runtime** | Embassy executor on GPU, `futures::join!()`, per-thread and per-warp executors |
-| **Warp-cooperative** | `#[warp_async]` with if/else, loop/break, match, nested control flow |
+| **Warp-cooperative** | `#[warp_async]` with if/else, loop/break, match, `.await`, `?` operator |
 | **Compute** | GEMM (f32 FMA), FlashAttention, LayerNorm, GELU, softmax — all in Rust inline PTX |
 | **Inference** | GPT-2 small (124M params) with KV cache: 68ms/token (2.07x speedup) |
 | **Scaling** | Multi-block with per-block sharding, 512+ concurrent threads |

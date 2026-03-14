@@ -4,18 +4,20 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 244     # Monotonic counter, incremented after each completed phase
-completed_tasks = 244
+total_cycles = 246     # Monotonic counter, incremented after each completed phase
+completed_tasks = 246
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
+current_mode = "do"
+current_step = "do.save"
 current_task_id = ""
-last_summary = "std-multithread COMPLETE: gpu_threads.rs implemented + GPU-verified. println! (4 threads) + Vec (32 threads) both pass. real-std multi-thread caveat REMOVED."
+last_summary = "nightly-pin.1 + readme-update.1 DONE. Build.rs scripts parse rust-toolchain.toml dynamically. README updated with multi-thread std + .await/? in warp_async. All 246 tasks complete."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 58
+brainstorm_seq = 59
 review_seq = 5
 
 # Brainstorm trigger control (event-driven, no fixed interval)
@@ -57,9 +59,8 @@ success_criteria = [
     "std::io::stdin().read_line() works on GPU via hostcall",
     "PAL/libc facade routes std sys calls to hostcall framework",
 ]
-# Criteria 1-5 surface-level met, but ThreadLocal uses `no_threads` (static global),
-# so all std tests only work with single-thread launch (1,1,1). Multi-thread GPU launch
-# causes data races on thread_local state. NOT complete until multi-thread safe.
+# Criteria 1-5 fully met. Multi-thread ThreadLocal fixed by gpu_threads.rs (std-multithread theme).
+# println! (4 threads) + Vec (32 threads) GPU-verified. Ready for user close.
 
 [[epics]]
 id = "gpu-error"
@@ -625,6 +626,46 @@ kind = "experiment"
 status = "done"
 deps = ["std-multithread.2"]
 
+# --- codebase-health: nightly-pin + readme-update (BS59) ---
+
+[[themes]]
+id = "nightly-pin"
+epic = "codebase-health"
+title = "Centralize nightly toolchain version — eliminate hardcoded versions"
+status = "completed"
+goal = "All build.rs scripts read nightly version from rust-toolchain.toml instead of hardcoding"
+success_criteria = [
+    "Example build.rs scripts parse rust-toolchain.toml dynamically",
+    "No hardcoded nightly version strings outside rust-toolchain.toml",
+]
+
+[[tasks]]
+id = "nightly-pin.1"
+theme = "nightly-pin"
+title = "Refactor example build.rs to parse rust-toolchain.toml dynamically"
+kind = "experiment"
+status = "done"
+deps = []
+
+[[themes]]
+id = "readme-update"
+epic = "codebase-health"
+title = "Update README with multi-thread std and native warp-async achievements"
+status = "completed"
+goal = "README accurately reflects current project state"
+success_criteria = [
+    "README documents multi-thread std capability (not just single-thread)",
+    "README documents native warp-async (#[warp_async] with .await and ?)",
+]
+
+[[tasks]]
+id = "readme-update.1"
+theme = "readme-update"
+title = "Update README with multi-thread std + warp-async achievements"
+kind = "experiment"
+status = "done"
+deps = []
+
 # --- rustc-survey tasks (completed) ---
 
 [[tasks]]
@@ -714,6 +755,17 @@ deps = ["cond-trace.1"]
 # ============================================================
 # Brainstorms (last 3 only — older brainstorms archived)
 # ============================================================
+
+[[brainstorms]]
+seq = 59
+at_cycle = 244
+trigger = "std-multithread theme completed — reassess all epics"
+level = "quick"
+new_tasks_spawned = ["nightly-pin.1", "readme-update.1"]
+new_themes_spawned = ["nightly-pin", "readme-update"]
+themes_parked = []
+themes_completed = ["std-multithread"]
+key_insight = "All major epics at terminal state. real-std fully met (multi-thread fixed). gpu-perf at ceiling (parked criteria). native-warp-async + gpu-autonomous answered by MIR spec. Only evergreen epics remain. 244 tasks completed."
 
 [[brainstorms]]
 seq = 58

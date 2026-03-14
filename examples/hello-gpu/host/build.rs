@@ -8,20 +8,43 @@ use std::env;
 use std::path::PathBuf;
 use std::process::Command;
 
+/// Read the nightly toolchain channel from the repo root's rust-toolchain.toml.
+/// Falls back to "+nightly" if the file cannot be parsed.
+fn nightly_toolchain() -> String {
+    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
+    // Walk up from examples/<name>/host/ to repo root
+    let repo_root = manifest_dir.join("..").join("..").join("..");
+    let toolchain_file = repo_root.join("rust-toolchain.toml");
+    if let Ok(content) = std::fs::read_to_string(&toolchain_file) {
+        for line in content.lines() {
+            let line = line.trim();
+            if line.starts_with("channel") {
+                if let Some(val) = line.split('=').nth(1) {
+                    let channel = val.trim().trim_matches('"');
+                    return format!("+{channel}");
+                }
+            }
+        }
+    }
+    "+nightly".to_string()
+}
+
 fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let kernel_dir = manifest_dir.join("..").join("kernel");
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
+    let toolchain = nightly_toolchain();
 
     println!("cargo:rerun-if-changed=../kernel/src/lib.rs");
     println!("cargo:rerun-if-changed=../kernel/Cargo.toml");
+    println!("cargo:rerun-if-changed=../../../rust-toolchain.toml");
 
     // Build the kernel crate for nvptx64.
     // IMPORTANT: We clear CARGO to prevent the parent cargo from influencing
     // the child build. We also clear RUSTC and RUSTFLAGS for the same reason.
     // The kernel's .cargo/config.toml and rust-toolchain.toml handle everything.
     let status = Command::new("cargo")
-        .args(["+nightly-2026-03-11", "build", "--release"])
+        .args([&toolchain, "build", "--release"])
         .current_dir(&kernel_dir)
         .env_remove("CARGO")
         .env_remove("RUSTC")
@@ -30,7 +53,12 @@ fn main() {
         .env_remove("CARGO_TARGET_DIR")
         .env_remove("CARGO_BUILD_TARGET")
         .status()
-        .expect("Failed to run cargo for kernel compilation. Is nightly-2026-03-11 installed?");
+        .unwrap_or_else(|_| {
+            panic!(
+                "Failed to run cargo for kernel compilation. Is {} installed?",
+                toolchain
+            )
+        });
 
     if !status.success() {
         // During `cargo clippy` or `cargo check`, the kernel toolchain may not

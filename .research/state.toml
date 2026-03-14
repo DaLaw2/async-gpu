@@ -4,18 +4,18 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 290     # Monotonic counter, incremented after each completed phase
-completed_tasks = 298
+total_cycles = 291     # Monotonic counter, incremented after each completed phase
+completed_tasks = 300
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
-current_mode = "do"
-current_step = "do.execute"
+current_mode = "think"
+current_step = "think.triage"
 current_task_id = ""
-last_summary = "showcase-demo COMPLETE: parallel file search, 32 lanes, 168/168 exact match. release-prep COMPLETE: CHANGELOG + v0.1.0 tag. All current themes done — brainstorm needed."
+last_summary = "ci-update.1 + blog-draft.1 DONE (both were already completed in previous session). 300 tasks done. All themes completed. Need brainstorm for next direction."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 78
+brainstorm_seq = 81
 review_seq = 5
 
 # Brainstorm trigger control (event-driven, no fixed interval)
@@ -301,6 +301,26 @@ success_criteria = [
     "A new contributor can understand the system from README + ARCHITECTURE.md alone",
 ]
 
+[[themes]]
+id = "ci-update"
+epic = "codebase-health"
+title = "Add parallel-search example to CI lint and check scripts"
+status = "completed"
+goal = "CI covers all examples including parallel-search"
+success_criteria = [
+    "ci-lint.sh includes parallel-search host check",
+]
+
+[[themes]]
+id = "blog-draft"
+epic = "public-api"
+title = "Draft technical blog post for project visibility"
+status = "completed"
+goal = "Blog post draft covering three key innovations"
+success_criteria = [
+    "BLOG_DRAFT.md exists with hostcall protocol, MIR pass, and std-on-GPU sections",
+]
+
 # ============================================================
 # Tasks (pending/active only — done tasks archived in archive/)
 # ============================================================
@@ -553,6 +573,41 @@ depends = ["showcase-demo.1"]
 # ============================================================
 # Brainstorms (last 3 only — older brainstorms archived)
 # ============================================================
+
+# --- ci-update theme ---
+
+[[tasks]]
+id = "ci-update.1"
+theme = "ci-update"
+title = "Experiment: add parallel-search host check to ci-lint.sh"
+kind = "experiment"
+status = "done"
+depends = []
+
+# --- blog-draft theme ---
+
+[[tasks]]
+id = "blog-draft.1"
+theme = "blog-draft"
+title = "Experiment: write technical blog post draft"
+kind = "experiment"
+status = "done"
+depends = []
+
+# ============================================================
+# Brainstorms (last 3 only — older brainstorms archived)
+# ============================================================
+
+[[brainstorms]]
+seq = 81
+at_cycle = 290
+trigger = "all themes completed — quick brainstorm for post-release direction"
+level = "quick"
+new_tasks_spawned = ["ci-update.1", "blog-draft.1"]
+new_themes_spawned = ["ci-update", "blog-draft"]
+themes_parked = []
+themes_completed = ["release-prep", "showcase-demo"]
+key_insight = "v0.1.0 released. Highest-value remaining work: visibility (blog post) and CI hygiene (add parallel-search to CI)."
 
 [[brainstorms]]
 seq = 80

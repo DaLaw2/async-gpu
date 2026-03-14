@@ -68,6 +68,7 @@ done
 run "check hello-gpu-host" "cargo +stable check --manifest-path examples/hello-gpu/host/Cargo.toml"
 run "check async-io-host" "cargo +stable check --manifest-path examples/async-io/host/Cargo.toml"
 run "check vector-math-host" "cargo +stable check --manifest-path examples/vector-math/host/Cargo.toml"
+run "check parallel-search-host" "cargo +stable check --manifest-path examples/parallel-search/host/Cargo.toml"
 
 echo ""
 if [ "$FAIL" -eq 0 ]; then

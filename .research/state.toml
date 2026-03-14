@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 275     # Monotonic counter, incremented after each completed phase
-completed_tasks = 275
+total_cycles = 280     # Monotonic counter, incremented after each completed phase
+completed_tasks = 280
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.select"
-current_task_id = ""
-last_summary = "Brainstorm 76: user direction pivot — 5 priorities. New epic std-sysroot + 4 themes (std-sysroot-build, gpu-executor, ptx-codegen-fix, warp-batch-io) with 12 tasks. Priority: std in sysroot first, executor parallel."
+current_step = "do.execute"
+current_task_id = "std-sysroot-build.4"
+last_summary = "gpu-executor.2 done: block_on() implemented, async-pipeline refactored (30→1 line). std-sysroot-build.3 done: std::fs::File compiles to PTX. gpu-executor theme completed. ptx-codegen-fix.2 running in background. Next: std-sysroot-build.4 (end-to-end File I/O on GPU)."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 76
@@ -175,7 +175,7 @@ success_criteria = [
 id = "gpu-executor"
 epic = "async-std"
 title = "GPU-side async executor — block_on() with yield strategy"
-status = "active"
+status = "completed"
 goal = "Eliminate manual poll loop boilerplate; kernel calls executor::block_on(pipeline())"
 success_criteria = [
     "block_on<F: Future>(f: F) -> F::Output in gpu-runtime",
@@ -217,7 +217,7 @@ id = "std-sysroot-build.1"
 theme = "std-sysroot-build"
 title = "Investigation: attempt x.py build with std patches, catalog all errors"
 kind = "investigation"
-status = "pending"
+status = "done"
 depends = []
 questions = [
     "Does x.py build library succeed for nvptx64 with patched std?",
@@ -230,15 +230,16 @@ id = "std-sysroot-build.2"
 theme = "std-sysroot-build"
 title = "Experiment: fix compilation errors — add missing cfg gates / PAL stubs"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["std-sysroot-build.1"]
+# SKIPPED: std-sysroot-build.1 found zero compilation errors; nothing to fix
 
 [[tasks]]
 id = "std-sysroot-build.3"
 theme = "std-sysroot-build"
 title = "Experiment: build test kernel with use std::fs::File, verify PTX"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["std-sysroot-build.2"]
 
 [[tasks]]
@@ -246,7 +247,7 @@ id = "std-sysroot-build.4"
 theme = "std-sysroot-build"
 title = "Experiment: end-to-end test — File::create + write on GPU via hostcall"
 kind = "experiment"
-status = "pending"
+status = "active"
 depends = ["std-sysroot-build.3"]
 
 # --- gpu-executor theme ---
@@ -256,7 +257,7 @@ id = "gpu-executor.1"
 theme = "gpu-executor"
 title = "Design: executor API — block_on, yield strategy, timeout, warp-cooperative"
 kind = "design"
-status = "pending"
+status = "done"
 depends = []
 
 [[tasks]]
@@ -264,7 +265,7 @@ id = "gpu-executor.2"
 theme = "gpu-executor"
 title = "Experiment: implement block_on in gpu-runtime, refactor async-pipeline"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["gpu-executor.1"]
 
 # --- ptx-codegen-fix theme ---
@@ -274,7 +275,7 @@ id = "ptx-codegen-fix.1"
 theme = "ptx-codegen-fix"
 title = "Investigation: root cause of .ptr .align N — LLVM or rustc_codegen_llvm?"
 kind = "investigation"
-status = "pending"
+status = "done"
 depends = []
 questions = [
     "Is .ptr .align emitted by LLVM NVPTXAsmPrinter or by rustc metadata?",
@@ -285,10 +286,11 @@ questions = [
 [[tasks]]
 id = "ptx-codegen-fix.2"
 theme = "ptx-codegen-fix"
-title = "Experiment: patch panic_const stubs at codegen/linker level"
+title = "Experiment: try PTX ISA 7.8+ targeting or add build.rs post-processing for .ptr .align"
 kind = "experiment"
 status = "pending"
 depends = ["ptx-codegen-fix.1"]
+# panic_const is resolved (panic_abort profile eliminates them). Focus on .ptr .align only.
 
 
 # ============================================================

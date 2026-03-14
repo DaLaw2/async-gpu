@@ -1079,3 +1079,98 @@ pub(crate) fn run_buffered_print_test(dev: Arc<CudaDevice>) -> Result<()> {
     println!("  buffered_print_test: PASSED! (12 messages, 1 flush round-trip, {elapsed:?})");
     Ok(())
 }
+
+/// Test: Data-dependent iteration — Newton's method sqrt on GPU.
+///
+/// The kernel autonomously iterates until convergence without host intervention.
+/// Verifies: correct sqrt result, iteration count > 0, convergence within tolerance.
+pub(crate) fn run_newton_sqrt_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Data-Dependent Iteration Test (data-iter.1) ---");
+
+    // Test cases: (input, expected_sqrt, max_tolerance)
+    let test_cases: Vec<(f32, f32, f32)> = vec![
+        (4.0, 2.0, 1e-5),
+        (2.0, std::f32::consts::SQRT_2, 1e-5),
+        (100.0, 10.0, 1e-4),
+        (0.25, 0.5, 1e-5),
+        (1e6, 1000.0, 1e-2),
+    ];
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "kernel", &["newton_sqrt_kernel"]);
+    let f = dev
+        .get_func("kernel", "newton_sqrt_kernel")
+        .ok_or(GpuHostError::KernelNotFound("newton_sqrt_kernel"))?;
+
+    // Allocate mapped memory for I/O
+    let (input_host, input_dev) = unsafe { alloc_mapped_u32(&dev)? };
+    let (output_host, output_dev) = unsafe { alloc_mapped_u32(&dev)? };
+    let (iter_host, iter_dev) = unsafe { alloc_mapped_u32(&dev)? };
+
+    let cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (1, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    let max_iter: u32 = 100;
+
+    for (input_val, expected, tolerance) in &test_cases {
+        // Write input as f32 bits to the u32 mapped memory
+        unsafe {
+            core::ptr::write_volatile(input_host, input_val.to_bits());
+            core::ptr::write_volatile(output_host, 0);
+            core::ptr::write_volatile(iter_host, 0);
+        }
+
+        unsafe {
+            f.clone()
+                .launch(cfg, (input_dev, output_dev, iter_dev, max_iter))?;
+        }
+        dev.synchronize()?;
+
+        let result_bits = unsafe { core::ptr::read_volatile(output_host) };
+        let result = f32::from_bits(result_bits);
+        let iterations = unsafe { core::ptr::read_volatile(iter_host) };
+
+        let error = (result - expected).abs();
+        let passed = error < *tolerance && iterations > 0 && iterations < max_iter;
+
+        println!(
+            "  sqrt({:.1}) = {:.6} (expected {:.6}, err={:.2e}, {} iters) {}",
+            input_val,
+            result,
+            expected,
+            error,
+            iterations,
+            if passed { "PASS" } else { "FAIL" }
+        );
+
+        if !passed {
+            unsafe {
+                free_mapped_mem(input_host)?;
+                free_mapped_mem(output_host)?;
+                free_mapped_mem(iter_host)?;
+            }
+            return Err(GpuHostError::Verification {
+                test: "newton_sqrt_kernel",
+                detail: format!(
+                    "sqrt({}) = {} (expected {}, err={:.2e}, {} iters)",
+                    input_val, result, expected, error, iterations
+                ),
+            });
+        }
+    }
+
+    unsafe {
+        free_mapped_mem(input_host)?;
+        free_mapped_mem(output_host)?;
+        free_mapped_mem(iter_host)?;
+    }
+
+    println!(
+        "  newton_sqrt_kernel: PASSED! ({} test cases, all converged autonomously)",
+        test_cases.len()
+    );
+    Ok(())
+}

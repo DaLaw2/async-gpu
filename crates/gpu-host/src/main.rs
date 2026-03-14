@@ -440,6 +440,9 @@ fn main() -> Result<()> {
     // Std buffered println! test (println-buffer.2)
     tests_std::run_std_buffered_println_test(Arc::clone(&dev))?;
 
+    // Data-dependent iteration test (data-iter.1)
+    tests_pipeline::run_newton_sqrt_test(Arc::clone(&dev))?;
+
     println!("\nAll tests PASSED.");
     Ok(())
 }

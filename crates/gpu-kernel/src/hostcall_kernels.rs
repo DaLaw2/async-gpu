@@ -1356,3 +1356,64 @@ pub unsafe extern "ptx-kernel" fn buffered_print_test(
     // Success — all 12 messages buffered and flushed
     core::ptr::write_volatile(result, 1);
 }
+
+// ============================================================
+// Data-dependent iteration: Newton's method sqrt (data-iter.1)
+// ============================================================
+
+/// Convergence-loop kernel: Newton's method for sqrt(S).
+///
+/// Demonstrates data-dependent iteration on GPU — the kernel autonomously
+/// loops until convergence without host intervention. The iteration count
+/// depends on the input value and tolerance, not known ahead of time.
+///
+/// Algorithm: x_{n+1} = (x_n + S/x_n) / 2
+/// Convergence: |x_{n+1} - x_n| < epsilon
+///
+/// Parameters:
+/// - `input`: pointer to f32 value S (the number to sqrt)
+/// - `output`: pointer to f32 result (the computed sqrt)
+/// - `iterations`: pointer to u32 (how many iterations until convergence)
+/// - `max_iter`: maximum iterations before giving up
+///
+/// Launch with 1 block × 1 thread.
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn newton_sqrt_kernel(
+    input: *const f32,
+    output: *mut f32,
+    iterations: *mut u32,
+    max_iter: u32,
+) {
+    let s = core::ptr::read_volatile(input);
+
+    // Handle special cases
+    if s <= 0.0 {
+        core::ptr::write_volatile(output, 0.0);
+        core::ptr::write_volatile(iterations, 0);
+        return;
+    }
+
+    // Initial guess: S/2 (simple, works for all positive S)
+    let mut x = s * 0.5;
+    let epsilon: f32 = 1e-6;
+    let mut iter: u32 = 0;
+
+    loop {
+        // Newton's method step: x_new = (x + S/x) / 2
+        let x_new = (x + s / x) * 0.5;
+        iter += 1;
+
+        // Check convergence: |x_new - x| < epsilon
+        let diff = x_new - x;
+        let abs_diff = if diff < 0.0 { -diff } else { diff };
+
+        x = x_new;
+
+        if abs_diff < epsilon || iter >= max_iter {
+            break;
+        }
+    }
+
+    core::ptr::write_volatile(output, x);
+    core::ptr::write_volatile(iterations, iter);
+}

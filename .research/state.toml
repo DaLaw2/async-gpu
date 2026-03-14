@@ -4,18 +4,18 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 262     # Monotonic counter, incremented after each completed phase
-completed_tasks = 262
+total_cycles = 263     # Monotonic counter, incremented after each completed phase
+completed_tasks = 263
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.route"
 current_task_id = ""
-last_summary = "rustc-warp-async.3 done: skeleton WarpCooperativeTransform MIR pass in rustc-patches/ (444-line .rs + lib_rs.patch + PATCHES.md). Analyzes yield points, poll calls, dispatch switch. Phase 1 complete — all 3 theme criteria met. Next: brainstorm for Phase 2 or new direction."
+last_summary = "data-iter.1 done: newton_sqrt_kernel demonstrates autonomous convergence loop (Newton's method sqrt). 5 test cases. gpu-autonomous criterion 3 now demonstrated. data-iter theme complete."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 67
+brainstorm_seq = 68
 review_seq = 5
 
 # Brainstorm trigger control (event-driven, no fixed interval)
@@ -152,6 +152,18 @@ id = "rustc-warp-async"
 epic = "native-warp-async"
 title = "Rustc MIR pass feasibility — warp-cooperative async/await compiler support"
 status = "completed"
+
+[[themes]]
+id = "data-iter"
+epic = "gpu-autonomous"
+title = "Data-dependent iteration — GPU kernel autonomously converges"
+status = "completed"
+goal = "Demonstrate a GPU kernel that loops autonomously until convergence, without host intervention"
+success_criteria = [
+    "Kernel reads data, processes it, checks convergence, iterates or finalizes — all on GPU",
+    "Host receives iteration count and final result via hostcall/mapped memory",
+    "Test verifies convergence matches expected result",
+]
 goal = "Determine if rustc MIR pass can transform standard async fn into warp-cooperative coroutine"
 success_criteria = [
     "Document rustc async transform pipeline: desugaring → generator → state machine → MIR",
@@ -187,9 +199,28 @@ kind = "experiment"
 status = "done"
 deps = ["rustc-warp-async.2"]
 
+[[tasks]]
+id = "data-iter.1"
+theme = "data-iter"
+title = "Implement convergence-loop kernel — Newton's method sqrt on GPU"
+kind = "experiment"
+status = "done"
+deps = []
+
 # ============================================================
 # Brainstorms (last 3 only — older brainstorms archived)
 # ============================================================
+
+[[brainstorms]]
+seq = 68
+at_cycle = 262
+trigger = "rustc-warp-async theme completed — no pending tasks"
+level = "quick"
+new_tasks_spawned = ["data-iter.1"]
+new_themes_spawned = ["data-iter"]
+themes_parked = []
+themes_completed = ["rustc-warp-async"]
+key_insight = "rustc MIR pass feasibility proven (pipeline mapped, design complete, skeleton written). Phase 2 blocked on rustc clone. Pivot to gpu-autonomous criterion 3: data-dependent iteration pattern not yet demonstrated. Newton's method sqrt is ideal — deterministic convergence, easy to verify."
 
 [[brainstorms]]
 seq = 66

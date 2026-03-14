@@ -236,40 +236,75 @@ fn is_future_poll(tcx: TyCtxt<'_>, def_id: DefId) -> bool {
 
 const RESERVED_VARIANTS: u128 = 3;
 
+/// Find the dispatch `SwitchInt` that branches on the coroutine state discriminant.
+///
+/// After `StateTransform`, the entry block (bb0) contains the dispatch switch.
+/// The pattern is:
+///   _tmp = copy (_1.0: &mut CoroutineState);   // unwrap Pin
+///   _discr = discriminant((*_tmp));             // read state
+///   switchInt(_discr) -> [0: .., 1: .., 3: .., 4: .., ...]
+///
+/// We detect this by looking for a `SwitchInt` in the entry block whose scrutinee
+/// is assigned from a `Discriminant` rvalue (regardless of the exact local chain).
+/// Suspension states have values >= 3 (0=Unresumed, 1=Returned, 2=Panicked).
 fn find_dispatch_switch(body: &Body<'_>) -> (Option<BasicBlock>, usize) {
-    for (bb, bb_data) in body.basic_blocks.iter_enumerated() {
-        if let TerminatorKind::SwitchInt { discr, targets, .. } = &bb_data.terminator().kind {
-            if is_discriminant_of_self(discr, bb_data) {
-                let suspension_points = targets
-                    .iter()
-                    .filter(|(val, _)| *val >= RESERVED_VARIANTS)
-                    .count();
-                return (Some(bb), suspension_points);
-            }
+    // Check the entry block first (most common case for coroutines).
+    let entry_bb = BasicBlock::from_u32(0);
+    if let Some(result) = try_detect_dispatch(body, entry_bb) {
+        return result;
+    }
+
+    // Fallback: scan all blocks (unlikely but defensive).
+    for (bb, _) in body.basic_blocks.iter_enumerated() {
+        if bb == entry_bb {
+            continue;
+        }
+        if let Some(result) = try_detect_dispatch(body, bb) {
+            return result;
         }
     }
     (None, 0)
 }
 
-fn is_discriminant_of_self(discr: &Operand<'_>, bb_data: &BasicBlockData<'_>) -> bool {
+fn try_detect_dispatch(body: &Body<'_>, bb: BasicBlock) -> Option<(Option<BasicBlock>, usize)> {
+    let bb_data = &body.basic_blocks[bb];
+    let TerminatorKind::SwitchInt { discr, targets, .. } = &bb_data.terminator().kind else {
+        return None;
+    };
+
+    // Get the local being switched on.
     let scrutinee_local = match discr {
         Operand::Copy(place) | Operand::Move(place) if place.projection.is_empty() => {
             place.local
         }
-        _ => return false,
+        _ => return None,
     };
 
-    for stmt in &bb_data.statements {
-        if let StatementKind::Assign(box (lhs, Rvalue::Discriminant(place))) = &stmt.kind {
-            if lhs.local == scrutinee_local
-                && lhs.projection.is_empty()
-                && place.local == Local::from(1u32)
-            {
-                return true;
-            }
-        }
+    // Check if this local is assigned from a Discriminant rvalue in the same block.
+    let has_discriminant_assign = bb_data.statements.iter().any(|stmt| {
+        matches!(
+            &stmt.kind,
+            StatementKind::Assign(box (lhs, Rvalue::Discriminant(_)))
+                if lhs.local == scrutinee_local && lhs.projection.is_empty()
+        )
+    });
+
+    if !has_discriminant_assign {
+        return None;
     }
-    false
+
+    // Count suspension points (variants >= RESERVED_VARIANTS).
+    let suspension_points = targets
+        .iter()
+        .filter(|(val, _)| *val >= RESERVED_VARIANTS)
+        .count();
+
+    // Only consider it a dispatch switch if there are actual suspension states.
+    if suspension_points > 0 {
+        Some((Some(bb), suspension_points))
+    } else {
+        None
+    }
 }
 
 // ---------------------------------------------------------------------------

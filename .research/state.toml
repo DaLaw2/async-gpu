@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 270     # Monotonic counter, incremented after each completed phase
-completed_tasks = 270
+total_cycles = 274     # Monotonic counter, incremented after each completed phase
+completed_tasks = 274
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "async-yield.2"
-last_summary = "BS74: Direction pivot — async yield, not warp batching. Real value: I/O doesn't block SM, warp yields during hostcall so other warps run compute. Need async hostcall Future, PAL yield mechanism, and practical demo (data pipeline: read→compute→write)."
+current_task_id = ""
+last_summary = "toolchain-auto theme DONE: build-toolchain.sh (clone+patch+build) and postprocess-ptx.sh (fix .ptr .align + stub panic externs) both complete. Next: async-yield.3 (GPU data pipeline demo) — needs user to run build-toolchain.sh first."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 74
@@ -165,7 +165,7 @@ success_criteria = [
 id = "toolchain-auto"
 epic = "async-std"
 title = "Toolchain build + PTX post-processing automation"
-status = "active"
+status = "completed"
 goal = "Single script builds patched rustc+std; PTX post-processing is automated"
 success_criteria = [
     "scripts/build-toolchain.sh clones rustc, applies patches, builds compiler+library",
@@ -209,7 +209,7 @@ id = "async-yield.2"
 theme = "async-yield"
 title = "Experiment: prototype async hostcall Future in gpu-runtime"
 kind = "experiment"
-status = "active"
+status = "done"
 depends = ["async-yield.1"]
 
 [[tasks]]
@@ -218,22 +218,22 @@ theme = "async-yield"
 title = "Experiment: data pipeline demo — read→compute→write with async I/O"
 kind = "experiment"
 status = "pending"
-depends = ["async-yield.2"]
+depends = ["async-yield.2", "toolchain-auto.1"]
 
 [[tasks]]
 id = "toolchain-auto.1"
 theme = "toolchain-auto"
 title = "Experiment: create scripts/build-toolchain.sh"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = []
 
 [[tasks]]
 id = "toolchain-auto.2"
 theme = "toolchain-auto"
-title = "Experiment: create scripts/postprocess-ptx.sh or build.rs integration"
+title = "Experiment: create scripts/postprocess-ptx.sh"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = []
 
 # ============================================================

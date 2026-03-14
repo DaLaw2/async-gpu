@@ -43,14 +43,20 @@ pub enum ModelError {
     MissingTensor(String),
     /// A tensor has an unexpected dtype (expected F32).
     UnexpectedDtype {
+        /// Tensor name.
         name: String,
+        /// Expected dtype string.
         expected: &'static str,
+        /// Actual dtype string.
         got: String,
     },
     /// A tensor has an unexpected shape.
     UnexpectedShape {
+        /// Tensor name.
         name: String,
+        /// Expected shape dimensions.
         expected: Vec<usize>,
+        /// Actual shape dimensions.
         got: Vec<usize>,
     },
 }
@@ -104,9 +110,9 @@ impl From<safetensors::SafeTensorError> for ModelError {
 /// LayerNorm parameters (gamma and beta).
 #[derive(Debug, Clone)]
 pub struct LayerNormWeights {
-    /// Gamma (scale), shape [hidden_dim].
+    /// Gamma (scale), shape \[hidden_dim\].
     pub weight: Vec<f32>,
-    /// Beta (bias), shape [hidden_dim].
+    /// Beta (bias), shape \[hidden_dim\].
     pub bias: Vec<f32>,
 }
 
@@ -115,23 +121,23 @@ pub struct LayerNormWeights {
 pub struct TransformerLayerWeights {
     /// Pre-attention LayerNorm.
     pub ln_1: LayerNormWeights,
-    /// QKV projection weight, shape [768, 2304] (Conv1D layout).
+    /// QKV projection weight, shape \[768, 2304\] (Conv1D layout).
     pub c_attn_weight: Vec<f32>,
-    /// QKV projection bias, shape [2304].
+    /// QKV projection bias, shape \[2304\].
     pub c_attn_bias: Vec<f32>,
-    /// Attention output projection weight, shape [768, 768].
+    /// Attention output projection weight, shape \[768, 768\].
     pub c_proj_weight: Vec<f32>,
-    /// Attention output projection bias, shape [768].
+    /// Attention output projection bias, shape \[768\].
     pub c_proj_bias: Vec<f32>,
     /// Pre-FFN LayerNorm.
     pub ln_2: LayerNormWeights,
-    /// FFN up-projection weight, shape [768, 3072].
+    /// FFN up-projection weight, shape \[768, 3072\].
     pub mlp_fc_weight: Vec<f32>,
-    /// FFN up-projection bias, shape [3072].
+    /// FFN up-projection bias, shape \[3072\].
     pub mlp_fc_bias: Vec<f32>,
-    /// FFN down-projection weight, shape [3072, 768].
+    /// FFN down-projection weight, shape \[3072, 768\].
     pub mlp_proj_weight: Vec<f32>,
-    /// FFN down-projection bias, shape [768].
+    /// FFN down-projection bias, shape \[768\].
     pub mlp_proj_bias: Vec<f32>,
 }
 
@@ -378,6 +384,7 @@ pub fn load_gpt2_weights(path: &Path) -> Result<Gpt2Weights, ModelError> {
 /// Tensor data: (f32 values, shape dimensions).
 pub type TensorData = (Vec<f32>, Vec<usize>);
 
+/// Load all tensors from a safetensors file into a name-indexed map.
 pub fn load_all_tensors(path: &Path) -> Result<HashMap<String, TensorData>, ModelError> {
     let data = fs::read(path)?;
     let tensors = SafeTensors::deserialize(&data)?;

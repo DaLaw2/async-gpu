@@ -4,18 +4,18 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 253     # Monotonic counter, incremented after each completed phase
-completed_tasks = 253
+total_cycles = 255     # Monotonic counter, incremented after each completed phase
+completed_tasks = 255
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.execute"
-current_task_id = "printf-batch.3"
-last_summary = "BS63: printf-batch test gap found, example-verify theme spawned. Two parallel tasks: printf-batch.3 (e2e test) + example-verify.1 (verify 3 examples compile)."
+current_step = "do.route"
+current_task_id = ""
+last_summary = "api-docs.1 done: #![warn(missing_docs)] enabled in gpu-host, 7 items fixed (all in model.rs). Zero warnings. api-docs theme completed."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 63
+brainstorm_seq = 64
 review_seq = 5
 
 # Brainstorm trigger control (event-driven, no fixed interval)
@@ -192,11 +192,22 @@ success_criteria = [
 id = "example-verify"
 epic = "public-api"
 title = "Verify all 3 examples compile and run post-refactoring"
-status = "active"
+status = "completed"
 goal = "Confirm hello-gpu, async-io, vector-math still work after recent refactoring"
 success_criteria = [
     "All 3 examples build (host + kernel PTX)",
     "Document which examples work, which need fixes",
+]
+
+[[themes]]
+id = "api-docs"
+epic = "public-api"
+title = "GPU-host public API documentation — missing_docs lint + rustdoc coverage"
+status = "completed"
+goal = "gpu-host public API is fully documented with rustdoc"
+success_criteria = [
+    "#![warn(missing_docs)] enabled in gpu-host without new warnings",
+    "All public types and functions have rustdoc comments",
 ]
 
 # ============================================================
@@ -264,12 +275,31 @@ id = "example-verify.1"
 theme = "example-verify"
 title = "Build and run hello-gpu, async-io, vector-math — document status"
 kind = "investigation"
-status = "active"
+status = "done"
+deps = []
+
+[[tasks]]
+id = "api-docs.1"
+theme = "api-docs"
+title = "Audit gpu-host public API — add missing rustdoc + enable warn(missing_docs)"
+kind = "experiment"
+status = "done"
 deps = []
 
 # ============================================================
 # Brainstorms (last 3 only — older brainstorms archived)
 # ============================================================
+
+[[brainstorms]]
+seq = 64
+at_cycle = 254
+trigger = "printf-batch.3 + example-verify.1 completed — no pending tasks"
+level = "quick"
+new_tasks_spawned = ["api-docs.1"]
+new_themes_spawned = ["api-docs"]
+themes_parked = []
+themes_completed = ["printf-batch", "example-verify"]
+key_insight = "Project at plateau — 254 tasks, all major epics terminal. Evergreen public-api has gap: gpu-host public API lacks rustdoc. Low-effort, high-value improvement. Also recommend user close gpu-perf, real-std, native-warp-async, gpu-autonomous."
 
 [[brainstorms]]
 seq = 63
@@ -292,14 +322,3 @@ new_themes_spawned = ["printf-batch"]
 themes_parked = []
 themes_completed = ["host-async", "batched-hc"]
 key_insight = "Follow-up from batched-hc.1: printf batching is the highest-impact latency optimization. GPU-side buffer + sideband flush. Also: async API complete, CI passes."
-
-[[brainstorms]]
-seq = 61
-at_cycle = 247
-trigger = "readme-fix theme completed, no tasks remaining — need new directions"
-level = "standard"
-new_tasks_spawned = ["host-async.1", "host-async.2", "batched-hc.1"]
-new_themes_spawned = ["host-async", "batched-hc"]
-themes_parked = []
-themes_completed = ["readme-fix"]
-key_insight = "Project at research-to-product inflection. Highest leverage: host async interop (modern API) + hostcall latency profiling (data-driven). publish-ready (crates.io) deferred — more engineering than research."

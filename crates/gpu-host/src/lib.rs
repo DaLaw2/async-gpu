@@ -13,6 +13,7 @@
 //! - `model` — GPT-2 weight loading from safetensors (feature = `gpt2`)
 //! - `tokenizer` — GPT-2 BPE tokenizer (feature = `gpt2`)
 
+#![warn(missing_docs)]
 #![allow(clippy::needless_range_loop)]
 
 pub mod error;

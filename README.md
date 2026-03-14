@@ -315,8 +315,8 @@ Numbers vary by ~30% between runs depending on GPU load.
 - **NVIDIA only**: `nvptx64-nvidia-cuda` target, SM 70+ GPU required
 - **Hostcall latency**: ~20-100 us round-trip, not suitable for per-element I/O in hot loops
 - **Uniform I/O**: `#[warp_async]` requires all 32 lanes to execute the same I/O sequence
-- **Single-thread std**: Real Rust std (println!, Vec, File I/O, stdin) requires `block_dim: (1,1,1)` launch — thread-local storage, errno, and allocator are not yet multi-thread safe. Multi-thread compute uses `no_std` + `gpu-runtime`
-- **Partial std**: Networking and threading are stubbed; `HashMap` panics (no random seed source)
+- **Hostcall-limited concurrency**: `println!` and file I/O are multi-thread safe but constrained by the 16-packet hostcall pool — 4 concurrent I/O threads recommended, 32+ threads for pure compute (Vec, String, allocator)
+- **Partial std**: Networking and threading primitives are stubbed; `HashMap` works (address-based seed) but `OsRng`/`getrandom` are not available
 - **f32 only**: Tensor Core MMA has precision issues with reduced formats; using f32 FMA
 
 ## Acknowledgements

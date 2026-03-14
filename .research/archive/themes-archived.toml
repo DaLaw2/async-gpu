@@ -92,3 +92,113 @@ title = "Documentation — README, API docs, architecture"
 status = "completed"
 spawned_by = "user"
 epic = "codebase-health"
+
+# --- Archived at cycle 246 ---
+
+[[themes]]
+id = "std-hardening"
+epic = "real-std"
+title = "Document std limitations + harden allocator/errno for multi-thread"
+status = "completed"
+
+[[themes]]
+id = "hashmap-fix"
+epic = "real-std"
+title = "Verify HashMap works on GPU (no patch needed)"
+status = "completed"
+
+[[themes]]
+id = "gpu-tls"
+epic = "real-std"
+title = "Research native #[thread_local] on nvptx64"
+status = "completed"
+
+[[themes]]
+id = "trace-protocol"
+epic = "gpu-debug"
+title = "Structured trace event protocol + gpu_trace!() macro"
+status = "completed"
+
+[[themes]]
+id = "gpu-assert-diag"
+epic = "gpu-debug"
+title = "GPU assert with diagnostic messages"
+status = "completed"
+
+[[themes]]
+id = "flight-recorder"
+epic = "gpu-debug"
+title = "Post-mortem flight recorder — ring buffer of last N trace events"
+status = "completed"
+
+[[themes]]
+id = "cond-trace"
+epic = "gpu-debug"
+title = "Conditional compilation — tracing compiles out in release builds"
+status = "completed"
+
+[[themes]]
+id = "hc-session"
+epic = "gpu-autonomous"
+title = "Hostcall session persistence — listener + fd table across kernel launches"
+status = "completed"
+
+[[themes]]
+id = "cmd-buffer"
+epic = "gpu-autonomous"
+title = "Multi-command kernel via mapped memory command buffer"
+status = "completed"
+
+[[themes]]
+id = "cross-pipeline"
+epic = "gpu-autonomous"
+title = "Cross-launch pipeline — device buffer persistence + Pipeline API"
+status = "completed"
+
+[[themes]]
+id = "iter-workflow"
+epic = "gpu-autonomous"
+title = "Data-dependent iteration — autonomous convergence loop on GPU"
+status = "completed"
+
+[[themes]]
+id = "rustc-survey"
+epic = "native-warp-async"
+title = "Lightweight survey of rustc async→coroutine pipeline"
+status = "completed"
+
+[[themes]]
+id = "warp-future-bridge"
+epic = "native-warp-async"
+title = "Phase 1: Standard impl Future wrapped in warp cooperation"
+status = "completed"
+
+[[themes]]
+id = "warp-async-v2"
+epic = "native-warp-async"
+title = "Phase 2: Enhanced #[warp_async] with async fn syntax + ? operator"
+status = "completed"
+
+[[themes]]
+id = "rustc-warp"
+epic = "native-warp-async"
+title = "Phase 3: rustc MIR pass for warp-cooperative codegen"
+status = "completed"
+
+[[themes]]
+id = "std-multithread"
+epic = "real-std"
+title = "Multi-thread safe std — thread-ID-indexed ThreadLocal replacement"
+status = "completed"
+
+[[themes]]
+id = "nightly-pin"
+epic = "codebase-health"
+title = "Centralize nightly toolchain version — eliminate hardcoded versions"
+status = "completed"
+
+[[themes]]
+id = "readme-update"
+epic = "codebase-health"
+title = "Update README with multi-thread std and native warp-async achievements"
+status = "completed"

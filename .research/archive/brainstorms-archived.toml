@@ -42,3 +42,54 @@ at_cycle = 177
 trigger = "Brainstorm interval (3 tasks completed since bs45)"
 level = "quick"
 key_insight = "mixed-precision.1 done: BF16≈F16 precision (max divergence 0.2042). Proceed with mixed-precision.2 (inference validation). Expect same outcome as f16 MMA inference (top-5 divergence). public-api epic needs attention after mixed-precision completes."
+
+# --- Archived at cycle 246 ---
+
+[[brainstorms]]
+seq = 50
+at_cycle = 197
+trigger = "host-sdk theme completed, assess remaining epics and task priorities"
+level = "quick"
+key_insight = "host-sdk complete (5/5 tasks). public-api nearly done (3-4/4 criteria). real-std+gpu-error pending user close. Remaining work: codebase-health (workspace, build-auto, docs). Priority: docs.1+docs.2 (quick wins) → build-auto.1 → workspace.1 (biggest effort)."
+
+[[brainstorms]]
+seq = 51
+at_cycle = 204
+trigger = "All themes completed, all tasks done, no active work remains"
+level = "quick"
+key_insight = "All 5 epics at terminal state. real-std (5/5), gpu-error (4/4), public-api (4/4), codebase-health (4-5/5) — all pending user close. gpu-perf criteria 2-4 PARKED (out of scope). 203 tasks completed across 25+ themes. No new work to generate without user direction."
+
+[[brainstorms]]
+seq = 52
+at_cycle = 205
+trigger = "User: real-std NOT complete — ThreadLocal uses no_threads, all tests single-thread"
+level = "standard"
+key_insight = "real-std has 3 independent multi-thread blockers: (1) bump allocator static mut race, (2) errno static mut race, (3) std thread_local via no_threads = shared global. Plus HashMap panics (unsupported random). Plan: README fix → atomic alloc → errno → HashMap → TLS research."
+
+[[brainstorms]]
+seq = 53
+at_cycle = 210
+trigger = "All std-hardening themes completed, need new direction"
+level = "standard"
+key_insight = "3 epic proposals: (1) GPU concurrent data structures, (2) multi-kernel pipeline, (3) GPU debugging & observability. Chose #3 — lowest risk, highest novelty, improves dev experience. New epic: gpu-debug."
+
+[[brainstorms]]
+seq = 54
+at_cycle = 214
+trigger = "User reopened gpu-autonomous, requested deep brainstorm for v2 criteria"
+level = "deep"
+key_insight = "Skeptic challenged 3/4 original criteria: persistent kernel blocked by TDR, cross-launch state is trivial, GPU-driven workflow already done. Revised: multi-command kernel (TDR-safe), Pipeline API (adds real value), data-dependent iteration (genuinely new), hostcall session (centerpiece). 4 themes, 10 tasks."
+
+[[brainstorms]]
+seq = 55
+at_cycle = 227
+trigger = "gpu-autonomous v2 complete, gpu-debug criteria 3-4 remain"
+level = "quick"
+key_insight = "gpu-autonomous v2 all 4 themes done. gpu-debug has 2 remaining criteria: flight recorder (post-mortem trace dump) and conditional compilation (zero-overhead release builds). Both straightforward — no deep brainstorm needed."
+
+[[brainstorms]]
+seq = 56
+at_cycle = 232
+trigger = "User requested: align #[warp_async] with native async/await, including rustc modification"
+level = "deep"
+key_insight = "Initial analysis: WarpFuture and core::future::Future are fundamentally different execution models. Superseded by BS57 which reframed the problem."

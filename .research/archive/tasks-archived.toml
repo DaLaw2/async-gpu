@@ -367,3 +367,401 @@ kind = "experiment"
 status = "done"
 depends_on = []
 spawned_by = "user"
+
+# --- Archived at cycle 246 ---
+
+# --- std-hardening (real-std) ---
+
+[[tasks]]
+id = "std-hardening.1"
+theme = "std-hardening"
+title = "Update README with single-thread std limitation"
+kind = "experiment"
+status = "done"
+deps = []
+
+[[tasks]]
+id = "std-hardening.2"
+theme = "std-hardening"
+title = "Atomic CAS bump allocator in gpu-libc"
+kind = "experiment"
+status = "done"
+deps = []
+
+[[tasks]]
+id = "std-hardening.3"
+theme = "std-hardening"
+title = "Multi-thread allocation test (32 threads, verify no overlap)"
+kind = "experiment"
+status = "done"
+deps = ["std-hardening.2"]
+
+[[tasks]]
+id = "std-hardening.4"
+theme = "std-hardening"
+title = "Per-thread errno in gpu-libc"
+kind = "experiment"
+status = "done"
+deps = []
+
+# --- hashmap-fix (real-std) ---
+
+[[tasks]]
+id = "hashmap-fix.1"
+theme = "hashmap-fix"
+title = "Investigate HashMap seed — already works via address-based keys"
+kind = "investigation"
+status = "done"
+deps = []
+
+[[tasks]]
+id = "hashmap-fix.2"
+theme = "hashmap-fix"
+title = "HashMap test kernel in gpu-kernel-std"
+kind = "experiment"
+status = "done"
+deps = ["hashmap-fix.1"]
+
+# --- gpu-tls (real-std) ---
+
+[[tasks]]
+id = "gpu-tls.1"
+theme = "gpu-tls"
+title = "Test #[thread_local] static on nvptx64 — NOT SUPPORTED"
+kind = "investigation"
+status = "done"
+deps = []
+
+# --- trace-protocol (gpu-debug) ---
+
+[[tasks]]
+id = "trace-protocol.1"
+theme = "trace-protocol"
+title = "Define trace event format + SERVICE_TRACE in gpu-protocol"
+kind = "design"
+status = "done"
+deps = []
+
+[[tasks]]
+id = "trace-protocol.2"
+theme = "trace-protocol"
+title = "Implement gpu_trace!() macro in gpu-runtime"
+kind = "experiment"
+status = "done"
+deps = ["trace-protocol.1"]
+
+[[tasks]]
+id = "trace-protocol.3"
+theme = "trace-protocol"
+title = "Host-side trace collector + display"
+kind = "experiment"
+status = "done"
+deps = ["trace-protocol.1"]
+
+[[tasks]]
+id = "trace-protocol.4"
+theme = "trace-protocol"
+title = "Multi-thread trace test (32 threads, verify all events captured)"
+kind = "experiment"
+status = "done"
+deps = ["trace-protocol.2", "trace-protocol.3"]
+
+# --- gpu-assert-diag (gpu-debug) ---
+
+[[tasks]]
+id = "gpu-assert-diag.1"
+theme = "gpu-assert-diag"
+title = "Implement gpu_assert!() macro with hostcall diagnostic"
+kind = "experiment"
+status = "done"
+deps = ["trace-protocol.1"]
+
+[[tasks]]
+id = "gpu-assert-diag.2"
+theme = "gpu-assert-diag"
+title = "Host-side assertion failure display + test"
+kind = "experiment"
+status = "done"
+deps = ["gpu-assert-diag.1"]
+
+# --- flight-recorder (gpu-debug) ---
+
+[[tasks]]
+id = "flight-recorder.1"
+theme = "flight-recorder"
+title = "Design flight recorder ring buffer layout + dump protocol"
+kind = "design"
+status = "done"
+deps = []
+
+[[tasks]]
+id = "flight-recorder.2"
+theme = "flight-recorder"
+title = "GPU-side ring buffer write + host-side dump implementation"
+kind = "experiment"
+status = "done"
+deps = ["flight-recorder.1"]
+
+[[tasks]]
+id = "flight-recorder.3"
+theme = "flight-recorder"
+title = "Test: kernel crash → host dumps last N events"
+kind = "experiment"
+status = "done"
+deps = ["flight-recorder.2"]
+
+# --- cond-trace (gpu-debug) ---
+
+[[tasks]]
+id = "cond-trace.1"
+theme = "cond-trace"
+title = "Add gpu-trace feature flag to gpu-runtime, gate trace/assert codegen"
+kind = "experiment"
+status = "done"
+deps = []
+
+[[tasks]]
+id = "cond-trace.2"
+theme = "cond-trace"
+title = "Verify release build without feature has zero trace overhead"
+kind = "experiment"
+status = "done"
+deps = ["cond-trace.1"]
+
+# --- hc-session (gpu-autonomous) ---
+
+[[tasks]]
+id = "hc-session.1"
+theme = "hc-session"
+title = "Design HostcallSession API — lifecycle, packet reinit, fd persistence"
+kind = "design"
+status = "done"
+deps = []
+
+[[tasks]]
+id = "hc-session.2"
+theme = "hc-session"
+title = "Implement HostcallSession in gpu-host"
+kind = "experiment"
+status = "done"
+deps = ["hc-session.1"]
+
+[[tasks]]
+id = "hc-session.3"
+theme = "hc-session"
+title = "Multi-launch session test — Kernel A opens file, Kernel B reads same fd"
+kind = "experiment"
+status = "done"
+deps = ["hc-session.2"]
+
+# --- cmd-buffer (gpu-autonomous) ---
+
+[[tasks]]
+id = "cmd-buffer.1"
+theme = "cmd-buffer"
+title = "Command buffer protocol — ring buffer layout, command types, host→GPU signaling"
+kind = "design"
+status = "done"
+deps = []
+
+[[tasks]]
+id = "cmd-buffer.2"
+theme = "cmd-buffer"
+title = "Host-side CommandBuffer + GPU-side polling kernel"
+kind = "experiment"
+status = "done"
+deps = ["cmd-buffer.1", "hc-session.2"]
+
+[[tasks]]
+id = "cmd-buffer.3"
+theme = "cmd-buffer"
+title = "Integration test — COMPUTE → PRINT → EXIT sequence"
+kind = "experiment"
+status = "done"
+deps = ["cmd-buffer.2"]
+
+# --- cross-pipeline (gpu-autonomous) ---
+
+[[tasks]]
+id = "cross-pipeline.1"
+theme = "cross-pipeline"
+title = "Cross-launch device buffer demo — Kernel A writes, Kernel B reads"
+kind = "experiment"
+status = "done"
+deps = ["hc-session.2"]
+
+[[tasks]]
+id = "cross-pipeline.2"
+theme = "cross-pipeline"
+title = "Pipeline API — session.stage(k_a).stage(k_b).run() wrapper"
+kind = "experiment"
+status = "done"
+deps = ["cross-pipeline.1"]
+
+# --- iter-workflow (gpu-autonomous) ---
+
+[[tasks]]
+id = "iter-workflow.1"
+theme = "iter-workflow"
+title = "Iterative convergence kernel — loop until residual < threshold"
+kind = "experiment"
+status = "done"
+deps = ["hc-session.2"]
+
+[[tasks]]
+id = "iter-workflow.2"
+theme = "iter-workflow"
+title = "Multi-step autonomous pipeline with iteration + file I/O"
+kind = "experiment"
+status = "done"
+deps = ["iter-workflow.1"]
+
+# --- rustc-survey (native-warp-async) ---
+
+[[tasks]]
+id = "rustc-survey.1"
+theme = "rustc-survey"
+title = "Map rustc async fn → coroutine → state machine pipeline"
+kind = "investigation"
+status = "done"
+deps = []
+
+[[tasks]]
+id = "rustc-survey.2"
+theme = "rustc-survey"
+title = "Feasibility assessment — warp-cooperative generator lowering"
+kind = "design"
+status = "done"
+deps = ["rustc-survey.1"]
+
+# --- warp-future-bridge (native-warp-async) ---
+
+[[tasks]]
+id = "warp-future-bridge.1"
+theme = "warp-future-bridge"
+title = "GpuPrintFuture as standard impl Future — compile + test on GPU"
+kind = "experiment"
+status = "done"
+deps = []
+
+[[tasks]]
+id = "warp-future-bridge.2"
+theme = "warp-future-bridge"
+title = "Warp-cooperative wrapper: lane 0 polls GpuPrintFuture, broadcast result"
+kind = "experiment"
+status = "done"
+deps = ["warp-future-bridge.1"]
+
+[[tasks]]
+id = "warp-future-bridge.3"
+theme = "warp-future-bridge"
+title = "Chain two GpuPrintFutures in warp-cooperative state machine"
+kind = "experiment"
+status = "done"
+deps = ["warp-future-bridge.2"]
+
+[[tasks]]
+id = "warp-future-bridge.4"
+theme = "warp-future-bridge"
+title = "Add Result<T, E> error broadcasting across .await boundaries"
+kind = "experiment"
+status = "done"
+deps = ["warp-future-bridge.3"]
+
+# --- warp-async-v2 (native-warp-async) ---
+
+[[tasks]]
+id = "warp-async-v2.1"
+theme = "warp-async-v2"
+title = "Design .await recognition in proc macro"
+kind = "design"
+status = "done"
+deps = []
+
+[[tasks]]
+id = "warp-async-v2.2"
+theme = "warp-async-v2"
+title = "Implement ? operator in #[warp_async] (standalone win)"
+kind = "experiment"
+status = "done"
+deps = []
+
+[[tasks]]
+id = "warp-async-v2.3"
+theme = "warp-async-v2"
+title = "Implement .await syntax recognition in proc macro"
+kind = "experiment"
+status = "done"
+deps = ["warp-async-v2.1"]
+
+[[tasks]]
+id = "warp-async-v2.4"
+theme = "warp-async-v2"
+title = "End-to-end test: async fn with .await?, branching, error handling"
+kind = "experiment"
+status = "done"
+deps = ["warp-async-v2.2", "warp-async-v2.3"]
+
+# --- rustc-warp (native-warp-async) ---
+
+[[tasks]]
+id = "rustc-warp.1"
+theme = "rustc-warp"
+title = "Set up rustc fork, verify baseline async fn → PTX"
+kind = "experiment"
+status = "done"
+deps = ["warp-future-bridge.4"]
+
+[[tasks]]
+id = "rustc-warp.2"
+theme = "rustc-warp"
+title = "MIR transformation spec — before/after for 2-yield async fn"
+kind = "design"
+status = "done"
+deps = ["rustc-warp.1"]
+
+# --- std-multithread (real-std) ---
+
+[[tasks]]
+id = "std-multithread.1"
+theme = "std-multithread"
+title = "Design thread-ID-indexed ThreadLocal for gpu-libc"
+kind = "design"
+status = "done"
+deps = ["rustc-warp.2"]
+
+[[tasks]]
+id = "std-multithread.2"
+theme = "std-multithread"
+title = "Implement ThreadLocal using tid-indexed array"
+kind = "experiment"
+status = "done"
+deps = ["std-multithread.1"]
+
+[[tasks]]
+id = "std-multithread.3"
+theme = "std-multithread"
+title = "Test all std features with multi-thread launch (32 threads)"
+kind = "experiment"
+status = "done"
+deps = ["std-multithread.2"]
+
+# --- nightly-pin (codebase-health) ---
+
+[[tasks]]
+id = "nightly-pin.1"
+theme = "nightly-pin"
+title = "Refactor example build.rs to parse rust-toolchain.toml dynamically"
+kind = "experiment"
+status = "done"
+deps = []
+
+# --- readme-update (codebase-health) ---
+
+[[tasks]]
+id = "readme-update.1"
+theme = "readme-update"
+title = "Update README with multi-thread std + warp-async achievements"
+kind = "experiment"
+status = "done"
+deps = []

@@ -1257,3 +1257,121 @@ title = "Experiment: write technical blog post draft"
 kind = "experiment"
 status = "done"
 depends = []
+
+# --- Archived at cycle 303 ---
+
+# --- net-protocol theme ---
+
+[[tasks]]
+id = "net-protocol.1"
+theme = "net-protocol"
+title = "Investigation: design TCP service protocol — service IDs, fd model, sideband usage"
+kind = "investigation"
+status = "done"
+depends = []
+questions = [
+    "What service IDs for TCP connect/send/recv/close?",
+    "How to reuse existing fd table for socket fds?",
+    "How to handle connection errors (refused, timeout)?",
+    "Should sideband buffer be used for send/recv data?",
+]
+
+[[tasks]]
+id = "net-protocol.2"
+theme = "net-protocol"
+title = "Experiment: implement TCP service IDs and constants in gpu-protocol"
+kind = "experiment"
+status = "done"
+depends = ["net-protocol.1"]
+
+# --- net-host theme ---
+
+[[tasks]]
+id = "net-host.1"
+theme = "net-host"
+title = "Experiment: implement TCP connect/send/recv/close handlers in gpu-host listener"
+kind = "experiment"
+status = "done"
+depends = ["net-protocol.2"]
+
+# --- blog-update theme ---
+
+[[tasks]]
+id = "blog-update.1"
+theme = "blog-update"
+title = "Experiment: add TCP networking section to BLOG_DRAFT.md"
+kind = "experiment"
+status = "done"
+depends = []
+
+# --- changelog-update theme ---
+
+[[tasks]]
+id = "changelog-update.1"
+theme = "changelog-update"
+title = "Experiment: update CHANGELOG.md with v0.2.0 section"
+kind = "experiment"
+status = "done"
+depends = []
+
+# --- net-demo theme ---
+
+[[tasks]]
+id = "net-demo.1"
+theme = "net-demo"
+title = "Experiment: create tcp-echo example (kernel + host)"
+kind = "experiment"
+status = "done"
+depends = ["net-host.1", "net-gpu.1"]
+
+[[tasks]]
+id = "net-demo.2"
+theme = "net-demo"
+title = "Experiment: update README and ARCHITECTURE.md with TCP networking"
+kind = "experiment"
+status = "done"
+depends = ["net-demo.1"]
+
+# --- net-gpu theme ---
+
+[[tasks]]
+id = "net-gpu.1"
+theme = "net-gpu"
+title = "Experiment: implement GpuTcpConnectFuture/SendFuture/RecvFuture in gpu-runtime"
+kind = "experiment"
+status = "done"
+depends = ["net-protocol.2"]
+
+# --- safety-audit theme ---
+
+[[tasks]]
+id = "safety-audit.1"
+theme = "safety-audit"
+title = "Investigation: catalog unsafe blocks in hostcall CAS/packet/PAL code, classify by risk"
+kind = "investigation"
+status = "done"
+depends = []
+questions = [
+    "How many unsafe blocks in hostcall.rs, gpu-runtime CAS paths, std-patches?",
+    "Which blocks are highest risk (lock-free CAS, ordering assumptions)?",
+    "Which blocks already have SAFETY comments?",
+    "What safety invariants are assumed but undocumented?",
+]
+
+[[tasks]]
+id = "safety-audit.2"
+theme = "safety-audit"
+title = "Experiment: add // SAFETY comments to high/medium-risk unsafe blocks"
+kind = "experiment"
+status = "done"
+depends = ["safety-audit.1"]
+
+# --- api-docs theme ---
+
+[[tasks]]
+id = "api-docs.1"
+theme = "api-docs"
+title = "Experiment: add //! module docs to gpu-host lib.rs and hostcall.rs"
+kind = "experiment"
+status = "done"
+depends = []

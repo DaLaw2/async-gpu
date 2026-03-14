@@ -179,3 +179,27 @@ new_tasks_spawned = ["async-yield.1", "async-yield.2", "async-yield.3"]
 new_themes_spawned = ["async-yield"]
 themes_completed = ["codebase-restructure"]
 key_insight = "Real value: I/O yields warp to scheduler so other warps run compute."
+
+# --- Archived at cycle 303 ---
+
+[[brainstorms]]
+seq = 83
+at_cycle = 292
+trigger = "all bs82 tasks done — quick brainstorm for remaining polish"
+level = "quick"
+new_tasks_spawned = ["readme-polish.1", "readme-polish.2", "contributing-guide.1"]
+new_themes_spawned = ["readme-polish", "contributing-guide"]
+themes_parked = []
+themes_completed = ["ci-hygiene", "build-scripts", "example-docs"]
+key_insight = "Last polish items: CI badge, warp-cooperative README/listing, CONTRIBUTING.md. test-expansion deferred (needs GPU hw). safety-docs deferred (large effort)."
+
+[[brainstorms]]
+seq = 82
+at_cycle = 291
+trigger = "all themes completed — standard brainstorm for evergreen epic refresh"
+level = "standard"
+new_tasks_spawned = ["ci-hygiene.1", "ci-hygiene.2", "ci-hygiene.3", "build-scripts.1", "example-docs.1", "example-docs.2"]
+new_themes_spawned = ["ci-hygiene", "build-scripts", "example-docs"]
+themes_parked = []
+themes_completed = ["ci-update", "blog-draft"]
+key_insight = "Project graduated to polish phase. 8 concrete gaps found: CI holes, missing run scripts, warp-cooperative cleanup, build script dirt, no per-example READMEs. No new epic needed."

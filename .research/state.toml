@@ -4,18 +4,18 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 303     # Monotonic counter, incremented after each completed phase
-completed_tasks = 323
+total_cycles = 307     # Monotonic counter, incremented after each completed phase
+completed_tasks = 327
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.save"
-current_task_id = ""
-last_summary = "safety-audit done: ~83 SAFETY comments added to gpu-runtime, gpu-host, gpu-libc. api-docs done: module docs for gpu-host. All bs86 tasks complete."
+current_step = "do.execute"
+current_task_id = "tla-model.2"
+last_summary = "bs87 deep: formal-verification epic created. TLA+ model of CAS protocol is highest-value work. Also: build-stabilize + validation-prep themes for codebase-health."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 86
+brainstorm_seq = 87
 review_seq = 5
 
 # Brainstorm trigger control (event-driven, no fixed interval)
@@ -170,90 +170,22 @@ success_criteria = [
     "Demo kernel that connects to a server, sends data, receives response",
 ]
 
+[[epics]]
+id = "formal-verification"
+title = "Formal Verification — TLA+ model of CAS hostcall protocol"
+status = "active"
+priority = "medium"
+success_criteria = [
+    "TLA+ model covers packet lifecycle (FREE → FILLING → READY → PROCESSING → DONE → FREE)",
+    "Safety invariants verified: no double-allocation, no lost packets, no data races",
+    "Liveness verified: every request eventually receives a response (under fairness)",
+    "Model covers multi-agent contention (at least 2 GPU agents + 1 host agent)",
+    "Findings documented with any discovered edge cases or protocol improvements",
+]
+
 # ============================================================
 # Themes (active/parked only — completed themes archived in archive/)
 # ============================================================
-
-[[themes]]
-id = "net-protocol"
-epic = "network-io"
-title = "Define TCP hostcall service protocol"
-status = "completed"
-goal = "Service IDs, packet layout, fd model for TCP connections"
-success_criteria = [
-    "SERVICE_TCP_CONNECT/SEND/RECV/CLOSE defined in gpu-protocol",
-    "Protocol documented with packet layout",
-]
-
-[[themes]]
-id = "net-host"
-epic = "network-io"
-title = "Host-side TCP service handlers"
-status = "completed"
-goal = "Host listener handles TCP connect/send/recv/close requests"
-success_criteria = [
-    "TCP connect/send/recv/close handlers in gpu-host listener",
-    "Socket fd table management",
-]
-
-[[themes]]
-id = "net-gpu"
-epic = "network-io"
-title = "GPU-side TCP Future types"
-status = "completed"
-goal = "Async Futures for TCP operations in gpu-runtime"
-success_criteria = [
-    "GpuTcpConnectFuture, GpuTcpSendFuture, GpuTcpRecvFuture in gpu-runtime",
-]
-
-[[themes]]
-id = "blog-update"
-epic = "public-api"
-title = "Update blog post with TCP networking"
-status = "completed"
-goal = "BLOG_DRAFT.md covers 4 innovations (incl. TCP)"
-success_criteria = ["BLOG_DRAFT.md has TCP networking section"]
-
-[[themes]]
-id = "changelog-update"
-epic = "codebase-health"
-title = "Prepare CHANGELOG v0.2.0"
-status = "completed"
-goal = "CHANGELOG.md has v0.2.0 section with TCP milestone"
-success_criteria = ["CHANGELOG.md updated with v0.2.0"]
-
-[[themes]]
-id = "net-demo"
-epic = "network-io"
-title = "TCP networking demo example + documentation"
-status = "completed"
-goal = "Working TCP demo kernel + updated docs"
-success_criteria = [
-    "examples/tcp-echo/ with kernel + host that connects to a TCP server",
-    "README updated with TCP networking section",
-]
-
-[[themes]]
-id = "safety-audit"
-epic = "codebase-health"
-title = "Unsafe safety documentation for hostcall protocol"
-status = "completed"
-goal = "Document safety invariants for all high/medium-risk unsafe blocks"
-success_criteria = [
-    "All unsafe blocks in hostcall CAS/packet paths have // SAFETY comments",
-    "Unsafe blocks classified by risk level (lock-free CAS > raw pointer > inline PTX > FFI)",
-]
-
-[[themes]]
-id = "api-docs"
-epic = "public-api"
-title = "Module-level API documentation for gpu-host"
-status = "completed"
-goal = "Add //! module docs with usage overview to gpu-host public modules"
-success_criteria = [
-    "gpu-host/src/lib.rs has //! module doc with usage pattern overview",
-    "gpu-host/src/hostcall.rs has //! module doc with protocol overview",
-]
 
 [[themes]]
 id = "warp-batch-io"
@@ -267,122 +199,91 @@ success_criteria = [
 ]
 # PARKED: depends on executor + std decisions settling first
 
+[[themes]]
+id = "tla-model"
+epic = "formal-verification"
+title = "TLA+ model of hostcall CAS protocol"
+status = "active"
+goal = "Formal verification of packet lifecycle FSM with multi-agent contention"
+success_criteria = [
+    "TLA+ spec compiles and model-checks successfully",
+    "Safety + liveness invariants verified for 2+ GPU agents and 1 host",
+]
+
+[[themes]]
+id = "build-stabilize"
+epic = "codebase-health"
+title = "Stabilize build toolchain scripts"
+status = "completed"
+goal = "Clean up in-flux build scripts, ensure consistent state"
+success_criteria = [
+    "build-toolchain scripts finalized for both Linux and Windows",
+    "No untracked/modified build scripts in git status",
+]
+
+[[themes]]
+id = "validation-prep"
+epic = "codebase-health"
+title = "First-run validation checklist for GPU testing"
+status = "completed"
+goal = "Enable someone with GPU hardware to validate the system"
+success_criteria = [
+    "VALIDATION.md with hardware/driver/toolchain requirements and smoke test steps",
+]
+
 # ============================================================
 # Tasks (pending/active only — done tasks archived in archive/)
 # ============================================================
 
-# --- net-protocol theme ---
+# --- tla-model theme ---
 
 [[tasks]]
-id = "net-protocol.1"
-theme = "net-protocol"
-title = "Investigation: design TCP service protocol — service IDs, fd model, sideband usage"
+id = "tla-model.1"
+theme = "tla-model"
+title = "Investigation: learn TLA+ basics, identify protocol aspects to model"
 kind = "investigation"
 status = "done"
 depends = []
 questions = [
-    "What service IDs for TCP connect/send/recv/close?",
-    "How to reuse existing fd table for socket fds?",
-    "How to handle connection errors (refused, timeout)?",
-    "Should sideband buffer be used for send/recv data?",
+    "What TLA+ constructs map to CAS operations?",
+    "How to model GPU memory ordering in TLA+?",
+    "Which protocol aspects are most critical to verify?",
+    "What is the minimal model that covers the packet lifecycle?",
 ]
 
 [[tasks]]
-id = "net-protocol.2"
-theme = "net-protocol"
-title = "Experiment: implement TCP service IDs and constants in gpu-protocol"
+id = "tla-model.2"
+theme = "tla-model"
+title = "Experiment: write TLA+ spec for packet lifecycle FSM"
 kind = "experiment"
-status = "done"
-depends = ["net-protocol.1"]
-
-# --- net-host theme ---
+status = "pending"
+depends = ["tla-model.1"]
 
 [[tasks]]
-id = "net-host.1"
-theme = "net-host"
-title = "Experiment: implement TCP connect/send/recv/close handlers in gpu-host listener"
+id = "tla-model.3"
+theme = "tla-model"
+title = "Experiment: add multi-agent contention model, verify safety + liveness"
 kind = "experiment"
-status = "done"
-depends = ["net-protocol.2"]
+status = "pending"
+depends = ["tla-model.2"]
 
-# --- blog-update theme ---
+# --- build-stabilize theme ---
 
 [[tasks]]
-id = "blog-update.1"
-theme = "blog-update"
-title = "Experiment: add TCP networking section to BLOG_DRAFT.md"
+id = "build-stabilize.1"
+theme = "build-stabilize"
+title = "Experiment: finalize build-toolchain scripts (.ps1/.bat/.sh state)"
 kind = "experiment"
 status = "done"
+# Already clean — .ps1 removed in commit 22d216c, .bat committed, scripts dir clean
 depends = []
 
-# --- changelog-update theme ---
+# --- validation-prep theme ---
 
 [[tasks]]
-id = "changelog-update.1"
-theme = "changelog-update"
-title = "Experiment: update CHANGELOG.md with v0.2.0 section"
-kind = "experiment"
-status = "done"
-depends = []
-
-# --- net-demo theme ---
-
-[[tasks]]
-id = "net-demo.1"
-theme = "net-demo"
-title = "Experiment: create tcp-echo example (kernel + host)"
-kind = "experiment"
-status = "done"
-depends = ["net-host.1", "net-gpu.1"]
-
-[[tasks]]
-id = "net-demo.2"
-theme = "net-demo"
-title = "Experiment: update README and ARCHITECTURE.md with TCP networking"
-kind = "experiment"
-status = "done"
-depends = ["net-demo.1"]
-
-# --- net-gpu theme ---
-
-[[tasks]]
-id = "net-gpu.1"
-theme = "net-gpu"
-title = "Experiment: implement GpuTcpConnectFuture/SendFuture/RecvFuture in gpu-runtime"
-kind = "experiment"
-status = "done"
-depends = ["net-protocol.2"]
-
-# --- safety-audit theme ---
-
-[[tasks]]
-id = "safety-audit.1"
-theme = "safety-audit"
-title = "Investigation: catalog unsafe blocks in hostcall CAS/packet/PAL code, classify by risk"
-kind = "investigation"
-status = "done"
-depends = []
-questions = [
-    "How many unsafe blocks in hostcall.rs, gpu-runtime CAS paths, std-patches?",
-    "Which blocks are highest risk (lock-free CAS, ordering assumptions)?",
-    "Which blocks already have SAFETY comments?",
-    "What safety invariants are assumed but undocumented?",
-]
-
-[[tasks]]
-id = "safety-audit.2"
-theme = "safety-audit"
-title = "Experiment: add // SAFETY comments to high/medium-risk unsafe blocks"
-kind = "experiment"
-status = "done"
-depends = ["safety-audit.1"]
-
-# --- api-docs theme ---
-
-[[tasks]]
-id = "api-docs.1"
-theme = "api-docs"
-title = "Experiment: add //! module docs to gpu-host lib.rs and hostcall.rs"
+id = "validation-prep.1"
+theme = "validation-prep"
+title = "Experiment: write VALIDATION.md with first-run checklist and smoke test"
 kind = "experiment"
 status = "done"
 depends = []
@@ -390,6 +291,18 @@ depends = []
 # ============================================================
 # Brainstorms (last 3 only — older brainstorms archived)
 # ============================================================
+
+[[brainstorms]]
+seq = 87
+at_cycle = 303
+trigger = "all bs86 tasks completed, no ready tasks — deep brainstorm for new direction"
+level = "deep"
+new_tasks_spawned = ["tla-model.1", "tla-model.2", "tla-model.3", "build-stabilize.1", "validation-prep.1"]
+new_themes_spawned = ["tla-model", "build-stabilize", "validation-prep"]
+new_epics_spawned = ["formal-verification"]
+themes_parked = []
+themes_completed = []
+key_insight = "Project needs depth, not breadth. TLA+ formal verification of CAS protocol is highest-value work without GPU. Plugin system and multi-GPU are premature. Build stabilization and validation prep bridge the gap to hardware testing."
 
 [[brainstorms]]
 seq = 86
@@ -413,35 +326,4 @@ themes_parked = []
 themes_completed = ["net-protocol", "net-host", "net-gpu", "net-demo"]
 key_insight = "network-io epic done. All 11 epics satisfied. Remaining: blog post update, CHANGELOG v0.2.0, safety audit (deferred — large effort)."
 
-[[brainstorms]]
-seq = 84
-at_cycle = 293
-trigger = "all themes completed — deep brainstorm for post-v0.1.0 strategic direction"
-level = "deep"
-new_tasks_spawned = ["net-protocol.1", "net-protocol.2", "net-host.1", "net-gpu.1"]
-new_themes_spawned = ["net-protocol", "net-host", "net-gpu"]
-themes_parked = []
-themes_completed = ["readme-polish", "contributing-guide"]
-key_insight = "Project proved the concept; next phase must prove value. Network I/O is highest-value work agent can do without GPU hardware. Multi-warp and benchmarks are P1/P2 but need GPU testing. New epic: network-io."
 
-[[brainstorms]]
-seq = 83
-at_cycle = 292
-trigger = "all bs82 tasks done — quick brainstorm for remaining polish"
-level = "quick"
-new_tasks_spawned = ["readme-polish.1", "readme-polish.2", "contributing-guide.1"]
-new_themes_spawned = ["readme-polish", "contributing-guide"]
-themes_parked = []
-themes_completed = ["ci-hygiene", "build-scripts", "example-docs"]
-key_insight = "Last polish items: CI badge, warp-cooperative README/listing, CONTRIBUTING.md. test-expansion deferred (needs GPU hw). safety-docs deferred (large effort)."
-
-[[brainstorms]]
-seq = 82
-at_cycle = 291
-trigger = "all themes completed — standard brainstorm for evergreen epic refresh"
-level = "standard"
-new_tasks_spawned = ["ci-hygiene.1", "ci-hygiene.2", "ci-hygiene.3", "build-scripts.1", "example-docs.1", "example-docs.2"]
-new_themes_spawned = ["ci-hygiene", "build-scripts", "example-docs"]
-themes_parked = []
-themes_completed = ["ci-update", "blog-draft"]
-key_insight = "Project graduated to polish phase. 8 concrete gaps found: CI holes, missing run scripts, warp-cooperative cleanup, build script dirt, no per-example READMEs. No new epic needed."

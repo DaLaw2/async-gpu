@@ -376,3 +376,86 @@ id = "example-docs"
 epic = "public-api"
 title = "Per-example README documentation"
 status = "completed"
+
+# --- Archived at cycle 303 ---
+
+[[themes]]
+id = "net-protocol"
+epic = "network-io"
+title = "Define TCP hostcall service protocol"
+status = "completed"
+goal = "Service IDs, packet layout, fd model for TCP connections"
+success_criteria = [
+    "SERVICE_TCP_CONNECT/SEND/RECV/CLOSE defined in gpu-protocol",
+    "Protocol documented with packet layout",
+]
+
+[[themes]]
+id = "net-host"
+epic = "network-io"
+title = "Host-side TCP service handlers"
+status = "completed"
+goal = "Host listener handles TCP connect/send/recv/close requests"
+success_criteria = [
+    "TCP connect/send/recv/close handlers in gpu-host listener",
+    "Socket fd table management",
+]
+
+[[themes]]
+id = "net-gpu"
+epic = "network-io"
+title = "GPU-side TCP Future types"
+status = "completed"
+goal = "Async Futures for TCP operations in gpu-runtime"
+success_criteria = [
+    "GpuTcpConnectFuture, GpuTcpSendFuture, GpuTcpRecvFuture in gpu-runtime",
+]
+
+[[themes]]
+id = "blog-update"
+epic = "public-api"
+title = "Update blog post with TCP networking"
+status = "completed"
+goal = "BLOG_DRAFT.md covers 4 innovations (incl. TCP)"
+success_criteria = ["BLOG_DRAFT.md has TCP networking section"]
+
+[[themes]]
+id = "changelog-update"
+epic = "codebase-health"
+title = "Prepare CHANGELOG v0.2.0"
+status = "completed"
+goal = "CHANGELOG.md has v0.2.0 section with TCP milestone"
+success_criteria = ["CHANGELOG.md updated with v0.2.0"]
+
+[[themes]]
+id = "net-demo"
+epic = "network-io"
+title = "TCP networking demo example + documentation"
+status = "completed"
+goal = "Working TCP demo kernel + updated docs"
+success_criteria = [
+    "examples/tcp-echo/ with kernel + host that connects to a TCP server",
+    "README updated with TCP networking section",
+]
+
+[[themes]]
+id = "safety-audit"
+epic = "codebase-health"
+title = "Unsafe safety documentation for hostcall protocol"
+status = "completed"
+goal = "Document safety invariants for all high/medium-risk unsafe blocks"
+success_criteria = [
+    "All unsafe blocks in hostcall CAS/packet paths have // SAFETY comments",
+    "Unsafe blocks classified by risk level (lock-free CAS > raw pointer > inline PTX > FFI)",
+]
+
+[[themes]]
+id = "api-docs"
+epic = "public-api"
+title = "Module-level API documentation for gpu-host"
+status = "completed"
+goal = "Add //! module docs with usage overview to gpu-host public modules"
+success_criteria = [
+    "gpu-host/src/lib.rs has //! module doc with usage pattern overview",
+    "gpu-host/src/hostcall.rs has //! module doc with protocol overview",
+]

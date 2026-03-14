@@ -1,14 +1,18 @@
 --- a/std/src/sys/thread_local/mod.rs
 +++ b/std/src/sys/thread_local/mod.rs
-@@ -30,6 +30,7 @@
-         target_os = "zkvm",
-         target_os = "trusty",
-         target_os = "vexos",
-+        target_os = "cuda",
-     ) => {
-         mod no_threads;
-         pub use no_threads::{EagerStorage, LazyStorage, thread_local_inner};
-@@ -118,6 +119,7 @@
+@@ -24,6 +24,11 @@
+ )]
+ 
+ cfg_select! {
++    target_os = "cuda" => {
++        mod gpu_threads;
++        pub use gpu_threads::{EagerStorage, LazyStorage, thread_local_inner};
++        pub(crate) use gpu_threads::{LocalPointer, local_pointer};
++    }
+     any(
+         all(target_family = "wasm", not(target_feature = "atomics")),
+         target_os = "uefi",
+@@ -118,6 +123,7 @@
          any(
              target_os = "hermit",
              target_os = "xous",

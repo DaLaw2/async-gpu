@@ -33,3 +33,4 @@ __CARGO_TESTS_ONLY_SRC_ROOT="patched-std/library" cargo +nightly build --release
 - `std/src/sys/fs/cuda.rs` → `std-patches/sys_fs_cuda.rs`
 - `std/src/sys/io/error/cuda.rs` → `std-patches/sys_io_error_cuda.rs`
 - `std/src/sys/stdio/cuda.rs` → `std-patches/sys_stdio_cuda.rs`
+- `std/src/sys/thread_local/gpu_threads.rs` → `std-patches/sys_thread_local_gpu_threads.rs`

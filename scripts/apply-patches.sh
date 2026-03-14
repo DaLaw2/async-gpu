@@ -65,6 +65,10 @@ echo "  [NEW]   std/src/sys/stdio/cuda.rs"
 mkdir -p "std/src/sys/stdio"
 cp "$PATCH_DIR/sys_stdio_cuda.rs" "std/src/sys/stdio/cuda.rs"
 
+echo "  [NEW]   std/src/sys/thread_local/gpu_threads.rs"
+mkdir -p "std/src/sys/thread_local"
+cp "$PATCH_DIR/sys_thread_local_gpu_threads.rs" "std/src/sys/thread_local/gpu_threads.rs"
+
 echo ""
 echo "Done! Patched std at: $OUTPUT_DIR/library"
 echo "Build: __CARGO_TESTS_ONLY_SRC_ROOT=\"$OUTPUT_DIR/library\" cargo +nightly build --release"

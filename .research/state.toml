@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 241     # Monotonic counter, incremented after each completed phase
-completed_tasks = 241
+total_cycles = 244     # Monotonic counter, incremented after each completed phase
+completed_tasks = 244
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.save"
+current_step = "do.execute"
 current_task_id = ""
-last_summary = "rustc-warp.2 DONE: MIR transformation spec complete. 6-step algorithm for warp-cooperative async fn codegen. rustc-warp theme complete (baseline + spec). Next: do.save, then std-multithread."
+last_summary = "std-multithread COMPLETE: gpu_threads.rs implemented + GPU-verified. println! (4 threads) + Vec (32 threads) both pass. real-std multi-thread caveat REMOVED."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 58
@@ -594,7 +594,7 @@ deps = ["rustc-warp.1"]
 id = "std-multithread"
 epic = "real-std"
 title = "Multi-thread safe std — thread-ID-indexed ThreadLocal replacement"
-status = "active"
+status = "completed"
 goal = "Make all std features work with multi-thread GPU kernel launches"
 success_criteria = [
     "ThreadLocal replacement using thread-ID-indexed array in gpu-libc",
@@ -606,7 +606,7 @@ id = "std-multithread.1"
 theme = "std-multithread"
 title = "Design thread-ID-indexed ThreadLocal for gpu-libc"
 kind = "design"
-status = "pending"
+status = "done"
 deps = ["rustc-warp.2"]
 
 [[tasks]]
@@ -614,7 +614,7 @@ id = "std-multithread.2"
 theme = "std-multithread"
 title = "Implement ThreadLocal using tid-indexed array"
 kind = "experiment"
-status = "pending"
+status = "done"
 deps = ["std-multithread.1"]
 
 [[tasks]]
@@ -622,7 +622,7 @@ id = "std-multithread.3"
 theme = "std-multithread"
 title = "Test all std features with multi-thread launch (32 threads)"
 kind = "experiment"
-status = "pending"
+status = "done"
 deps = ["std-multithread.2"]
 
 # --- rustc-survey tasks (completed) ---

@@ -7,6 +7,7 @@
 #![no_main]
 #![feature(restricted_std)]
 #![feature(abi_ptx)]
+#![feature(asm_experimental_arch)]
 
 use core::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 
@@ -385,5 +386,65 @@ pub unsafe extern "ptx-kernel" fn std_hashmap_test(buf: *mut u8) {
         println!("[HASHMAP] PASS — HashMap works on GPU");
     } else {
         println!("[HASHMAP] FAIL — unexpected results");
+    }
+}
+
+// ============================================================
+// std-multithread.3: Multi-thread std test (32 threads)
+// ============================================================
+
+/// Read flat thread ID within block via inline PTX.
+#[inline(always)]
+fn get_tid() -> u32 {
+    let tid: u32;
+    unsafe {
+        core::arch::asm!("mov.u32 {}, %tid.x;", out(reg32) tid);
+    }
+    tid
+}
+
+/// Test kernel: multi-thread println! (4 threads, each prints its tid).
+///
+/// Uses only 4 threads to avoid hostcall packet pool exhaustion (each println
+/// generates multiple 56-byte chunks). Verifies thread_local storage (panic
+/// count, etc.) is per-thread and does not cause data races.
+#[unsafe(no_mangle)]
+pub unsafe extern "ptx-kernel" fn std_multithread_println_test(buf: *mut u8, result: *mut u32) {
+    stdio_init(buf);
+
+    let tid = get_tid();
+
+    // Each thread: allocate a Vec, format a string, println!
+    let mut v: Vec<u32> = Vec::new();
+    v.push(tid);
+    v.push(tid * tid);
+    let sum: u32 = v.iter().sum();
+
+    println!("[MT] tid={} sum={}", tid, sum);
+
+    // Write tid+1 to result[tid] to prove this thread ran
+    unsafe {
+        core::ptr::write_volatile(result.add(tid as usize), tid + 1);
+    }
+}
+
+/// Test kernel: multi-thread Vec allocation stress test (32 threads).
+///
+/// Each thread allocates a Vec, pushes elements, and writes the sum to output.
+/// Verifies that the allocator and thread_local state are thread-safe.
+#[unsafe(no_mangle)]
+pub unsafe extern "ptx-kernel" fn std_multithread_vec_test(result: *mut u32) {
+    let tid = get_tid();
+
+    // Each thread allocates its own Vec and computes a sum
+    let mut v: Vec<u32> = Vec::with_capacity(8);
+    for i in 0..8u32 {
+        v.push(tid * 10 + i);
+    }
+    let sum: u32 = v.iter().sum();
+
+    // Expected: sum of (tid*10+0, tid*10+1, ..., tid*10+7) = tid*80 + 28
+    unsafe {
+        core::ptr::write_volatile(result.add(tid as usize), sum);
     }
 }

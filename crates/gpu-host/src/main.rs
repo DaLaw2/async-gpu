@@ -109,6 +109,10 @@ fn main() -> Result<()> {
                 tests_std::run_multithread_malloc_test(Arc::clone(&dev))?;
                 return Ok(());
             }
+            "mt_std" => {
+                tests_std::run_multithread_println_test(Arc::clone(&dev))?;
+                return Ok(());
+            }
             "trace" => {
                 tests_hostcall::run_trace_multithread_test(Arc::clone(&dev))?;
                 tests_hostcall::run_trace_assert_test(Arc::clone(&dev))?;

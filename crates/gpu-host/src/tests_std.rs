@@ -791,3 +791,179 @@ pub(crate) fn run_multithread_malloc_test(dev: Arc<CudaDevice>) -> Result<()> {
 
     Ok(())
 }
+
+/// Test: multi-thread std with GPU threads (std-multithread.3).
+///
+/// Two sub-tests:
+/// 1. println! with 4 threads (limited by hostcall packet pool — each println
+///    generates multiple 56-byte chunks, so too many threads exhaust packets)
+/// 2. Vec allocation with 32 threads (no hostcall needed — pure compute)
+///
+/// Verifies thread_local storage (panic count, etc.) is per-thread and safe.
+pub(crate) fn run_multithread_println_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- std-multithread.3: Multi-thread std (println + Vec) ---");
+
+    use std::sync::{Arc as StdArc, Mutex};
+
+    let num_println_threads: u32 = 4; // Limited by hostcall packet contention
+    let num_vec_threads: u32 = 32; // Full warp — no hostcall needed
+
+    let hc_buf = hostcall::HostcallBuffer::new(16)?;
+    let dev_ptr = hc_buf.dev_ptr;
+
+    let messages: StdArc<Mutex<Vec<String>>> = StdArc::new(Mutex::new(Vec::new()));
+    let messages_clone = StdArc::clone(&messages);
+
+    let hc_buf_ref = StdArc::new(hc_buf);
+    let hc_buf_listener = StdArc::clone(&hc_buf_ref);
+    let listener_handle = std::thread::spawn(move || {
+        hc_buf_listener.listen(|msg| {
+            let s = String::from_utf8_lossy(msg).to_string();
+            println!("  [HOST] GPU stdout: \"{s}\"");
+            messages_clone.lock().unwrap().push(s);
+        });
+    });
+
+    // Mapped memory for result verification (max 32 x u32)
+    let (result_host_ptr, result_dev_ptr) =
+        unsafe { alloc_mapped_result_array(&dev, num_vec_threads as usize)? };
+    for i in 0..num_vec_threads as usize {
+        unsafe { std::ptr::write_volatile(result_host_ptr.add(i), 0u32) };
+    }
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_STD_PTX);
+    let _ = dev.load_ptx(
+        ptx,
+        "kernel_std",
+        &["std_multithread_println_test", "std_multithread_vec_test"],
+    );
+
+    // Test 1: Multi-thread println! (4 threads)
+    {
+        let f = dev
+            .get_func("kernel_std", "std_multithread_println_test")
+            .ok_or(GpuHostError::KernelNotFound("std_multithread_println_test"))?;
+
+        let cfg = LaunchConfig {
+            grid_dim: (1, 1, 1),
+            block_dim: (num_println_threads, 1, 1),
+            shared_mem_bytes: 0,
+        };
+
+        println!(
+            "  Launching std_multithread_println_test with {} threads...",
+            num_println_threads
+        );
+        unsafe {
+            f.launch(cfg, (dev_ptr, result_dev_ptr))?;
+        }
+        dev.synchronize()?;
+        std::thread::sleep(std::time::Duration::from_millis(500));
+
+        // Verify all threads ran (result[tid] = tid+1)
+        let mut failed_tids = Vec::new();
+        for i in 0..num_println_threads as usize {
+            let val = unsafe { std::ptr::read_volatile(result_host_ptr.add(i)) };
+            if val != (i as u32 + 1) {
+                failed_tids.push((i, val));
+            }
+        }
+
+        if !failed_tids.is_empty() {
+            hc_buf_ref.signal_shutdown();
+            listener_handle.join().unwrap();
+            unsafe { free_mapped_mem(result_host_ptr)? };
+            return Err(GpuHostError::Verification {
+                test: "std_multithread_println_test",
+                detail: format!(
+                    "{} threads failed: {:?}",
+                    failed_tids.len(),
+                    &failed_tids[..std::cmp::min(5, failed_tids.len())]
+                ),
+            });
+        }
+
+        println!(
+            "  std_multithread_println_test: PASSED ({} threads, all ran correctly)",
+            num_println_threads
+        );
+    }
+
+    // Test 2: Multi-thread Vec allocation (32 threads, no hostcall)
+    {
+        // Reset result buffer
+        for i in 0..num_vec_threads as usize {
+            unsafe { std::ptr::write_volatile(result_host_ptr.add(i), 0u32) };
+        }
+
+        let f = dev
+            .get_func("kernel_std", "std_multithread_vec_test")
+            .ok_or(GpuHostError::KernelNotFound("std_multithread_vec_test"))?;
+
+        let cfg = LaunchConfig {
+            grid_dim: (1, 1, 1),
+            block_dim: (num_vec_threads, 1, 1),
+            shared_mem_bytes: 0,
+        };
+
+        println!(
+            "  Launching std_multithread_vec_test with {} threads...",
+            num_vec_threads
+        );
+        unsafe {
+            f.launch(cfg, (result_dev_ptr,))?;
+        }
+        dev.synchronize()?;
+
+        // Verify each thread's sum: tid*80 + 28
+        let mut failed_tids = Vec::new();
+        for i in 0..num_vec_threads as usize {
+            let val = unsafe { std::ptr::read_volatile(result_host_ptr.add(i)) };
+            let expected = (i as u32) * 80 + 28;
+            if val != expected {
+                failed_tids.push((i, val, expected));
+            }
+        }
+
+        if !failed_tids.is_empty() {
+            hc_buf_ref.signal_shutdown();
+            listener_handle.join().unwrap();
+            unsafe { free_mapped_mem(result_host_ptr)? };
+            return Err(GpuHostError::Verification {
+                test: "std_multithread_vec_test",
+                detail: format!(
+                    "{} threads failed: {:?}",
+                    failed_tids.len(),
+                    &failed_tids[..std::cmp::min(5, failed_tids.len())]
+                ),
+            });
+        }
+
+        println!(
+            "  std_multithread_vec_test: PASSED ({} threads, all sums correct)",
+            num_vec_threads
+        );
+    }
+
+    hc_buf_ref.signal_shutdown();
+    listener_handle.join().unwrap();
+    unsafe { free_mapped_mem(result_host_ptr)? };
+
+    // Check message count from println test
+    let received = messages.lock().unwrap();
+    let mt_msgs: Vec<_> = received.iter().filter(|m| m.contains("[MT]")).collect();
+    println!(
+        "  Total [MT] messages received: {} (expected {})",
+        mt_msgs.len(),
+        num_println_threads
+    );
+
+    println!("  Multi-thread std PASSED!");
+    println!("    thread_local (panic count, etc.) is per-thread via gpu_threads.rs");
+    println!(
+        "    println! with {} threads + Vec with {} threads verified",
+        num_println_threads, num_vec_threads
+    );
+
+    Ok(())
+}

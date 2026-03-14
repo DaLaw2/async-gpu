@@ -342,3 +342,48 @@ pub unsafe extern "ptx-kernel" fn std_stdin_test(buf: *mut u8) {
         }
     }
 }
+
+// ============================================================
+// hashmap-fix.2: HashMap test on GPU
+// ============================================================
+
+/// Test kernel: std::collections::HashMap on GPU.
+///
+/// Verifies that HashMap::new() does not panic (hashmap_random_keys uses
+/// address-based seed, not fill_bytes). Tests insert, get, contains_key,
+/// and iteration.
+#[unsafe(no_mangle)]
+pub unsafe extern "ptx-kernel" fn std_hashmap_test(buf: *mut u8) {
+    stdio_init(buf);
+    gpu_libc::gpu_libc_io_init(buf);
+
+    use std::collections::HashMap;
+
+    let mut map = HashMap::new();
+    map.insert("hello", 1i32);
+    map.insert("world", 2);
+    map.insert("gpu", 3);
+
+    println!("[HASHMAP] len = {}", map.len());
+
+    match map.get("gpu") {
+        Some(&v) => println!("[HASHMAP] get(\"gpu\") = {}", v),
+        None => println!("[HASHMAP] ERR: get(\"gpu\") returned None"),
+    }
+
+    if map.contains_key("hello") {
+        println!("[HASHMAP] contains_key(\"hello\") = true");
+    } else {
+        println!("[HASHMAP] ERR: contains_key(\"hello\") = false");
+    }
+
+    // Iterate and sum values
+    let sum: i32 = map.values().sum();
+    println!("[HASHMAP] sum of values = {}", sum);
+
+    if map.len() == 3 && sum == 6 {
+        println!("[HASHMAP] PASS — HashMap works on GPU");
+    } else {
+        println!("[HASHMAP] FAIL — unexpected results");
+    }
+}

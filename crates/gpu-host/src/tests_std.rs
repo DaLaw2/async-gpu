@@ -707,3 +707,87 @@ pub(crate) fn run_std_stdin_readline_test(dev: Arc<CudaDevice>) -> Result<()> {
 
     Ok(())
 }
+
+/// Test: multi-thread malloc with atomic bump allocator.
+///
+/// Launches `test_multithread_malloc` kernel with 32 threads. Each thread
+/// calls malloc(64) and writes the pointer to output[tid]. Host verifies
+/// all 32 pointers are non-null and non-overlapping.
+pub(crate) fn run_multithread_malloc_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- std-hardening.3: Multi-thread malloc (atomic bump) ---");
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
+    dev.load_ptx(ptx, "alloc_test", &["test_multithread_malloc"])?;
+
+    let num_threads: u32 = 32;
+    let heap_size: u64 = 64 * 1024; // 64 KB heap
+
+    // Allocate heap on device
+    let heap: CudaSlice<u8> = dev.alloc_zeros::<u8>(heap_size as usize)?;
+
+    // Allocate output buffer (32 x u64 pointers) on device
+    let mut output: CudaSlice<u64> = dev.alloc_zeros::<u64>(num_threads as usize)?;
+
+    let cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (num_threads, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    let f = dev
+        .get_func("alloc_test", "test_multithread_malloc")
+        .ok_or(GpuHostError::KernelNotFound("test_multithread_malloc"))?;
+
+    unsafe {
+        f.launch(cfg, (&heap, heap_size, &mut output))?;
+    }
+    dev.synchronize()?;
+
+    // Copy results back to host
+    let pointers = dev.dtoh_sync_copy(&output)?;
+
+    // Verify: all non-null
+    let null_count = pointers.iter().filter(|&&p| p == 0).count();
+    if null_count > 0 {
+        return Err(GpuHostError::Verification {
+            test: "test_multithread_malloc",
+            detail: format!("{} threads got null pointer", null_count),
+        });
+    }
+
+    // Verify: all non-overlapping (sorted pointers should be >= 64 bytes apart)
+    let mut sorted = pointers.clone();
+    sorted.sort();
+    let mut overlap_count = 0;
+    for i in 1..sorted.len() {
+        if sorted[i] - sorted[i - 1] < 64 {
+            overlap_count += 1;
+        }
+    }
+    if overlap_count > 0 {
+        return Err(GpuHostError::Verification {
+            test: "test_multithread_malloc",
+            detail: format!(
+                "{} overlapping allocations (pointers less than 64 bytes apart)",
+                overlap_count
+            ),
+        });
+    }
+
+    println!(
+        "  {} threads allocated 64 bytes each — all non-null",
+        num_threads
+    );
+    println!(
+        "  Pointer range: {:#x} .. {:#x}",
+        sorted[0],
+        sorted[sorted.len() - 1]
+    );
+    println!(
+        "  No overlaps detected (min gap = {} bytes)",
+        sorted.windows(2).map(|w| w[1] - w[0]).min().unwrap_or(0)
+    );
+    println!("  PASSED — atomic bump allocator is thread-safe!");
+
+    Ok(())
+}

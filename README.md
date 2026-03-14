@@ -100,7 +100,7 @@ SAXPY, dot product (GPU multiply + CPU reduce), and softmax (multi-pass GPU-CPU 
 GPU kernels can use **actual Rust standard library** types and traits — not custom wrappers:
 
 ```rust
-// This runs on the GPU, using real std
+// This runs on the GPU, using real std (single-thread kernel launch)
 use std::io::BufRead;
 
 println!("[GPU] Hello from Rust std on GPU!");
@@ -119,7 +119,9 @@ println!("[GPU] Read from stdin: {}", line);
 
 This works via a **patched std** (`-Zbuild-std=std`) with a CUDA platform adaptation layer (PAL) that routes `sys` calls through the hostcall protocol. The `gpu-libc` crate provides the libc shim.
 
-**What works**: `println!`, `format!`, `Vec`, `String`, `Box`, `std::fs::File` (create/read/write), `std::io::stdin().read_line()`, `?` operator with `std::io::Error`.
+**What works** (single-thread launch only): `println!`, `format!`, `Vec`, `String`, `Box`, `std::fs::File` (create/read/write), `std::io::stdin().read_line()`, `?` operator with `std::io::Error`.
+
+> **Note**: std on GPU currently requires single-thread kernel launch (`block_dim: (1,1,1)`). Thread-local storage, errno, and the bump allocator are not yet thread-safe on GPU. For multi-thread compute, use `no_std` kernels with `gpu-runtime` — see the 65+ kernels in `gpu-kernel` (including full GPT-2 inference).
 
 ## GPU Error Handling
 
@@ -267,7 +269,7 @@ examples/
 | Category | What works |
 |----------|-----------|
 | **I/O from GPU** | `println!()`, `std::fs::File`, `std::io::stdin()`, bulk sideband transfer |
-| **Std library** | `Vec`, `String`, `Box`, `format!()`, `?` operator — real Rust std via patched PAL |
+| **Std library** | `Vec`, `String`, `Box`, `format!()`, `?` operator — real Rust std via patched PAL **(single-thread launch only)** |
 | **Error handling** | `Result<T, E>` propagation from GPU to host, `std::io::Error` |
 | **Async runtime** | Embassy executor on GPU, `futures::join!()`, per-thread and per-warp executors |
 | **Warp-cooperative** | `#[warp_async]` with if/else, loop/break, match, nested control flow |
@@ -311,7 +313,8 @@ Numbers vary by ~30% between runs depending on GPU load.
 - **NVIDIA only**: `nvptx64-nvidia-cuda` target, SM 70+ GPU required
 - **Hostcall latency**: ~20-100 us round-trip, not suitable for per-element I/O in hot loops
 - **Uniform I/O**: `#[warp_async]` requires all 32 lanes to execute the same I/O sequence
-- **Partial std**: File I/O, print, Vec, String, stdin work; networking and threading are stubbed
+- **Single-thread std**: Real Rust std (println!, Vec, File I/O, stdin) requires `block_dim: (1,1,1)` launch — thread-local storage, errno, and allocator are not yet multi-thread safe. Multi-thread compute uses `no_std` + `gpu-runtime`
+- **Partial std**: Networking and threading are stubbed; `HashMap` panics (no random seed source)
 - **f32 only**: Tensor Core MMA has precision issues with reduced formats; using f32 FMA
 
 ## Acknowledgements

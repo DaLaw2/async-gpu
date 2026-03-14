@@ -4,18 +4,18 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 204     # Monotonic counter, incremented after each completed phase
-completed_tasks = 203
+total_cycles = 210     # Monotonic counter, incremented after each completed phase
+completed_tasks = 209
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "awaiting_user"
+current_step = "do.execute"
 current_task_id = ""
-last_summary = "All epics at terminal state. 10 tasks completed this session across 4 themes (host-sdk, docs, build-automation, workspace). 203 total tasks done. Awaiting user: close epics (real-std, gpu-error, public-api, codebase-health) or define new work."
+last_summary = "All 7 tasks done. Atomic allocator (CAS), per-thread errno (TID-indexed array), README updated, HashMap works (address-based seed), #[thread_local] NOT supported on nvptx64. Multi-thread malloc test added (awaiting GPU verification). std-hardening theme complete."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 51
+brainstorm_seq = 52
 review_seq = 5
 
 # Brainstorm trigger control (event-driven, no fixed interval)
@@ -57,7 +57,9 @@ success_criteria = [
     "std::io::stdin().read_line() works on GPU via hostcall",
     "PAL/libc facade routes std sys calls to hostcall framework",
 ]
-# ALL 5 CRITERIA MET — pending user confirmation to close
+# Criteria 1-5 surface-level met, but ThreadLocal uses `no_threads` (static global),
+# so all std tests only work with single-thread launch (1,1,1). Multi-thread GPU launch
+# causes data races on thread_local state. NOT complete until multi-thread safe.
 
 [[epics]]
 id = "gpu-error"
@@ -101,17 +103,114 @@ success_criteria = [
 # Themes (active only — completed/parked archived in archive/)
 # ============================================================
 
-# (All themes completed and archived — no active themes)
+[[themes]]
+id = "std-hardening"
+epic = "real-std"
+title = "Document std limitations + harden allocator/errno for multi-thread"
+status = "completed"
+goal = "Fix README misleading claims, make allocator atomic, make errno per-thread"
+success_criteria = [
+    "README documents single-thread std limitation",
+    "Bump allocator uses atomic CAS — multi-thread malloc is race-free",
+    "errno is per-thread (not shared global)",
+]
+
+[[themes]]
+id = "hashmap-fix"
+epic = "real-std"
+title = "Verify HashMap works on GPU (no patch needed)"
+status = "completed"
+goal = "HashMap::new() + insert/get works on GPU without panic"
+success_criteria = [
+    "hashmap_random_keys() uses address-based seed, does NOT call fill_bytes()",
+    "HashMap test kernel added to gpu-kernel-std (pending GPU verification)",
+]
+
+[[themes]]
+id = "gpu-tls"
+epic = "real-std"
+title = "Research native #[thread_local] on nvptx64"
+status = "completed"
+goal = "Determine if LLVM/nvptx64 supports #[thread_local] → .local PTX"
+success_criteria = [
+    "RESULT: #[thread_local] NOT supported — LLVM nvptx has no GlobalTLSAddress selection",
+    "Alternative: thread-ID indexed arrays (already implemented for errno)",
+]
 
 # ============================================================
 # Tasks (pending/active only — done tasks archived in archive/)
 # ============================================================
 
-# (All tasks completed and archived — no pending tasks)
+[[tasks]]
+id = "std-hardening.1"
+theme = "std-hardening"
+title = "Update README with single-thread std limitation"
+kind = "experiment"
+status = "done"
+deps = []
+
+[[tasks]]
+id = "std-hardening.2"
+theme = "std-hardening"
+title = "Atomic CAS bump allocator in gpu-libc"
+kind = "experiment"
+status = "done"
+deps = []
+
+[[tasks]]
+id = "std-hardening.3"
+theme = "std-hardening"
+title = "Multi-thread allocation test (32 threads, verify no overlap)"
+kind = "experiment"
+status = "done"
+deps = ["std-hardening.2"]
+
+[[tasks]]
+id = "std-hardening.4"
+theme = "std-hardening"
+title = "Per-thread errno in gpu-libc"
+kind = "experiment"
+status = "done"
+deps = []
+
+[[tasks]]
+id = "hashmap-fix.1"
+theme = "hashmap-fix"
+title = "Investigate HashMap seed — already works via address-based keys"
+kind = "investigation"
+status = "done"
+deps = []
+
+[[tasks]]
+id = "hashmap-fix.2"
+theme = "hashmap-fix"
+title = "HashMap test kernel in gpu-kernel-std"
+kind = "experiment"
+status = "done"
+deps = ["hashmap-fix.1"]
+
+[[tasks]]
+id = "gpu-tls.1"
+theme = "gpu-tls"
+title = "Test #[thread_local] static on nvptx64 — NOT SUPPORTED"
+kind = "investigation"
+status = "done"
+deps = []
 
 # ============================================================
 # Brainstorms (last 3 only — older brainstorms archived)
 # ============================================================
+
+[[brainstorms]]
+seq = 52
+at_cycle = 205
+trigger = "User: real-std NOT complete — ThreadLocal uses no_threads, all tests single-thread"
+level = "standard"
+new_tasks_spawned = ["std-hardening.1", "std-hardening.2", "std-hardening.3", "std-hardening.4", "hashmap-fix.1", "hashmap-fix.2", "gpu-tls.1"]
+new_themes_spawned = ["std-hardening", "hashmap-fix", "gpu-tls"]
+themes_parked = []
+themes_completed = []
+key_insight = "real-std has 3 independent multi-thread blockers: (1) bump allocator static mut race, (2) errno static mut race, (3) std thread_local via no_threads = shared global. Plus HashMap panics (unsupported random). Plan: README fix → atomic alloc → errno → HashMap → TLS research."
 
 [[brainstorms]]
 seq = 51
@@ -134,25 +233,3 @@ new_themes_spawned = []
 themes_parked = []
 themes_completed = ["host-sdk"]
 key_insight = "host-sdk complete (5/5 tasks). public-api nearly done (3-4/4 criteria). real-std+gpu-error pending user close. Remaining work: codebase-health (workspace, build-auto, docs). Priority: docs.1+docs.2 (quick wins) → build-auto.1 → workspace.1 (biggest effort)."
-
-[[brainstorms]]
-seq = 49
-at_cycle = 191
-trigger = "Two themes completed (std-fs, std-migration), assess remaining epic criteria"
-level = "quick"
-new_tasks_spawned = ["std-migration.4", "std-fs.5"]
-new_themes_spawned = []
-themes_parked = []
-themes_completed = ["std-fs", "std-migration"]
-key_insight = "real-std 4/5 criteria met, gpu-error 3/4 met. Two quick verification tasks: stdin e2e test + error mapping test. After those, both epics should be closeable. host-sdk still needs full attention (5 pending tasks)."
-
-[[brainstorms]]
-seq = 48
-at_cycle = 180
-trigger = "Two new epics (real-std, gpu-error) with no themes or tasks"
-level = "standard"
-new_tasks_spawned = ["gpu-error-propagation.1", "gpu-error-propagation.2", "gpu-error-propagation.3", "gpu-error-propagation.4", "std-migration.1", "std-migration.2", "std-migration.3", "std-fs.1", "std-fs.2", "std-fs.3", "std-fs.4"]
-new_themes_spawned = ["gpu-error-propagation", "std-migration", "std-fs"]
-themes_parked = []
-themes_completed = []
-key_insight = "std-build-test already proves patched std works. Gap: gpu-kernel doesn't use it, gpu-libc stubs return ENOSYS, error handling nonexistent. Strategy: error propagation first (unblocks Result in std), then selective std migration (new crate, not all 65+ kernels), then fs via gpu-libc hostcall."

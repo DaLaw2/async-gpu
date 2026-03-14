@@ -4,15 +4,17 @@
 //!
 //! ## Allocation Strategy
 //!
-//! Uses a simple bump allocator in GPU global memory. The allocator
-//! state (bump pointer, region bounds) must be initialized by the host
-//! before kernel launch via a dedicated global memory region.
+//! Uses an atomic bump allocator in GPU global memory. The bump pointer
+//! is advanced via `AtomicU64` CAS, making concurrent `malloc()` from
+//! multiple CUDA threads safe. The allocator state must be initialized
+//! by the host before kernel launch via a dedicated global memory region.
 //!
 //! For this initial implementation, `free` is a no-op (bump allocator).
 //! A freelist allocator can be added later for long-running kernels.
 
 use crate::errno::*;
 use crate::types::*;
+use core::sync::atomic::{AtomicU64, Ordering};
 
 // ============================================================
 // Memory operations (device-side, no hostcall needed)
@@ -92,27 +94,25 @@ pub unsafe extern "C" fn memmove(dest: *mut c_void, src: *const c_void, n: size_
 // Bump allocator for GPU global memory
 // ============================================================
 
-/// Bump allocator state. The host initializes these before kernel launch
-/// by writing to the mapped/device memory region.
+/// Atomic bump allocator state.
 ///
-/// Layout in global memory:
-///   [0..8]   current_ptr: u64  (bump pointer, starts at region_start)
-///   [8..16]  region_end:  u64  (exclusive upper bound)
+/// The bump pointer is an `AtomicU64` so that concurrent `malloc()` calls
+/// from multiple CUDA threads are safe (each thread atomically claims its
+/// own region via compare-and-swap). The end pointer is also `AtomicU64`
+/// but is only written once during init and read-only thereafter.
 ///
-/// The allocator simply advances current_ptr by the aligned size.
 /// `free` is a no-op. This is suitable for short-lived kernels where
 /// the entire heap is freed after the kernel completes.
 struct BumpState {
-    current: *mut u8,
-    end: *mut u8,
+    current: AtomicU64,
+    end: AtomicU64,
 }
 
-/// Global bump allocator state pointer.
-/// Must be set by the host before kernel launch.
-/// Points to a BumpState struct in device global memory.
-static mut BUMP_STATE: BumpState = BumpState {
-    current: core::ptr::null_mut(),
-    end: core::ptr::null_mut(),
+/// Global bump allocator state.
+/// Must be initialized via `gpu_heap_init` before any allocations.
+static BUMP_STATE: BumpState = BumpState {
+    current: AtomicU64::new(0),
+    end: AtomicU64::new(0),
 };
 
 /// Initialize the bump allocator with a memory region.
@@ -121,14 +121,23 @@ static mut BUMP_STATE: BumpState = BumpState {
 /// # Safety
 /// - `heap_start` must point to a valid GPU global memory region
 /// - `heap_size` must be the size of that region in bytes
-/// - Must be called before any malloc/free calls
+/// - Must be called exactly once, before any malloc/free calls
+/// - All threads must see this init before calling malloc (use a barrier
+///   or call from a single thread before launching multi-thread work)
 #[no_mangle]
 pub unsafe extern "C" fn gpu_heap_init(heap_start: *mut u8, heap_size: usize) {
-    BUMP_STATE.current = heap_start;
-    BUMP_STATE.end = heap_start.add(heap_size);
+    BUMP_STATE
+        .end
+        .store(heap_start.add(heap_size) as u64, Ordering::Relaxed);
+    BUMP_STATE
+        .current
+        .store(heap_start as u64, Ordering::Release);
 }
 
 /// Allocate `size` bytes with default alignment (MALLOC_ALIGN).
+///
+/// Thread-safe: uses atomic CAS on the bump pointer so multiple CUDA
+/// threads can allocate concurrently without data races.
 #[no_mangle]
 pub unsafe extern "C" fn malloc(size: size_t) -> *mut c_void {
     if size == 0 {
@@ -136,19 +145,31 @@ pub unsafe extern "C" fn malloc(size: size_t) -> *mut c_void {
     }
 
     let align = MALLOC_ALIGN;
-    let current = BUMP_STATE.current as usize;
-    // Align up
-    let aligned = (current + align - 1) & !(align - 1);
-    let new_current = aligned + size;
+    let end = BUMP_STATE.end.load(Ordering::Relaxed);
 
-    if new_current > BUMP_STATE.end as usize {
-        // Out of memory
-        set_errno(ENOMEM);
-        return core::ptr::null_mut();
+    loop {
+        let current = BUMP_STATE.current.load(Ordering::Relaxed);
+        // Align up
+        let aligned = (current as usize + align - 1) & !(align - 1);
+        let new_current = aligned + size;
+
+        if new_current as u64 > end {
+            // Out of memory
+            set_errno(ENOMEM);
+            return core::ptr::null_mut();
+        }
+
+        // Atomically advance the bump pointer
+        match BUMP_STATE.current.compare_exchange_weak(
+            current,
+            new_current as u64,
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+        ) {
+            Ok(_) => return aligned as *mut c_void,
+            Err(_) => continue, // Another thread won the race, retry
+        }
     }
-
-    BUMP_STATE.current = new_current as *mut u8;
-    aligned as *mut c_void
 }
 
 /// Allocate `nmemb * size` bytes, zero-initialized.
@@ -211,6 +232,8 @@ pub unsafe extern "C" fn realloc(ptr: *mut c_void, new_size: size_t) -> *mut c_v
 
 /// Allocate memory with specific alignment.
 /// Returns 0 on success, ENOMEM on failure. Result stored in *memptr.
+///
+/// Thread-safe: uses atomic CAS on the bump pointer.
 #[no_mangle]
 pub unsafe extern "C" fn posix_memalign(
     memptr: *mut *mut c_void,
@@ -228,15 +251,28 @@ pub unsafe extern "C" fn posix_memalign(
         return EINVAL;
     }
 
-    let current = BUMP_STATE.current as usize;
-    let aligned = (current + align - 1) & !(align - 1);
-    let new_current = aligned + size;
+    let end = BUMP_STATE.end.load(Ordering::Relaxed);
 
-    if new_current > BUMP_STATE.end as usize {
-        return ENOMEM;
+    loop {
+        let current = BUMP_STATE.current.load(Ordering::Relaxed);
+        let aligned = (current as usize + align - 1) & !(align - 1);
+        let new_current = aligned + size;
+
+        if new_current as u64 > end {
+            return ENOMEM;
+        }
+
+        match BUMP_STATE.current.compare_exchange_weak(
+            current,
+            new_current as u64,
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+        ) {
+            Ok(_) => {
+                *memptr = aligned as *mut c_void;
+                return 0;
+            }
+            Err(_) => continue,
+        }
     }
-
-    BUMP_STATE.current = new_current as *mut u8;
-    *memptr = aligned as *mut c_void;
-    0
 }

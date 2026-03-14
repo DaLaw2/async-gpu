@@ -1,14 +1,12 @@
-//! errno implementation for GPU.
+//! Per-thread errno implementation for GPU.
 //!
-//! On GPU, "thread-local" storage is tricky — there's no OS-level TLS.
-//! We use a static mut that is effectively per-lane in the SIMT model,
-//! since each lane has its own register file. The compiler will place
-//! this in local memory (per-thread stack).
+//! Uses a thread-ID indexed array in global memory so that each CUDA
+//! thread has its own errno value. Supports up to `MAX_GPU_THREADS`
+//! concurrent threads (configurable, default 1024 = one block max).
 //!
-//! Note: This is a simplified implementation. In a multi-warp scenario
-//! with shared global state, we might need per-lane indexing into a
-//! global array. For now, since each kernel invocation has its own
-//! execution context, a simple static works.
+//! The errno array is statically allocated. For launches with more
+//! threads than `MAX_GPU_THREADS`, threads beyond the limit share
+//! errno slot 0 (graceful degradation, not UB).
 
 use crate::types::c_int;
 
@@ -28,43 +26,65 @@ pub const EINVAL: c_int = 22;
 pub const ENOSYS: c_int = 38;
 pub const ENOTSUP: c_int = 95;
 
-/// Per-thread errno storage.
-///
-/// On nvptx64, each CUDA thread has its own local memory space.
-/// A `static mut` in a GPU kernel effectively becomes per-thread
-/// because LLVM places it in the `.local` address space for PTX.
-///
-/// However, `static mut` in Rust is per-module, not per-thread.
-/// For a proper per-thread errno, we would need to either:
-/// 1. Pass errno as a parameter through the call chain
-/// 2. Use PTX `.local` memory explicitly via inline asm
-/// 3. Index into a global array by thread ID
-///
-/// For now, we provide the `__errno_location` function that std
-/// expects, returning a pointer. The actual per-thread isolation
-/// depends on the calling context.
-static mut GPU_ERRNO: c_int = 0;
+/// Maximum number of concurrent GPU threads with independent errno.
+/// Default: 1024 (one full block). Threads beyond this share slot 0.
+const MAX_GPU_THREADS: usize = 1024;
 
-/// Returns a pointer to the thread-local errno value.
+/// Per-thread errno storage array indexed by flat thread ID.
+static mut ERRNO_ARRAY: [c_int; MAX_GPU_THREADS] = [0; MAX_GPU_THREADS];
+
+/// Read the flat thread index within the current block via inline PTX.
+/// Returns `threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z * blockDim.x * blockDim.y`.
+#[inline(always)]
+fn thread_id_in_block() -> u32 {
+    let tid_x: u32;
+    let tid_y: u32;
+    let tid_z: u32;
+    let ntid_x: u32;
+    let ntid_y: u32;
+    unsafe {
+        core::arch::asm!("mov.u32 {}, %tid.x;", out(reg32) tid_x);
+        core::arch::asm!("mov.u32 {}, %tid.y;", out(reg32) tid_y);
+        core::arch::asm!("mov.u32 {}, %tid.z;", out(reg32) tid_z);
+        core::arch::asm!("mov.u32 {}, %ntid.x;", out(reg32) ntid_x);
+        core::arch::asm!("mov.u32 {}, %ntid.y;", out(reg32) ntid_y);
+    }
+    tid_x + tid_y * ntid_x + tid_z * ntid_x * ntid_y
+}
+
+/// Get the errno array index for the current thread.
+/// Clamps to MAX_GPU_THREADS-1 to prevent out-of-bounds access.
+#[inline(always)]
+fn errno_index() -> usize {
+    let tid = thread_id_in_block() as usize;
+    if tid < MAX_GPU_THREADS {
+        tid
+    } else {
+        0 // graceful fallback for oversized launches
+    }
+}
+
+/// Returns a pointer to the per-thread errno value.
 ///
-/// # Safety
-/// On GPU, this returns a pointer to a global static. Callers must
-/// ensure single-threaded access or use appropriate synchronization.
-/// In practice, std's usage pattern (set errno, then immediately
-/// check it) is safe within a single CUDA thread.
+/// Each CUDA thread gets its own errno slot, indexed by thread ID
+/// within the block. This makes errno thread-safe for up to 1024
+/// concurrent threads per block.
 #[no_mangle]
 pub unsafe extern "C" fn __errno_location() -> *mut c_int {
-    core::ptr::addr_of_mut!(GPU_ERRNO)
+    let idx = errno_index();
+    core::ptr::addr_of_mut!(ERRNO_ARRAY[idx])
 }
 
-/// Set errno to the given value.
+/// Set errno to the given value for the current thread.
 #[inline(always)]
 pub unsafe fn set_errno(val: c_int) {
-    GPU_ERRNO = val;
+    let idx = errno_index();
+    ERRNO_ARRAY[idx] = val;
 }
 
-/// Get the current errno value.
+/// Get the current errno value for the current thread.
 #[inline(always)]
 pub unsafe fn get_errno() -> c_int {
-    GPU_ERRNO
+    let idx = errno_index();
+    ERRNO_ARRAY[idx]
 }

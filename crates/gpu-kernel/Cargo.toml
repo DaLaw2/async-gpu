@@ -10,6 +10,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 gpu-atomics = { path = "../gpu-atomics" }
+gpu-libc = { path = "../gpu-libc" }
 gpu-protocol = { path = "../gpu-protocol" }
 gpu-runtime = { path = "../gpu-runtime" }
 warp-macro = { path = "../warp-macro" }

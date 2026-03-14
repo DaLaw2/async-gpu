@@ -24,9 +24,18 @@ name = "gpu-kernel"
 version = "0.1.0"
 dependencies = [
  "gpu-atomics",
+ "gpu-libc",
  "gpu-protocol",
  "gpu-runtime",
  "warp-macro",
+]
+
+[[package]]
+name = "gpu-libc"
+version = "0.1.0"
+dependencies = [
+ "gpu-protocol",
+ "gpu-runtime",
 ]
 
 [[package]]

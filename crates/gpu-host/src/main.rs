@@ -105,6 +105,10 @@ fn main() -> Result<()> {
                 tests_std::run_std_stdin_readline_test(Arc::clone(&dev))?;
                 return Ok(());
             }
+            "mt_malloc" => {
+                tests_std::run_multithread_malloc_test(Arc::clone(&dev))?;
+                return Ok(());
+            }
             _ => println!("Unknown ONLY_TEST={only}, running all tests"),
         }
     }
@@ -347,6 +351,9 @@ fn main() -> Result<()> {
 
     // stdin().read_line() e2e test (std-migration.4)
     tests_std::run_std_stdin_readline_test(Arc::clone(&dev))?;
+
+    // Multi-thread malloc test (std-hardening.3)
+    tests_std::run_multithread_malloc_test(Arc::clone(&dev))?;
 
     // Multi-warp scaling test (product.3)
     tests_scaling::run_multi_warp_test(Arc::clone(&dev))?;

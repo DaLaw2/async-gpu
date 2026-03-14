@@ -226,3 +226,41 @@ pub unsafe extern "ptx-kernel" fn test_lane_id(output: *mut u32, len: u32) {
         *output.add(idx as usize) = lid;
     }
 }
+
+// ============================================================
+// Multi-thread malloc test (std-hardening.3)
+// ============================================================
+
+/// Test: concurrent malloc from 32 threads.
+///
+/// Each thread calls gpu_libc::malloc(64) and writes the returned pointer
+/// to output[tid]. The host verifies that all 32 pointers are non-null
+/// and non-overlapping (each allocation is 64 bytes apart at minimum).
+///
+/// Launch with: block_dim=(32,1,1), grid_dim=(1,1,1)
+/// Args: heap (ptr to heap region), heap_size (u64), output (*mut u64, len>=32)
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn test_multithread_malloc(
+    heap: *mut u8,
+    heap_size: u64,
+    output: *mut u64,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+
+    // Thread 0 initializes the heap (all threads must see this before malloc)
+    if tid == 0 {
+        gpu_libc::gpu_heap_init(heap, heap_size as usize);
+    }
+    // Barrier: ensure heap init is visible to all threads
+    core::arch::asm!("bar.sync 0;");
+
+    // Each thread allocates 64 bytes
+    let ptr = gpu_libc::malloc(64);
+    *output.add(tid as usize) = ptr as u64;
+
+    // Write a unique pattern to verify no overlap
+    if !ptr.is_null() {
+        let p = ptr as *mut u32;
+        *p = tid; // first 4 bytes = thread ID
+    }
+}

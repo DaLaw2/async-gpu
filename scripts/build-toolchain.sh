@@ -138,22 +138,31 @@ PATCHED_STD="$PATCHED_RUSTC/library/std"
 MARKER="$PATCHED_STD/.async_gpu_std_patched"
 
 if [ "$FROM_SCRATCH" = true ] || [ ! -f "$MARKER" ]; then
-    echo "  Applying std patches to patched-rustc/library/std/..."
+    echo "  Applying std patches directly to patched-rustc/library/std/..."
 
-    # apply-std-patches.sh expects rustc-src/library/std/ as source and writes to output dir.
-    # It does rm -rf on the output dir first, so we need to use it carefully.
-    # We'll apply it to a temp dir, then overlay onto patched-rustc/library/std/.
-
-    TEMP_STD=$(mktemp -d)
-    bash "$SCRIPT_DIR/apply-std-patches.sh" "$TEMP_STD"
-
-    # Overlay patched std onto the rustc tree
-    # Remove existing std src and replace with patched version
+    # Reset std/src to stock first (from rustc-src), then apply patches in-place.
+    STOCK_STD="$REPO_DIR/rustc-src/library/std"
     rm -rf "$PATCHED_STD/src"
-    cp -r "$TEMP_STD/src" "$PATCHED_STD/src"
+    cp -r "$STOCK_STD/src" "$PATCHED_STD/src"
 
-    # Copy any new top-level files (Cargo.toml, build.rs stay from original)
-    rm -rf "$TEMP_STD"
+    cd "$PATCHED_STD"
+
+    # Apply each patch with -p1 (patches use a/src/... b/src/... format)
+    for pf in "$PATCH_DIR_STD"/*.patch; do
+        pname=$(basename "$pf")
+        echo "    [PATCH] $pname"
+        patch -p1 --binary < "$pf"
+    done
+
+    # Copy new .rs files (explicit mapping — filenames don't map cleanly to paths)
+    copy_new() { mkdir -p "$(dirname "$2")"; cp "$PATCH_DIR_STD/$1" "$2"; echo "    [NEW]   $2"; }
+    copy_new sys_alloc_cuda.rs           src/sys/alloc/cuda.rs
+    copy_new sys_fs_cuda.rs              src/sys/fs/cuda.rs
+    copy_new sys_io_error_cuda.rs        src/sys/io/error/cuda.rs
+    copy_new sys_stdio_cuda.rs           src/sys/stdio/cuda.rs
+    copy_new sys_thread_local_gpu_threads.rs src/sys/thread_local/gpu_threads.rs
+
+    cd "$REPO_DIR"
 
     # Write marker
     echo "Patched by build-toolchain.sh on $(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$MARKER"
@@ -217,6 +226,75 @@ EOF
 
 echo "  Generated bootstrap.toml"
 echo ""
+
+# On Windows, ensure MSVC environment is available (cl.exe, link.exe)
+if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$(uname -s)" == *"MINGW"* || "$(uname -s)" == *"MSYS"* ]]; then
+    if ! command -v cl.exe &>/dev/null; then
+        echo "  MSVC cl.exe not in PATH — searching for vcvarsall.bat..."
+        VCVARSALL=""
+        for vs_year in 2022 2019 2017; do
+            for vs_edition in Community Professional Enterprise BuildTools; do
+                candidate="C:/Program Files/Microsoft Visual Studio/$vs_year/$vs_edition/VC/Auxiliary/Build/vcvarsall.bat"
+                if [ -f "$candidate" ]; then
+                    VCVARSALL="$candidate"
+                    break 2
+                fi
+            done
+        done
+        # Also check x86 Program Files
+        if [ -z "$VCVARSALL" ]; then
+            for vs_year in 2022 2019 2017; do
+                for vs_edition in Community Professional Enterprise BuildTools; do
+                    candidate="C:/Program Files (x86)/Microsoft Visual Studio/$vs_year/$vs_edition/VC/Auxiliary/Build/vcvarsall.bat"
+                    if [ -f "$candidate" ]; then
+                        VCVARSALL="$candidate"
+                        break 2
+                    fi
+                done
+            done
+        fi
+
+        if [ -n "$VCVARSALL" ]; then
+            echo "  Found VS at: $(dirname "$(dirname "$(dirname "$VCVARSALL")")")"
+            VSDIR=$(dirname "$(dirname "$(dirname "$VCVARSALL")")")
+
+            # Auto-detect MSVC tools version and Windows SDK version
+            MSVC_VER=$(ls "$VSDIR/Tools/MSVC/" 2>/dev/null | sort -V | tail -1)
+            WINSDK_VER=$(ls "C:/Program Files (x86)/Windows Kits/10/Include/" 2>/dev/null | sort -V | tail -1)
+            echo "  MSVC version: $MSVC_VER"
+            echo "  Windows SDK: $WINSDK_VER"
+
+            MSVC_BASE="$VSDIR/Tools/MSVC/$MSVC_VER"
+            WINSDK_INC="C:/Program Files (x86)/Windows Kits/10/Include/$WINSDK_VER"
+            WINSDK_LIB="C:/Program Files (x86)/Windows Kits/10/Lib/$WINSDK_VER"
+
+            # Set PATH (add MSVC bin dir)
+            export PATH="$(cygpath -u "$MSVC_BASE/bin/Hostx64/x64"):$PATH"
+
+            # Set INCLUDE (MSVC headers + Windows SDK headers)
+            export INCLUDE="$(cygpath -w "$MSVC_BASE/include");$(cygpath -w "$WINSDK_INC/ucrt");$(cygpath -w "$WINSDK_INC/shared");$(cygpath -w "$WINSDK_INC/um");$(cygpath -w "$WINSDK_INC/winrt")"
+
+            # Set LIB (MSVC libs + Windows SDK libs)
+            export LIB="$(cygpath -w "$MSVC_BASE/lib/x64");$(cygpath -w "$WINSDK_LIB/ucrt/x64");$(cygpath -w "$WINSDK_LIB/um/x64")"
+
+            # Set CC/CXX for the cc crate
+            export CC="cl.exe"
+            export CXX="cl.exe"
+
+            if command -v cl.exe &>/dev/null; then
+                echo "  MSVC loaded: $(cl.exe 2>&1 | head -1)"
+            else
+                echo "  WARNING: cl.exe still not in PATH."
+            fi
+        else
+            echo "  ERROR: Cannot find vcvarsall.bat. Install Visual Studio Build Tools."
+            echo "  Or run this script from a Developer Command Prompt."
+            exit 1
+        fi
+    else
+        echo "  MSVC already in PATH: $(cl.exe 2>&1 | head -1)"
+    fi
+fi
 
 # Run the build
 echo "  Starting x.py build (this may take 20-60 minutes on first build)..."

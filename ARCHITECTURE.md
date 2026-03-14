@@ -89,6 +89,16 @@ Each GPU block maps to a shard via `blockIdx.x % num_shards`. Each shard has its
 | 11 | BULK_WRITE | GPU→Host | Write via sideband (up to 1MB) |
 | 12 | BULK_READ | GPU→Host | Read via sideband (up to 1MB) |
 | 15 | BULK_PRINT | GPU→Host | Print via sideband buffer |
+| 16 | TCP_CONNECT | GPU→Host | Connect to TCP addr:port, returns socket fd |
+| 17 | TCP_WRITE | GPU→Host | Write to TCP socket (up to 48 bytes inline) |
+| 18 | TCP_READ | GPU→Host | Read from TCP socket (up to 56 bytes inline) |
+| 19 | TCP_CLOSE | GPU→Host | Close TCP socket |
+| 20 | TCP_BIND | GPU→Host | Bind+listen on TCP addr:port, returns listener fd |
+| 21 | TCP_ACCEPT | GPU→Host | Accept connection, returns stream fd |
+| 22 | TCP_BULK_WRITE | GPU→Host | Write to TCP socket via sideband (up to 1MB) |
+| 23 | TCP_BULK_READ | GPU→Host | Read from TCP socket via sideband (up to 1MB) |
+
+TCP services share the fd namespace with file I/O. The host fd table uses an `FdResource` enum (`File | TcpStream | TcpListener`) to distinguish resource types.
 
 ### Sideband Bulk I/O
 

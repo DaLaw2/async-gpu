@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 295     # Monotonic counter, incremented after each completed phase
-completed_tasks = 315
+total_cycles = 296     # Monotonic counter, incremented after each completed phase
+completed_tasks = 317
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
-current_mode = "do"
-current_step = "do.execute"
-current_task_id = "net-demo.1"
-last_summary = "network-io: 3/4 criteria met. Executing net-demo theme for demo example + docs."
+current_mode = "think"
+current_step = "think.triage"
+current_task_id = ""
+last_summary = "network-io epic ALL 4 criteria met: protocol (8 TCP services), host handlers (FdResource enum + 8 handlers), GPU Futures (6 async types), tcp-echo demo example. 317 tasks completed. Need brainstorm."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 84
@@ -209,7 +209,7 @@ success_criteria = [
 id = "net-demo"
 epic = "network-io"
 title = "TCP networking demo example + documentation"
-status = "active"
+status = "completed"
 goal = "Working TCP demo kernel + updated docs"
 success_criteria = [
     "examples/tcp-echo/ with kernel + host that connects to a TCP server",
@@ -273,7 +273,7 @@ id = "net-demo.1"
 theme = "net-demo"
 title = "Experiment: create tcp-echo example (kernel + host)"
 kind = "experiment"
-status = "active"
+status = "done"
 depends = ["net-host.1", "net-gpu.1"]
 
 [[tasks]]
@@ -281,7 +281,7 @@ id = "net-demo.2"
 theme = "net-demo"
 title = "Experiment: update README and ARCHITECTURE.md with TCP networking"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["net-demo.1"]
 
 # --- net-gpu theme ---

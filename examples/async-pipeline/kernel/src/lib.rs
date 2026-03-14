@@ -63,11 +63,12 @@ pub async fn data_pipeline(buf: *mut u8) -> u32 {
         return 0xE003;
     }
 
-    // Step 4: Transform — increment each byte by 1 (GPU compute)
+    // Step 4: Transform — uppercase on GPU
     let mut out = [0u8; 48];
     let mut i = 0;
     while i < n {
-        out[i] = data[i].wrapping_add(1);
+        let ch = data[i];
+        out[i] = if ch >= b'a' && ch <= b'z' { ch - 32 } else { ch };
         i += 1;
     }
 

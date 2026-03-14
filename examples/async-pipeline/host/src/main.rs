@@ -77,8 +77,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 output_data.len()
             );
 
-            // Verify: each byte should be input + 1
-            let expected: Vec<u8> = input_data.iter().map(|b| b.wrapping_add(1)).collect();
+            // Verify: each byte should be uppercased
+            let expected: Vec<u8> = input_data
+                .iter()
+                .map(|&b| if b >= b'a' && b <= b'z' { b - 32 } else { b })
+                .collect();
             let matches = output_data.len() == expected.len()
                 && output_data.iter().zip(expected.iter()).all(|(a, b)| a == b);
 

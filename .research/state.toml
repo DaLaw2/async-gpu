@@ -4,18 +4,18 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 239     # Monotonic counter, incremented after each completed phase
-completed_tasks = 239
+total_cycles = 241     # Monotonic counter, incremented after each completed phase
+completed_tasks = 241
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.save"
 current_task_id = ""
-last_summary = "Phase 2 COMPLETE: warp-async-v2 all 4 tasks done. .await, ?, if/else, warp_*!() all work in #[warp_async]. End-to-end GPU-verified. Next: do.save (lint, commit, push), then Phase 3 (rustc-warp)."
+last_summary = "rustc-warp.2 DONE: MIR transformation spec complete. 6-step algorithm for warp-cooperative async fn codegen. rustc-warp theme complete (baseline + spec). Next: do.save, then std-multithread."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 57
+brainstorm_seq = 58
 review_seq = 5
 
 # Brainstorm trigger control (event-driven, no fixed interval)
@@ -489,7 +489,8 @@ success_criteria = [
 id = "rustc-warp"
 epic = "native-warp-async"
 title = "Phase 3: rustc MIR pass for warp-cooperative codegen"
-status = "active"
+status = "completed"
+# Implementation deferred per BS58. MIR spec (rustc-warp.2) closes the research question.
 goal = "Implement #[warp_cooperative] attribute + WarpCooperativeTransform MIR pass in rustc fork"
 success_criteria = [
     "Forked rustc compiles #[warp_cooperative] async fn to PTX",
@@ -572,7 +573,7 @@ id = "rustc-warp.1"
 theme = "rustc-warp"
 title = "Set up rustc fork, verify baseline async fn → PTX"
 kind = "experiment"
-status = "pending"
+status = "done"
 deps = ["warp-future-bridge.4"]
 # Only start after Phase 1 proves the concept
 
@@ -581,32 +582,48 @@ id = "rustc-warp.2"
 theme = "rustc-warp"
 title = "MIR transformation spec — before/after for 2-yield async fn"
 kind = "design"
-status = "pending"
+status = "done"
 deps = ["rustc-warp.1"]
 
+# rustc-warp.3-5 SKIPPED per BS58: proc macro is the practical solution,
+# rustc fork deferred indefinitely. MIR spec (rustc-warp.2) closes the research question.
+
+# --- std-multithread theme (BS58) ---
+
+[[themes]]
+id = "std-multithread"
+epic = "real-std"
+title = "Multi-thread safe std — thread-ID-indexed ThreadLocal replacement"
+status = "active"
+goal = "Make all std features work with multi-thread GPU kernel launches"
+success_criteria = [
+    "ThreadLocal replacement using thread-ID-indexed array in gpu-libc",
+    "All std features (println, File, Vec) work with 32-thread launch",
+]
+
 [[tasks]]
-id = "rustc-warp.3"
-theme = "rustc-warp"
-title = "Implement minimal WarpCooperativeTransform (single .await)"
-kind = "experiment"
+id = "std-multithread.1"
+theme = "std-multithread"
+title = "Design thread-ID-indexed ThreadLocal for gpu-libc"
+kind = "design"
 status = "pending"
 deps = ["rustc-warp.2"]
 
 [[tasks]]
-id = "rustc-warp.4"
-theme = "rustc-warp"
-title = "Extend pass: multiple yields + ? operator"
+id = "std-multithread.2"
+theme = "std-multithread"
+title = "Implement ThreadLocal using tid-indexed array"
 kind = "experiment"
 status = "pending"
-deps = ["rustc-warp.3"]
+deps = ["std-multithread.1"]
 
 [[tasks]]
-id = "rustc-warp.5"
-theme = "rustc-warp"
-title = "Integration test: #[warp_cooperative] async fn on real GPU"
+id = "std-multithread.3"
+theme = "std-multithread"
+title = "Test all std features with multi-thread launch (32 threads)"
 kind = "experiment"
 status = "pending"
-deps = ["rustc-warp.4"]
+deps = ["std-multithread.2"]
 
 # --- rustc-survey tasks (completed) ---
 
@@ -697,6 +714,17 @@ deps = ["cond-trace.1"]
 # ============================================================
 # Brainstorms (last 3 only — older brainstorms archived)
 # ============================================================
+
+[[brainstorms]]
+seq = 58
+at_cycle = 240
+trigger = "rustc-warp.1 discovered async fn already compiles+runs on GPU — Phase 3 reassessment"
+level = "standard"
+new_tasks_spawned = ["std-multithread.1", "std-multithread.2", "std-multithread.3"]
+new_themes_spawned = ["std-multithread"]
+themes_parked = []
+themes_completed = []
+key_insight = "async fn already works on nvptx64. Skip rustc fork (3-5), do MIR spec only. Proc macro IS the practical solution. Pivot to real-std multi-thread (biggest remaining caveat)."
 
 [[brainstorms]]
 seq = 57

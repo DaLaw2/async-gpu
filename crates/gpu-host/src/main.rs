@@ -148,6 +148,10 @@ fn main() -> Result<()> {
                 tests_warp::run_warp_e2e_test(Arc::clone(&dev))?;
                 return Ok(());
             }
+            "rustc_async" => {
+                tests_warp::run_rustc_async_baseline_test(Arc::clone(&dev))?;
+                return Ok(());
+            }
             "std_future" => {
                 tests_hostcall::run_std_future_print_test(Arc::clone(&dev))?;
                 tests_hostcall::run_std_future_two_prints_test(Arc::clone(&dev))?;

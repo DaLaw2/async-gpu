@@ -799,3 +799,61 @@ unsafe fn warp_e2e_test(buf: *mut u8) -> bool {
     }
     warp_print!(buf, b"e2e: mixed");
 }
+
+// ============================================================
+// rustc-warp.1: Baseline async fn on nvptx64
+// ============================================================
+//
+// Test: Can rustc compile a basic async fn to nvptx64 PTX?
+// This uses the standard core::future::Future + poll machinery.
+// No warp cooperation — just verify that the async state machine
+// compiles to valid PTX.
+
+/// A trivial async fn — returns a value without suspension.
+async fn trivial_async() -> u32 {
+    42
+}
+
+/// An async fn with one yield point.
+async fn one_yield(x: u32) -> u32 {
+    let y = core::future::poll_fn(|_cx| core::task::Poll::Ready(x + 1)).await;
+    y * 2
+}
+
+/// Kernel entry point that drives the async fns with a manual spin-poll.
+/// This tests that rustc's async state machine compiles to valid PTX.
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn rustc_async_baseline_test(result: *mut u32) {
+    use core::future::Future;
+    use core::pin::Pin;
+    use core::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
+
+    const VTABLE: RawWakerVTable = RawWakerVTable::new(
+        |_| RawWaker::new(core::ptr::null(), &VTABLE),
+        |_| {},
+        |_| {},
+        |_| {},
+    );
+    let raw = RawWaker::new(core::ptr::null(), &VTABLE);
+    let waker = Waker::from_raw(raw);
+    let mut cx = Context::from_waker(&waker);
+
+    // Poll trivial_async — should be Ready(42) immediately
+    let mut f1 = trivial_async();
+    let r1 = Pin::new_unchecked(&mut f1).poll(&mut cx);
+    let val1 = match r1 {
+        Poll::Ready(v) => v,
+        Poll::Pending => 0xDEAD,
+    };
+
+    // Poll one_yield(10) — should be Ready(22) = (10+1)*2
+    let mut f2 = one_yield(10);
+    let r2 = Pin::new_unchecked(&mut f2).poll(&mut cx);
+    let val2 = match r2 {
+        Poll::Ready(v) => v,
+        Poll::Pending => 0xDEAD,
+    };
+
+    // Write results: val1 in low 16 bits, val2 in high 16 bits
+    core::ptr::write_volatile(result, val1 | (val2 << 16));
+}

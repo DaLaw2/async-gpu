@@ -4,18 +4,18 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 257     # Monotonic counter, incremented after each completed phase
-completed_tasks = 257
+total_cycles = 258     # Monotonic counter, incremented after each completed phase
+completed_tasks = 258
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.route"
-current_task_id = ""
-last_summary = "gpu-test-harness.2 done: 3 integration tests via cargo test (write_thread_idx, hostcall_print, buffered_print). PTX constants + mapped_mem now public API. Theme completed."
+current_step = "do.execute"
+current_task_id = "println-buffer.2"
+last_summary = "println-buffer.1 done: println!() goes through gpu-kernel-std gpu_stdout_write(), NOT gpu-libc. Sideband has no global storage. Multi-block tid collision issue identified. Next: implement buffered path."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 65
+brainstorm_seq = 66
 review_seq = 5
 
 # Brainstorm trigger control (event-driven, no fixed interval)
@@ -210,6 +210,17 @@ id = "gpu-test-harness"
 epic = "public-api"
 title = "GPU integration test harness — cargo test for GPU kernels"
 status = "completed"
+
+[[themes]]
+id = "println-buffer"
+epic = "gpu-perf"
+title = "Integrate print_buffer with gpu-libc write() for automatic println buffering"
+status = "active"
+goal = "GPU println!() automatically uses buffered print path instead of per-call hostcall"
+success_criteria = [
+    "gpu-libc write(STDOUT) routes through print_buffer when buffer is initialized",
+    "println!() on GPU uses 1 hostcall per flush instead of 1 per print call",
+]
 goal = "GPU tests can run via cargo test with proper test isolation"
 success_criteria = [
     "At least 3 GPU tests runnable via cargo test (not just main.rs)",
@@ -312,11 +323,40 @@ title = "Implement cargo test integration harness — 3 proof-of-concept GPU tes
 kind = "experiment"
 status = "done"
 deps = ["gpu-test-harness.1"]
+
+[[tasks]]
+id = "println-buffer.1"
+theme = "println-buffer"
+title = "Investigate gpu-libc write() path — where does println!() call write()?"
+kind = "investigation"
+status = "done"
+deps = []
+
+[[tasks]]
+id = "println-buffer.2"
+theme = "println-buffer"
+title = "Implement buffered println — modify gpu_stdout_write() to use print_buffer"
+kind = "experiment"
+status = "active"
+deps = ["println-buffer.1"]
+deps = []
+deps = ["gpu-test-harness.1"]
 deps = []
 
 # ============================================================
 # Brainstorms (last 3 only — older brainstorms archived)
 # ============================================================
+
+[[brainstorms]]
+seq = 66
+at_cycle = 257
+trigger = "gpu-test-harness theme completed — no pending tasks"
+level = "quick"
+new_tasks_spawned = ["println-buffer.1"]
+new_themes_spawned = ["println-buffer"]
+themes_parked = []
+themes_completed = ["gpu-test-harness"]
+key_insight = "Integration test harness done. Next: integrate print_buffer with gpu-libc write() so println!() auto-buffers — highest-impact remaining optimization. Bridges printf-batch infra with real-std println!()."
 
 [[brainstorms]]
 seq = 65
@@ -339,14 +379,3 @@ new_themes_spawned = ["api-docs"]
 themes_parked = []
 themes_completed = ["printf-batch", "example-verify"]
 key_insight = "Project at plateau — 254 tasks, all major epics terminal. Evergreen public-api has gap: gpu-host public API lacks rustdoc. Low-effort, high-value improvement. Also recommend user close gpu-perf, real-std, native-warp-async, gpu-autonomous."
-
-[[brainstorms]]
-seq = 63
-at_cycle = 252
-trigger = "printf-batch theme completed — reassess all epics"
-level = "standard"
-new_tasks_spawned = ["printf-batch.3", "example-verify.1"]
-new_themes_spawned = ["example-verify"]
-themes_parked = []
-themes_completed = []
-key_insight = "Printf-batch marked completed prematurely — criterion 3 (e2e test) unmet. Reopened. Also: 3 examples exist but unverified post-refactoring. Two parallel tasks. Recommend user close real-std + native-warp-async + gpu-autonomous."

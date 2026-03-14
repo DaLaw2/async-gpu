@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 289     # Monotonic counter, incremented after each completed phase
-completed_tasks = 292
+total_cycles = 290     # Monotonic counter, incremented after each completed phase
+completed_tasks = 293
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = ""
-last_summary = "4 themes completed this session: async-bulk-io, build-fix, rustdoc-coverage (already met), arch-doc (ARCHITECTURE.md written). README updated with MIR pass docs. All current tasks done — brainstorm needed."
+current_task_id = "release-prep.1"
+last_summary = "bs80: new themes release-prep + showcase-demo. Starting release-prep.1 (CHANGELOG milestones)."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 78
@@ -272,6 +272,29 @@ id = "arch-doc"
 epic = "public-api"
 title = "Write ARCHITECTURE.md for contributors"
 status = "completed"
+
+[[themes]]
+id = "release-prep"
+epic = "codebase-health"
+title = "Tag v0.1.0 release with CHANGELOG"
+status = "active"
+goal = "Signal project maturity with versioned release"
+success_criteria = [
+    "CHANGELOG.md exists with key milestones",
+    "Git tag v0.1.0 created",
+]
+
+[[themes]]
+id = "showcase-demo"
+epic = "public-api"
+title = "Showcase demo — parallel file search on GPU"
+status = "active"
+goal = "A compelling demo where GPU parallelism matters for file I/O"
+success_criteria = [
+    "Kernel searches file contents in parallel across 32 lanes",
+    "End-to-end demo: create files, search, report results",
+    "Measurably uses GPU parallelism (not just single-thread I/O)",
+]
 goal = "External-facing architecture document explaining system design"
 success_criteria = [
     "ARCHITECTURE.md exists with hostcall protocol, MIR pass, PAL, crate map sections",
@@ -487,9 +510,60 @@ kind = "experiment"
 status = "done"
 depends = ["arch-doc.1"]
 
+# --- release-prep theme ---
+
+[[tasks]]
+id = "release-prep.1"
+theme = "release-prep"
+title = "Investigation: catalog key milestones for CHANGELOG"
+kind = "investigation"
+status = "done"
+depends = []
+questions = [
+    "What are the major milestones to document?",
+    "What version numbering scheme to use?",
+]
+
+[[tasks]]
+id = "release-prep.2"
+theme = "release-prep"
+title = "Experiment: create CHANGELOG.md and git tag v0.1.0"
+kind = "experiment"
+status = "pending"
+depends = ["release-prep.1"]
+
+# --- showcase-demo theme ---
+
+[[tasks]]
+id = "showcase-demo.1"
+theme = "showcase-demo"
+title = "Design: parallel search kernel architecture"
+kind = "design"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "showcase-demo.2"
+theme = "showcase-demo"
+title = "Experiment: implement parallel file search kernel + host"
+kind = "experiment"
+status = "pending"
+depends = ["showcase-demo.1"]
+
 # ============================================================
 # Brainstorms (last 3 only — older brainstorms archived)
 # ============================================================
+
+[[brainstorms]]
+seq = 80
+at_cycle = 289
+trigger = "all tasks done — quick brainstorm for next direction"
+level = "quick"
+new_tasks_spawned = ["release-prep.1", "release-prep.2", "showcase-demo.1", "showcase-demo.2"]
+new_themes_spawned = ["release-prep", "showcase-demo"]
+themes_parked = []
+themes_completed = ["rustdoc-coverage", "arch-doc"]
+key_insight = "Documentation phase complete. Both evergreen epics satisfied. Next: release-prep (v0.1.0 tag) then showcase-demo (parallel file search — plays to GPU strengths)."
 
 [[brainstorms]]
 seq = 79

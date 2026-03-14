@@ -81,6 +81,10 @@ fn main() -> Result<()> {
                 tests_std::run_std_file_io_test(Arc::clone(&dev))?;
                 return Ok(());
             }
+            "std_sysroot_file" => {
+                tests_std::run_std_sysroot_file_test(Arc::clone(&dev))?;
+                return Ok(());
+            }
             "std_pipeline" => {
                 tests_std::run_std_pipeline_test(Arc::clone(&dev))?;
                 return Ok(());
@@ -384,6 +388,9 @@ fn main() -> Result<()> {
 
     // std::fs File I/O test (std-fs.4)
     tests_std::run_std_file_io_test(Arc::clone(&dev))?;
+
+    // std::fs File I/O via build-std (std-sysroot-build.4)
+    tests_std::run_std_sysroot_file_test(Arc::clone(&dev))?;
 
     // std pipeline test (std-migration.3)
     tests_std::run_std_pipeline_test(Arc::clone(&dev))?;

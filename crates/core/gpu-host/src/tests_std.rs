@@ -1052,3 +1052,175 @@ pub(crate) fn run_std_buffered_println_test(dev: Arc<CudaDevice>) -> Result<()> 
     );
     Ok(())
 }
+
+/// Test: std::fs::File on GPU via std-build-test PTX.
+///
+/// This is the end-to-end test for the std-sysroot epic: kernel uses
+/// `std::fs::File::create()` and `std::io::Write` on GPU, compiled via
+/// `-Zbuild-std=["std"]` with patched std source, routed through
+/// the patched PAL → gpu-libc → hostcall framework.
+pub(crate) fn run_std_sysroot_file_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- std-sysroot-build.4: std::fs::File I/O on GPU (build-std) ---");
+
+    use std::sync::Arc as StdArc;
+
+    let hc_buf = hostcall::HostcallBuffer::new(4)?;
+    let dev_ptr = hc_buf.dev_ptr;
+
+    let hc_buf_ref = StdArc::new(hc_buf);
+    let hc_buf_listener = StdArc::clone(&hc_buf_ref);
+
+    let listener_handle = std::thread::spawn(move || {
+        hc_buf_listener.listen(|msg| {
+            let s = String::from_utf8_lossy(msg).to_string();
+            println!("  [HOST] GPU: \"{s}\"");
+        });
+    });
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(crate::STD_BUILD_TEST_PTX);
+    let _ = dev.load_ptx(
+        ptx,
+        "std_test",
+        &["std_file_write_kernel", "std_file_read_kernel"],
+    );
+
+    let cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (1, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    // Clean up any leftover files
+    let _ = std::fs::remove_file("gpu_test_output.txt");
+    let _ = std::fs::remove_file("gpu_test_input.txt");
+
+    // --- Test 1: File::create + write ---
+    {
+        let (result_host_ptr, result_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 2)? };
+        unsafe {
+            std::ptr::write_volatile(result_host_ptr.add(0), 0u32);
+            std::ptr::write_volatile(result_host_ptr.add(1), 0u32);
+        }
+
+        let f = dev
+            .get_func("std_test", "std_file_write_kernel")
+            .ok_or(GpuHostError::KernelNotFound("std_file_write_kernel"))?;
+
+        println!("  Launching std_file_write_kernel...");
+        unsafe {
+            f.launch(cfg, (dev_ptr, result_dev_ptr))?;
+        }
+        dev.synchronize()?;
+        std::thread::sleep(std::time::Duration::from_millis(100));
+
+        let success = unsafe { std::ptr::read_volatile(result_host_ptr.add(0)) };
+        let bytes_written = unsafe { std::ptr::read_volatile(result_host_ptr.add(1)) };
+        unsafe { free_mapped_mem(result_host_ptr)? };
+
+        if success != 1 {
+            hc_buf_ref.signal_shutdown();
+            listener_handle.join().unwrap();
+            return Err(GpuHostError::Verification {
+                test: "std_file_write_kernel",
+                detail: format!("File::create + write failed (code=0x{success:X})"),
+            });
+        }
+
+        // Verify the file exists on host
+        match std::fs::read("gpu_test_output.txt") {
+            Ok(data) => {
+                let expected = b"Hello from GPU std::fs::File!";
+                if data == expected {
+                    println!("  std_file_write_kernel: PASSED!");
+                    println!("    Written: {} bytes", bytes_written);
+                    println!(
+                        "    Content: {:?}",
+                        std::str::from_utf8(&data).unwrap_or("<non-utf8>")
+                    );
+                } else {
+                    hc_buf_ref.signal_shutdown();
+                    listener_handle.join().unwrap();
+                    return Err(GpuHostError::Verification {
+                        test: "std_file_write_kernel",
+                        detail: format!(
+                            "content mismatch: expected {:?}, got {:?}",
+                            std::str::from_utf8(expected).unwrap(),
+                            std::str::from_utf8(&data).unwrap_or("<non-utf8>")
+                        ),
+                    });
+                }
+            }
+            Err(e) => {
+                hc_buf_ref.signal_shutdown();
+                listener_handle.join().unwrap();
+                return Err(GpuHostError::Verification {
+                    test: "std_file_write_kernel",
+                    detail: format!("gpu_test_output.txt not found: {e}"),
+                });
+            }
+        }
+    }
+
+    // --- Test 2: File::open + read ---
+    {
+        // Create input file for the kernel to read
+        std::fs::write("gpu_test_input.txt", b"GPU read test data").map_err(|e| {
+            GpuHostError::Verification {
+                test: "std_file_read_kernel",
+                detail: format!("failed to create test input file: {e}"),
+            }
+        })?;
+
+        let (result_host_ptr, result_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 3)? };
+        unsafe {
+            std::ptr::write_volatile(result_host_ptr.add(0), 0u32);
+            std::ptr::write_volatile(result_host_ptr.add(1), 0u32);
+            std::ptr::write_volatile(result_host_ptr.add(2), 0u32);
+        }
+
+        let f = dev
+            .get_func("std_test", "std_file_read_kernel")
+            .ok_or(GpuHostError::KernelNotFound("std_file_read_kernel"))?;
+
+        println!("  Launching std_file_read_kernel...");
+        unsafe {
+            f.launch(cfg, (dev_ptr, result_dev_ptr))?;
+        }
+        dev.synchronize()?;
+        std::thread::sleep(std::time::Duration::from_millis(100));
+
+        let success = unsafe { std::ptr::read_volatile(result_host_ptr.add(0)) };
+        let bytes_read = unsafe { std::ptr::read_volatile(result_host_ptr.add(1)) };
+        let first_byte = unsafe { std::ptr::read_volatile(result_host_ptr.add(2)) };
+        unsafe { free_mapped_mem(result_host_ptr)? };
+
+        if success != 1 {
+            hc_buf_ref.signal_shutdown();
+            listener_handle.join().unwrap();
+            let _ = std::fs::remove_file("gpu_test_output.txt");
+            let _ = std::fs::remove_file("gpu_test_input.txt");
+            return Err(GpuHostError::Verification {
+                test: "std_file_read_kernel",
+                detail: format!("File::open + read failed (code=0x{success:X})"),
+            });
+        }
+
+        println!("  std_file_read_kernel: PASSED!");
+        println!("    Bytes read: {bytes_read}");
+        println!(
+            "    First byte: '{}' (0x{:02X})",
+            first_byte as u8 as char, first_byte
+        );
+    }
+
+    // Cleanup
+    hc_buf_ref.signal_shutdown();
+    listener_handle.join().unwrap();
+    let _ = std::fs::remove_file("gpu_test_output.txt");
+    let _ = std::fs::remove_file("gpu_test_input.txt");
+
+    println!("  std::fs::File I/O on GPU: ALL PASSED!");
+    println!("    File::create + write_all: hostcall → host filesystem");
+    println!("    File::open + read: hostcall → host filesystem");
+    Ok(())
+}

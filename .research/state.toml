@@ -12,7 +12,8 @@ status = "running"     # ready | running | blocked | completed
 current_mode = "do"
 current_step = "do.execute"
 current_task_id = "std-sysroot-build.4"
-last_summary = "gpu-executor.2 done: block_on() implemented, async-pipeline refactored (30→1 line). std-sysroot-build.3 done: std::fs::File compiles to PTX. gpu-executor theme completed. ptx-codegen-fix.2 running in background. Next: std-sysroot-build.4 (end-to-end File I/O on GPU)."
+current_step = "awaiting_user"
+last_summary = "std-sysroot-build.4: host test + updated PTX ready. User needs to run `cargo run --release -p gpu-host -- std_sysroot_file` to verify File I/O on GPU. Also: block_on() done, +ptx78 applied to all configs, pre-push.sh updated with rustc patches."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 76

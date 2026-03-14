@@ -1803,6 +1803,400 @@ pub mod std_future {
         }
     }
 
+    // ================================================================
+    // Async I/O Futures — generic hostcall futures for file operations
+    // ================================================================
+
+    /// Internal state for all hostcall futures.
+    enum HostcallState {
+        /// Initial: need to allocate packet and submit request.
+        Init,
+        /// Packet submitted, waiting for host response.
+        Waiting { pkt_idx: u16 },
+        /// Completed.
+        Done,
+    }
+
+    /// Submit a hostcall packet and transition to Waiting state.
+    ///
+    /// Returns `Poll::Pending` on success, `Poll::Pending` on pool exhaustion (retry),
+    /// or the new state.
+    #[inline(always)]
+    unsafe fn submit_hostcall(
+        buf: *mut u8,
+        service: u32,
+        fill_payload: impl FnOnce(*mut u8),
+    ) -> Result<u16, ()> {
+        let (num_shards, shard_array_off, _) = crate::hostcall::read_shard_info(buf as *const u8);
+        let free_ptr = crate::hostcall::get_free_stack_ptr(buf, num_shards, shard_array_off);
+
+        let pkt_idx = crate::hostcall::hc_pop_free_from(buf, free_ptr, num_shards, shard_array_off);
+        if pkt_idx == NULL_INDEX {
+            return Err(()); // Pool exhausted — retry on next poll
+        }
+
+        let pkt_off = crate::hostcall::pkt_offset(buf as *const u8, pkt_idx);
+        let pkt = buf.add(pkt_off);
+
+        // Fill header
+        let mask = activemask();
+        core::ptr::write_volatile(pkt.add(PKT_OFF_ACTIVE_MASK) as *mut u32, mask);
+        core::ptr::write_volatile(pkt.add(PKT_OFF_SERVICE) as *mut u32, service);
+        sys_store_release_u32(pkt.add(PKT_OFF_CONTROL) as *mut u32, 0);
+
+        // Fill payload
+        fill_payload(pkt.add(PKT_OFF_PAYLOAD));
+
+        // Mark filled, push to ready stack, ring doorbell
+        sys_store_release_u32(pkt.add(PKT_OFF_CONTROL) as *mut u32, CONTROL_FILLED);
+        let ready_ptr = crate::hostcall::get_ready_stack_ptr(buf, num_shards, shard_array_off);
+        crate::hostcall::hc_push(ready_ptr, buf, pkt_idx);
+        sys_fetch_add_u64(buf.add(BUF_OFF_DOORBELL) as *mut u64, 1);
+
+        Ok(pkt_idx)
+    }
+
+    /// Check if a hostcall packet has a response ready.
+    /// Returns `Some(pkt_ptr)` if ready, `None` if still pending.
+    #[inline(always)]
+    unsafe fn check_response(buf: *mut u8, pkt_idx: u16) -> Option<*mut u8> {
+        let pkt_off = crate::hostcall::pkt_offset(buf as *const u8, pkt_idx);
+        let pkt = buf.add(pkt_off);
+        let ctrl = sys_load_acquire_u32(pkt.add(PKT_OFF_CONTROL) as *const u32);
+        if ctrl & CONTROL_READY != 0 {
+            Some(pkt)
+        } else {
+            None
+        }
+    }
+
+    /// A `Future` that opens a file via hostcall.
+    ///
+    /// On first poll: submits SERVICE_OPEN request with path and flags.
+    /// On subsequent polls: checks for response.
+    /// Returns `Ok(fd)` on success, `Err(errno)` on failure.
+    pub struct GpuOpenFuture {
+        buf: *mut u8,
+        path: *const u8,
+        path_len: u32,
+        flags: u32,
+        state: HostcallState,
+    }
+
+    unsafe impl Send for GpuOpenFuture {}
+
+    impl GpuOpenFuture {
+        /// Create a new open future.
+        ///
+        /// `flags` uses gpu-protocol FILE_OPEN_* constants.
+        #[inline(always)]
+        pub fn new(buf: *mut u8, path: &[u8], flags: u32) -> Self {
+            Self {
+                buf,
+                path: path.as_ptr(),
+                path_len: path.len() as u32,
+                flags,
+                state: HostcallState::Init,
+            }
+        }
+    }
+
+    impl Future for GpuOpenFuture {
+        type Output = Result<i32, i32>;
+
+        #[inline(always)]
+        fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+            let this = unsafe { self.get_unchecked_mut() };
+            match this.state {
+                HostcallState::Init => {
+                    let path_ptr = this.path;
+                    let path_len = this.path_len;
+                    let flags = this.flags;
+                    match unsafe {
+                        submit_hostcall(this.buf, SERVICE_OPEN, |payload| {
+                            let slot0 = (path_len as u64) | ((flags as u64) << 32);
+                            core::ptr::write_volatile(payload as *mut u64, slot0);
+                            let dst = payload.add(8);
+                            let mut i: u32 = 0;
+                            while i < path_len && i < FILE_MAX_PATH_LEN as u32 {
+                                core::ptr::write_volatile(
+                                    dst.add(i as usize),
+                                    *path_ptr.add(i as usize),
+                                );
+                                i += 1;
+                            }
+                        })
+                    } {
+                        Ok(idx) => {
+                            this.state = HostcallState::Waiting { pkt_idx: idx };
+                            Poll::Pending
+                        }
+                        Err(()) => Poll::Pending, // pool exhausted, retry
+                    }
+                }
+                HostcallState::Waiting { pkt_idx } => unsafe {
+                    match check_response(this.buf, pkt_idx) {
+                        Some(pkt) => {
+                            let ctrl =
+                                core::ptr::read_volatile(pkt.add(PKT_OFF_CONTROL) as *const u32);
+                            let fd =
+                                core::ptr::read_volatile(pkt.add(PKT_OFF_PAYLOAD) as *const u64);
+                            crate::hostcall::gpu_hostcall_release(this.buf, pkt);
+                            this.state = HostcallState::Done;
+                            if ctrl & CONTROL_ERROR != 0 {
+                                Poll::Ready(Err(fd as i32))
+                            } else {
+                                Poll::Ready(Ok(fd as i32))
+                            }
+                        }
+                        None => Poll::Pending,
+                    }
+                },
+                HostcallState::Done => Poll::Ready(Err(-1)),
+            }
+        }
+    }
+
+    /// A `Future` that writes data to a file descriptor via hostcall.
+    ///
+    /// Returns `Ok(bytes_written)` on success, `Err(errno)` on failure.
+    pub struct GpuWriteFuture {
+        buf: *mut u8,
+        fd: i32,
+        data: *const u8,
+        data_len: u32,
+        state: HostcallState,
+    }
+
+    unsafe impl Send for GpuWriteFuture {}
+
+    impl GpuWriteFuture {
+        #[inline(always)]
+        pub fn new(buf: *mut u8, fd: i32, data: &[u8]) -> Self {
+            Self {
+                buf,
+                fd,
+                data: data.as_ptr(),
+                data_len: data.len() as u32,
+                state: HostcallState::Init,
+            }
+        }
+    }
+
+    impl Future for GpuWriteFuture {
+        type Output = Result<usize, i32>;
+
+        #[inline(always)]
+        fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+            let this = unsafe { self.get_unchecked_mut() };
+            match this.state {
+                HostcallState::Init => {
+                    let fd = this.fd;
+                    let data_ptr = this.data;
+                    let write_len = if this.data_len as usize > FILE_MAX_WRITE_LEN {
+                        FILE_MAX_WRITE_LEN as u32
+                    } else {
+                        this.data_len
+                    };
+                    match unsafe {
+                        submit_hostcall(this.buf, SERVICE_WRITE, |payload| {
+                            core::ptr::write_volatile(payload as *mut u64, fd as u64);
+                            core::ptr::write_volatile(payload.add(8) as *mut u64, write_len as u64);
+                            let dst = payload.add(16);
+                            let mut i: u32 = 0;
+                            while i < write_len {
+                                core::ptr::write_volatile(
+                                    dst.add(i as usize),
+                                    *data_ptr.add(i as usize),
+                                );
+                                i += 1;
+                            }
+                        })
+                    } {
+                        Ok(idx) => {
+                            this.state = HostcallState::Waiting { pkt_idx: idx };
+                            Poll::Pending
+                        }
+                        Err(()) => Poll::Pending,
+                    }
+                }
+                HostcallState::Waiting { pkt_idx } => unsafe {
+                    match check_response(this.buf, pkt_idx) {
+                        Some(pkt) => {
+                            let ctrl =
+                                core::ptr::read_volatile(pkt.add(PKT_OFF_CONTROL) as *const u32);
+                            let written =
+                                core::ptr::read_volatile(pkt.add(PKT_OFF_PAYLOAD) as *const u64);
+                            crate::hostcall::gpu_hostcall_release(this.buf, pkt);
+                            this.state = HostcallState::Done;
+                            if ctrl & CONTROL_ERROR != 0 {
+                                Poll::Ready(Err(written as i32))
+                            } else {
+                                Poll::Ready(Ok(written as usize))
+                            }
+                        }
+                        None => Poll::Pending,
+                    }
+                },
+                HostcallState::Done => Poll::Ready(Err(-1)),
+            }
+        }
+    }
+
+    /// A `Future` that reads data from a file descriptor via hostcall.
+    ///
+    /// Returns `Ok((bytes_read, data))` on success. The data is copied into
+    /// the caller-provided buffer.
+    pub struct GpuReadFuture {
+        buf: *mut u8,
+        fd: i32,
+        out_buf: *mut u8,
+        max_len: u32,
+        state: HostcallState,
+    }
+
+    unsafe impl Send for GpuReadFuture {}
+
+    impl GpuReadFuture {
+        #[inline(always)]
+        pub fn new(buf: *mut u8, fd: i32, out_buf: &mut [u8]) -> Self {
+            Self {
+                buf,
+                fd,
+                out_buf: out_buf.as_mut_ptr(),
+                max_len: out_buf.len() as u32,
+                state: HostcallState::Init,
+            }
+        }
+    }
+
+    impl Future for GpuReadFuture {
+        type Output = Result<usize, i32>;
+
+        #[inline(always)]
+        fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+            let this = unsafe { self.get_unchecked_mut() };
+            match this.state {
+                HostcallState::Init => {
+                    let fd = this.fd;
+                    let max_len = if this.max_len as usize > FILE_MAX_READ_LEN {
+                        FILE_MAX_READ_LEN as u32
+                    } else {
+                        this.max_len
+                    };
+                    match unsafe {
+                        submit_hostcall(this.buf, SERVICE_READ, |payload| {
+                            core::ptr::write_volatile(payload as *mut u64, fd as u64);
+                            core::ptr::write_volatile(payload.add(8) as *mut u64, max_len as u64);
+                        })
+                    } {
+                        Ok(idx) => {
+                            this.state = HostcallState::Waiting { pkt_idx: idx };
+                            Poll::Pending
+                        }
+                        Err(()) => Poll::Pending,
+                    }
+                }
+                HostcallState::Waiting { pkt_idx } => unsafe {
+                    match check_response(this.buf, pkt_idx) {
+                        Some(pkt) => {
+                            let ctrl =
+                                core::ptr::read_volatile(pkt.add(PKT_OFF_CONTROL) as *const u32);
+                            let bytes_read =
+                                core::ptr::read_volatile(pkt.add(PKT_OFF_PAYLOAD) as *const u64);
+                            if ctrl & CONTROL_ERROR != 0 {
+                                crate::hostcall::gpu_hostcall_release(this.buf, pkt);
+                                this.state = HostcallState::Done;
+                                Poll::Ready(Err(bytes_read as i32))
+                            } else {
+                                // Copy data from payload to output buffer
+                                let src = pkt.add(PKT_OFF_PAYLOAD).add(8);
+                                let n = core::cmp::min(bytes_read as usize, this.max_len as usize);
+                                let mut i = 0;
+                                while i < n {
+                                    core::ptr::write_volatile(
+                                        this.out_buf.add(i),
+                                        core::ptr::read_volatile(src.add(i)),
+                                    );
+                                    i += 1;
+                                }
+                                crate::hostcall::gpu_hostcall_release(this.buf, pkt);
+                                this.state = HostcallState::Done;
+                                Poll::Ready(Ok(n))
+                            }
+                        }
+                        None => Poll::Pending,
+                    }
+                },
+                HostcallState::Done => Poll::Ready(Err(-1)),
+            }
+        }
+    }
+
+    /// A `Future` that closes a file descriptor via hostcall.
+    ///
+    /// Returns `Ok(())` on success, `Err(errno)` on failure.
+    pub struct GpuCloseFuture {
+        buf: *mut u8,
+        fd: i32,
+        state: HostcallState,
+    }
+
+    unsafe impl Send for GpuCloseFuture {}
+
+    impl GpuCloseFuture {
+        #[inline(always)]
+        pub fn new(buf: *mut u8, fd: i32) -> Self {
+            Self {
+                buf,
+                fd,
+                state: HostcallState::Init,
+            }
+        }
+    }
+
+    impl Future for GpuCloseFuture {
+        type Output = Result<(), i32>;
+
+        #[inline(always)]
+        fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+            let this = unsafe { self.get_unchecked_mut() };
+            match this.state {
+                HostcallState::Init => {
+                    let fd = this.fd;
+                    match unsafe {
+                        submit_hostcall(this.buf, SERVICE_CLOSE, |payload| {
+                            core::ptr::write_volatile(payload as *mut u64, fd as u64);
+                        })
+                    } {
+                        Ok(idx) => {
+                            this.state = HostcallState::Waiting { pkt_idx: idx };
+                            Poll::Pending
+                        }
+                        Err(()) => Poll::Pending,
+                    }
+                }
+                HostcallState::Waiting { pkt_idx } => unsafe {
+                    match check_response(this.buf, pkt_idx) {
+                        Some(pkt) => {
+                            let ctrl =
+                                core::ptr::read_volatile(pkt.add(PKT_OFF_CONTROL) as *const u32);
+                            crate::hostcall::gpu_hostcall_release(this.buf, pkt);
+                            this.state = HostcallState::Done;
+                            if ctrl & CONTROL_ERROR != 0 {
+                                Poll::Ready(Err(-1))
+                            } else {
+                                Poll::Ready(Ok(()))
+                            }
+                        }
+                        None => Poll::Pending,
+                    }
+                },
+                HostcallState::Done => Poll::Ready(Err(-1)),
+            }
+        }
+    }
+
     /// Minimal spin-poll executor for a single `Future`.
     ///
     /// No waker, no task queue — just polls in a loop with nanosleep yield.

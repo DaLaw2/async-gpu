@@ -11,11 +11,11 @@ status = "running"     # ready | running | blocked | completed
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "codebase-restructure.1"
-last_summary = "BS73: async-std epic kickoff. 3 themes spawned: warp-io (warp-cooperative I/O), toolchain-auto (build scripts), codebase-restructure (archive legacy). Key insight: spin-wait in gpu_hostcall_request is the core blocker. Approach C (activemask-based warp batching) is most practical."
+current_task_id = "async-yield.2"
+last_summary = "BS74: Direction pivot — async yield, not warp batching. Real value: I/O doesn't block SM, warp yields during hostcall so other warps run compute. Need async hostcall Future, PAL yield mechanism, and practical demo (data pipeline: read→compute→write)."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 73
+brainstorm_seq = 74
 review_seq = 5
 
 # Brainstorm trigger control (event-driven, no fixed interval)
@@ -30,12 +30,12 @@ title = "Async Std on GPU — real async/await with patched rustc + patched std"
 status = "active"
 priority = "high"
 success_criteria = [
-    "#[warp_cooperative] async fn using println!() works on GPU — patched std I/O is warp-cooperative automatically",
-    "#[warp_cooperative] async fn using std::fs::File works on GPU — open/read/write/close via .await",
-    "Patched std PAL yields instead of spin-waiting under #[warp_cooperative] context",
+    "Async hostcall: gpu_hostcall_request returns impl Future — warp yields to scheduler during I/O wait instead of spin-blocking",
+    "PAL async bridge: patched std I/O (write/read/open/close) calls async hostcall under #[warp_cooperative] context",
+    "Practical demo: #[warp_cooperative] async fn runs data pipeline (read file → compute → write file) with I/O yielding",
     "Toolchain build automated — single script from rustc-patches/ + std-patches/ to usable toolchain",
     "PTX post-processing automated in build pipeline (remove .ptr .align 1, stub extern panic fn)",
-    "Legacy crates (warp-macro, Embassy tests, gpu-critical-section) archived — codebase restructured",
+    "Codebase reorganized into categorized subdirectories (core/kernel/macro/test)",
 ]
 
 [[epics]]
@@ -150,15 +150,15 @@ success_criteria = [
 # ============================================================
 
 [[themes]]
-id = "warp-io"
+id = "async-yield"
 epic = "async-std"
-title = "Warp-cooperative I/O — make println/File warp-aware under #[warp_cooperative]"
+title = "Async yield for hostcall — I/O yields warp instead of spin-blocking"
 status = "active"
-goal = "println!() and std::fs I/O become warp-cooperative automatically when called from #[warp_cooperative] async fn"
+goal = "gpu_hostcall_request returns Future; warp yields during I/O wait so other warps can run compute on the SM"
 success_criteria = [
-    "gpu_stdout_write() detects warp-cooperative context and batches via lane 0",
-    "File I/O (open/read/write/close) uses single hostcall per warp instead of per-thread",
-    "#[warp_cooperative] async fn using println!() produces correct output on GPU",
+    "gpu_hostcall_request_async() returns impl Future that checks CONTROL_READY once per poll",
+    "PAL layer calls async hostcall under #[warp_cooperative] context",
+    "Demo: data pipeline (read→compute→write) with I/O yielding, verified on GPU",
 ]
 
 [[themes]]
@@ -175,40 +175,50 @@ success_criteria = [
 [[themes]]
 id = "codebase-restructure"
 epic = "async-std"
-title = "Archive legacy crates, reorganize codebase for patched-rustc direction"
-status = "active"
-goal = "Legacy crates moved to archive/, test-warp-crate integrated, CI updated"
+title = "Reorganize codebase into categorized subdirectories"
+status = "completed"
+goal = "Crates organized into core/kernel/macro/test, test-warp-crate moved to examples/"
 success_criteria = [
-    "Legacy crates (warp-macro, embassy-test, async-hostcall-test, async-pipeline-test, gpu-critical-section, std-build-test) archived",
-    "test-warp-crate moved to proper location under crates/ or examples/",
+    "Crates organized into crates/core/, crates/kernel/, crates/macro/, crates/test/",
+    "test-warp-crate moved to examples/warp-cooperative/",
     "CI and scripts updated to reflect new structure",
 ]
+# ALL 3 CRITERIA MET — completed 2026-03-15
 
 # ============================================================
 # Tasks (pending/active only — done tasks archived in archive/)
 # ============================================================
 
 [[tasks]]
-id = "warp-io.1"
-theme = "warp-io"
-title = "Investigate: what does warp-cooperative println mean — semantics + design"
+id = "async-yield.1"
+theme = "async-yield"
+title = "Investigation: design async hostcall mechanism — how does a sync PAL fn yield?"
 kind = "investigation"
-status = "pending"
+status = "done"
 depends = []
 questions = [
-    "Should println!() from 32 lanes produce 32 lines or 1 batched line?",
-    "How does existing warp_print! handle this? What's the user expectation?",
-    "Where should warp-batching live: gpu-kernel-std, gpu-runtime, or gpu-libc?",
-    "How to detect warp-cooperative context at runtime (activemask? global flag?)",
+    "How can a sync fn (std::io::Write::write) yield to warp scheduler? It returns io::Result, not Poll.",
+    "Can the MIR pass transform sync I/O calls into .await points automatically?",
+    "Alternative: can gpu_hostcall_request itself yield via inline PTX (nanosleep/bar.warp.sync) between spin iterations?",
+    "What does 'yield to other warps' mean on GPU — is nanosleep sufficient or do we need actual deschedule?",
+    "How does CUDA cooperative groups / yield() work at PTX level?",
 ]
 
 [[tasks]]
-id = "warp-io.2"
-theme = "warp-io"
-title = "Experiment: implement warp-cooperative gpu_stdout_write using activemask"
+id = "async-yield.2"
+theme = "async-yield"
+title = "Experiment: prototype async hostcall Future in gpu-runtime"
+kind = "experiment"
+status = "active"
+depends = ["async-yield.1"]
+
+[[tasks]]
+id = "async-yield.3"
+theme = "async-yield"
+title = "Experiment: data pipeline demo — read→compute→write with async I/O"
 kind = "experiment"
 status = "pending"
-depends = ["warp-io.1"]
+depends = ["async-yield.2"]
 
 [[tasks]]
 id = "toolchain-auto.1"
@@ -226,25 +236,20 @@ kind = "experiment"
 status = "pending"
 depends = []
 
-[[tasks]]
-id = "codebase-restructure.1"
-theme = "codebase-restructure"
-title = "Experiment: reorganize crates into subdirectories + clean up root"
-kind = "experiment"
-status = "active"
-depends = []
-
-[[tasks]]
-id = "codebase-restructure.2"
-theme = "codebase-restructure"
-title = "Experiment: move test-warp-crate to proper location"
-kind = "experiment"
-status = "pending"
-depends = []
-
 # ============================================================
 # Brainstorms (last 3 only — older brainstorms archived)
 # ============================================================
+
+[[brainstorms]]
+seq = 74
+at_cycle = 271
+trigger = "user direction pivot — async yield not warp batching"
+level = "quick"
+new_tasks_spawned = ["async-yield.1", "async-yield.2", "async-yield.3"]
+new_themes_spawned = ["async-yield"]
+themes_parked = []
+themes_completed = ["codebase-restructure"]
+key_insight = "Warp-batching println (Approach C) is a debug optimization, not real use case. Real value: I/O yields warp to scheduler so other warps run compute. Need async hostcall Future. Core challenge: sync PAL fn returning io::Result can't return Poll — need MIR-level or runtime-level yield mechanism."
 
 [[brainstorms]]
 seq = 73

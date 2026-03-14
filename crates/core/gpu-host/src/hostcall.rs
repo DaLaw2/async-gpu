@@ -9,8 +9,23 @@ use std::collections::HashMap;
 use std::fmt;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
+use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc;
+
+// ================================================================
+// Unified fd resource table (files + TCP sockets)
+// ================================================================
+
+/// A resource held in the fd table — either a file, TCP stream, or TCP listener.
+enum FdResource {
+    /// An open file handle.
+    File(File),
+    /// A connected TCP stream.
+    TcpStream(TcpStream),
+    /// A bound TCP listener.
+    TcpListener(TcpListener),
+}
 
 // ================================================================
 // Stdin abstraction (host-scaling.2 Phase A)
@@ -88,6 +103,11 @@ fn io_error_to_category(e: &std::io::Error) -> u16 {
         ErrorKind::BrokenPipe => ERR_BROKEN_PIPE,
         ErrorKind::OutOfMemory => ERR_OUT_OF_MEMORY,
         ErrorKind::Unsupported => ERR_UNSUPPORTED,
+        ErrorKind::ConnectionRefused => ERR_CONNECTION_REFUSED,
+        ErrorKind::ConnectionReset => ERR_CONNECTION_RESET,
+        ErrorKind::AddrInUse => ERR_ADDR_IN_USE,
+        ErrorKind::AddrNotAvailable => ERR_ADDR_NOT_AVAILABLE,
+        ErrorKind::NotConnected => ERR_NOT_CONNECTED,
         _ => ERR_OTHER,
     }
 }
@@ -600,8 +620,21 @@ impl HostcallBuffer {
                                     control.store(CONTROL_READY, Ordering::Release);
                                 }
                                 // Slow path — offload to I/O thread
-                                SERVICE_OPEN | SERVICE_WRITE | SERVICE_READ | SERVICE_CLOSE
-                                | SERVICE_STDIN | SERVICE_BULK_WRITE | SERVICE_BULK_READ => {
+                                SERVICE_OPEN
+                                | SERVICE_WRITE
+                                | SERVICE_READ
+                                | SERVICE_CLOSE
+                                | SERVICE_STDIN
+                                | SERVICE_BULK_WRITE
+                                | SERVICE_BULK_READ
+                                | SERVICE_TCP_CONNECT
+                                | SERVICE_TCP_WRITE
+                                | SERVICE_TCP_READ
+                                | SERVICE_TCP_CLOSE
+                                | SERVICE_TCP_BIND
+                                | SERVICE_TCP_ACCEPT
+                                | SERVICE_TCP_BULK_WRITE
+                                | SERVICE_TCP_BULK_READ => {
                                     let _ = io_tx.send(IoRequest {
                                         pkt_idx: idx,
                                         service,
@@ -628,7 +661,7 @@ impl HostcallBuffer {
     ///
     /// Runs until the channel sender is dropped (listener shutdown).
     fn io_thread_loop<S: StdinSource>(&self, rx: mpsc::Receiver<IoRequest>, mut stdin: S) {
-        let mut fd_table: HashMap<u64, File> = HashMap::new();
+        let mut fd_table: HashMap<u64, FdResource> = HashMap::new();
         let mut next_fd: u64 = 1; // fd 0 is reserved
 
         while let Ok(req) = rx.recv() {
@@ -642,6 +675,17 @@ impl HostcallBuffer {
                     SERVICE_STDIN => self.handle_stdin_from_source(pkt, &mut stdin),
                     SERVICE_BULK_WRITE => self.handle_bulk_write(pkt, &mut fd_table),
                     SERVICE_BULK_READ => self.handle_bulk_read(pkt, &mut fd_table),
+                    // TCP services
+                    SERVICE_TCP_CONNECT => {
+                        self.handle_tcp_connect(pkt, &mut fd_table, &mut next_fd)
+                    }
+                    SERVICE_TCP_WRITE => self.handle_tcp_write(pkt, &mut fd_table),
+                    SERVICE_TCP_READ => self.handle_tcp_read(pkt, &mut fd_table),
+                    SERVICE_TCP_CLOSE => self.handle_tcp_close(pkt, &mut fd_table),
+                    SERVICE_TCP_BIND => self.handle_tcp_bind(pkt, &mut fd_table, &mut next_fd),
+                    SERVICE_TCP_ACCEPT => self.handle_tcp_accept(pkt, &mut fd_table, &mut next_fd),
+                    SERVICE_TCP_BULK_WRITE => self.handle_tcp_bulk_write(pkt, &mut fd_table),
+                    SERVICE_TCP_BULK_READ => self.handle_tcp_bulk_read(pkt, &mut fd_table),
                     _ => true,
                 }
             };
@@ -752,7 +796,7 @@ impl HostcallBuffer {
     unsafe fn handle_open(
         &self,
         pkt: *mut u8,
-        fd_table: &mut HashMap<u64, File>,
+        fd_table: &mut HashMap<u64, FdResource>,
         next_fd: &mut u64,
     ) -> bool {
         let payload = pkt.add(PKT_OFF_PAYLOAD);
@@ -794,7 +838,7 @@ impl HostcallBuffer {
             Ok(file) => {
                 let fd = *next_fd;
                 *next_fd += 1;
-                fd_table.insert(fd, file);
+                fd_table.insert(fd, FdResource::File(file));
                 std::ptr::write_volatile(payload as *mut u64, fd);
                 println!("  [HOST] FILE OPEN: \"{path_str}\" flags={flags} -> fd={fd}");
                 false
@@ -814,7 +858,7 @@ impl HostcallBuffer {
     ///   Slots 2-7: data bytes (up to 48 bytes)
     /// Response payload (lane 0):
     ///   Slot 0: bytes written on success, FILE_ERROR_SENTINEL on error
-    unsafe fn handle_write(&self, pkt: *mut u8, fd_table: &mut HashMap<u64, File>) -> bool {
+    unsafe fn handle_write(&self, pkt: *mut u8, fd_table: &mut HashMap<u64, FdResource>) -> bool {
         let payload = pkt.add(PKT_OFF_PAYLOAD);
 
         let fd = std::ptr::read_volatile(payload as *const u64);
@@ -829,7 +873,12 @@ impl HostcallBuffer {
         }
 
         let file = match fd_table.get_mut(&fd) {
-            Some(f) => f,
+            Some(FdResource::File(f)) => f,
+            Some(_) => {
+                eprintln!("  [HOST] FILE WRITE ERROR: fd={fd} is not a file");
+                std::ptr::write_volatile(payload as *mut u64, encode_error(ERR_INVALID_INPUT, 0));
+                return true;
+            }
             None => {
                 eprintln!("  [HOST] FILE WRITE ERROR: invalid fd={fd}");
                 std::ptr::write_volatile(payload as *mut u64, encode_error(ERR_INVALID_FD, 0));
@@ -860,7 +909,7 @@ impl HostcallBuffer {
     /// Response payload (lane 0):
     ///   Slot 0: bytes read on success, FILE_ERROR_SENTINEL on error
     ///   Slots 1-7: data bytes (up to 56 bytes)
-    unsafe fn handle_read(&self, pkt: *mut u8, fd_table: &mut HashMap<u64, File>) -> bool {
+    unsafe fn handle_read(&self, pkt: *mut u8, fd_table: &mut HashMap<u64, FdResource>) -> bool {
         let payload = pkt.add(PKT_OFF_PAYLOAD);
 
         let fd = std::ptr::read_volatile(payload as *const u64);
@@ -868,7 +917,12 @@ impl HostcallBuffer {
         let max_len = max_len.min(FILE_MAX_READ_LEN);
 
         let file = match fd_table.get_mut(&fd) {
-            Some(f) => f,
+            Some(FdResource::File(f)) => f,
+            Some(_) => {
+                eprintln!("  [HOST] FILE READ ERROR: fd={fd} is not a file");
+                std::ptr::write_volatile(payload as *mut u64, encode_error(ERR_INVALID_INPUT, 0));
+                return true;
+            }
             None => {
                 eprintln!("  [HOST] FILE READ ERROR: invalid fd={fd}");
                 std::ptr::write_volatile(payload as *mut u64, encode_error(ERR_INVALID_FD, 0));
@@ -1034,20 +1088,26 @@ impl HostcallBuffer {
     ///   Slot 0: fd (u64)
     /// Response payload (lane 0):
     ///   Slot 0: 0 on success, FILE_ERROR_SENTINEL on error
-    unsafe fn handle_close(&self, pkt: *mut u8, fd_table: &mut HashMap<u64, File>) -> bool {
+    unsafe fn handle_close(&self, pkt: *mut u8, fd_table: &mut HashMap<u64, FdResource>) -> bool {
         let payload = pkt.add(PKT_OFF_PAYLOAD);
 
         let fd = std::ptr::read_volatile(payload as *const u64);
 
         match fd_table.remove(&fd) {
-            Some(_file) => {
-                // File is dropped here, which closes it
-                println!("  [HOST] FILE CLOSE: fd={fd} closed");
+            Some(resource) => {
+                // Resource is dropped here, which closes it
+                let kind = match &resource {
+                    FdResource::File(_) => "FILE",
+                    FdResource::TcpStream(_) => "TCP STREAM",
+                    FdResource::TcpListener(_) => "TCP LISTENER",
+                };
+                drop(resource);
+                println!("  [HOST] CLOSE: fd={fd} ({kind}) closed");
                 std::ptr::write_volatile(payload as *mut u64, 0);
                 false
             }
             None => {
-                eprintln!("  [HOST] FILE CLOSE ERROR: invalid fd={fd}");
+                eprintln!("  [HOST] CLOSE ERROR: invalid fd={fd}");
                 std::ptr::write_volatile(payload as *mut u64, encode_error(ERR_INVALID_FD, 0));
                 true
             }
@@ -1085,7 +1145,11 @@ impl HostcallBuffer {
     ///   Slot 2: length (u64)
     /// Response payload (lane 0):
     ///   Slot 0: bytes written on success, FILE_ERROR_SENTINEL on error
-    unsafe fn handle_bulk_write(&self, pkt: *mut u8, fd_table: &mut HashMap<u64, File>) -> bool {
+    unsafe fn handle_bulk_write(
+        &self,
+        pkt: *mut u8,
+        fd_table: &mut HashMap<u64, FdResource>,
+    ) -> bool {
         let payload = pkt.add(PKT_OFF_PAYLOAD);
 
         let fd = std::ptr::read_volatile(payload as *const u64);
@@ -1105,7 +1169,12 @@ impl HostcallBuffer {
         }
 
         let file = match fd_table.get_mut(&fd) {
-            Some(f) => f,
+            Some(FdResource::File(f)) => f,
+            Some(_) => {
+                eprintln!("  [HOST] BULK WRITE ERROR: fd={fd} is not a file");
+                std::ptr::write_volatile(payload as *mut u64, encode_error(ERR_INVALID_INPUT, 0));
+                return true;
+            }
             None => {
                 eprintln!("  [HOST] BULK WRITE ERROR: invalid fd={fd}");
                 std::ptr::write_volatile(payload as *mut u64, encode_error(ERR_INVALID_FD, 0));
@@ -1138,7 +1207,11 @@ impl HostcallBuffer {
     ///   Slot 2: max_length (u64)
     /// Response payload (lane 0):
     ///   Slot 0: bytes read on success, FILE_ERROR_SENTINEL on error
-    unsafe fn handle_bulk_read(&self, pkt: *mut u8, fd_table: &mut HashMap<u64, File>) -> bool {
+    unsafe fn handle_bulk_read(
+        &self,
+        pkt: *mut u8,
+        fd_table: &mut HashMap<u64, FdResource>,
+    ) -> bool {
         let payload = pkt.add(PKT_OFF_PAYLOAD);
 
         let fd = std::ptr::read_volatile(payload as *const u64);
@@ -1158,7 +1231,12 @@ impl HostcallBuffer {
         }
 
         let file = match fd_table.get_mut(&fd) {
-            Some(f) => f,
+            Some(FdResource::File(f)) => f,
+            Some(_) => {
+                eprintln!("  [HOST] BULK READ ERROR: fd={fd} is not a file");
+                std::ptr::write_volatile(payload as *mut u64, encode_error(ERR_INVALID_INPUT, 0));
+                return true;
+            }
             None => {
                 eprintln!("  [HOST] BULK READ ERROR: invalid fd={fd}");
                 std::ptr::write_volatile(payload as *mut u64, encode_error(ERR_INVALID_FD, 0));
@@ -1177,6 +1255,431 @@ impl HostcallBuffer {
             }
             Err(e) => {
                 eprintln!("  [HOST] BULK READ ERROR: fd={fd}: {e}");
+                write_error_response(payload, &e)
+            }
+        }
+    }
+
+    // ================================================================
+    // TCP networking handlers
+    // ================================================================
+
+    /// Extract an address string from packet payload slots 1-7.
+    ///
+    /// Slot 0 contains `port(u32) | addr_len(u32)` packed as `u64`.
+    /// Returns `(address_string, port)` or writes an error response and returns `None`.
+    unsafe fn extract_tcp_addr(&self, payload: *mut u8) -> Option<(String, u16)> {
+        let slot0 = std::ptr::read_volatile(payload as *const u64);
+        let port = (slot0 & 0xFFFF_FFFF) as u32;
+        let addr_len = ((slot0 >> 32) & 0xFFFF_FFFF) as usize;
+        let addr_len = addr_len.min(TCP_MAX_ADDR_LEN);
+
+        // Read address bytes from slots 1-7
+        let addr_ptr = payload.add(8);
+        let mut addr_buf = [0u8; TCP_MAX_ADDR_LEN];
+        for i in 0..addr_len {
+            addr_buf[i] = std::ptr::read_volatile(addr_ptr.add(i));
+        }
+
+        match std::str::from_utf8(&addr_buf[..addr_len]) {
+            Ok(s) => Some((s.to_string(), port as u16)),
+            Err(_) => None,
+        }
+    }
+
+    /// Handle SERVICE_TCP_CONNECT: connect to a remote TCP address:port.
+    ///
+    /// Request payload (lane 0):
+    ///   Slot 0: `port(u32) | addr_len(u32)` packed as `u64`
+    ///   Slots 1-7: address string (up to 56 bytes)
+    /// Response payload (lane 0):
+    ///   Slot 0: socket fd on success, encoded error on failure
+    unsafe fn handle_tcp_connect(
+        &self,
+        pkt: *mut u8,
+        fd_table: &mut HashMap<u64, FdResource>,
+        next_fd: &mut u64,
+    ) -> bool {
+        let payload = pkt.add(PKT_OFF_PAYLOAD);
+
+        let (addr, port) = match self.extract_tcp_addr(payload) {
+            Some(v) => v,
+            None => {
+                eprintln!("  [HOST] TCP CONNECT ERROR: invalid UTF-8 address");
+                let e = std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid UTF-8 addr");
+                return write_error_response(payload, &e);
+            }
+        };
+
+        let socket_addr = format!("{addr}:{port}");
+        match TcpStream::connect(&socket_addr) {
+            Ok(stream) => {
+                let fd = *next_fd;
+                *next_fd += 1;
+                fd_table.insert(fd, FdResource::TcpStream(stream));
+                std::ptr::write_volatile(payload as *mut u64, fd);
+                println!("  [HOST] TCP CONNECT: \"{socket_addr}\" -> fd={fd}");
+                false
+            }
+            Err(e) => {
+                eprintln!("  [HOST] TCP CONNECT ERROR: \"{socket_addr}\": {e}");
+                write_error_response(payload, &e)
+            }
+        }
+    }
+
+    /// Handle SERVICE_TCP_WRITE: write inline data to a TCP socket (up to 48 bytes).
+    ///
+    /// Request payload (lane 0):
+    ///   Slot 0: fd (u64)
+    ///   Slot 1: data length (u64)
+    ///   Slots 2-7: data bytes (up to 48 bytes)
+    /// Response payload (lane 0):
+    ///   Slot 0: bytes written on success, encoded error on failure
+    unsafe fn handle_tcp_write(
+        &self,
+        pkt: *mut u8,
+        fd_table: &mut HashMap<u64, FdResource>,
+    ) -> bool {
+        let payload = pkt.add(PKT_OFF_PAYLOAD);
+
+        let fd = std::ptr::read_volatile(payload as *const u64);
+        let data_len = std::ptr::read_volatile(payload.add(8) as *const u64) as usize;
+        let data_len = data_len.min(TCP_MAX_WRITE_LEN);
+
+        // Read data bytes from slots 2-7
+        let data_ptr = payload.add(16);
+        let mut data_buf = [0u8; TCP_MAX_WRITE_LEN];
+        for i in 0..data_len {
+            data_buf[i] = std::ptr::read_volatile(data_ptr.add(i));
+        }
+
+        let stream = match fd_table.get_mut(&fd) {
+            Some(FdResource::TcpStream(s)) => s,
+            Some(_) => {
+                eprintln!("  [HOST] TCP WRITE ERROR: fd={fd} is not a TCP stream");
+                std::ptr::write_volatile(payload as *mut u64, encode_error(ERR_INVALID_INPUT, 0));
+                return true;
+            }
+            None => {
+                eprintln!("  [HOST] TCP WRITE ERROR: invalid fd={fd}");
+                std::ptr::write_volatile(payload as *mut u64, encode_error(ERR_INVALID_FD, 0));
+                return true;
+            }
+        };
+
+        match stream.write(&data_buf[..data_len]) {
+            Ok(n) => {
+                let _ = stream.flush();
+                println!("  [HOST] TCP WRITE: fd={fd} {n} bytes written");
+                std::ptr::write_volatile(payload as *mut u64, n as u64);
+                false
+            }
+            Err(e) => {
+                eprintln!("  [HOST] TCP WRITE ERROR: fd={fd}: {e}");
+                write_error_response(payload, &e)
+            }
+        }
+    }
+
+    /// Handle SERVICE_TCP_READ: read inline data from a TCP socket (up to 56 bytes).
+    ///
+    /// Request payload (lane 0):
+    ///   Slot 0: fd (u64)
+    ///   Slot 1: max bytes to read (u64)
+    /// Response payload (lane 0):
+    ///   Slot 0: bytes read on success, encoded error on failure
+    ///   Slots 1-7: data bytes (up to 56 bytes)
+    unsafe fn handle_tcp_read(
+        &self,
+        pkt: *mut u8,
+        fd_table: &mut HashMap<u64, FdResource>,
+    ) -> bool {
+        let payload = pkt.add(PKT_OFF_PAYLOAD);
+
+        let fd = std::ptr::read_volatile(payload as *const u64);
+        let max_len = std::ptr::read_volatile(payload.add(8) as *const u64) as usize;
+        let max_len = max_len.min(TCP_MAX_READ_LEN);
+
+        let stream = match fd_table.get_mut(&fd) {
+            Some(FdResource::TcpStream(s)) => s,
+            Some(_) => {
+                eprintln!("  [HOST] TCP READ ERROR: fd={fd} is not a TCP stream");
+                std::ptr::write_volatile(payload as *mut u64, encode_error(ERR_INVALID_INPUT, 0));
+                return true;
+            }
+            None => {
+                eprintln!("  [HOST] TCP READ ERROR: invalid fd={fd}");
+                std::ptr::write_volatile(payload as *mut u64, encode_error(ERR_INVALID_FD, 0));
+                return true;
+            }
+        };
+
+        let mut read_buf = [0u8; TCP_MAX_READ_LEN];
+        match stream.read(&mut read_buf[..max_len]) {
+            Ok(n) => {
+                println!("  [HOST] TCP READ: fd={fd} {n} bytes read");
+                // Write response: slot 0 = bytes read
+                std::ptr::write_volatile(payload as *mut u64, n as u64);
+                // Slots 1-7 = data bytes
+                let dst = payload.add(8);
+                for i in 0..n {
+                    std::ptr::write_volatile(dst.add(i), read_buf[i]);
+                }
+                false
+            }
+            Err(e) => {
+                eprintln!("  [HOST] TCP READ ERROR: fd={fd}: {e}");
+                write_error_response(payload, &e)
+            }
+        }
+    }
+
+    /// Handle SERVICE_TCP_CLOSE: close a TCP socket (stream or listener).
+    ///
+    /// The fd namespace is shared between files and sockets. This handler
+    /// specifically expects a TCP resource. For generic close, use SERVICE_CLOSE.
+    ///
+    /// Request payload (lane 0):
+    ///   Slot 0: fd (u64)
+    /// Response payload (lane 0):
+    ///   Slot 0: 0 on success, encoded error on failure
+    unsafe fn handle_tcp_close(
+        &self,
+        pkt: *mut u8,
+        fd_table: &mut HashMap<u64, FdResource>,
+    ) -> bool {
+        let payload = pkt.add(PKT_OFF_PAYLOAD);
+
+        let fd = std::ptr::read_volatile(payload as *const u64);
+
+        match fd_table.remove(&fd) {
+            Some(resource) => {
+                let kind = match &resource {
+                    FdResource::TcpStream(_) => "TCP STREAM",
+                    FdResource::TcpListener(_) => "TCP LISTENER",
+                    FdResource::File(_) => "FILE (via TCP_CLOSE)",
+                };
+                drop(resource);
+                println!("  [HOST] TCP CLOSE: fd={fd} ({kind}) closed");
+                std::ptr::write_volatile(payload as *mut u64, 0);
+                false
+            }
+            None => {
+                eprintln!("  [HOST] TCP CLOSE ERROR: invalid fd={fd}");
+                std::ptr::write_volatile(payload as *mut u64, encode_error(ERR_INVALID_FD, 0));
+                true
+            }
+        }
+    }
+
+    /// Handle SERVICE_TCP_BIND: bind and listen on a local TCP address:port.
+    ///
+    /// Request payload (lane 0):
+    ///   Slot 0: `port(u32) | addr_len(u32)` packed as `u64`
+    ///   Slots 1-7: bind address string (up to 56 bytes)
+    /// Response payload (lane 0):
+    ///   Slot 0: listener fd on success, encoded error on failure
+    unsafe fn handle_tcp_bind(
+        &self,
+        pkt: *mut u8,
+        fd_table: &mut HashMap<u64, FdResource>,
+        next_fd: &mut u64,
+    ) -> bool {
+        let payload = pkt.add(PKT_OFF_PAYLOAD);
+
+        let (addr, port) = match self.extract_tcp_addr(payload) {
+            Some(v) => v,
+            None => {
+                eprintln!("  [HOST] TCP BIND ERROR: invalid UTF-8 address");
+                let e = std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid UTF-8 addr");
+                return write_error_response(payload, &e);
+            }
+        };
+
+        let socket_addr = format!("{addr}:{port}");
+        match TcpListener::bind(&socket_addr) {
+            Ok(listener) => {
+                let fd = *next_fd;
+                *next_fd += 1;
+                fd_table.insert(fd, FdResource::TcpListener(listener));
+                std::ptr::write_volatile(payload as *mut u64, fd);
+                println!("  [HOST] TCP BIND: \"{socket_addr}\" -> fd={fd}");
+                false
+            }
+            Err(e) => {
+                eprintln!("  [HOST] TCP BIND ERROR: \"{socket_addr}\": {e}");
+                write_error_response(payload, &e)
+            }
+        }
+    }
+
+    /// Handle SERVICE_TCP_ACCEPT: accept a connection on a TCP listener fd.
+    ///
+    /// Request payload (lane 0):
+    ///   Slot 0: listener fd (u64)
+    /// Response payload (lane 0):
+    ///   Slot 0: new stream fd on success, encoded error on failure
+    unsafe fn handle_tcp_accept(
+        &self,
+        pkt: *mut u8,
+        fd_table: &mut HashMap<u64, FdResource>,
+        next_fd: &mut u64,
+    ) -> bool {
+        let payload = pkt.add(PKT_OFF_PAYLOAD);
+
+        let listener_fd = std::ptr::read_volatile(payload as *const u64);
+
+        // We need to borrow the listener immutably, then insert the new stream.
+        // accept() takes &self on TcpListener, so no mutable borrow conflict.
+        let accept_result = match fd_table.get(&listener_fd) {
+            Some(FdResource::TcpListener(l)) => l.accept(),
+            Some(_) => {
+                eprintln!("  [HOST] TCP ACCEPT ERROR: fd={listener_fd} is not a TCP listener");
+                std::ptr::write_volatile(payload as *mut u64, encode_error(ERR_INVALID_INPUT, 0));
+                return true;
+            }
+            None => {
+                eprintln!("  [HOST] TCP ACCEPT ERROR: invalid fd={listener_fd}");
+                std::ptr::write_volatile(payload as *mut u64, encode_error(ERR_INVALID_FD, 0));
+                return true;
+            }
+        };
+
+        match accept_result {
+            Ok((stream, peer_addr)) => {
+                let fd = *next_fd;
+                *next_fd += 1;
+                fd_table.insert(fd, FdResource::TcpStream(stream));
+                std::ptr::write_volatile(payload as *mut u64, fd);
+                println!("  [HOST] TCP ACCEPT: listener fd={listener_fd} -> stream fd={fd} from {peer_addr}");
+                false
+            }
+            Err(e) => {
+                eprintln!("  [HOST] TCP ACCEPT ERROR: fd={listener_fd}: {e}");
+                write_error_response(payload, &e)
+            }
+        }
+    }
+
+    /// Handle SERVICE_TCP_BULK_WRITE: write sideband buffer data to a TCP socket.
+    ///
+    /// Request payload (lane 0):
+    ///   Slot 0: fd (u64)
+    ///   Slot 1: sideband_offset (u64)
+    ///   Slot 2: length (u64)
+    /// Response payload (lane 0):
+    ///   Slot 0: bytes written on success, encoded error on failure
+    unsafe fn handle_tcp_bulk_write(
+        &self,
+        pkt: *mut u8,
+        fd_table: &mut HashMap<u64, FdResource>,
+    ) -> bool {
+        let payload = pkt.add(PKT_OFF_PAYLOAD);
+
+        let fd = std::ptr::read_volatile(payload as *const u64);
+        let sb_offset = std::ptr::read_volatile(payload.add(8) as *const u64) as usize;
+        let length = std::ptr::read_volatile(payload.add(16) as *const u64) as usize;
+
+        // Bounds check against sideband capacity
+        let capacity = std::ptr::read_volatile(
+            self.sideband_host_ptr.add(SIDEBAND_OFF_CAPACITY) as *const u64
+        ) as usize;
+        if sb_offset + length > capacity {
+            eprintln!(
+                "  [HOST] TCP BULK WRITE ERROR: offset={sb_offset} + len={length} > capacity={capacity}"
+            );
+            std::ptr::write_volatile(payload as *mut u64, encode_error(ERR_INVALID_INPUT, 0));
+            return true;
+        }
+
+        let stream = match fd_table.get_mut(&fd) {
+            Some(FdResource::TcpStream(s)) => s,
+            Some(_) => {
+                eprintln!("  [HOST] TCP BULK WRITE ERROR: fd={fd} is not a TCP stream");
+                std::ptr::write_volatile(payload as *mut u64, encode_error(ERR_INVALID_INPUT, 0));
+                return true;
+            }
+            None => {
+                eprintln!("  [HOST] TCP BULK WRITE ERROR: invalid fd={fd}");
+                std::ptr::write_volatile(payload as *mut u64, encode_error(ERR_INVALID_FD, 0));
+                return true;
+            }
+        };
+
+        let data_ptr = self.sideband_host_ptr.add(SIDEBAND_DATA_OFFSET + sb_offset);
+        let data = std::slice::from_raw_parts(data_ptr, length);
+
+        match stream.write_all(data) {
+            Ok(()) => {
+                let _ = stream.flush();
+                println!("  [HOST] TCP BULK WRITE: fd={fd} {length} bytes written");
+                std::ptr::write_volatile(payload as *mut u64, length as u64);
+                false
+            }
+            Err(e) => {
+                eprintln!("  [HOST] TCP BULK WRITE ERROR: fd={fd}: {e}");
+                write_error_response(payload, &e)
+            }
+        }
+    }
+
+    /// Handle SERVICE_TCP_BULK_READ: read from a TCP socket into sideband buffer.
+    ///
+    /// Request payload (lane 0):
+    ///   Slot 0: fd (u64)
+    ///   Slot 1: sideband_offset (u64)
+    ///   Slot 2: max_length (u64)
+    /// Response payload (lane 0):
+    ///   Slot 0: bytes read on success, encoded error on failure
+    unsafe fn handle_tcp_bulk_read(
+        &self,
+        pkt: *mut u8,
+        fd_table: &mut HashMap<u64, FdResource>,
+    ) -> bool {
+        let payload = pkt.add(PKT_OFF_PAYLOAD);
+
+        let fd = std::ptr::read_volatile(payload as *const u64);
+        let sb_offset = std::ptr::read_volatile(payload.add(8) as *const u64) as usize;
+        let max_length = std::ptr::read_volatile(payload.add(16) as *const u64) as usize;
+
+        // Bounds check
+        let capacity = std::ptr::read_volatile(
+            self.sideband_host_ptr.add(SIDEBAND_OFF_CAPACITY) as *const u64
+        ) as usize;
+        if sb_offset + max_length > capacity {
+            eprintln!(
+                "  [HOST] TCP BULK READ ERROR: offset={sb_offset} + len={max_length} > capacity={capacity}"
+            );
+            std::ptr::write_volatile(payload as *mut u64, encode_error(ERR_INVALID_INPUT, 0));
+            return true;
+        }
+
+        let stream = match fd_table.get_mut(&fd) {
+            Some(FdResource::TcpStream(s)) => s,
+            Some(_) => {
+                eprintln!("  [HOST] TCP BULK READ ERROR: fd={fd} is not a TCP stream");
+                std::ptr::write_volatile(payload as *mut u64, encode_error(ERR_INVALID_INPUT, 0));
+                return true;
+            }
+            None => {
+                eprintln!("  [HOST] TCP BULK READ ERROR: invalid fd={fd}");
+                std::ptr::write_volatile(payload as *mut u64, encode_error(ERR_INVALID_FD, 0));
+                return true;
+            }
+        };
+
+        let data_ptr = self.sideband_host_ptr.add(SIDEBAND_DATA_OFFSET + sb_offset);
+        let buf = std::slice::from_raw_parts_mut(data_ptr, max_length);
+
+        match stream.read(buf) {
+            Ok(n) => {
+                println!("  [HOST] TCP BULK READ: fd={fd} {n} bytes read");
+                std::ptr::write_volatile(payload as *mut u64, n as u64);
+                false
+            }
+            Err(e) => {
+                eprintln!("  [HOST] TCP BULK READ ERROR: fd={fd}: {e}");
                 write_error_response(payload, &e)
             }
         }

@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 320     # Monotonic counter, incremented after each completed phase
-completed_tasks = 341
+total_cycles = 322     # Monotonic counter, incremented after each completed phase
+completed_tasks = 343
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "bench-suite.2"
-last_summary = "extended-std epic: all 4 criteria met (Mutex, HashMap, 2 new types, pthread_mutex stubs). executor-impl 2+3 done. api-ergonomics.3 done. Next: bench-suite.2+3, executor-impl.4."
+current_task_id = "executor-impl.4"
+last_summary = "bench-suite.2+3 done: throughput (66K/s 1t, 22K/s 16t), scalability (1-1024t sweep), file I/O (3.4ms round-trip, 296/s). Benchmarks epic 3/4 criteria met. Next: executor-impl.4 demo kernel."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 89
@@ -198,8 +198,9 @@ success_criteria = [
 [[epics]]
 id = "extended-std"
 title = "Extended std on GPU — sync primitives + collections via hostcall"
-status = "active"
+status = "completed"
 priority = "high"
+# ALL 4 CRITERIA MET — closed 2026-03-15
 success_criteria = [
     "GPU Mutex<T> via atomic CAS — lock/unlock/try_lock work correctly across warps",
     "GPU-side HashMap or BTreeMap usable with hostcall-backed allocator",
@@ -251,7 +252,7 @@ success_criteria = [
 id = "std-sync"
 epic = "extended-std"
 title = "GPU sync primitives + collections"
-status = "active"
+status = "completed"
 goal = "Mutex<T>, HashMap on GPU via atomics + hostcall allocator"
 success_criteria = [
     "GPU Mutex<T> with lock/unlock/try_lock",
@@ -408,7 +409,7 @@ id = "bench-suite.2"
 theme = "bench-suite"
 title = "Experiment: hostcall throughput + scalability benchmark"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["bench-suite.1"]
 
 [[tasks]]
@@ -416,7 +417,7 @@ id = "bench-suite.3"
 theme = "bench-suite"
 title = "Experiment: file I/O latency + throughput benchmark"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["bench-suite.1"]
 
 # ============================================================

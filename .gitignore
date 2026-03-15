@@ -28,3 +28,4 @@ examples/*/kernel/Cargo.lock
 formal/tla2tools.jar
 formal/HostcallProtocol_TTrace_*.bin
 formal/states/
+bench-results/

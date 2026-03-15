@@ -497,6 +497,237 @@ pub unsafe extern "ptx-kernel" fn hostcall_latency_bench_v2(
 }
 
 // ============================================================
+// File I/O latency benchmark kernel (bench-suite.3)
+// ============================================================
+
+/// File I/O latency benchmark kernel.
+///
+/// Thread 0 only. Performs `num_iters` rounds of (open → write → close → open → read → close),
+/// timing each phase individually. Results are stored as 6 u64 timestamps per iteration
+/// (phase latencies in ns) plus 2 u64 summary fields.
+///
+/// Layout of `results` (u64 array):
+///   [0] = total elapsed nanoseconds for all iterations
+///   [1] = number of completed full iterations
+///   Per-iteration phase timings (6 u64 per iteration, starting at offset 2):
+///     [2 + iter*6 + 0] = open-write latency (ns)
+///     [2 + iter*6 + 1] = write latency (ns)
+///     [2 + iter*6 + 2] = close-write latency (ns)
+///     [2 + iter*6 + 3] = open-read latency (ns)
+///     [2 + iter*6 + 4] = read latency (ns)
+///     [2 + iter*6 + 5] = close-read latency (ns)
+///
+/// `buf` = hostcall buffer
+/// `results` = output array, must have space for (2 + num_iters * 6) u64 entries
+/// `num_iters` = number of full open-write-close-open-read-close cycles
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn file_io_bench(
+    buf: *mut u8,
+    results: *mut u64,
+    num_iters: u32,
+) {
+    let thread_x = nvptx::_thread_idx_x() as u32;
+    let block_x = nvptx::_block_idx_x() as u32;
+    let block_dim_x = nvptx::_block_dim_x() as u32;
+    let global_idx = block_x * block_dim_x + thread_x;
+    if global_idx != 0 {
+        return;
+    }
+
+    let path: &[u8; 20] = b"gpu_bench_output.txt";
+    let path_len: u32 = 20;
+    let msg: &[u8; 48] = b"Benchmark data: GPU file I/O latency test 12345\n";
+    let msg_len: u32 = 48;
+
+    let t_total_start = gpu_instant_nanos();
+    let mut completed: u64 = 0;
+
+    let mut iter: u32 = 0;
+    while iter < num_iters {
+        let base = 2 + (iter as usize) * 6;
+        let mut read_buf: [u8; 64] = [0u8; 64];
+
+        // Phase 1: Open for writing
+        let t0 = gpu_instant_nanos();
+        let (fd, err) = gpu_hostcall_open(buf, path.as_ptr(), path_len, FILE_OPEN_WRITE_CREATE);
+        let t1 = gpu_instant_nanos();
+        core::ptr::write_volatile(results.add(base), t1 - t0);
+        if err != 0 {
+            break;
+        }
+
+        // Phase 2: Write
+        let t2 = gpu_instant_nanos();
+        let (_written, err) = gpu_hostcall_write(buf, fd, msg.as_ptr(), msg_len);
+        let t3 = gpu_instant_nanos();
+        core::ptr::write_volatile(results.add(base + 1), t3 - t2);
+        if err != 0 {
+            gpu_hostcall_close(buf, fd);
+            break;
+        }
+
+        // Phase 3: Close write fd
+        let t4 = gpu_instant_nanos();
+        let (_, err) = gpu_hostcall_close(buf, fd);
+        let t5 = gpu_instant_nanos();
+        core::ptr::write_volatile(results.add(base + 2), t5 - t4);
+        if err != 0 {
+            break;
+        }
+
+        // Phase 4: Open for reading
+        let t6 = gpu_instant_nanos();
+        let (fd2, err) = gpu_hostcall_open(buf, path.as_ptr(), path_len, FILE_OPEN_READ);
+        let t7 = gpu_instant_nanos();
+        core::ptr::write_volatile(results.add(base + 3), t7 - t6);
+        if err != 0 {
+            break;
+        }
+
+        // Phase 5: Read
+        let t8 = gpu_instant_nanos();
+        let (_bytes_read, err) = gpu_hostcall_read(buf, fd2, read_buf.as_mut_ptr(), 64);
+        let t9 = gpu_instant_nanos();
+        core::ptr::write_volatile(results.add(base + 4), t9 - t8);
+        if err != 0 {
+            gpu_hostcall_close(buf, fd2);
+            break;
+        }
+
+        // Phase 6: Close read fd
+        let t10 = gpu_instant_nanos();
+        gpu_hostcall_close(buf, fd2);
+        let t11 = gpu_instant_nanos();
+        core::ptr::write_volatile(results.add(base + 5), t11 - t10);
+
+        completed += 1;
+        iter += 1;
+    }
+
+    let t_total_end = gpu_instant_nanos();
+    core::ptr::write_volatile(results.add(0), t_total_end - t_total_start);
+    core::ptr::write_volatile(results.add(1), completed);
+}
+
+// ============================================================
+// Per-iteration latency benchmark kernel (bench-suite.2)
+// ============================================================
+
+/// Per-iteration latency benchmark kernel v3.
+///
+/// Unlike v1/v2 which record per-thread total elapsed time, this kernel records
+/// each iteration's round-trip latency individually, enabling true percentile
+/// analysis across all hostcalls (not just per-thread averages).
+///
+/// Layout of `results` (u64 array):
+///   Header (3 u64 per thread):
+///     results[tid*3 + 0] = total elapsed nanoseconds (all iterations)
+///     results[tid*3 + 1] = total CAS retries
+///     results[tid*3 + 2] = number of completed iterations
+///   Per-iteration latencies (1 u64 per iteration per thread):
+///     results[header_size + tid*num_iters + iter] = single-iteration latency in ns
+///
+/// `buf` = hostcall buffer
+/// `results` = output array, must have space for (num_threads * 3 + num_threads * num_iters) u64 entries
+/// `num_iters` = number of NOP hostcalls per thread
+/// `num_threads_total` = total thread count (for computing header offset)
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn hostcall_latency_bench_v3(
+    buf: *mut u8,
+    results: *mut u64,
+    num_iters: u32,
+    num_threads_total: u32,
+) {
+    let thread_x = nvptx::_thread_idx_x() as u32;
+    let block_x = nvptx::_block_idx_x() as u32;
+    let block_dim_x = nvptx::_block_dim_x() as u32;
+    let tid = block_x * block_dim_x + thread_x;
+
+    if tid >= num_threads_total {
+        return;
+    }
+
+    // Read shard info once
+    let (num_shards, shard_array_off, _) = gpu_runtime::hostcall::read_shard_info(buf as *const u8);
+    let free_ptr = gpu_runtime::hostcall::get_free_stack_ptr(buf, num_shards, shard_array_off);
+    let ready_ptr = gpu_runtime::hostcall::get_ready_stack_ptr(buf, num_shards, shard_array_off);
+
+    // Per-iteration latency storage starts after the header
+    let header_size = (num_threads_total as usize) * 3;
+    let iter_base = header_size + (tid as usize) * (num_iters as usize);
+
+    let t_start = gpu_instant_nanos();
+    let mut total_retries: u64 = 0;
+    let mut completed: u64 = 0;
+
+    let mut iter: u32 = 0;
+    while iter < num_iters {
+        let t_iter_start = gpu_instant_nanos();
+
+        // Pop free packet (instrumented, shard-aware)
+        let (pkt_idx, retries) = hc_pop_free_counted_v2(buf, free_ptr, num_shards, shard_array_off);
+        if pkt_idx == NULL_INDEX {
+            break;
+        }
+        total_retries += retries as u64;
+
+        let pkt_off = gpu_runtime::hostcall::pkt_offset(buf as *const u8, pkt_idx);
+        let pkt = buf.add(pkt_off);
+
+        // Fill NOP packet
+        let mask = activemask();
+        core::ptr::write_volatile(pkt.add(PKT_OFF_ACTIVE_MASK) as *mut u32, mask);
+        core::ptr::write_volatile(pkt.add(PKT_OFF_SERVICE) as *mut u32, SERVICE_NOP);
+        sys_store_release_u32(pkt.add(PKT_OFF_CONTROL) as *mut u32, 0);
+
+        // Mark as filled
+        sys_store_release_u32(pkt.add(PKT_OFF_CONTROL) as *mut u32, CONTROL_FILLED);
+
+        // Push to ready stack (shard-aware)
+        gpu_runtime::hostcall::hc_push(ready_ptr, buf, pkt_idx);
+
+        // Ring doorbell (always global)
+        sys_fetch_add_u64(buf.add(BUF_OFF_DOORBELL) as *mut u64, 1);
+
+        // Spin-wait for response
+        let control_ptr = pkt.add(PKT_OFF_CONTROL) as *const u32;
+        let mut spins: u32 = 0;
+        loop {
+            let ctrl = sys_spin_load_acquire_u32(control_ptr);
+            if ctrl & CONTROL_READY != 0 {
+                break;
+            }
+            spins += 1;
+            if spins >= GPU_MAX_SPIN {
+                break;
+            }
+        }
+
+        // Return packet to free stack (shard-aware)
+        gpu_runtime::hostcall::hc_push(free_ptr, buf, pkt_idx);
+
+        let t_iter_end = gpu_instant_nanos();
+
+        // Record per-iteration latency
+        core::ptr::write_volatile(
+            results.add(iter_base + iter as usize),
+            t_iter_end - t_iter_start,
+        );
+
+        completed += 1;
+        iter += 1;
+    }
+
+    let t_end = gpu_instant_nanos();
+
+    // Write header results
+    let base = (tid as usize) * 3;
+    core::ptr::write_volatile(results.add(base), t_end - t_start);
+    core::ptr::write_volatile(results.add(base + 1), total_retries);
+    core::ptr::write_volatile(results.add(base + 2), completed);
+}
+
+// ============================================================
 // GPU panic test kernel (gpu-panic.2)
 // ============================================================
 

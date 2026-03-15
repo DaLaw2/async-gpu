@@ -1,4 +1,5 @@
 #![allow(clippy::needless_range_loop)]
+mod bench_harness;
 mod error;
 mod hostcall;
 mod mapped_mem;
@@ -152,6 +153,24 @@ fn main() -> Result<()> {
                 tests_hostcall::run_warp_result_future_test(Arc::clone(&dev))?;
                 return Ok(());
             }
+            "throughput" => {
+                tests_benchmark::run_throughput_benchmark(Arc::clone(&dev))?;
+                return Ok(());
+            }
+            "scalability" => {
+                tests_benchmark::run_scalability_benchmark(Arc::clone(&dev))?;
+                return Ok(());
+            }
+            "file_io_bench" => {
+                tests_benchmark::run_file_io_benchmark(Arc::clone(&dev))?;
+                return Ok(());
+            }
+            "bench" => {
+                tests_benchmark::run_throughput_benchmark(Arc::clone(&dev))?;
+                tests_benchmark::run_scalability_benchmark(Arc::clone(&dev))?;
+                tests_benchmark::run_file_io_benchmark(Arc::clone(&dev))?;
+                return Ok(());
+            }
             _ => println!("Unknown ONLY_TEST={only}, running all tests"),
         }
     }
@@ -206,6 +225,13 @@ fn main() -> Result<()> {
 
     // Sharding benchmark (per-block-sharding.3)
     tests_benchmark::run_sharding_benchmark(Arc::clone(&dev))?;
+
+    // Throughput + scalability benchmarks (bench-suite.2)
+    tests_benchmark::run_throughput_benchmark(Arc::clone(&dev))?;
+    tests_benchmark::run_scalability_benchmark(Arc::clone(&dev))?;
+
+    // File I/O latency benchmark (bench-suite.3)
+    tests_benchmark::run_file_io_benchmark(Arc::clone(&dev))?;
 
     // Parallel file grep demo (product.8)
     tests_pipeline::run_parallel_grep_test(Arc::clone(&dev))?;

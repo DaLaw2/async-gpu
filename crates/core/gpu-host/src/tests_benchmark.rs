@@ -1,9 +1,10 @@
-//! Benchmark tests: hostcall latency, warp divergence, sharding.
+//! Benchmark tests: hostcall latency, warp divergence, sharding, throughput, scalability.
 
 use std::sync::Arc;
 
 use cudarc::driver::{CudaDevice, LaunchAsync, LaunchConfig};
 
+use crate::bench_harness::{self, BenchmarkResult};
 use crate::error::{GpuHostError, Result};
 use crate::hostcall;
 use crate::mapped_mem::{alloc_mapped_u64_array, free_mapped_u64_array};
@@ -545,5 +546,409 @@ pub(crate) fn run_sharding_benchmark(dev: Arc<CudaDevice>) -> Result<()> {
     }
 
     println!("  Sharding benchmark complete.");
+    Ok(())
+}
+
+// ============================================================
+// New benchmarks (bench-suite.2): throughput + scalability
+// ============================================================
+
+/// Run the v3 per-iteration latency kernel and collect results into BenchmarkResult.
+fn run_v3_bench(
+    dev: &Arc<CudaDevice>,
+    name: &str,
+    grid_dim: u32,
+    block_dim: u32,
+    num_iters: u32,
+    num_packets: u16,
+) -> Result<BenchmarkResult> {
+    let num_threads = grid_dim * block_dim;
+
+    let hc_buf = hostcall::HostcallBuffer::new(num_packets)?;
+    let dev_ptr = hc_buf.dev_ptr;
+
+    // Allocate results: header (3 u64/thread) + per-iter (1 u64/thread/iter)
+    let header_count = (num_threads as usize) * 3;
+    let iter_count = (num_threads as usize) * (num_iters as usize);
+    let total_results = header_count + iter_count;
+    let (results_host_ptr, results_dev_ptr) =
+        unsafe { alloc_mapped_u64_array(dev, total_results)? };
+
+    // Zero out the results buffer
+    unsafe {
+        std::ptr::write_bytes(results_host_ptr, 0, total_results);
+    }
+
+    let hc_buf_ref = Arc::new(hc_buf);
+    let hc_buf_listener = Arc::clone(&hc_buf_ref);
+    let listener_handle = std::thread::spawn(move || {
+        hc_buf_listener.listen(|_msg| {});
+    });
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "kernel_bench_v3", &["hostcall_latency_bench_v3"]);
+    let f = dev
+        .get_func("kernel_bench_v3", "hostcall_latency_bench_v3")
+        .ok_or(GpuHostError::KernelNotFound("hostcall_latency_bench_v3"))?;
+
+    let cfg = LaunchConfig {
+        grid_dim: (grid_dim, 1, 1),
+        block_dim: (block_dim, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    let start = std::time::Instant::now();
+    unsafe {
+        f.launch(cfg, (dev_ptr, results_dev_ptr, num_iters, num_threads))?;
+    }
+    dev.synchronize()?;
+    let wall_elapsed = start.elapsed();
+
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    hc_buf_ref.signal_shutdown();
+    listener_handle.join().unwrap();
+
+    // Read header results
+    let mut per_thread_latencies_ns: Vec<f64> = Vec::new();
+    let mut total_retries: u64 = 0;
+    let mut total_completed: u64 = 0;
+
+    for tid in 0..num_threads as usize {
+        let elapsed_ns = unsafe { std::ptr::read_volatile(results_host_ptr.add(tid * 3)) };
+        let retries = unsafe { std::ptr::read_volatile(results_host_ptr.add(tid * 3 + 1)) };
+        let completed = unsafe { std::ptr::read_volatile(results_host_ptr.add(tid * 3 + 2)) };
+
+        total_retries += retries;
+        total_completed += completed;
+
+        if completed > 0 {
+            per_thread_latencies_ns.push(elapsed_ns as f64 / completed as f64);
+        }
+    }
+
+    // Read per-iteration latencies
+    let mut per_iter_latencies_ns: Vec<f64> = Vec::new();
+    for tid in 0..num_threads as usize {
+        let completed = unsafe { std::ptr::read_volatile(results_host_ptr.add(tid * 3 + 2)) };
+        for iter in 0..completed as usize {
+            let offset = header_count + tid * (num_iters as usize) + iter;
+            let lat_ns = unsafe { std::ptr::read_volatile(results_host_ptr.add(offset)) };
+            if lat_ns > 0 {
+                per_iter_latencies_ns.push(lat_ns as f64);
+            }
+        }
+    }
+
+    unsafe { free_mapped_u64_array(results_host_ptr)? };
+
+    Ok(BenchmarkResult {
+        name: name.to_string(),
+        num_threads,
+        num_iters,
+        num_packets,
+        grid_dim,
+        block_dim,
+        wall_ms: wall_elapsed.as_secs_f64() * 1000.0,
+        total_completed,
+        total_retries,
+        per_iter_latencies_ns,
+        per_thread_latencies_ns,
+    })
+}
+
+/// Sustained throughput benchmark (bench-suite.2).
+///
+/// Measures peak hostcalls/sec with many threads and many iterations,
+/// ensuring the system reaches steady state.
+pub(crate) fn run_throughput_benchmark(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Hostcall Throughput Benchmark (bench-suite.2) ---");
+    println!("  Per-iteration timestamps via v3 kernel. Sustained load measurement.\n");
+
+    // Warmup: 1 thread, 10 iters
+    let _ = run_v3_bench(&dev, "warmup", 1, 1, 10, 4);
+
+    let mut all_results: Vec<BenchmarkResult> = Vec::new();
+
+    // Scenario 1: Single-thread micro-latency (true per-iteration distribution)
+    let r = run_v3_bench(&dev, "nop_micro_1t", 1, 1, 100, 4)?;
+    println!("  {}", r.summary_line());
+    all_results.push(r);
+
+    // Scenario 2: Single warp (32 threads) with enough packets
+    let r = run_v3_bench(&dev, "nop_warp_32t", 1, 32, 50, 32)?;
+    println!("  {}", r.summary_line());
+    all_results.push(r);
+
+    // Scenario 3: 4 blocks × 32 threads = 128 threads, sustained
+    let r = run_v3_bench(&dev, "nop_sustained_128t", 4, 32, 50, 64)?;
+    println!("  {}", r.summary_line());
+    all_results.push(r);
+
+    // Scenario 4: 16 blocks × 32 threads = 512 threads, stress test
+    let r = run_v3_bench(&dev, "nop_stress_512t", 16, 32, 20, 64)?;
+    println!("  {}", r.summary_line());
+    all_results.push(r);
+
+    // Print aggregate summary
+    println!("\n  --- Throughput Summary ---");
+    for r in &all_results {
+        let stats = r.latency_stats();
+        println!(
+            "    {:<25} {:>8.0} calls/s  p50={:>8.0}ns  p99={:>8.0}ns  stddev={:>8.0}ns  CAS/call={:.2}",
+            r.name,
+            r.throughput(),
+            stats.p50_ns,
+            stats.p99_ns,
+            stats.stddev_ns,
+            r.cas_retry_rate(),
+        );
+    }
+
+    // Write JSON results
+    let json_path = std::path::Path::new("bench-results");
+    if !json_path.exists() {
+        let _ = std::fs::create_dir_all(json_path);
+    }
+    let _ = bench_harness::write_results_json(&json_path.join("throughput.json"), &all_results);
+
+    println!("\n  Throughput benchmark complete.");
+    Ok(())
+}
+
+/// Scalability curve benchmark (bench-suite.2).
+///
+/// Measures throughput and latency as a function of thread count,
+/// sweeping from 1 to 1024 threads to find the saturation point.
+pub(crate) fn run_scalability_benchmark(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Hostcall Scalability Benchmark (bench-suite.2) ---");
+    println!("  Sweeping thread counts [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024]");
+    println!("  Fixed 20 iters/thread. Packet pool = min(2*threads, 64).\n");
+
+    // Warmup
+    let _ = run_v3_bench(&dev, "warmup", 1, 1, 5, 4);
+
+    let thread_counts: &[u32] = &[1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024];
+    let num_iters = 20;
+    let mut all_results: Vec<BenchmarkResult> = Vec::new();
+
+    println!(
+        "  {:>6} {:>6} {:>6} {:>4} | {:>10} {:>10} {:>10} {:>10} | {:>8} {:>10}",
+        "threads",
+        "grid",
+        "block",
+        "pkts",
+        "p50(ns)",
+        "p95(ns)",
+        "p99(ns)",
+        "mean(ns)",
+        "CAS/call",
+        "throughput",
+    );
+
+    for &total_threads in thread_counts {
+        let block_dim = total_threads.min(32); // keep warps compact
+        let grid_dim = total_threads.div_ceil(block_dim);
+        let num_packets = ((total_threads * 2) as u16).clamp(4, 64);
+
+        let name = format!("scale_{total_threads}t");
+        let r = run_v3_bench(&dev, &name, grid_dim, block_dim, num_iters, num_packets)?;
+
+        let stats = r.latency_stats();
+        println!(
+            "  {:>6} {:>6} {:>6} {:>4} | {:>10.0} {:>10.0} {:>10.0} {:>10.0} | {:>8.2} {:>10.0}",
+            total_threads,
+            grid_dim,
+            block_dim,
+            num_packets,
+            stats.p50_ns,
+            stats.p95_ns,
+            stats.p99_ns,
+            stats.mean_ns,
+            r.cas_retry_rate(),
+            r.throughput(),
+        );
+
+        all_results.push(r);
+    }
+
+    // Identify saturation point
+    if all_results.len() >= 2 {
+        let mut peak_throughput = 0.0f64;
+        let mut peak_threads = 0u32;
+        for r in &all_results {
+            if r.throughput() > peak_throughput {
+                peak_throughput = r.throughput();
+                peak_threads = r.num_threads;
+            }
+        }
+        println!(
+            "\n  Peak throughput: {:.0} calls/s at {} threads",
+            peak_throughput, peak_threads,
+        );
+
+        // Check for saturation (throughput drops >10% from peak)
+        let saturated = all_results
+            .iter()
+            .find(|r| r.num_threads > peak_threads && r.throughput() < peak_throughput * 0.9);
+        if let Some(r) = saturated {
+            println!(
+                "  Saturation detected at {} threads ({:.0} calls/s, {:.0}% of peak)",
+                r.num_threads,
+                r.throughput(),
+                r.throughput() / peak_throughput * 100.0,
+            );
+        }
+    }
+
+    // Write JSON
+    let json_path = std::path::Path::new("bench-results");
+    if !json_path.exists() {
+        let _ = std::fs::create_dir_all(json_path);
+    }
+    let _ = bench_harness::write_results_json(&json_path.join("scalability.json"), &all_results);
+
+    println!("\n  Scalability benchmark complete.");
+    Ok(())
+}
+
+/// File I/O latency benchmark (bench-suite.3).
+///
+/// Measures per-phase latency for open/write/close/open/read/close cycles.
+/// Single-thread only (file I/O is inherently serial).
+pub(crate) fn run_file_io_benchmark(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- File I/O Latency Benchmark (bench-suite.3) ---");
+    println!("  Thread 0 performs N rounds of open→write→close→open→read→close.");
+    println!("  Per-phase timestamps via file_io_bench kernel.\n");
+
+    let num_iters: u32 = 30;
+
+    let hc_buf = hostcall::HostcallBuffer::new(4)?;
+    let dev_ptr = hc_buf.dev_ptr;
+
+    // Results: 2 header + 6 per iter
+    let results_count = 2 + (num_iters as usize) * 6;
+    let (results_host_ptr, results_dev_ptr) =
+        unsafe { alloc_mapped_u64_array(&dev, results_count)? };
+
+    // Zero out
+    unsafe {
+        std::ptr::write_bytes(results_host_ptr, 0, results_count);
+    }
+
+    let hc_buf_ref = Arc::new(hc_buf);
+    let hc_buf_listener = Arc::clone(&hc_buf_ref);
+    let listener_handle = std::thread::spawn(move || {
+        hc_buf_listener.listen(|_msg| {});
+    });
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "kernel_file_bench", &["file_io_bench"]);
+    let f = dev
+        .get_func("kernel_file_bench", "file_io_bench")
+        .ok_or(GpuHostError::KernelNotFound("file_io_bench"))?;
+
+    let cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (1, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    // Warmup run (3 iters)
+    {
+        let warmup_count = 2 + 3 * 6;
+        let (warmup_host, warmup_dev) = unsafe { alloc_mapped_u64_array(&dev, warmup_count)? };
+        unsafe {
+            std::ptr::write_bytes(warmup_host, 0, warmup_count);
+            f.clone().launch(cfg, (dev_ptr, warmup_dev, 3u32))?;
+        }
+        dev.synchronize()?;
+        unsafe { free_mapped_u64_array(warmup_host)? };
+    }
+
+    // Main run
+    let start = std::time::Instant::now();
+    unsafe {
+        f.launch(cfg, (dev_ptr, results_dev_ptr, num_iters))?;
+    }
+    dev.synchronize()?;
+    let wall_elapsed = start.elapsed();
+
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    hc_buf_ref.signal_shutdown();
+    listener_handle.join().unwrap();
+
+    // Read results
+    let total_ns = unsafe { std::ptr::read_volatile(results_host_ptr.add(0)) };
+    let completed = unsafe { std::ptr::read_volatile(results_host_ptr.add(1)) };
+
+    let phase_names = [
+        "open-write",
+        "write",
+        "close-write",
+        "open-read",
+        "read",
+        "close-read",
+    ];
+    let mut phase_data: Vec<Vec<f64>> = vec![Vec::new(); 6];
+
+    for iter in 0..completed as usize {
+        let base = 2 + iter * 6;
+        for phase in 0..6 {
+            let ns = unsafe { std::ptr::read_volatile(results_host_ptr.add(base + phase)) };
+            if ns > 0 {
+                phase_data[phase].push(ns as f64);
+            }
+        }
+    }
+
+    unsafe { free_mapped_u64_array(results_host_ptr)? };
+
+    // Print per-phase statistics
+    println!(
+        "  Completed {}/{} iterations, total={:.1}ms, wall={:.1}ms\n",
+        completed,
+        num_iters,
+        total_ns as f64 / 1_000_000.0,
+        wall_elapsed.as_secs_f64() * 1000.0,
+    );
+
+    println!(
+        "  {:<12} {:>10} {:>10} {:>10} {:>10} {:>10}",
+        "Phase", "p50(μs)", "p95(μs)", "p99(μs)", "mean(μs)", "stddev(μs)",
+    );
+
+    let mut total_mean = 0.0;
+    for (i, name) in phase_names.iter().enumerate() {
+        let stats = bench_harness::compute_stats(&phase_data[i]);
+        println!(
+            "  {:<12} {:>10.1} {:>10.1} {:>10.1} {:>10.1} {:>10.1}",
+            name,
+            stats.p50_ns / 1000.0,
+            stats.p95_ns / 1000.0,
+            stats.p99_ns / 1000.0,
+            stats.mean_ns / 1000.0,
+            stats.stddev_ns / 1000.0,
+        );
+        total_mean += stats.mean_ns;
+    }
+
+    println!(
+        "\n  Total round-trip mean: {:.1}μs ({:.0}ns)",
+        total_mean / 1000.0,
+        total_mean,
+    );
+    println!(
+        "  File I/O throughput: {:.0} round-trips/s",
+        if total_mean > 0.0 {
+            1_000_000_000.0 / total_mean
+        } else {
+            0.0
+        },
+    );
+
+    // Clean up benchmark file
+    let _ = std::fs::remove_file("gpu_bench_output.txt");
+
+    println!("\n  File I/O benchmark complete.");
     Ok(())
 }

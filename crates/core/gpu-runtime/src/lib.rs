@@ -3719,7 +3719,7 @@ pub mod executor {
     use core::pin::Pin;
     use core::task::{Context, Poll};
     use gpu_atomics::{
-        activemask, lane_id, shfl_sync_idx_u32, syncwarp, sys_cas_u64, sys_load_acquire_u64,
+        lane_id, shfl_sync_idx_u32, syncwarp, sys_cas_u64, sys_load_acquire_u64,
         sys_spin_load_acquire_u32, sys_store_release_u32,
     };
 
@@ -3733,7 +3733,8 @@ pub mod executor {
     pub const EMPTY_SENTINEL: u32 = 0xFFFF_FFFF;
 
     /// Maximum polls before a task is considered stuck.
-    const MAX_POLLS_PER_TASK: u32 = 10_000_000;
+    /// Kept conservative to avoid GPU TDR timeouts on complex futures.
+    const MAX_POLLS_PER_TASK: u32 = 1_000;
 
     // Task slot states
     const SLOT_FREE: u32 = 0;
@@ -4299,7 +4300,7 @@ pub mod executor {
                         tasks_executed += 1;
                         break;
                     }
-                    if polls >= 1000 {
+                    if polls >= MAX_POLLS_PER_TASK {
                         if lid == 0 {
                             core::ptr::write_volatile(slot.state.get(), SLOT_FREE);
                         }

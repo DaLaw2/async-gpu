@@ -21,7 +21,8 @@ pub const YOLO_INPUT_SIZE: usize = 640;
 pub const NUM_CLASSES: usize = 80;
 
 /// reg_max for nano variant (DFL bins per coordinate).
-pub const REG_MAX: usize = 4;
+/// Actual model has DFL weight [1, 16, 1, 1] — 16 bins per coordinate.
+pub const REG_MAX: usize = 16;
 
 /// YOLO layer count (0..22, 23 total).
 pub const NUM_LAYERS: usize = 23;
@@ -124,24 +125,27 @@ impl YoloWeights {
         scale: usize,
         sub: usize,
     ) -> Result<ConvWeights, ModelError> {
-        let w_name = format!("model.22.{branch}.{scale}.{sub}.conv.weight");
-        let b_name = format!("model.22.{branch}.{scale}.{sub}.conv.bias");
-
-        // Some detect sub-layers have BN, some don't.
-        // Final layers (sub=2) have bias but no BN.
-        let (weight, shape) = self.get(&w_name)?;
-        let bias = if let Ok(td) = self.get(&b_name) {
-            td.0.clone()
+        // Final layers (sub=2) use bare Conv2d: `model.22.cv2.0.2.weight` (no .conv prefix).
+        // Intermediate layers (sub=0,1) use Conv+BN: `model.22.cv2.0.0.conv.weight`.
+        let (w_name, b_name) = if sub == 2 {
+            (
+                format!("model.22.{branch}.{scale}.{sub}.weight"),
+                format!("model.22.{branch}.{scale}.{sub}.bias"),
+            )
         } else {
-            // Try without .conv prefix for bare Conv2d
-            let alt = format!("model.22.{branch}.{scale}.{sub}.bias");
-            self.get(&alt)?.0.clone()
+            (
+                format!("model.22.{branch}.{scale}.{sub}.conv.weight"),
+                format!("model.22.{branch}.{scale}.{sub}.conv.bias"),
+            )
         };
+
+        let (weight, shape) = self.get(&w_name)?;
+        let (bias, _) = self.get(&b_name)?;
 
         Ok(ConvWeights {
             weight: weight.clone(),
             shape: shape.clone(),
-            bias,
+            bias: bias.clone(),
         })
     }
 

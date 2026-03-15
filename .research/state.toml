@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 363     # Monotonic counter, incremented after each completed phase
-completed_tasks = 393
+total_cycles = 364     # Monotonic counter, incremented after each completed phase
+completed_tasks = 394
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.execute"
-current_task_id = "yolo-inference.8"
-last_summary = "yolo-inference.7 DONE: Detect head (sigmoid, bias_add, DFL, NMS, anchor grid) all tested. All YOLO building blocks implemented. Next: yolo-inference.8 (end-to-end demo). Blocker: need YOLO weights (user must run export_yolo.py)."
+current_step = "do.route"
+current_task_id = ""
+last_summary = "yolo-inference.8 DONE: End-to-end YOLOv8-nano inference working — 7 detections on bus.jpg (3 persons, bus, car, person, tie). ALL 5 object-detection epic criteria met. yolo-inference theme completed. Next: brainstorm for remaining active epics."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 98
@@ -307,7 +307,8 @@ success_criteria = [
 [[epics]]
 id = "object-detection"
 title = "GPU Object Detection — YOLOv8-nano inference with hostcall result return"
-status = "active"
+status = "completed"
+# ALL 5 CRITERIA MET — closed 2026-03-15
 priority = "high"
 depends_on = "tensor-core-gemm"
 success_criteria = [
@@ -350,7 +351,7 @@ success_criteria = [
 id = "yolo-inference"
 epic = "object-detection"
 title = "YOLOv8-nano inference end-to-end with Conv2D, BN, SiLU, pooling, NMS"
-status = "active"
+status = "completed"
 goal = "Implement YOLOv8-nano inference in pure Rust inline PTX, detect >=3 objects in a test image"
 success_criteria = [
     "Conv2D kernel (im2col + MMA GEMM) passes unit tests",
@@ -502,7 +503,7 @@ id = "yolo-inference.8"
 theme = "yolo-inference"
 title = "Experiment: end-to-end demo + validation"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["yolo-inference.7"]
 
 # --- warp-batch-io tasks ---

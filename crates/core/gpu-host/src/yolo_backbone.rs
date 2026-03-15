@@ -11,6 +11,7 @@ use cudarc::driver::{CudaDevice, CudaFunction, CudaSlice, LaunchAsync, LaunchCon
 
 use crate::error::{GpuHostError, Result};
 use crate::mapped_mem::{alloc_mapped_result_array, free_mapped_mem};
+use crate::model_yolo::{ConvBnSiluWeights, ConvWeights, YoloWeights, NUM_CLASSES, REG_MAX};
 
 /// GPU tensor: device memory + shape metadata.
 pub struct GpuTensor {
@@ -270,7 +271,7 @@ impl YoloRunner {
                     beta,
                     running_mean,
                     running_var,
-                    input.c,
+                    n,
                     hw,
                     1e-5f32,
                     self.status_dev_ptr,
@@ -556,6 +557,420 @@ impl YoloRunner {
         }
         Ok(())
     }
+
+    // ---------------------------------------------------------------
+    // High-level inference helpers (upload weights on-the-fly)
+    // ---------------------------------------------------------------
+
+    /// Create a GpuTensor from host data.
+    pub fn make_tensor(&self, data: &[f32], c: u32, h: u32, w: u32) -> Result<GpuTensor> {
+        Ok(GpuTensor {
+            data: self.upload(data)?,
+            c,
+            h,
+            w,
+        })
+    }
+
+    /// Run Conv+BN+SiLU from weight struct (uploads weights to GPU).
+    #[allow(clippy::too_many_arguments)]
+    fn run_conv_bn_silu_w(
+        &self,
+        input: &GpuTensor,
+        w: &ConvBnSiluWeights,
+        c_out: u32,
+        kh: u32,
+        kw: u32,
+        stride: u32,
+        pad: u32,
+    ) -> Result<GpuTensor> {
+        let k = w.conv_shape[1] * w.conv_shape[2] * w.conv_shape[3];
+        let weight_cm = prepare_conv_weight(&w.conv_weight, c_out as usize, k);
+        let wt = self.upload(&weight_cm)?;
+        let g = self.upload(&w.bn_weight)?;
+        let b = self.upload(&w.bn_bias)?;
+        let m = self.upload(&w.bn_running_mean)?;
+        let v = self.upload(&w.bn_running_var)?;
+        self.conv_bn_silu(input, &wt, c_out, kh, kw, stride, pad, &g, &b, &m, &v)
+    }
+
+    /// Run bare Conv+bias from weight struct (uploads weights to GPU).
+    #[allow(clippy::too_many_arguments)]
+    fn run_conv_bias_w(
+        &self,
+        input: &GpuTensor,
+        w: &ConvWeights,
+        c_out: u32,
+        kh: u32,
+        kw: u32,
+        stride: u32,
+        pad: u32,
+    ) -> Result<GpuTensor> {
+        let k = w.shape[1] * w.shape[2] * w.shape[3];
+        let weight_cm = prepare_conv_weight(&w.weight, c_out as usize, k);
+        let wt = self.upload(&weight_cm)?;
+        let b = self.upload(&w.bias)?;
+        self.conv_bias(input, &wt, &b, c_out, kh, kw, stride, pad)
+    }
+
+    /// Run a C2f block.
+    ///
+    /// C2f structure: cv1 (1x1) → chunk split → N bottlenecks → concat all → cv2 (1x1)
+    #[allow(clippy::too_many_arguments)]
+    fn run_c2f(
+        &self,
+        input: &GpuTensor,
+        weights: &YoloWeights,
+        layer_idx: usize,
+        c_out: u32,
+        n_bottleneck: usize,
+        shortcut: bool,
+    ) -> Result<GpuTensor> {
+        let hidden = c_out / 2;
+
+        // cv1: Conv 1x1, c_in -> 2*hidden
+        let cv1_w = weights
+            .sub_conv_bn_silu(layer_idx, "cv1")
+            .map_err(map_model_err)?;
+        let cv1_out = self.run_conv_bn_silu_w(input, &cv1_w, 2 * hidden, 1, 1, 1, 0)?;
+
+        // Chunk split into two halves
+        let (branch_0, mut prev) = self.chunk_split(&cv1_out)?;
+
+        // Collect all branches for final concat: [branch_0, branch_1, bn0_out, bn1_out, ...]
+        let mut branches: Vec<GpuTensor> = vec![branch_0];
+        // branch_1 (the second chunk) is the input to the first bottleneck
+        // We also concat branch_1 itself
+        let branch_1_for_concat = GpuTensor {
+            data: self.upload(&self.download(&prev.data)?)?,
+            c: prev.c,
+            h: prev.h,
+            w: prev.w,
+        };
+        branches.push(branch_1_for_concat);
+
+        for j in 0..n_bottleneck {
+            let bn_cv1 = weights
+                .bottleneck_conv_bn_silu(layer_idx, j, "cv1")
+                .map_err(map_model_err)?;
+            let bn1 = self.run_conv_bn_silu_w(&prev, &bn_cv1, hidden, 3, 3, 1, 1)?;
+
+            let bn_cv2 = weights
+                .bottleneck_conv_bn_silu(layer_idx, j, "cv2")
+                .map_err(map_model_err)?;
+            let bn2 = self.run_conv_bn_silu_w(&bn1, &bn_cv2, hidden, 3, 3, 1, 1)?;
+
+            let bn_out = if shortcut {
+                self.add(&prev, &bn2)?
+            } else {
+                bn2
+            };
+
+            // Save for concat and as input to next bottleneck
+            let bn_out_copy = GpuTensor {
+                data: self.upload(&self.download(&bn_out.data)?)?,
+                c: bn_out.c,
+                h: bn_out.h,
+                w: bn_out.w,
+            };
+            branches.push(bn_out_copy);
+            prev = bn_out;
+        }
+
+        // Concat all branches along channel dimension
+        let mut cat = branches.remove(0);
+        for b in branches {
+            cat = self.concat(&cat, &b)?;
+        }
+
+        // cv2: Conv 1x1, (2+n)*hidden -> c_out
+        let cv2_w = weights
+            .sub_conv_bn_silu(layer_idx, "cv2")
+            .map_err(map_model_err)?;
+        self.run_conv_bn_silu_w(&cat, &cv2_w, c_out, 1, 1, 1, 0)
+    }
+
+    /// Run SPPF block.
+    ///
+    /// SPPF: cv1 (1x1) → 3× MaxPool5x5 → concat [x, p1, p2, p3] → cv2 (1x1)
+    fn run_sppf(
+        &self,
+        input: &GpuTensor,
+        weights: &YoloWeights,
+        layer_idx: usize,
+        c_out: u32,
+    ) -> Result<GpuTensor> {
+        let c_hidden = input.c / 2;
+
+        let cv1_w = weights
+            .sub_conv_bn_silu(layer_idx, "cv1")
+            .map_err(map_model_err)?;
+        let x = self.run_conv_bn_silu_w(input, &cv1_w, c_hidden, 1, 1, 1, 0)?;
+
+        let p1 = self.maxpool2d(&x, 5, 1, 2)?;
+        let p2 = self.maxpool2d(&p1, 5, 1, 2)?;
+        let p3 = self.maxpool2d(&p2, 5, 1, 2)?;
+
+        let cat1 = self.concat(&x, &p1)?;
+        let cat2 = self.concat(&cat1, &p2)?;
+        let cat3 = self.concat(&cat2, &p3)?;
+
+        let cv2_w = weights
+            .sub_conv_bn_silu(layer_idx, "cv2")
+            .map_err(map_model_err)?;
+        self.run_conv_bn_silu_w(&cat3, &cv2_w, c_out, 1, 1, 1, 0)
+    }
+
+    /// Run detect head for one scale, returning (box_output, cls_output).
+    ///
+    /// box_output: [64, H, W] (4*reg_max channels)
+    /// cls_output: [80, H, W] (num_classes channels, after sigmoid)
+    fn run_detect_scale(
+        &self,
+        input: &GpuTensor,
+        weights: &YoloWeights,
+        scale: usize,
+    ) -> Result<(GpuTensor, GpuTensor)> {
+        // Box branch (cv2): Conv3x3+BN+SiLU → Conv3x3+BN+SiLU → Conv1x1(bare)
+        let cv2_0 = weights
+            .detect_conv_bn_silu("cv2", scale, 0)
+            .map_err(map_model_err)?;
+        let cv2_1 = weights
+            .detect_conv_bn_silu("cv2", scale, 1)
+            .map_err(map_model_err)?;
+        let cv2_2 = weights
+            .detect_conv("cv2", scale, 2)
+            .map_err(map_model_err)?;
+
+        let b0 = self.run_conv_bn_silu_w(input, &cv2_0, 64, 3, 3, 1, 1)?;
+        let b1 = self.run_conv_bn_silu_w(&b0, &cv2_1, 64, 3, 3, 1, 1)?;
+        let box_out = self.run_conv_bias_w(&b1, &cv2_2, 64, 1, 1, 1, 0)?;
+
+        // Class branch (cv3): Conv3x3+BN+SiLU → Conv3x3+BN+SiLU → Conv1x1(bare) → sigmoid
+        let cv3_0 = weights
+            .detect_conv_bn_silu("cv3", scale, 0)
+            .map_err(map_model_err)?;
+        let cv3_1 = weights
+            .detect_conv_bn_silu("cv3", scale, 1)
+            .map_err(map_model_err)?;
+        let cv3_2 = weights
+            .detect_conv("cv3", scale, 2)
+            .map_err(map_model_err)?;
+
+        let c0 = self.run_conv_bn_silu_w(input, &cv3_0, 80, 3, 3, 1, 1)?;
+        let c1 = self.run_conv_bn_silu_w(&c0, &cv3_1, 80, 3, 3, 1, 1)?;
+        let cls_logits = self.run_conv_bias_w(&c1, &cv3_2, 80, 1, 1, 1, 0)?;
+        let cls_out = self.sigmoid(&cls_logits)?;
+
+        Ok((box_out, cls_out))
+    }
+
+    /// Run full YOLOv8-nano inference: backbone + neck + detect head + NMS.
+    ///
+    /// Input: CHW f32 data [3, 640, 640] normalized to [0, 1].
+    /// Returns: list of detections (x1, y1, x2, y2 in pixel coords, class_id, confidence).
+    #[allow(clippy::too_many_lines)]
+    pub fn yolo_inference(
+        &self,
+        weights: &YoloWeights,
+        input_data: &[f32],
+        conf_threshold: f32,
+        iou_threshold: f32,
+    ) -> Result<Vec<Detection>> {
+        let input = self.make_tensor(input_data, 3, 640, 640)?;
+        println!("  Running YOLOv8-nano inference (640x640)...");
+
+        // === Backbone ===
+        // L0: Conv 3x3 s2, 3->16, out 320x320
+        let w0 = weights.conv_bn_silu(0).map_err(map_model_err)?;
+        let l0 = self.run_conv_bn_silu_w(&input, &w0, 16, 3, 3, 2, 1)?;
+        println!("    L0:  Conv 3->16 s2 → {}x{}x{}", l0.c, l0.h, l0.w);
+
+        // L1: Conv 3x3 s2, 16->32, out 160x160
+        let w1 = weights.conv_bn_silu(1).map_err(map_model_err)?;
+        let l1 = self.run_conv_bn_silu_w(&l0, &w1, 32, 3, 3, 2, 1)?;
+        println!("    L1:  Conv 16->32 s2 → {}x{}x{}", l1.c, l1.h, l1.w);
+
+        // L2: C2f 32->32, 1 bottleneck, shortcut=true
+        let l2 = self.run_c2f(&l1, weights, 2, 32, 1, true)?;
+        println!("    L2:  C2f 32->32 → {}x{}x{}", l2.c, l2.h, l2.w);
+
+        // L3: Conv 3x3 s2, 32->64, out 80x80
+        let w3 = weights.conv_bn_silu(3).map_err(map_model_err)?;
+        let l3 = self.run_conv_bn_silu_w(&l2, &w3, 64, 3, 3, 2, 1)?;
+        println!("    L3:  Conv 32->64 s2 → {}x{}x{}", l3.c, l3.h, l3.w);
+
+        // L4: C2f 64->64, 2 bottlenecks, shortcut=true  (*** KEEP for skip ***)
+        let l4 = self.run_c2f(&l3, weights, 4, 64, 2, true)?;
+        println!("    L4:  C2f 64->64 → {}x{}x{}", l4.c, l4.h, l4.w);
+
+        // L5: Conv 3x3 s2, 64->128, out 40x40
+        let w5 = weights.conv_bn_silu(5).map_err(map_model_err)?;
+        let l5 = self.run_conv_bn_silu_w(&l4, &w5, 128, 3, 3, 2, 1)?;
+        println!("    L5:  Conv 64->128 s2 → {}x{}x{}", l5.c, l5.h, l5.w);
+
+        // L6: C2f 128->128, 2 bottlenecks, shortcut=true  (*** KEEP for skip ***)
+        let l6 = self.run_c2f(&l5, weights, 6, 128, 2, true)?;
+        println!("    L6:  C2f 128->128 → {}x{}x{}", l6.c, l6.h, l6.w);
+
+        // L7: Conv 3x3 s2, 128->256, out 20x20
+        let w7 = weights.conv_bn_silu(7).map_err(map_model_err)?;
+        let l7 = self.run_conv_bn_silu_w(&l6, &w7, 256, 3, 3, 2, 1)?;
+        println!("    L7:  Conv 128->256 s2 → {}x{}x{}", l7.c, l7.h, l7.w);
+
+        // L8: C2f 256->256, 1 bottleneck, shortcut=true
+        let l8 = self.run_c2f(&l7, weights, 8, 256, 1, true)?;
+        println!("    L8:  C2f 256->256 → {}x{}x{}", l8.c, l8.h, l8.w);
+
+        // L9: SPPF 256->256  (*** KEEP for skip ***)
+        let l9 = self.run_sppf(&l8, weights, 9, 256)?;
+        println!("    L9:  SPPF 256->256 → {}x{}x{}", l9.c, l9.h, l9.w);
+
+        // === Neck (FPN/PAN) ===
+        // L10: Upsample 2x → 40x40
+        let l10 = self.upsample_2x(&l9)?;
+        println!("    L10: Upsample → {}x{}x{}", l10.c, l10.h, l10.w);
+
+        // L11: Concat [L10, L6] → 40x40x(256+128)=384
+        let l11 = self.concat(&l10, &l6)?;
+        println!("    L11: Concat → {}x{}x{}", l11.c, l11.h, l11.w);
+
+        // L12: C2f 384->128, 1 bottleneck, shortcut=false  (*** KEEP for skip ***)
+        let l12 = self.run_c2f(&l11, weights, 12, 128, 1, false)?;
+        println!("    L12: C2f 384->128 → {}x{}x{}", l12.c, l12.h, l12.w);
+
+        // L13: Upsample 2x → 80x80
+        let l13 = self.upsample_2x(&l12)?;
+        println!("    L13: Upsample → {}x{}x{}", l13.c, l13.h, l13.w);
+
+        // L14: Concat [L13, L4] → 80x80x(128+64)=192
+        let l14 = self.concat(&l13, &l4)?;
+        println!("    L14: Concat → {}x{}x{}", l14.c, l14.h, l14.w);
+
+        // L15: C2f 192->64, 1 bottleneck, shortcut=false → P3 output
+        let l15 = self.run_c2f(&l14, weights, 15, 64, 1, false)?;
+        println!("    L15: C2f 192->64 (P3) → {}x{}x{}", l15.c, l15.h, l15.w);
+
+        // L16: Conv 3x3 s2, 64->64, out 40x40
+        let w16 = weights.conv_bn_silu(16).map_err(map_model_err)?;
+        let l16 = self.run_conv_bn_silu_w(&l15, &w16, 64, 3, 3, 2, 1)?;
+        println!("    L16: Conv 64->64 s2 → {}x{}x{}", l16.c, l16.h, l16.w);
+
+        // L17: Concat [L16, L12] → 40x40x(64+128)=192
+        let l17 = self.concat(&l16, &l12)?;
+        println!("    L17: Concat → {}x{}x{}", l17.c, l17.h, l17.w);
+
+        // L18: C2f 192->128, 1 bottleneck, shortcut=false → P4 output
+        let l18 = self.run_c2f(&l17, weights, 18, 128, 1, false)?;
+        println!("    L18: C2f 192->128 (P4) → {}x{}x{}", l18.c, l18.h, l18.w);
+
+        // L19: Conv 3x3 s2, 128->128, out 20x20
+        let w19 = weights.conv_bn_silu(19).map_err(map_model_err)?;
+        let l19 = self.run_conv_bn_silu_w(&l18, &w19, 128, 3, 3, 2, 1)?;
+        println!("    L19: Conv 128->128 s2 → {}x{}x{}", l19.c, l19.h, l19.w);
+
+        // L20: Concat [L19, L9] → 20x20x(128+256)=384
+        let l20 = self.concat(&l19, &l9)?;
+        println!("    L20: Concat → {}x{}x{}", l20.c, l20.h, l20.w);
+
+        // L21: C2f 384->256, 1 bottleneck, shortcut=false → P5 output
+        let l21 = self.run_c2f(&l20, weights, 21, 256, 1, false)?;
+        println!("    L21: C2f 384->256 (P5) → {}x{}x{}", l21.c, l21.h, l21.w);
+
+        // === Detect Head (Layer 22) ===
+        println!("    Running detect head...");
+        let (box_p3, cls_p3) = self.run_detect_scale(&l15, weights, 0)?;
+        println!(
+            "    P3: box {}x{}, cls {}x{}",
+            box_p3.c,
+            box_p3.h * box_p3.w,
+            cls_p3.c,
+            cls_p3.h * cls_p3.w
+        );
+        let (box_p4, cls_p4) = self.run_detect_scale(&l18, weights, 1)?;
+        println!(
+            "    P4: box {}x{}, cls {}x{}",
+            box_p4.c,
+            box_p4.h * box_p4.w,
+            cls_p4.c,
+            cls_p4.h * cls_p4.w
+        );
+        let (box_p5, cls_p5) = self.run_detect_scale(&l21, weights, 2)?;
+        println!(
+            "    P5: box {}x{}, cls {}x{}",
+            box_p5.c,
+            box_p5.h * box_p5.w,
+            cls_p5.c,
+            cls_p5.h * cls_p5.w
+        );
+
+        // === Post-processing ===
+        // Concatenate outputs from all scales: [channels, total_anchors]
+        let total_anchors =
+            (box_p3.h * box_p3.w + box_p4.h * box_p4.w + box_p5.h * box_p5.w) as usize;
+        println!("    Total anchors: {total_anchors}");
+
+        // Download and flatten box outputs [64, H*W] for each scale → [64, total_anchors]
+        let box_p3_data = self.download(&box_p3.data)?;
+        let box_p4_data = self.download(&box_p4.data)?;
+        let box_p5_data = self.download(&box_p5.data)?;
+        let cls_p3_data = self.download(&cls_p3.data)?;
+        let cls_p4_data = self.download(&cls_p4.data)?;
+        let cls_p5_data = self.download(&cls_p5.data)?;
+
+        let box_ch = 4 * REG_MAX; // 64
+        let mut box_concat = vec![0.0f32; box_ch * total_anchors];
+        let mut cls_concat = vec![0.0f32; NUM_CLASSES * total_anchors];
+
+        let n_p3 = (box_p3.h * box_p3.w) as usize;
+        let n_p4 = (box_p4.h * box_p4.w) as usize;
+        let n_p5 = (box_p5.h * box_p5.w) as usize;
+
+        // Interleave: for each channel, copy [P3 anchors | P4 anchors | P5 anchors]
+        for ch in 0..box_ch {
+            let dst_base = ch * total_anchors;
+            let src_p3 = ch * n_p3;
+            let src_p4 = ch * n_p4;
+            let src_p5 = ch * n_p5;
+            box_concat[dst_base..dst_base + n_p3]
+                .copy_from_slice(&box_p3_data[src_p3..src_p3 + n_p3]);
+            box_concat[dst_base + n_p3..dst_base + n_p3 + n_p4]
+                .copy_from_slice(&box_p4_data[src_p4..src_p4 + n_p4]);
+            box_concat[dst_base + n_p3 + n_p4..dst_base + n_p3 + n_p4 + n_p5]
+                .copy_from_slice(&box_p5_data[src_p5..src_p5 + n_p5]);
+        }
+        for ch in 0..NUM_CLASSES {
+            let dst_base = ch * total_anchors;
+            let src_p3 = ch * n_p3;
+            let src_p4 = ch * n_p4;
+            let src_p5 = ch * n_p5;
+            cls_concat[dst_base..dst_base + n_p3]
+                .copy_from_slice(&cls_p3_data[src_p3..src_p3 + n_p3]);
+            cls_concat[dst_base + n_p3..dst_base + n_p3 + n_p4]
+                .copy_from_slice(&cls_p4_data[src_p4..src_p4 + n_p4]);
+            cls_concat[dst_base + n_p3 + n_p4..dst_base + n_p3 + n_p4 + n_p5]
+                .copy_from_slice(&cls_p5_data[src_p5..src_p5 + n_p5]);
+        }
+
+        // Generate anchors and decode
+        let anchors = generate_anchors(640);
+        assert_eq!(anchors.len(), total_anchors);
+
+        let mut detections = decode_detections(
+            &box_concat,
+            &cls_concat,
+            &anchors,
+            NUM_CLASSES,
+            REG_MAX,
+            conf_threshold,
+        );
+
+        // NMS
+        nms(&mut detections, iou_threshold);
+
+        println!("    Detections after NMS: {}", detections.len());
+        Ok(detections)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -749,6 +1164,14 @@ fn iou(a: &Detection, b: &Detection) -> f32 {
         0.0
     } else {
         inter_area / union_area
+    }
+}
+
+/// Convert ModelError to GpuHostError.
+fn map_model_err(e: crate::model::ModelError) -> GpuHostError {
+    GpuHostError::Verification {
+        test: "yolo_inference",
+        detail: format!("weight load: {e}"),
     }
 }
 

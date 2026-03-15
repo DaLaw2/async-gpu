@@ -173,6 +173,10 @@ fn main() -> Result<()> {
                 tests_scaling::run_channel_oneshot_demo_test(Arc::clone(&dev))?;
                 return Ok(());
             }
+            "compute" | "compute_pipeline" => {
+                tests_scaling::run_compute_pipeline_demo_test(Arc::clone(&dev))?;
+                return Ok(());
+            }
             "bench" => {
                 tests_benchmark::run_throughput_benchmark(Arc::clone(&dev))?;
                 tests_benchmark::run_scalability_benchmark(Arc::clone(&dev))?;
@@ -246,6 +250,9 @@ fn main() -> Result<()> {
 
     // Channel oneshot demo (channel-oneshot.3)
     tests_scaling::run_channel_oneshot_demo_test(Arc::clone(&dev))?;
+
+    // Compute pipeline demo (demo-pipeline.2)
+    tests_scaling::run_compute_pipeline_demo_test(Arc::clone(&dev))?;
 
     // Parallel file grep demo (product.8)
     tests_pipeline::run_parallel_grep_test(Arc::clone(&dev))?;

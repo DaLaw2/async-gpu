@@ -15,6 +15,7 @@ core::arch::global_asm!(".extern .shared .align 4 .b8 dynamic_smem[];");
 mod helpers;
 
 mod basic;
+mod compute_demo;
 mod compute_gemm;
 mod compute_math;
 mod compute_mma;

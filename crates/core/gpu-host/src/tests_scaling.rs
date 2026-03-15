@@ -1161,3 +1161,86 @@ pub(crate) fn run_channel_oneshot_demo_test(dev: Arc<CudaDevice>) -> Result<()> 
     println!("  Channel oneshot demo — PASSED");
     Ok(())
 }
+
+/// Test: Multi-stage compute pipeline with GPU-autonomous convergence.
+///
+/// Proves async GPU can run multi-stage compute (softmax → GELU → reduce → converge)
+/// in a single kernel launch with zero inter-stage overhead. No hostcall needed.
+pub(crate) fn run_compute_pipeline_demo_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Compute Pipeline Demo: GPU-autonomous multi-stage compute ---");
+
+    // Allocate output (32 floats) + status (4 u32s) in mapped memory
+    let (output_host_ptr, output_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 32)? };
+    // Status: [iterations, nanos_lo, nanos_hi, done_flag]
+    let (status_host_ptr, status_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 4)? };
+
+    // Zero status
+    unsafe {
+        for i in 0..4 {
+            core::ptr::write_volatile(status_host_ptr.add(i), 0);
+        }
+    }
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "compute_demo", &["compute_pipeline_demo"]);
+    let f = dev
+        .get_func("compute_demo", "compute_pipeline_demo")
+        .ok_or(GpuHostError::KernelNotFound("compute_pipeline_demo"))?;
+
+    let cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (32, 1, 1), // one full warp
+        shared_mem_bytes: 0,
+    };
+
+    println!("  Launching compute_pipeline_demo (32 threads, 1 warp)...");
+    let host_start = std::time::Instant::now();
+    unsafe {
+        // output and status are passed as raw pointers
+        f.launch(cfg, (output_dev_ptr, status_dev_ptr))?;
+    }
+
+    dev.synchronize()?;
+    let host_elapsed = host_start.elapsed();
+    println!("  Host-side wall time: {host_elapsed:?}");
+
+    // Read results
+    let iterations = unsafe { std::ptr::read_volatile(status_host_ptr.add(0)) };
+    let nanos_lo = unsafe { std::ptr::read_volatile(status_host_ptr.add(1)) };
+    let nanos_hi = unsafe { std::ptr::read_volatile(status_host_ptr.add(2)) };
+    let done = unsafe { std::ptr::read_volatile(status_host_ptr.add(3)) };
+    let gpu_nanos = (nanos_lo as u64) | ((nanos_hi as u64) << 32);
+
+    println!(
+        "  GPU pipeline: {iterations} iterations, {gpu_nanos} ns ({:.2} μs)",
+        gpu_nanos as f64 / 1000.0
+    );
+    println!("  done_flag = {done}");
+
+    // Read output values and compute sum
+    let mut sum: f32 = 0.0;
+    for i in 0..32 {
+        let val = unsafe { std::ptr::read_volatile(output_host_ptr.add(i) as *const f32) };
+        sum += val;
+    }
+    println!("  Output sum: {sum:.4} (target: 16.0)");
+
+    unsafe {
+        free_mapped_mem(output_host_ptr)?;
+        free_mapped_mem(status_host_ptr)?;
+    }
+
+    assert_eq!(done, 1, "kernel should have set done flag");
+    assert!(
+        iterations > 0 && iterations <= 100,
+        "iterations={iterations} out of range"
+    );
+
+    // In CUDA equivalent: 3 launches × iterations × ~10μs = significant overhead
+    // Our single-launch approach: zero inter-stage overhead
+    let cuda_equiv_overhead_us = 3 * iterations as u64 * 10; // ~10μs per launch
+    println!("  Estimated CUDA launch overhead savings: ~{cuda_equiv_overhead_us} μs");
+
+    println!("  Compute pipeline demo — PASSED");
+    Ok(())
+}

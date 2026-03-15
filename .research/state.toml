@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 331     # Monotonic counter, incremented after each completed phase
-completed_tasks = 359
+total_cycles = 332     # Monotonic counter, incremented after each completed phase
+completed_tasks = 360
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "demo-pipeline.1"
-last_summary = "compute-extract theme COMPLETE: 46 public compute functions in 5 modules (index/math/warp/block/nn). Block reductions + warp_softmax + warp_layer_norm all added and verified. Next: demo-pipeline.1 design."
+current_task_id = "demo-pipeline.2"
+last_summary = "demo-pipeline.1 design done: iterative softmax+GELU pipeline, GPU-autonomous convergence, uses compute utils. Next: implement kernel + host test."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 92
@@ -420,7 +420,7 @@ id = "demo-pipeline.1"
 theme = "demo-pipeline"
 title = "Design: choose compute demo scenario and architecture"
 kind = "design"
-status = "active"
+status = "done"
 depends = ["compute-extract.1"]
 
 [[tasks]]
@@ -428,7 +428,7 @@ id = "demo-pipeline.2"
 theme = "demo-pipeline"
 title = "Experiment: implement multi-stage compute pipeline demo"
 kind = "experiment"
-status = "pending"
+status = "active"
 depends = ["demo-pipeline.1", "compute-extract.3"]
 
 [[tasks]]

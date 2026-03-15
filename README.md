@@ -209,6 +209,23 @@ A single kernel launch where the GPU self-coordinates an 8-step I/O pipeline + p
     rank 3: id=18 score=0.0913
 ```
 
+### GPU-Autonomous Compute Pipeline
+
+Multi-stage iterative compute — Newton-Raphson sqrt with warp-cooperative convergence:
+
+```
+--- Compute Pipeline Demo ---
+  GPU pipeline: 5 iterations, 3.07 us GPU time
+  Single-launch async: 24.1 us host time
+  Multi-launch CUDA-style: 46.1 us (3 separate kernel launches)
+  Speedup: 1.91x (eliminates kernel launch overhead)
+
+  With 5 iterations: estimated 9.56x overhead for CUDA-style multi-launch
+```
+
+Each iteration runs on GPU without any host roundtrip — convergence is checked
+entirely by warp-cooperative max-error reduction across all 32 lanes.
+
 ### GPT-2 Inference (124M Parameters)
 
 End-to-end transformer inference — real HuggingFace weights, custom BPE tokenizer, 12 transformer layers, KV-cached autoregressive generation. All compute kernels in pure Rust with inline PTX.
@@ -305,16 +322,18 @@ The verification confirms that the ABA prevention mechanism via epoch tags is es
 
 ```
 crates/
-  gpu-host/          Host-side SDK: GpuRuntime, HostcallBuffer, MappedBuffer
-                     Also contains GPT-2 inference binary (feature-gated)
-  gpu-protocol/      Shared constants: packet layout, service IDs, error codes
-  gpu-runtime/       GPU-side facade: hostcall helpers, WarpFuture trait, sideband I/O
-  gpu-atomics/       System-scope GPU atomics via inline PTX (CAS, shfl, activemask)
-  gpu-libc/          Minimal libc shim for GPU: routes sys calls to hostcall
-  gpu-critical-section/  No-op critical-section impl for GPU Embassy executor
-  warp-macro/        #[warp_async] proc macro (generates WarpFuture state machines)
-  gpu-kernel/        Main GPU kernel crate (94 kernels: compute, hostcall, pipeline)
-  gpu-kernel-std/    GPU kernels using patched Rust std (println!, Vec, File, stdin)
+  core/
+    gpu-host/          Host-side SDK: GpuRuntime, HostcallBuffer, MappedBuffer
+    gpu-protocol/      Shared constants: packet layout, service IDs, error codes
+    gpu-runtime/       GPU-side runtime: index, math, warp, block, nn, executor, channels
+    gpu-atomics/       System-scope GPU atomics via inline PTX (CAS, shfl, activemask)
+    gpu-libc/          Minimal libc shim for GPU: routes sys calls to hostcall
+    gpu-critical-section/  No-op critical-section impl for GPU Embassy executor
+  kernel/
+    gpu-kernel/        Main GPU kernel crate (94+ kernels: compute, hostcall, pipeline)
+    gpu-kernel-std/    GPU kernels using patched Rust std (println!, Vec, File, stdin)
+  macro/
+    warp-macro/        #[warp_async] proc macro (generates WarpFuture state machines)
 
 rustc-patches/       Custom MIR pass patches for rustc: inserts bar.warp.sync at async yield points
 scripts/             build-toolchain.sh/.bat: build patched rustc, ci-lint.sh: local CI checks
@@ -337,12 +356,14 @@ examples/
 | **Std library** | `Vec`, `String`, `Box`, `format!()`, `?` operator — real Rust std via patched PAL (multi-thread safe) |
 | **Error handling** | `Result<T, E>` propagation from GPU to host, `std::io::Error` |
 | **Async runtime** | `block_on()` executor, Embassy on GPU, `futures::join!()`, per-thread and per-warp executors |
+| **GPU Async Runtime** | GpuExecutor with dynamic task spawning, oneshot channels, lock-free MPMC work queue |
 | **Warp-cooperative** | `#[warp_cooperative]` MIR pass (async fn + .await), `#[warp_async]` proc macro (warp_*! macros) |
 | **Compute** | GEMM (f32 FMA), FlashAttention, LayerNorm, GELU, softmax — all in Rust inline PTX |
 | **Inference** | GPT-2 small (124M params) with KV cache: 68ms/token (2.07x speedup) |
 | **Scaling** | Multi-block with per-block sharding, 512+ concurrent threads |
 | **Buffered I/O** | `println!()` auto-buffers via sideband, flushed as single hostcall (O(1) vs O(N)) |
-| **Autonomous GPU** | Data-dependent iteration (Newton's method convergence loop), multi-command kernels, cross-launch pipelines |
+| **Compute Utils** | math (sin/cos/exp/log/tanh/sigmoid), warp reductions (sum/max/min), block reductions, nn (GELU/ReLU/softmax/layer_norm) |
+| **Autonomous GPU** | Data-dependent iteration (Newton's method convergence loop), multi-command kernels, cross-launch pipelines, compute pipeline benchmark (1.91x vs multi-launch) |
 | **Testing** | `cargo test` integration harness for GPU kernels, 3 proof-of-concept tests |
 | **Safety** | GPU panic handler with visible `[GPU PANIC]` messages via hostcall |
 
@@ -364,11 +385,19 @@ GPT-2 inference (RTX 3060, SM 86):
 | Per-token generation (with KV cache) | ~68ms/token |
 | 50-token generation (3 prompts) | ~3.4s each |
 
+Compute pipeline (single-launch vs multi-launch):
+
+| Approach | Host median | GPU time |
+|----------|-------------|----------|
+| Single-launch (async pipeline) | 24.1 us | 1.02 us |
+| Multi-launch (3 kernels x 1 iter) | 46.1 us | N/A |
+| Speedup | 1.91x | -- |
+
 <details>
 <summary>Reproduce</summary>
 
 ```bash
-cd crates/gpu-host
+cd crates/core/gpu-host
 cargo run --release 2>&1 | grep -A 10 "Hostcall Latency Benchmark"
 ```
 
@@ -382,7 +411,7 @@ Numbers vary by ~30% between runs depending on GPU load.
 - **Hostcall latency**: ~20-100 us round-trip, not suitable for per-element I/O in hot loops
 - **Uniform I/O**: `#[warp_async]` requires all 32 lanes to execute the same I/O sequence
 - **Hostcall-limited concurrency**: `println!` and file I/O are multi-thread safe but constrained by the 16-packet hostcall pool — 4 concurrent I/O threads recommended, 32+ threads for pure compute (Vec, String, allocator)
-- **Partial std**: Networking and threading primitives are stubbed; `HashMap` works (address-based seed) but `OsRng`/`getrandom` are not available
+- **Partial std**: Networking and threading primitives are stubbed; `HashMap` and `Mutex` both work on GPU, but `OsRng`/`getrandom` are not available
 - **f32 only**: Tensor Core MMA has precision issues with reduced formats; using f32 FMA
 
 ## Acknowledgements

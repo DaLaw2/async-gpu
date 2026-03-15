@@ -4,18 +4,18 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 334     # Monotonic counter, incremented after each completed phase
-completed_tasks = 362
+total_cycles = 336     # Monotonic counter, incremented after each completed phase
+completed_tasks = 363
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.save"
-current_task_id = ""
-last_summary = "Newton-Raphson convergence fix done. Benchmark: single-launch 24.1μs vs multi-launch 46.1μs (1.91×). All epics completed except codebase-health (evergreen). Need brainstorm for next direction."
+current_step = "do.execute"
+current_task_id = "channel-waker.2"
+last_summary = "bs93 done. Direction: gpu-channels (unpark) → tokio-bridge (new). Next: select ready tasks from unparked channels."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 92
+brainstorm_seq = 93
 review_seq = 5
 
 # Brainstorm trigger control (event-driven, no fixed interval)
@@ -240,8 +240,8 @@ success_criteria = [
 [[epics]]
 id = "gpu-channels"
 title = "GPU Async Channels — inter-task communication on GPU"
-status = "parked"
-# PARKED: user pivot to compute-utils + compute-demo. Oneshot done, rest deferred.
+status = "active"
+# UNPARKED at cycle 335. Oneshot done; mpsc + waker + demo remaining.
 priority = "high"
 success_criteria = [
     "Oneshot<T> channel: sender.send(val) + receiver.await works between GPU async tasks",
@@ -261,6 +261,18 @@ success_criteria = [
     "File I/O benchmark: read/write latency and throughput (inline vs sideband)",
     "Scalability chart data: latency vs thread count (1 to 1024)",
     "Results documented with analysis and comparison baseline",
+]
+
+[[epics]]
+id = "tokio-bridge"
+title = "Tokio Bridge — bidirectional async coordination between host tokio runtime and GPU"
+status = "active"
+priority = "high"
+success_criteria = [
+    "GpuRuntime integrates with tokio runtime (hostcall listener runs as tokio task)",
+    "gpu_spawn() returns a tokio::JoinHandle-like future that resolves when GPU task completes",
+    "Host can await GPU kernel results without blocking the tokio runtime",
+    "Demo: tokio server that offloads compute to GPU via async bridge",
 ]
 
 # ============================================================
@@ -295,7 +307,7 @@ success_criteria = [
 id = "channel-mpsc"
 epic = "gpu-channels"
 title = "Mpsc<T> channel — multi-producer single-consumer"
-status = "parked"
+status = "active"
 goal = "Lock-free ring buffer with CAS-based enqueue, atomic waker"
 success_criteria = [
     "Ring buffer with CAS enqueue, atomic head/tail",
@@ -307,7 +319,7 @@ success_criteria = [
 id = "channel-waker"
 epic = "gpu-channels"
 title = "Waker integration — sender wakes receiver task in executor"
-status = "parked"
+status = "active"
 goal = "When sender.send() completes, receiver task is re-enqueued in executor"
 success_criteria = [
     "Waker stored by receiver, called by sender on send()",
@@ -318,7 +330,7 @@ success_criteria = [
 id = "channel-demo"
 epic = "gpu-channels"
 title = "Demo: producer-consumer pipeline with channels"
-status = "parked"
+status = "active"
 goal = "End-to-end demo kernel showing channels + executor working together"
 success_criteria = [
     "Producer task sends values via channel, consumer receives and processes",
@@ -494,7 +506,7 @@ id = "channel-mpsc.2"
 theme = "channel-mpsc"
 title = "Experiment: implement Mpsc<T> sender + receiver on GPU"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["channel-mpsc.1", "channel-oneshot.3"]
 
 # --- channel-waker theme ---
@@ -521,6 +533,42 @@ kind = "experiment"
 status = "pending"
 depends = ["channel-waker.1", "channel-oneshot.2"]
 
+# --- tokio-bridge themes ---
+
+[[themes]]
+id = "tokio-investigate"
+epic = "tokio-bridge"
+title = "Investigation: tokio integration architecture"
+status = "active"
+goal = "Understand current host architecture and design tokio integration points"
+success_criteria = [
+    "Map current GpuRuntime / HostcallSession threading model",
+    "Design tokio task structure for hostcall listener",
+    "Design gpu_spawn() API that returns impl Future",
+]
+
+[[tasks]]
+id = "tokio-investigate.1"
+theme = "tokio-investigate"
+title = "Investigation: current host threading model and tokio integration points"
+kind = "investigation"
+status = "pending"
+depends = []
+questions = [
+    "How does GpuRuntime currently manage threads (hostcall listener, kernel launch)?",
+    "What would need to change to run hostcall listener as a tokio task?",
+    "How should gpu_spawn() work — what does the returned Future poll on?",
+    "Does gpu-host already depend on tokio, or would this be a new dependency?",
+]
+
+[[tasks]]
+id = "tokio-investigate.2"
+theme = "tokio-investigate"
+title = "Design: tokio bridge architecture (GpuRuntime + gpu_spawn API)"
+kind = "design"
+status = "pending"
+depends = ["tokio-investigate.1"]
+
 # --- channel-demo theme ---
 
 [[tasks]]
@@ -534,6 +582,18 @@ depends = ["channel-oneshot.3", "channel-waker.2"]
 # ============================================================
 # Brainstorms (last 3 only — older brainstorms archived)
 # ============================================================
+
+[[brainstorms]]
+seq = 93
+at_cycle = 335
+trigger = "all high-priority epics completed, only codebase-health (evergreen) active"
+level = "standard"
+new_tasks_spawned = []
+new_themes_spawned = []
+new_epics_spawned = ["tokio-bridge"]
+themes_parked = []
+themes_completed = []
+key_insight = "Unpark gpu-channels (4 tasks, designs exist). New tokio-bridge epic for highest ecosystem impact. Multi-GPU deferred as optional stretch goal."
 
 [[brainstorms]]
 seq = 92

@@ -1,0 +1,11 @@
+[workspace]
+
+[package]
+name = "tokio-offload"
+version = "0.1.0"
+edition = "2021"
+description = "Tokio GPU offload — async kernel launch + event streaming via GpuTask"
+
+[dependencies]
+gpu-host = { path = "../../crates/core/gpu-host", default-features = false, features = ["async"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }

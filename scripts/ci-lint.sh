@@ -72,6 +72,7 @@ run "check async-io-host" "cargo +stable check --manifest-path examples/async-io
 run "check vector-math-host" "cargo +stable check --manifest-path examples/vector-math/host/Cargo.toml"
 run "check parallel-search-host" "cargo +stable check --manifest-path examples/parallel-search/host/Cargo.toml"
 run "check tcp-echo-host" "cargo +stable check --manifest-path examples/tcp-echo/host/Cargo.toml"
+run "check tokio-offload" "cargo +stable check --manifest-path examples/tokio-offload/Cargo.toml"
 
 echo ""
 if [ "$FAIL" -eq 0 ]; then

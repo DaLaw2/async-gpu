@@ -4,14 +4,14 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 315     # Monotonic counter, incremented after each completed phase
-completed_tasks = 335
+total_cycles = 316     # Monotonic counter, incremented after each completed phase
+completed_tasks = 336
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "executor-impl.1"
+current_task_id = "api-ergonomics.3"
 last_summary = "bs89 quick: user directed 4 new epics — gpu-executor, extended-std, public-api (upgraded), benchmarks. 4 themes, 12 tasks spawned."
 
 # Sequence counters for unique file naming across iterations
@@ -376,7 +376,7 @@ id = "api-ergonomics.2"
 theme = "api-ergonomics"
 title = "Experiment: builder pattern for HostcallBuffer + session management"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["api-ergonomics.1"]
 
 [[tasks]]

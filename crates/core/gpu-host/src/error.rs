@@ -35,8 +35,10 @@ pub enum GpuHostError {
     /// Hostcall buffer allocation error.
     Hostcall(crate::hostcall::HostcallError),
     /// GPU kernel returned an error via the result buffer.
+    #[allow(dead_code)]
     KernelError(GpuKernelErrorInfo),
     /// GPU kernel crashed without writing to the result buffer (TAG_UNINIT).
+    #[allow(dead_code)]
     KernelCrash,
 }
 
@@ -102,7 +104,6 @@ pub fn check_kernel_result(
 }
 
 /// Map an error category constant to a human-readable name.
-#[allow(dead_code)]
 pub fn error_category_name(category: u16) -> &'static str {
     match category {
         gpu_protocol::ERR_OTHER => "other error",

@@ -1845,13 +1845,11 @@ impl HostcallBuffer {
 ///
 /// File handles opened by one kernel persist for subsequent kernels
 /// within the same session.
-#[allow(dead_code)]
 pub struct HostcallSession {
     buf: std::sync::Arc<HostcallBuffer>,
     listener_handle: Option<std::thread::JoinHandle<()>>,
 }
 
-#[allow(dead_code)]
 impl HostcallSession {
     /// Start a new session with the given packet count.
     /// Spawns listener + I/O threads immediately.
@@ -1897,6 +1895,7 @@ impl HostcallSession {
     }
 
     /// Get the sideband device pointer for bulk transfer args.
+    #[allow(dead_code)]
     pub fn sideband_dev_ptr(&self) -> sys::CUdeviceptr {
         self.buf.sideband_dev_ptr
     }
@@ -1943,13 +1942,11 @@ type PipelineStage =
 /// Each stage is a closure that launches a kernel using the session's
 /// hostcall buffer device pointer. The pipeline handles synchronization
 /// and packet reinitialization between stages automatically.
-#[allow(dead_code)]
 pub struct Pipeline {
     session: HostcallSession,
     stages: Vec<PipelineStage>,
 }
 
-#[allow(dead_code)]
 impl Pipeline {
     /// Create a new pipeline with the given hostcall packet count.
     pub fn new(num_packets: u16) -> std::result::Result<Self, HostcallError> {

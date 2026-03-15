@@ -105,6 +105,6 @@ pub mod ptx {
 
 // Convenience re-exports for common types.
 pub use error::{GpuHostError, Result};
-pub use hostcall::HostcallBuffer;
+pub use hostcall::{HostcallBuffer, HostcallSession, Pipeline};
 pub use memory::MappedBuffer;
 pub use runtime::GpuRuntime;

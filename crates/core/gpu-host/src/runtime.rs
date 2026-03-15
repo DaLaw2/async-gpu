@@ -56,6 +56,20 @@ impl GpuRuntime {
         self.dev.get_func(module, func)
     }
 
+    /// Get a kernel function handle, returning an error if not found.
+    ///
+    /// This is the preferred way to look up kernel functions — avoids the
+    /// `get_func().ok_or(KernelNotFound(...))` boilerplate.
+    pub fn require_func(
+        &self,
+        module: &str,
+        func: &'static str,
+    ) -> Result<cudarc::driver::CudaFunction> {
+        self.dev
+            .get_func(module, func)
+            .ok_or(GpuHostError::KernelNotFound(func))
+    }
+
     /// Allocate device memory initialized to zero.
     pub fn alloc_zeros<T: DeviceRepr + ValidAsZeroBits>(&self, len: usize) -> Result<CudaSlice<T>> {
         self.dev.alloc_zeros::<T>(len).map_err(GpuHostError::Cudarc)

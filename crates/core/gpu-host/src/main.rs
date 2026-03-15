@@ -5,6 +5,7 @@ mod hostcall;
 mod mapped_mem;
 mod tests_basic;
 mod tests_benchmark;
+mod tests_cnn;
 mod tests_gemm;
 mod tests_hostcall;
 mod tests_inference;
@@ -202,6 +203,11 @@ fn main() -> Result<()> {
             }
             "gemm_bench" => {
                 tests_gemm::run_gemm_benchmark(Arc::clone(&dev))?;
+                return Ok(());
+            }
+            "cnn" => {
+                tests_cnn::run_batchnorm_silu_test(Arc::clone(&dev))?;
+                tests_cnn::run_cnn_ops_test(Arc::clone(&dev))?;
                 return Ok(());
             }
             "bench" => {

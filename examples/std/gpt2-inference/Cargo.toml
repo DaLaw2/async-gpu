@@ -1,0 +1,11 @@
+[workspace]
+
+[package]
+name = "gpt2-inference"
+version = "0.1.0"
+edition = "2021"
+description = "GPT-2 inference using gpu-host nn API"
+
+[dependencies]
+cudarc = { version = "0.12", features = ["cuda-12060"] }
+gpu-host = { path = "../../../crates/core/gpu-host", features = ["nn", "gpt2"], default-features = false }

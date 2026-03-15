@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 406     # Monotonic counter, incremented after each completed phase
-completed_tasks = 444
+total_cycles = 407     # Monotonic counter, incremented after each completed phase
+completed_tasks = 462
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "nn-tensor.1"
-last_summary = "Phase 1-2 complete: nn-tensor (8), nn-registry (4), nn-ops (13), nn-layers (11), nn-gpt2 config (1), nn-migrate examples+lib (3). Total 40/58 tasks done. Full nn module: GpuTensor, KernelRegistry, all ops (matmul/conv2d/layer_norm/etc), all layers (Linear/Conv2d/MHA/etc). Next: nn-gpt2 model (TransformerBlock, Gpt2Model, examples)."
+current_task_id = ""
+last_summary = "ml-framework epic COMPLETE: all 58/58 tasks done. nn module with GpuTensor, KernelRegistry, 13 ops, 11 layers, Gpt2Model (with KV cache), YoloV8Nano (with NMS). Standalone examples: gpt2-inference, yolo-detect in examples/std/."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 100
@@ -335,7 +335,8 @@ success_criteria = [
 [[epics]]
 id = "ml-framework"
 title = "Mini ML Framework — reusable compute API + inference examples"
-status = "active"
+status = "completed"
+# ALL 6 CRITERIA MET — closed 2026-03-15
 priority = "high"
 success_criteria = [
     "Unified GpuTensor type with shape, strides, device memory — usable across all ops",
@@ -356,7 +357,7 @@ success_criteria = [
 id = "nn-tensor"
 epic = "ml-framework"
 title = "GpuTensor Foundation — N-dimensional tensor with shape, strides, device memory"
-status = "active"
+status = "completed"
 goal = "Unified GpuTensor type replacing old {data, c, h, w} struct"
 success_criteria = [
     "GpuTensor with SmallVec shape/strides, Arc<CudaDevice>, CudaSlice<f32>",
@@ -369,7 +370,7 @@ success_criteria = [
 id = "nn-registry"
 epic = "ml-framework"
 title = "Kernel Registry & Auto-Launch — abstract kernel loading and launch config"
-status = "active"
+status = "completed"
 goal = "No user code ever writes LaunchConfig, get_func(), or PTX function names"
 success_criteria = [
     "KernelRegistry struct loads all ML kernels from PTX source",
@@ -382,7 +383,7 @@ success_criteria = [
 id = "nn-ops"
 epic = "ml-framework"
 title = "Stateless Operations — functional API wrapping all GPU kernels"
-status = "active"
+status = "completed"
 goal = "Every kernel wrapped as stateless function taking/returning GpuTensor"
 success_criteria = [
     "matmul(), conv2d(), layer_norm(), batch_norm(), batch_norm_silu()",
@@ -397,7 +398,7 @@ success_criteria = [
 id = "nn-layers"
 epic = "ml-framework"
 title = "Composable Modules — Module trait with stateful layers owning weights"
-status = "active"
+status = "completed"
 goal = "PyTorch-like layers: Linear, Conv2d, LayerNorm, BatchNorm2d, Embedding, MHA"
 success_criteria = [
     "Module trait with forward(&self, &GpuTensor) -> Result<GpuTensor>",
@@ -411,7 +412,7 @@ success_criteria = [
 id = "nn-gpt2"
 epic = "ml-framework"
 title = "GPT-2 Model — standalone inference example using nn API"
-status = "active"
+status = "completed"
 goal = "Gpt2Model struct + examples/gpt2_inference.rs with no raw kernel launches"
 success_criteria = [
     "Gpt2Config, TransformerBlock, Gpt2Model structs",
@@ -425,7 +426,7 @@ success_criteria = [
 id = "nn-yolo"
 epic = "ml-framework"
 title = "YOLOv8-nano Model — standalone detection example using nn API"
-status = "active"
+status = "completed"
 goal = "YoloV8Nano struct + examples/yolov8_detect.rs with no raw kernel launches"
 success_criteria = [
     "ConvBnSilu, C2f, SPPF composite layers",
@@ -440,7 +441,7 @@ success_criteria = [
 id = "nn-migrate"
 epic = "ml-framework"
 title = "Legacy Code Migration — rewrite old test code + reorganize examples"
-status = "active"
+status = "completed"
 goal = "Remove hardcoded runner code, all tests use nn API, examples split into hostcall/ and std/"
 success_criteria = [
     "tests_inference.rs rewritten with nn API",
@@ -787,7 +788,7 @@ id = "nn-gpt2.2"
 theme = "nn-gpt2"
 title = "TransformerBlock — LN → MHA → residual → LN → FFN → residual"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["nn-layers.4", "nn-layers.7", "nn-layers.2"]
 
 [[tasks]]
@@ -795,7 +796,7 @@ id = "nn-gpt2.3"
 theme = "nn-gpt2"
 title = "Gpt2Model — embedding + position embed + N blocks + final LN + lm_head"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["nn-gpt2.2", "nn-layers.6"]
 
 [[tasks]]
@@ -803,7 +804,7 @@ id = "nn-gpt2.4"
 theme = "nn-gpt2"
 title = "Gpt2Model::from_weights() — load safetensors, construct layers"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["nn-gpt2.3"]
 
 [[tasks]]
@@ -811,7 +812,7 @@ id = "nn-gpt2.5"
 theme = "nn-gpt2"
 title = "Greedy generation loop with KV cache support"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["nn-gpt2.3"]
 
 [[tasks]]
@@ -819,7 +820,7 @@ id = "nn-gpt2.6"
 theme = "nn-gpt2"
 title = "examples/gpt2_inference.rs standalone binary"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["nn-gpt2.5"]
 
 [[tasks]]
@@ -827,7 +828,7 @@ id = "nn-gpt2.7"
 theme = "nn-gpt2"
 title = "Validate output matches existing tests_inference.rs results"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["nn-gpt2.6"]
 
 # --- nn-yolo tasks ---
@@ -837,7 +838,7 @@ id = "nn-yolo.1"
 theme = "nn-yolo"
 title = "ConvBnSilu composite layer (Conv2d + BatchNorm2d with fuse_silu=true)"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["nn-layers.3", "nn-layers.5"]
 
 [[tasks]]
@@ -845,7 +846,7 @@ id = "nn-yolo.2"
 theme = "nn-yolo"
 title = "C2f block (YOLOv8 bottleneck with channel split + concat)"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["nn-yolo.1"]
 
 [[tasks]]
@@ -853,7 +854,7 @@ id = "nn-yolo.3"
 theme = "nn-yolo"
 title = "SPPF module (Spatial Pyramid Pooling Fast with MaxPool cascade)"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["nn-layers.9", "nn-yolo.1"]
 
 [[tasks]]
@@ -861,7 +862,7 @@ id = "nn-yolo.4"
 theme = "nn-yolo"
 title = "YoloV8Nano backbone: layers 0-9 (stem + downsampling + C2f blocks)"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["nn-yolo.1", "nn-yolo.2", "nn-yolo.3"]
 
 [[tasks]]
@@ -869,7 +870,7 @@ id = "nn-yolo.5"
 theme = "nn-yolo"
 title = "YoloV8Nano neck: layers 10-21 (FPN + PAN with upsample + concat)"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["nn-yolo.4"]
 
 [[tasks]]
@@ -877,7 +878,7 @@ id = "nn-yolo.6"
 theme = "nn-yolo"
 title = "DetectHead — regression + classification heads + DFL + NMS"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["nn-yolo.5", "nn-layers.2"]
 
 [[tasks]]
@@ -885,7 +886,7 @@ id = "nn-yolo.7"
 theme = "nn-yolo"
 title = "YoloV8Nano::from_weights() — load safetensors, construct full model"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["nn-yolo.6"]
 
 [[tasks]]
@@ -893,7 +894,7 @@ id = "nn-yolo.8"
 theme = "nn-yolo"
 title = "examples/yolov8_detect.rs standalone binary"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["nn-yolo.7"]
 
 [[tasks]]
@@ -901,7 +902,7 @@ id = "nn-yolo.9"
 theme = "nn-yolo"
 title = "Validate output matches existing yolo_backbone.rs results"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["nn-yolo.8"]
 
 # --- nn-migrate tasks ---
@@ -911,7 +912,7 @@ id = "nn-migrate.1"
 theme = "nn-migrate"
 title = "Rewrite tests_inference.rs to use nn API"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["nn-gpt2.3"]
 
 [[tasks]]
@@ -919,7 +920,7 @@ id = "nn-migrate.2"
 theme = "nn-migrate"
 title = "Rewrite tests_cnn.rs to use nn ops API"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["nn-ops.13"]
 
 [[tasks]]
@@ -927,7 +928,7 @@ id = "nn-migrate.3"
 theme = "nn-migrate"
 title = "Deprecate/remove old YoloRunner + GpuTensor{c,h,w} from yolo_backbone.rs"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["nn-yolo.9"]
 
 [[tasks]]
@@ -951,7 +952,7 @@ id = "nn-migrate.6"
 theme = "nn-migrate"
 title = "Apply patched-std (println!, File I/O) in std/ examples"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["nn-migrate.1", "nn-migrate.2"]
 
 # --- warp-batch-io tasks ---

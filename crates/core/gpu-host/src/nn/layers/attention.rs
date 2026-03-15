@@ -50,6 +50,16 @@ impl MultiHeadAttention {
         })
     }
 
+    /// Number of attention heads.
+    pub fn n_heads(&self) -> usize {
+        self.n_heads
+    }
+
+    /// Per-head dimension.
+    pub fn d_head(&self) -> usize {
+        self.d_head
+    }
+
     /// Forward pass with causal attention.
     ///
     /// Input: `[seq_len, n_embd]` → output: `[seq_len, n_embd]`.
@@ -110,5 +120,87 @@ impl MultiHeadAttention {
 
         // 5. Output projection
         self.out_proj.forward(&concat)
+    }
+
+    /// Forward pass with KV cache for autoregressive decoding.
+    ///
+    /// `input`: `[new_len, n_embd]` — only the new token(s) hidden states.
+    /// `cached_k`, `cached_v`: per-head cached K,V as `[n_head][kv_len * d_head]`.
+    ///
+    /// Returns `(output, new_k_per_head, new_v_per_head)` where new_k/v are the
+    /// K,V for the new positions only (to be appended to the cache).
+    #[allow(clippy::type_complexity)]
+    pub fn forward_cached(
+        &self,
+        input: &GpuTensor,
+        cached_k: &[Vec<f32>],
+        cached_v: &[Vec<f32>],
+        kv_len: usize,
+    ) -> Result<(GpuTensor, Vec<Vec<f32>>, Vec<Vec<f32>>)> {
+        let new_len = input.shape()[0];
+        let n_embd = self.n_heads * self.d_head;
+        let full_kv_len = kv_len + new_len;
+
+        // 1. QKV projection for new positions only
+        let qkv = self.qkv_proj.forward(input)?;
+        let qkv_host = qkv.to_host()?;
+        let dev = self.registry.device();
+
+        // 2. Extract per-head Q, K, V for new positions
+        let mut new_k_per_head: Vec<Vec<f32>> = Vec::with_capacity(self.n_heads);
+        let mut new_v_per_head: Vec<Vec<f32>> = Vec::with_capacity(self.n_heads);
+        let mut head_outputs = vec![0.0f32; new_len * n_embd];
+
+        for h in 0..self.n_heads {
+            let mut q_head = vec![0.0f32; new_len * self.d_head];
+            let mut k_new = vec![0.0f32; new_len * self.d_head];
+            let mut v_new = vec![0.0f32; new_len * self.d_head];
+
+            for s in 0..new_len {
+                let qkv_idx = s * (3 * n_embd);
+                for d in 0..self.d_head {
+                    q_head[s * self.d_head + d] = qkv_host[qkv_idx + h * self.d_head + d];
+                    k_new[s * self.d_head + d] = qkv_host[qkv_idx + n_embd + h * self.d_head + d];
+                    v_new[s * self.d_head + d] =
+                        qkv_host[qkv_idx + 2 * n_embd + h * self.d_head + d];
+                }
+            }
+
+            // Build full K,V: cached + new
+            let mut k_full = cached_k[h].clone();
+            k_full.extend_from_slice(&k_new);
+            let mut v_full = cached_v[h].clone();
+            v_full.extend_from_slice(&v_new);
+
+            let q_tensor = GpuTensor::from_host(&q_head, &[new_len, self.d_head], dev)?;
+            let k_tensor = GpuTensor::from_host(&k_full, &[full_kv_len, self.d_head], dev)?;
+            let v_tensor = GpuTensor::from_host(&v_full, &[full_kv_len, self.d_head], dev)?;
+
+            // Attention with separate Q/KV lengths
+            let attn_out = ops::scaled_dot_product_attention_kv(
+                &q_tensor,
+                &k_tensor,
+                &v_tensor,
+                true,        // causal
+                kv_len,      // q_offset: new tokens start after cached positions
+                full_kv_len, // kv_stride
+                &self.registry,
+            )?;
+
+            let head_host = attn_out.to_host()?;
+            for s in 0..new_len {
+                for d in 0..self.d_head {
+                    head_outputs[s * n_embd + h * self.d_head + d] = head_host[s * self.d_head + d];
+                }
+            }
+
+            new_k_per_head.push(k_new);
+            new_v_per_head.push(v_new);
+        }
+
+        let concat = GpuTensor::from_host(&head_outputs, &[new_len, n_embd], dev)?;
+        let output = self.out_proj.forward(&concat)?;
+
+        Ok((output, new_k_per_head, new_v_per_head))
     }
 }

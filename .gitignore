@@ -18,7 +18,7 @@ Thumbs.db
 patched-std/
 patched-rustc/
 rustc-src/
-models/
+/models/
 examples/hostcall/warp-cooperative/target/
 examples/hostcall/warp-cooperative/mir_dump/
 examples/hostcall/warp-cooperative/rustc-ice-*.txt

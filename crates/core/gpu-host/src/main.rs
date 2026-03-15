@@ -208,6 +208,9 @@ fn main() -> Result<()> {
             "cnn" => {
                 tests_cnn::run_batchnorm_silu_test(Arc::clone(&dev))?;
                 tests_cnn::run_cnn_ops_test(Arc::clone(&dev))?;
+                tests_cnn::run_conv2d_test(Arc::clone(&dev))?;
+                tests_cnn::run_yolo_io_test()?;
+                tests_cnn::run_yolo_backbone_test(Arc::clone(&dev))?;
                 return Ok(());
             }
             "bench" => {

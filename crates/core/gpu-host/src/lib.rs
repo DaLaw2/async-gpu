@@ -82,7 +82,11 @@ pub mod async_rt;
 #[cfg(feature = "gpt2")]
 pub mod model;
 #[cfg(feature = "gpt2")]
+pub mod model_yolo;
+#[cfg(feature = "gpt2")]
 pub mod tokenizer;
+#[cfg(feature = "gpt2")]
+pub mod yolo_backbone;
 
 /// Embedded PTX sources for GPU kernels.
 ///

@@ -880,3 +880,135 @@ pub(crate) fn run_yolo_backbone_test(dev: Arc<CudaDevice>) -> Result<()> {
         detail: format!("{e}"),
     })
 }
+
+/// Test detect head operations: sigmoid, bias_add, DFL decode, and NMS.
+pub(crate) fn run_detect_head_test(dev: Arc<CudaDevice>) -> Result<()> {
+    fn inner(dev: Arc<CudaDevice>, ptx: &'static str) -> gpu_host::Result<()> {
+        use gpu_host::yolo_backbone::{generate_anchors, nms, Detection, GpuTensor, YoloRunner};
+
+        println!("\n--- Detect head + NMS test ---");
+
+        let runner = YoloRunner::new(Arc::clone(&dev), ptx)?;
+
+        // Test 1: Sigmoid kernel
+        {
+            let input = vec![-2.0f32, -1.0, 0.0, 1.0, 2.0, 10.0];
+            let tensor = GpuTensor {
+                data: runner.upload(&input)?,
+                c: 1,
+                h: 1,
+                w: 6,
+            };
+            let out = runner.sigmoid(&tensor)?;
+            let result = runner.download(&out.data)?;
+
+            for (i, (&x, &y)) in input.iter().zip(result.iter()).enumerate() {
+                let expected = 1.0 / (1.0 + (-x).exp());
+                let err = (y - expected).abs();
+                assert!(
+                    err < 1e-5,
+                    "sigmoid[{i}]: got {y}, expected {expected}, err {err}"
+                );
+            }
+            println!("  Sigmoid — PASSED");
+        }
+
+        // Test 2: Bias add (CHW)
+        {
+            // 2 channels, 2x2 spatial
+            let input = vec![1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+            let bias = vec![10.0f32, 20.0];
+            let tensor = GpuTensor {
+                data: runner.upload(&input)?,
+                c: 2,
+                h: 2,
+                w: 2,
+            };
+            let bias_dev = runner.upload(&bias)?;
+            let out = runner.bias_add(&tensor, &bias_dev)?;
+            let result = runner.download(&out.data)?;
+
+            let expected = vec![11.0, 12.0, 13.0, 14.0, 25.0, 26.0, 27.0, 28.0];
+            assert_eq!(result, expected, "bias_add mismatch");
+            println!("  Bias add — PASSED");
+        }
+
+        // Test 3: DFL decode
+        {
+            // Test with uniform logits — should give (reg_max-1)/2
+            let logits = vec![0.0f32; 4]; // reg_max=4
+            let val = gpu_host::yolo_backbone::dfl_decode_pub(&logits, 4);
+            // With uniform softmax: sum(i * 0.25) = 0.25*(0+1+2+3) = 1.5
+            assert!(
+                (val - 1.5).abs() < 1e-5,
+                "DFL uniform decode: got {val}, expected 1.5"
+            );
+
+            // Test with peaked logits — should give ~3
+            let logits = vec![-10.0, -10.0, -10.0, 10.0];
+            let val = gpu_host::yolo_backbone::dfl_decode_pub(&logits, 4);
+            assert!(
+                (val - 3.0).abs() < 0.01,
+                "DFL peaked decode: got {val}, expected ~3.0"
+            );
+            println!("  DFL decode — PASSED");
+        }
+
+        // Test 4: NMS
+        {
+            let mut dets = vec![
+                Detection {
+                    x1: 10.0,
+                    y1: 10.0,
+                    x2: 50.0,
+                    y2: 50.0,
+                    class_id: 0,
+                    confidence: 0.9,
+                },
+                Detection {
+                    x1: 15.0,
+                    y1: 15.0,
+                    x2: 55.0,
+                    y2: 55.0,
+                    class_id: 0,
+                    confidence: 0.8,
+                },
+                Detection {
+                    x1: 200.0,
+                    y1: 200.0,
+                    x2: 250.0,
+                    y2: 250.0,
+                    class_id: 1,
+                    confidence: 0.7,
+                },
+            ];
+            nms(&mut dets, 0.5);
+            // First two overlap heavily (same class), so second should be suppressed
+            assert_eq!(dets.len(), 2, "NMS should suppress 1 overlapping box");
+            assert!((dets[0].confidence - 0.9).abs() < 1e-6, "kept highest conf");
+            assert!(
+                (dets[1].confidence - 0.7).abs() < 1e-6,
+                "kept different class"
+            );
+            println!("  NMS — PASSED");
+        }
+
+        // Test 5: Anchor generation
+        {
+            let anchors = generate_anchors(640);
+            // P3: 80x80=6400, P4: 40x40=1600, P5: 20x20=400 = 8400 total
+            assert_eq!(anchors.len(), 8400, "total anchors for 640x640");
+            assert!((anchors[0].0 - 8.0).abs() < 1e-6, "first anchor stride=8");
+            println!("  Anchor generation: {} anchors — PASSED", anchors.len());
+        }
+
+        runner.cleanup()?;
+        println!("  Detect head + NMS test — ALL PASSED");
+        Ok(())
+    }
+
+    inner(dev, crate::KERNEL_PTX).map_err(|e| GpuHostError::Verification {
+        test: "detect_head",
+        detail: format!("{e}"),
+    })
+}

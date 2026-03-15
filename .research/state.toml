@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 361     # Monotonic counter, incremented after each completed phase
-completed_tasks = 391
+total_cycles = 363     # Monotonic counter, incremented after each completed phase
+completed_tasks = 393
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "yolo-inference.6"
-last_summary = "yolo-inference.2+5 DONE: Conv2D (im2col+GEMM) zero error via N-padding fix. YOLO weight loader + PPM image I/O implemented and tested. All .6 deps met (.2,.3,.5). Next: yolo-inference.6 (backbone integration)."
+current_task_id = "yolo-inference.8"
+last_summary = "yolo-inference.7 DONE: Detect head (sigmoid, bias_add, DFL, NMS, anchor grid) all tested. All YOLO building blocks implemented. Next: yolo-inference.8 (end-to-end demo). Blocker: need YOLO weights (user must run export_yolo.py)."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 98
@@ -486,7 +486,7 @@ id = "yolo-inference.6"
 theme = "yolo-inference"
 title = "Experiment: backbone integration (Conv + BN + SiLU chain)"
 kind = "experiment"
-status = "active"
+status = "done"
 depends = ["yolo-inference.2", "yolo-inference.3", "yolo-inference.5"]
 
 [[tasks]]
@@ -494,7 +494,7 @@ id = "yolo-inference.7"
 theme = "yolo-inference"
 title = "Experiment: detection head + NMS"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["yolo-inference.6", "yolo-inference.4"]
 
 [[tasks]]

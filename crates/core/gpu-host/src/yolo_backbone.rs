@@ -40,6 +40,8 @@ pub struct YoloRunner {
     f_maxpool: CudaFunction,
     f_upsample: CudaFunction,
     f_concat: CudaFunction,
+    f_sigmoid: CudaFunction,
+    f_bias_add: CudaFunction,
     status_host_ptr: *mut u32,
     status_dev_ptr: CUdeviceptr,
 }
@@ -58,6 +60,8 @@ impl YoloRunner {
                 "maxpool2d",
                 "upsample_nearest_2x",
                 "concat_channels",
+                "sigmoid_forward",
+                "bias_add_chw",
             ],
         );
 
@@ -76,6 +80,8 @@ impl YoloRunner {
         let f_maxpool = get_fn!("maxpool2d");
         let f_upsample = get_fn!("upsample_nearest_2x");
         let f_concat = get_fn!("concat_channels");
+        let f_sigmoid = get_fn!("sigmoid_forward");
+        let f_bias_add = get_fn!("bias_add_chw");
 
         Ok(Self {
             dev,
@@ -85,6 +91,8 @@ impl YoloRunner {
             f_maxpool,
             f_upsample,
             f_concat,
+            f_sigmoid,
+            f_bias_add,
             status_host_ptr,
             status_dev_ptr,
         })
@@ -473,6 +481,74 @@ impl YoloRunner {
         })
     }
 
+    /// Element-wise sigmoid activation.
+    pub fn sigmoid(&self, input: &GpuTensor) -> Result<GpuTensor> {
+        let n = input.numel() as u32;
+        let mut output = self.alloc_zeros(input.numel())?;
+
+        unsafe {
+            self.f_sigmoid.clone().launch(
+                LaunchConfig {
+                    grid_dim: (n.div_ceil(256), 1, 1),
+                    block_dim: (256, 1, 1),
+                    shared_mem_bytes: 0,
+                },
+                (&input.data, &mut output, n, self.status_dev_ptr),
+            )?;
+        }
+        self.sync()?;
+
+        Ok(GpuTensor {
+            data: output,
+            c: input.c,
+            h: input.h,
+            w: input.w,
+        })
+    }
+
+    /// Add per-channel bias to a CHW tensor.
+    pub fn bias_add(&self, input: &GpuTensor, bias: &CudaSlice<f32>) -> Result<GpuTensor> {
+        let n = input.numel() as u32;
+        let hw = input.h * input.w;
+        let mut output = self.alloc_zeros(input.numel())?;
+
+        unsafe {
+            self.f_bias_add.clone().launch(
+                LaunchConfig {
+                    grid_dim: (n.div_ceil(256), 1, 1),
+                    block_dim: (256, 1, 1),
+                    shared_mem_bytes: 0,
+                },
+                (&input.data, &mut output, bias, n, hw, self.status_dev_ptr),
+            )?;
+        }
+        self.sync()?;
+
+        Ok(GpuTensor {
+            data: output,
+            c: input.c,
+            h: input.h,
+            w: input.w,
+        })
+    }
+
+    /// Conv2D + bias (no BN, no activation) — used in detect head final layers.
+    #[allow(clippy::too_many_arguments)]
+    pub fn conv_bias(
+        &self,
+        input: &GpuTensor,
+        weight_cm: &CudaSlice<f32>,
+        bias: &CudaSlice<f32>,
+        c_out: u32,
+        kh: u32,
+        kw: u32,
+        stride: u32,
+        pad: u32,
+    ) -> Result<GpuTensor> {
+        let conv_out = self.conv2d(input, weight_cm, c_out, kh, kw, stride, pad)?;
+        self.bias_add(&conv_out, bias)
+    }
+
     /// Clean up mapped memory.
     pub fn cleanup(self) -> Result<()> {
         unsafe {
@@ -507,4 +583,190 @@ pub fn prepare_conv_weight(weight: &[f32], c_out: usize, k: usize) -> Vec<f32> {
     }
     // Columns c_out..n_padded are already zero
     padded
+}
+
+// ---------------------------------------------------------------------------
+// Detection post-processing (host-side)
+// ---------------------------------------------------------------------------
+
+/// A single detected object.
+#[derive(Debug, Clone)]
+pub struct Detection {
+    /// Left edge (pixels).
+    pub x1: f32,
+    /// Top edge (pixels).
+    pub y1: f32,
+    /// Right edge (pixels).
+    pub x2: f32,
+    /// Bottom edge (pixels).
+    pub y2: f32,
+    /// Class ID (0-79 for COCO).
+    pub class_id: usize,
+    /// Confidence score (class probability * objectness).
+    pub confidence: f32,
+}
+
+/// Decode DFL distribution to box coordinate offset (public for testing).
+pub fn dfl_decode_pub(logits: &[f32], reg_max: usize) -> f32 {
+    dfl_decode(logits, reg_max)
+}
+
+/// Decode DFL distribution to box coordinate offset.
+///
+/// DFL: softmax over reg_max bins, then weighted sum with bin indices [0, 1, ..., reg_max-1].
+fn dfl_decode(logits: &[f32], reg_max: usize) -> f32 {
+    // Softmax
+    let max_val = logits.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+    let mut exp_sum = 0.0f32;
+    let mut exps = vec![0.0f32; reg_max];
+    for i in 0..reg_max {
+        exps[i] = (logits[i] - max_val).exp();
+        exp_sum += exps[i];
+    }
+    // Weighted sum: sum(i * softmax(logits[i]))
+    let mut val = 0.0f32;
+    for i in 0..reg_max {
+        val += (i as f32) * exps[i] / exp_sum;
+    }
+    val
+}
+
+/// Decode raw detection outputs to bounding boxes.
+///
+/// `box_output`: [4 * reg_max, total_anchors] — DFL logits for (left, top, right, bottom)
+/// `cls_output`: [num_classes, total_anchors] — sigmoid class scores
+/// `strides_and_grids`: for each anchor, (stride, grid_x, grid_y)
+/// `conf_threshold`: minimum confidence to keep a detection
+///
+/// Returns: list of detections above the confidence threshold.
+pub fn decode_detections(
+    box_output: &[f32],
+    cls_output: &[f32],
+    strides_and_grids: &[(f32, f32, f32)],
+    num_classes: usize,
+    reg_max: usize,
+    conf_threshold: f32,
+) -> Vec<Detection> {
+    let total_anchors = strides_and_grids.len();
+    let mut detections = Vec::new();
+
+    for anchor_idx in 0..total_anchors {
+        // Find best class
+        let mut best_class = 0;
+        let mut best_score = f32::NEG_INFINITY;
+        for c in 0..num_classes {
+            let score = cls_output[c * total_anchors + anchor_idx];
+            if score > best_score {
+                best_score = score;
+                best_class = c;
+            }
+        }
+
+        if best_score < conf_threshold {
+            continue;
+        }
+
+        // Decode DFL box
+        let (stride, gx, gy) = strides_and_grids[anchor_idx];
+        let mut offsets = [0.0f32; 4]; // left, top, right, bottom
+        for d in 0..4 {
+            let start = (d * reg_max) * total_anchors + anchor_idx;
+            let logits: Vec<f32> = (0..reg_max)
+                .map(|r| box_output[start + r * total_anchors])
+                .collect();
+            offsets[d] = dfl_decode(&logits, reg_max);
+        }
+
+        // Convert from (left, top, right, bottom) offsets to (x1, y1, x2, y2)
+        let cx = (gx + 0.5) * stride;
+        let cy = (gy + 0.5) * stride;
+        let x1 = cx - offsets[0] * stride;
+        let y1 = cy - offsets[1] * stride;
+        let x2 = cx + offsets[2] * stride;
+        let y2 = cy + offsets[3] * stride;
+
+        detections.push(Detection {
+            x1,
+            y1,
+            x2,
+            y2,
+            class_id: best_class,
+            confidence: best_score,
+        });
+    }
+
+    detections
+}
+
+/// Non-Maximum Suppression: filter overlapping detections.
+///
+/// Keeps only the highest-confidence detection among overlapping boxes
+/// of the same class (IoU > `iou_threshold`).
+pub fn nms(detections: &mut Vec<Detection>, iou_threshold: f32) {
+    // Sort by confidence descending
+    detections.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap());
+
+    let mut keep = vec![true; detections.len()];
+
+    for i in 0..detections.len() {
+        if !keep[i] {
+            continue;
+        }
+        for j in (i + 1)..detections.len() {
+            if !keep[j] || detections[i].class_id != detections[j].class_id {
+                continue;
+            }
+            if iou(&detections[i], &detections[j]) > iou_threshold {
+                keep[j] = false;
+            }
+        }
+    }
+
+    let mut idx = 0;
+    detections.retain(|_| {
+        let k = keep[idx];
+        idx += 1;
+        k
+    });
+}
+
+/// Compute Intersection over Union between two boxes.
+fn iou(a: &Detection, b: &Detection) -> f32 {
+    let inter_x1 = a.x1.max(b.x1);
+    let inter_y1 = a.y1.max(b.y1);
+    let inter_x2 = a.x2.min(b.x2);
+    let inter_y2 = a.y2.min(b.y2);
+
+    let inter_w = (inter_x2 - inter_x1).max(0.0);
+    let inter_h = (inter_y2 - inter_y1).max(0.0);
+    let inter_area = inter_w * inter_h;
+
+    let area_a = (a.x2 - a.x1) * (a.y2 - a.y1);
+    let area_b = (b.x2 - b.x1) * (b.y2 - b.y1);
+    let union_area = area_a + area_b - inter_area;
+
+    if union_area <= 0.0 {
+        0.0
+    } else {
+        inter_area / union_area
+    }
+}
+
+/// Generate anchor grid positions and strides for YOLOv8 multi-scale detection.
+///
+/// Returns: Vec of (stride, grid_x, grid_y) for each anchor point.
+pub fn generate_anchors(input_size: u32) -> Vec<(f32, f32, f32)> {
+    let strides = [8u32, 16, 32]; // P3, P4, P5
+    let mut anchors = Vec::new();
+
+    for &stride in &strides {
+        let grid_size = input_size / stride;
+        for gy in 0..grid_size {
+            for gx in 0..grid_size {
+                anchors.push((stride as f32, gx as f32, gy as f32));
+            }
+        }
+    }
+
+    anchors
 }

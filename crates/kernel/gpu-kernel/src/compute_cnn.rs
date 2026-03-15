@@ -353,3 +353,79 @@ pub unsafe extern "ptx-kernel" fn concat_channels(
         *status = 0;
     }
 }
+
+// ============================================================
+// Sigmoid kernel (yolo-inference.7 — detect head classification)
+// ============================================================
+
+/// Element-wise sigmoid: output[i] = 1 / (1 + exp(-input[i]))
+///
+/// Launch: grid_dim = (n.div_ceil(256), 1, 1), block_dim = (256, 1, 1)
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn sigmoid_forward(
+    input: *const f32,
+    output: *mut f32,
+    n: u32,
+    status: *mut u32,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let block_x = nvptx::_block_idx_x() as u32;
+        let global_id = block_x * 256 + tid;
+
+        if global_id < n {
+            let x = *input.add(global_id as usize);
+            *output.add(global_id as usize) = 1.0 / (1.0 + gpu_exp_f32(-x));
+        }
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (input, output, n);
+    }
+
+    if tid == 0 {
+        *status = 0;
+    }
+}
+
+// ============================================================
+// Bias add kernel (yolo-inference.7 — detect head bare Conv2d)
+// ============================================================
+
+/// Add per-channel bias to CHW tensor: output[c, h, w] = input[c, h, w] + bias[c]
+///
+/// Total elements: n = C * H * W. hw = H * W.
+/// Launch: grid_dim = (n.div_ceil(256), 1, 1), block_dim = (256, 1, 1)
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn bias_add_chw(
+    input: *const f32,
+    output: *mut f32,
+    bias: *const f32,
+    n: u32,
+    hw: u32,
+    status: *mut u32,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let block_x = nvptx::_block_idx_x() as u32;
+        let global_id = block_x * 256 + tid;
+
+        if global_id < n {
+            let ch = global_id / hw;
+            let val = *input.add(global_id as usize) + *bias.add(ch as usize);
+            *output.add(global_id as usize) = val;
+        }
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (input, output, bias, n, hw);
+    }
+
+    if tid == 0 {
+        *status = 0;
+    }
+}

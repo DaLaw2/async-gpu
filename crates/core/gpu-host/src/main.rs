@@ -211,6 +211,7 @@ fn main() -> Result<()> {
                 tests_cnn::run_conv2d_test(Arc::clone(&dev))?;
                 tests_cnn::run_yolo_io_test()?;
                 tests_cnn::run_yolo_backbone_test(Arc::clone(&dev))?;
+                tests_cnn::run_detect_head_test(Arc::clone(&dev))?;
                 return Ok(());
             }
             "bench" => {

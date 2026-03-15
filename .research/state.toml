@@ -11,8 +11,8 @@ status = "running"     # ready | running | blocked | completed
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = ""
-last_summary = "ml-framework epic COMPLETE: all 58/58 tasks done. nn module with GpuTensor, KernelRegistry, 13 ops, 11 layers, Gpt2Model (with KV cache), YoloV8Nano (with NMS). Standalone examples: gpt2-inference, yolo-detect in examples/std/."
+current_task_id = "ve-model-paths.1"
+last_summary = "New epic: verify-examples — centralize model paths, run GPT-2/YOLO examples e2e, run existing tests, add nn layer unit tests. Starting with model path audit."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 100
@@ -1037,4 +1037,198 @@ key_insight = "tensor-core-gemm ALL criteria met (2.18x throughput, zero error, 
 
 # (brainstorms 89-97 archived at cycle 342/349/356/365/367)
 
+[[epics]]
+id = "verify-examples"
+title = "Verify Examples & Tests — end-to-end validation with centralized model storage"
+status = "active"
+priority = "high"
+success_criteria = [
+    "All model files referenced from /models/ (repo root) — no scattered paths",
+    "GPT-2 inference example runs end-to-end and produces coherent text",
+    "YOLOv8 detection example runs end-to-end and detects objects correctly",
+    "Existing tests (tests_inference.rs, tests_cnn.rs) pass with nn API",
+    "nn layer numerical correctness tests exist and pass (Linear, LayerNorm, Conv2d, MHA vs CPU reference)",
+]
+
+# ============================================================
+# verify-examples Themes
+# ============================================================
+
+[[themes]]
+id = "ve-model-paths"
+epic = "verify-examples"
+title = "Centralize model paths — all models under /models/"
+status = "active"
+goal = "Every safetensors reference points to repo-root /models/, no scattered paths"
+success_criteria = [
+    "main.rs, tests_inference.rs, tests_cnn.rs all use consistent /models/ path",
+    "gpt2-inference and yolo-detect examples use /models/ path",
+    "No hardcoded ../../models or ../../../models relative paths — use a helper or env var",
+]
+
+[[themes]]
+id = "ve-run-gpt2"
+epic = "verify-examples"
+title = "Run GPT-2 inference end-to-end and verify output"
+status = "active"
+goal = "GPT-2 example produces correct, coherent text matching known-good output"
+success_criteria = [
+    "gpt2-inference example runs without crash",
+    "Output text is coherent for at least 2 prompts",
+    "KV-cached and non-cached paths produce identical output",
+]
+
+[[themes]]
+id = "ve-run-yolo"
+epic = "verify-examples"
+title = "Run YOLOv8 detection end-to-end and verify output"
+status = "active"
+goal = "YOLOv8 example detects objects correctly in test image"
+success_criteria = [
+    "yolo-detect example runs without crash",
+    "Detections match expected objects (correct classes, reasonable confidence)",
+]
+
+[[themes]]
+id = "ve-existing-tests"
+epic = "verify-examples"
+title = "Run existing test suites and fix any failures"
+status = "active"
+goal = "tests_inference.rs and tests_cnn.rs pass after nn API migration"
+success_criteria = [
+    "cargo test tests_inference passes",
+    "cargo test tests_cnn passes",
+    "Any failures diagnosed and fixed",
+]
+
+[[themes]]
+id = "ve-nn-unit-tests"
+epic = "verify-examples"
+title = "Add nn layer numerical correctness tests"
+status = "active"
+goal = "Each key layer has a test comparing GPU output to CPU reference"
+success_criteria = [
+    "Linear forward test: known weights → CPU matmul matches GPU output",
+    "LayerNorm test: CPU reference matches GPU output within epsilon",
+    "Conv2d test: small kernel, known input, CPU im2col+gemm matches GPU",
+    "MultiHeadAttention test: single-head case matches manual computation",
+]
+
+# ============================================================
+# verify-examples Tasks
+# ============================================================
+
+# --- ve-model-paths tasks ---
+
+[[tasks]]
+id = "ve-model-paths.1"
+theme = "ve-model-paths"
+title = "Audit all model path references across codebase"
+kind = "investigation"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "ve-model-paths.2"
+theme = "ve-model-paths"
+title = "Create model_dir() helper that resolves to repo-root /models/"
+kind = "experiment"
+status = "pending"
+depends = ["ve-model-paths.1"]
+
+[[tasks]]
+id = "ve-model-paths.3"
+theme = "ve-model-paths"
+title = "Update all model path references to use centralized helper"
+kind = "experiment"
+status = "pending"
+depends = ["ve-model-paths.2"]
+
+# --- ve-run-gpt2 tasks ---
+
+[[tasks]]
+id = "ve-run-gpt2.1"
+theme = "ve-run-gpt2"
+title = "Run gpt2-inference example, capture output"
+kind = "experiment"
+status = "pending"
+depends = ["ve-model-paths.3"]
+
+[[tasks]]
+id = "ve-run-gpt2.2"
+theme = "ve-run-gpt2"
+title = "Compare cached vs non-cached generation output"
+kind = "experiment"
+status = "pending"
+depends = ["ve-run-gpt2.1"]
+
+# --- ve-run-yolo tasks ---
+
+[[tasks]]
+id = "ve-run-yolo.1"
+theme = "ve-run-yolo"
+title = "Prepare test image (PPM format) and run yolo-detect example"
+kind = "experiment"
+status = "pending"
+depends = ["ve-model-paths.3"]
+
+[[tasks]]
+id = "ve-run-yolo.2"
+theme = "ve-run-yolo"
+title = "Verify detections match expected objects in test image"
+kind = "experiment"
+status = "pending"
+depends = ["ve-run-yolo.1"]
+
+# --- ve-existing-tests tasks ---
+
+[[tasks]]
+id = "ve-existing-tests.1"
+theme = "ve-existing-tests"
+title = "Run tests_inference.rs test suite and fix failures"
+kind = "experiment"
+status = "pending"
+depends = ["ve-model-paths.3"]
+
+[[tasks]]
+id = "ve-existing-tests.2"
+theme = "ve-existing-tests"
+title = "Run tests_cnn.rs test suite and fix failures"
+kind = "experiment"
+status = "pending"
+depends = ["ve-model-paths.3"]
+
+# --- ve-nn-unit-tests tasks ---
+
+[[tasks]]
+id = "ve-nn-unit-tests.1"
+theme = "ve-nn-unit-tests"
+title = "Add Linear layer numerical correctness test (GPU vs CPU reference)"
+kind = "experiment"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "ve-nn-unit-tests.2"
+theme = "ve-nn-unit-tests"
+title = "Add LayerNorm layer numerical correctness test"
+kind = "experiment"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "ve-nn-unit-tests.3"
+theme = "ve-nn-unit-tests"
+title = "Add Conv2d layer numerical correctness test"
+kind = "experiment"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "ve-nn-unit-tests.4"
+theme = "ve-nn-unit-tests"
+title = "Add MultiHeadAttention numerical correctness test"
+kind = "experiment"
+status = "pending"
+depends = ["ve-nn-unit-tests.1"]
 

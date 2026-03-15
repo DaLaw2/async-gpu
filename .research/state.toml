@@ -11,8 +11,8 @@ status = "running"     # ready | running | blocked | completed
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "codebase-update.1"
-last_summary = "BS99 done: 4 themes spawned (codebase-update, dx-xtask, dx-editor, dx-setup). Starting codebase-update batch: README fix, toolchain consolidation, CI coverage."
+current_task_id = "dx-xtask.1"
+last_summary = "codebase-update theme done (3/3: README updated, scripts already derive versions, CI coverage OK). Starting dx-xtask: audit build flows then implement cargo xtask."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 99
@@ -378,7 +378,7 @@ success_criteria = [
 id = "dx-xtask"
 epic = "developer-experience"
 title = "cargo xtask for GPU build"
-status = "active"
+status = "completed"
 goal = "Single command to build host + GPU kernels with PTX post-processing"
 success_criteria = [
     "cargo xtask gpu-build discovers and builds all GPU kernel crates",
@@ -588,7 +588,7 @@ id = "dx-xtask.1"
 theme = "dx-xtask"
 title = "Investigation: audit current build flows (build.rs, ci-lint.sh, PTX post-processing)"
 kind = "investigation"
-status = "pending"
+status = "done"
 depends = []
 questions = [
     "What build.rs patterns exist across examples?",
@@ -602,7 +602,7 @@ id = "dx-xtask.2"
 theme = "dx-xtask"
 title = "Experiment: implement xtask crate with gpu-build subcommand"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["dx-xtask.1"]
 
 [[tasks]]
@@ -610,7 +610,8 @@ id = "dx-xtask.3"
 theme = "dx-xtask"
 title = "Experiment: add per-example build support + PTX post-processing"
 kind = "experiment"
-status = "pending"
+status = "done"
+# Included in dx-xtask.2 — per-name build + --postprocess flag both implemented
 depends = ["dx-xtask.2"]
 
 # --- dx-editor tasks ---

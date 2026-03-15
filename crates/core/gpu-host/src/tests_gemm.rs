@@ -1960,3 +1960,674 @@ pub(crate) fn run_tf32_gemm_test(dev: Arc<CudaDevice>) -> Result<()> {
         })
     }
 }
+
+/// Split-K MMA GEMM test: compare split-K f16 MMA vs gemm_f32 at GPT-2 dimensions.
+///
+/// Tests precision improvement from K-dimension partitioning. Each split-K factor
+/// is tested and compared against both f32 FMA reference and non-split MMA baseline.
+pub(crate) fn run_splitk_gemm_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- MMA Sanity Check: all-1.0, 32x16x16 ---");
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
+    let _ = dev.load_ptx(
+        ptx,
+        "splitk_test",
+        &["full_gemm_splitk", "full_gemm_f32in", "gemm_f32"],
+    );
+
+    // Minimal test: A=all 1.0 (32x16), B=all 1.0 (16x16), expect D=16.0 everywhere
+    {
+        let (status_host_ptr, status_dev_ptr) =
+            unsafe { alloc_mapped_result_array(&dev, 1)? };
+        let m = 32usize;
+        let k = 16usize;
+        let n = 16usize;
+        let a_ones = vec![1.0f32; m * k];
+        // B packed as column-major f16x2: all 1.0
+        // pack_f16x2(1.0, 1.0) = f16(1.0) | (f16(1.0) << 16) = 0x3C00 | (0x3C00 << 16) = 0x3C003C00
+        let b_packed_ones = vec![0x3C003C00u32; n * k / 2]; // n columns × k/2 pairs
+        let a_dev = dev.htod_sync_copy(&a_ones)?;
+        let b_dev: CudaSlice<u32> = dev.htod_sync_copy(&b_packed_ones)?;
+        let mut d_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(m * n)?;
+        let f_mma_sanity = dev
+            .get_func("splitk_test", "full_gemm_f32in")
+            .ok_or(GpuHostError::KernelNotFound("full_gemm_f32in"))?;
+        unsafe {
+            std::ptr::write_volatile(status_host_ptr, 0);
+            f_mma_sanity.launch(
+                LaunchConfig {
+                    grid_dim: (1, 1, 1), // single block: 32 rows / 32 = 1, 16 cols / 16 = 1
+                    block_dim: (128, 1, 1),
+                    shared_mem_bytes: (256 + 128) * 4,
+                },
+                (
+                    &a_dev,
+                    &b_dev,
+                    &mut d_dev,
+                    1u32,  // k_tiles = 16/16 = 1
+                    n as u32,
+                    status_dev_ptr,
+                ),
+            )?;
+        }
+        dev.synchronize()?;
+        let d_out: Vec<f32> = dev.dtoh_sync_copy(&d_dev)?;
+        let max_err = d_out.iter().map(|v| (v - 16.0).abs()).fold(0.0f32, f32::max);
+        println!("  d[0..8]: {:?}", &d_out[..8]);
+        println!("  d[16..24]: {:?}", &d_out[16..24]);
+        println!("  max_err from 16.0: {max_err}");
+        if max_err > 0.01 {
+            println!("  FAIL — basic MMA pipeline is broken!");
+        } else {
+            println!("  PASS — single-tile all-1.0 MMA is correct");
+        }
+        unsafe { free_mapped_mem(status_host_ptr)?; }
+    }
+
+    // Multi-tile test: K=32 (2 tiles), all 1.0, expect 32.0
+    println!("\n--- MMA Sanity Check: all-1.0, 32x32x16, K=32 (2 tiles) ---");
+    {
+        let (status_host_ptr, status_dev_ptr) =
+            unsafe { alloc_mapped_result_array(&dev, 1)? };
+        let m = 32usize;
+        let k = 32usize;
+        let n = 16usize;
+        let a_ones = vec![1.0f32; m * k];
+        let b_packed_ones = vec![0x3C003C00u32; n * k / 2];
+        let a_dev = dev.htod_sync_copy(&a_ones)?;
+        let b_dev: CudaSlice<u32> = dev.htod_sync_copy(&b_packed_ones)?;
+        let mut d_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(m * n)?;
+        let f_mma_sanity = dev
+            .get_func("splitk_test", "full_gemm_f32in")
+            .ok_or(GpuHostError::KernelNotFound("full_gemm_f32in"))?;
+        unsafe {
+            std::ptr::write_volatile(status_host_ptr, 0);
+            f_mma_sanity.launch(
+                LaunchConfig {
+                    grid_dim: (1, 1, 1),
+                    block_dim: (128, 1, 1),
+                    shared_mem_bytes: (256 + 128) * 4,
+                },
+                (
+                    &a_dev,
+                    &b_dev,
+                    &mut d_dev,
+                    2u32,  // k_tiles = 32/16 = 2
+                    n as u32,
+                    status_dev_ptr,
+                ),
+            )?;
+        }
+        dev.synchronize()?;
+        let d_out: Vec<f32> = dev.dtoh_sync_copy(&d_dev)?;
+        let max_err = d_out.iter().map(|v| (v - 32.0).abs()).fold(0.0f32, f32::max);
+        println!("  d[0..8]: {:?}", &d_out[..8]);
+        println!("  max_err from 32.0: {max_err}");
+        if max_err > 0.01 {
+            println!("  FAIL — multi-tile accumulation broken!");
+        } else {
+            println!("  PASS — 2-tile all-1.0 MMA is correct");
+        }
+        unsafe { free_mapped_mem(status_host_ptr)?; }
+    }
+
+    // Multi-tile test with small integers: K=32, A[i][j] = ((j%5)+1), B = 1.0
+    // Expected D[i][j] = sum_{k=0..31} A[i][k] * 1.0 = sum of ((k%5)+1) for k=0..31
+    // Pattern repeats every 5: 1+2+3+4+5 = 15. 32/5 = 6 full + 2 extra (1+2=3)
+    // Expected: 6*15 + 3 = 93
+    println!("\n--- MMA Sanity Check: pattern A, all-1 B, 32x32x16 ---");
+    {
+        let (status_host_ptr, status_dev_ptr) =
+            unsafe { alloc_mapped_result_array(&dev, 1)? };
+        let m = 32usize;
+        let k = 32usize;
+        let n = 16usize;
+        let mut a_pat = vec![0.0f32; m * k];
+        for i in 0..m {
+            for j in 0..k {
+                a_pat[i * k + j] = ((j % 5) + 1) as f32;
+            }
+        }
+        let b_packed_ones = vec![0x3C003C00u32; n * k / 2];
+        let a_dev = dev.htod_sync_copy(&a_pat)?;
+        let b_dev: CudaSlice<u32> = dev.htod_sync_copy(&b_packed_ones)?;
+        let mut d_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(m * n)?;
+        let f_mma_sanity = dev
+            .get_func("splitk_test", "full_gemm_f32in")
+            .ok_or(GpuHostError::KernelNotFound("full_gemm_f32in"))?;
+        unsafe {
+            std::ptr::write_volatile(status_host_ptr, 0);
+            f_mma_sanity.launch(
+                LaunchConfig {
+                    grid_dim: (1, 1, 1),
+                    block_dim: (128, 1, 1),
+                    shared_mem_bytes: (256 + 128) * 4,
+                },
+                (
+                    &a_dev,
+                    &b_dev,
+                    &mut d_dev,
+                    2u32,
+                    n as u32,
+                    status_dev_ptr,
+                ),
+            )?;
+        }
+        dev.synchronize()?;
+        let d_out: Vec<f32> = dev.dtoh_sync_copy(&d_dev)?;
+        // CPU check
+        let expected: f32 = (0..k).map(|j| ((j % 5) + 1) as f32).sum();
+        let max_err = d_out.iter().map(|v| (v - expected).abs()).fold(0.0f32, f32::max);
+        println!("  expected: {expected}, d[0..8]: {:?}", &d_out[..8]);
+        println!("  max_err: {max_err}");
+        if max_err > 0.01 {
+            println!("  FAIL — multi-tile pattern broken! (expected {expected}, got {})", d_out[0]);
+        } else {
+            println!("  PASS — 2-tile pattern MMA is correct");
+        }
+        unsafe { free_mapped_mem(status_host_ptr)?; }
+    }
+
+    // Single-tile K=16 with pattern
+    println!("\n--- MMA Sanity: pattern A, all-1 B, K=16 (1 tile) ---");
+    {
+        let (status_host_ptr, status_dev_ptr) =
+            unsafe { alloc_mapped_result_array(&dev, 1)? };
+        let m = 32usize;
+        let k = 16usize;
+        let n = 16usize;
+        let mut a_pat = vec![0.0f32; m * k];
+        for i in 0..m {
+            for j in 0..k {
+                a_pat[i * k + j] = ((j % 5) + 1) as f32;
+            }
+        }
+        let b_packed_ones = vec![0x3C003C00u32; n * k / 2];
+        let a_dev = dev.htod_sync_copy(&a_pat)?;
+        let b_dev: CudaSlice<u32> = dev.htod_sync_copy(&b_packed_ones)?;
+        let mut d_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(m * n)?;
+        let f = dev
+            .get_func("splitk_test", "full_gemm_f32in")
+            .ok_or(GpuHostError::KernelNotFound("full_gemm_f32in"))?;
+        unsafe {
+            std::ptr::write_volatile(status_host_ptr, 0);
+            f.launch(
+                LaunchConfig {
+                    grid_dim: (1, 1, 1),
+                    block_dim: (128, 1, 1),
+                    shared_mem_bytes: (256 + 128) * 4,
+                },
+                (&a_dev, &b_dev, &mut d_dev, 1u32, n as u32, status_dev_ptr),
+            )?;
+        }
+        dev.synchronize()?;
+        let d_out: Vec<f32> = dev.dtoh_sync_copy(&d_dev)?;
+        let expected: f32 = (0..k).map(|j| ((j % 5) + 1) as f32).sum();
+        let max_err = d_out.iter().map(|v| (v - expected).abs()).fold(0.0f32, f32::max);
+        println!("  expected: {expected}, d[0..8]: {:?}", &d_out[..8]);
+        println!("  max_err: {max_err}");
+        unsafe { free_mapped_mem(status_host_ptr)?; }
+    }
+
+    // Binary diagnostic: A[k] = 2^k for k=0..9, 0 for k=10..15
+    println!("\n--- MMA Binary Diagnostic: A[k]=2^k, K=16 ---");
+    {
+        let (status_host_ptr, status_dev_ptr) =
+            unsafe { alloc_mapped_result_array(&dev, 1)? };
+        let m = 32usize;
+        let k = 16usize;
+        let n = 16usize;
+
+        fn f32_to_f16_local(val: f32) -> u16 {
+            let bits = val.to_bits();
+            let sign = (bits >> 31) & 1;
+            let exp = ((bits >> 23) & 0xFF) as i32;
+            let frac = bits & 0x7FFFFF;
+            if val == 0.0 { return (sign << 15) as u16; }
+            let new_exp = exp - 127 + 15;
+            if new_exp <= 0 { return (sign << 15) as u16; }
+            if new_exp >= 31 { return ((sign << 15) | 0x7C00) as u16; }
+            ((sign << 15) | ((new_exp as u32) << 10) | (frac >> 13)) as u16
+        }
+        fn pack_f16x2_local(lo: f32, hi: f32) -> u32 {
+            f32_to_f16_local(lo) as u32 | ((f32_to_f16_local(hi) as u32) << 16)
+        }
+
+        // Generate A values
+        let mut a_vals = vec![0.0f32; m * k];
+        for i in 0..m {
+            for j in 0..k {
+                a_vals[i * k + j] = if j < 10 { (1u32 << j) as f32 } else { 0.0 };
+            }
+        }
+
+        // Test 1: full_gemm_f32in (f32 A, GPU-side conversion)
+        {
+            let a_dev = dev.htod_sync_copy(&a_vals)?;
+            let b_packed_ones = vec![0x3C003C00u32; n * k / 2];
+            let b_dev: CudaSlice<u32> = dev.htod_sync_copy(&b_packed_ones)?;
+            let mut d_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(m * n)?;
+            let f = dev
+                .get_func("splitk_test", "full_gemm_f32in")
+                .ok_or(GpuHostError::KernelNotFound("full_gemm_f32in"))?;
+            unsafe {
+                std::ptr::write_volatile(status_host_ptr, 0);
+                f.launch(
+                    LaunchConfig {
+                        grid_dim: (1, 1, 1),
+                        block_dim: (128, 1, 1),
+                        shared_mem_bytes: (256 + 128) * 4,
+                    },
+                    (&a_dev, &b_dev, &mut d_dev, 1u32, n as u32, status_dev_ptr),
+                )?;
+            }
+            dev.synchronize()?;
+            let d_out: Vec<f32> = dev.dtoh_sync_copy(&d_dev)?;
+            println!("  [f32in]  D[0][0] = {:.0} (expect 1023, 0b{:010b})", d_out[0], d_out[0] as u32);
+        }
+
+        // Test 2: multi_block_gemm (pre-packed f16x2 A, no GPU conversion)
+        {
+            let _ = dev.load_ptx(
+                cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX),
+                "splitk_diag",
+                &["multi_block_gemm"],
+            );
+            let f_mbg = dev
+                .get_func("splitk_diag", "multi_block_gemm")
+                .ok_or(GpuHostError::KernelNotFound("multi_block_gemm"))?;
+
+            // Pack A as row-major f16x2: a_packed[row * k/2 + kp] = f16x2(A[row][kp*2], A[row][kp*2+1])
+            let mut a_packed = Vec::with_capacity(m * k / 2);
+            for row in 0..m {
+                for kp in 0..k / 2 {
+                    a_packed.push(pack_f16x2_local(
+                        a_vals[row * k + kp * 2],
+                        a_vals[row * k + kp * 2 + 1],
+                    ));
+                }
+            }
+            let b_packed_ones = vec![0x3C003C00u32; n * k / 2];
+            let a_dev: CudaSlice<u32> = dev.htod_sync_copy(&a_packed)?;
+            let b_dev: CudaSlice<u32> = dev.htod_sync_copy(&b_packed_ones)?;
+            let mut d_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(m * n)?;
+            unsafe {
+                std::ptr::write_volatile(status_host_ptr, 0);
+                f_mbg.launch(
+                    LaunchConfig {
+                        grid_dim: (1, 1, 1),
+                        block_dim: (128, 1, 1),
+                        shared_mem_bytes: (256 + 128) * 4,
+                    },
+                    (
+                        &a_dev,
+                        &b_dev,
+                        &mut d_dev,
+                        1u32,  // k_tiles
+                        n as u32,
+                        m as u32,
+                        status_dev_ptr,
+                    ),
+                )?;
+            }
+            dev.synchronize()?;
+            let d_out: Vec<f32> = dev.dtoh_sync_copy(&d_dev)?;
+            println!("  [prepack] D[0][0] = {:.0} (expect 1023, 0b{:010b})", d_out[0], d_out[0] as u32);
+        }
+        unsafe { free_mapped_mem(status_host_ptr)?; }
+    }
+
+    // === MMA Fragment Diagnostic ===
+    println!("\n--- MMA Fragment Diagnostic (mma_diag) ---");
+    {
+        let _ = dev.load_ptx(
+            cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX),
+            "mma_diag_mod",
+            &["mma_diag"],
+        );
+        let f_diag = dev
+            .get_func("mma_diag_mod", "mma_diag")
+            .ok_or(GpuHostError::KernelNotFound("mma_diag"))?;
+
+        let (status_host_ptr, status_dev_ptr) =
+            unsafe { alloc_mapped_result_array(&dev, 1)? };
+
+        let m = 32usize;
+        let k = 16usize;
+        let n = 16usize;
+
+        fn f32_to_f16_diag(val: f32) -> u16 {
+            let bits = val.to_bits();
+            let sign = (bits >> 31) & 1;
+            let exp = ((bits >> 23) & 0xFF) as i32;
+            let frac = bits & 0x7FFFFF;
+            if val == 0.0 { return (sign << 15) as u16; }
+            let new_exp = exp - 127 + 15;
+            if new_exp <= 0 { return (sign << 15) as u16; }
+            if new_exp >= 31 { return ((sign << 15) | 0x7C00) as u16; }
+            ((sign << 15) | ((new_exp as u32) << 10) | (frac >> 13)) as u16
+        }
+        fn pack_f16x2_diag(lo: f32, hi: f32) -> u32 {
+            f32_to_f16_diag(lo) as u32 | ((f32_to_f16_diag(hi) as u32) << 16)
+        }
+        fn f16_to_f32_diag(bits: u16) -> f32 {
+            let sign = ((bits >> 15) & 1) as u32;
+            let exp = ((bits >> 10) & 0x1F) as i32;
+            let frac = (bits & 0x3FF) as u32;
+            if exp == 0 && frac == 0 {
+                return f32::from_bits(sign << 31);
+            }
+            if exp == 31 {
+                return if frac == 0 { f32::from_bits((sign << 31) | 0x7F800000) } else { f32::NAN };
+            }
+            let f32_exp = (exp - 15 + 127) as u32;
+            f32::from_bits((sign << 31) | (f32_exp << 23) | (frac << 13))
+        }
+
+        // A: row-major f32 [32][16], A[row][k] = 2^k for k=0..9, 0 for k>=10
+        let mut a_vals = vec![0.0f32; m * k];
+        for i in 0..m {
+            for j in 0..k {
+                a_vals[i * k + j] = if j < 10 { (1u32 << j) as f32 } else { 0.0 };
+            }
+        }
+        let a_dev = dev.htod_sync_copy(&a_vals)?;
+
+        // B: col-major f16x2 [16][8], all 1.0
+        let b_packed_ones = vec![0x3C003C00u32; n * k / 2];
+        let b_dev: CudaSlice<u32> = dev.htod_sync_copy(&b_packed_ones)?;
+
+        let mut d_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(m * n)?;
+        let mut dbg_dev: CudaSlice<u32> = dev.alloc_zeros::<u32>(384)?;
+
+        unsafe {
+            std::ptr::write_volatile(status_host_ptr, 0);
+            f_diag.launch(
+                LaunchConfig {
+                    grid_dim: (1, 1, 1),
+                    block_dim: (128, 1, 1),
+                    shared_mem_bytes: (256 + 128) * 4,
+                },
+                (&a_dev, &b_dev, &mut d_dev, &mut dbg_dev, n as u32, status_dev_ptr),
+            )?;
+        }
+        dev.synchronize()?;
+
+        let d_out: Vec<f32> = dev.dtoh_sync_copy(&d_dev)?;
+        let dbg: Vec<u32> = dev.dtoh_sync_copy(&dbg_dev)?;
+
+        println!("  D[0][0] = {:.0} (expect 1023)", d_out[0]);
+
+        // Print fragment values for thread 0 (groupID=0, threadID_in_group=0)
+        println!("\n  Thread 0 fragments (group=0, lane=0):");
+        let a0 = dbg[0]; let a1 = dbg[32]; let a2 = dbg[64]; let a3 = dbg[96];
+        let b0 = dbg[128]; let b1 = dbg[160];
+        let d0 = dbg[192]; let d1 = dbg[224]; let d2 = dbg[256]; let d3 = dbg[288];
+        println!("    a0 = 0x{a0:08X} = f16x2({}, {})",
+            f16_to_f32_diag(a0 as u16), f16_to_f32_diag((a0 >> 16) as u16));
+        println!("    a1 = 0x{a1:08X} = f16x2({}, {})",
+            f16_to_f32_diag(a1 as u16), f16_to_f32_diag((a1 >> 16) as u16));
+        println!("    a2 = 0x{a2:08X} = f16x2({}, {})",
+            f16_to_f32_diag(a2 as u16), f16_to_f32_diag((a2 >> 16) as u16));
+        println!("    a3 = 0x{a3:08X} = f16x2({}, {})",
+            f16_to_f32_diag(a3 as u16), f16_to_f32_diag((a3 >> 16) as u16));
+        println!("    b0 = 0x{b0:08X} = f16x2({}, {})",
+            f16_to_f32_diag(b0 as u16), f16_to_f32_diag((b0 >> 16) as u16));
+        println!("    b1 = 0x{b1:08X} = f16x2({}, {})",
+            f16_to_f32_diag(b1 as u16), f16_to_f32_diag((b1 >> 16) as u16));
+        println!("    d0 = 0x{d0:08X} = f32({})", f32::from_bits(d0));
+        println!("    d1 = 0x{d1:08X} = f32({})", f32::from_bits(d1));
+        println!("    d2 = 0x{d2:08X} = f32({})", f32::from_bits(d2));
+        println!("    d3 = 0x{d3:08X} = f32({})", f32::from_bits(d3));
+
+        // Print fragments for threads 1-3 (same group, different lanes)
+        for t in 1..4u32 {
+            let a0t = dbg[t as usize]; let a1t = dbg[(32 + t) as usize];
+            println!("  T{t}: a0=0x{a0t:08X}=f16x2({},{}), a1=0x{a1t:08X}=f16x2({},{})",
+                f16_to_f32_diag(a0t as u16), f16_to_f32_diag((a0t >> 16) as u16),
+                f16_to_f32_diag(a1t as u16), f16_to_f32_diag((a1t >> 16) as u16));
+        }
+
+        // Print shared memory row 0 (8 entries = 16 f16 values = full K=16 for row 0)
+        println!("\n  Shared memory A row 0 (a_smem[0..7]):");
+        for j in 0..8u32 {
+            let v = dbg[(320 + j) as usize];
+            let lo = f16_to_f32_diag(v as u16);
+            let hi = f16_to_f32_diag((v >> 16) as u16);
+            println!("    a_smem[{j}] = 0x{v:08X} = f16x2({lo}, {hi}) → k={},{}",
+                j * 2, j * 2 + 1);
+        }
+
+        // Print shared memory B col 0 (8 entries)
+        println!("  Shared memory B col 0 (b_smem[0..7]):");
+        for j in 0..8u32 {
+            let v = dbg[(352 + j) as usize];
+            let lo = f16_to_f32_diag(v as u16);
+            let hi = f16_to_f32_diag((v >> 16) as u16);
+            println!("    b_smem[{j}] = 0x{v:08X} = f16x2({lo}, {hi})");
+        }
+
+        // Expected vs actual mapping verification
+        println!("\n  Expected fragment mapping (PTX ISA m16n8k16.row.col):");
+        println!("    T0: a[0]=f16x2(A[0][0],A[0][1])=f16x2(1,2), a[1]=f16x2(A[0][8],A[0][9])=f16x2(256,512)");
+        println!("    T1: a[0]=f16x2(A[0][2],A[0][3])=f16x2(4,8), a[1]=f16x2(A[0][10],A[0][11])=f16x2(0,0)");
+        println!("    T2: a[0]=f16x2(A[0][4],A[0][5])=f16x2(16,32), a[1]=f16x2(A[0][12],A[0][13])=f16x2(0,0)");
+        println!("    T3: a[0]=f16x2(A[0][6],A[0][7])=f16x2(64,128), a[1]=f16x2(A[0][14],A[0][15])=f16x2(0,0)");
+        println!("    b[0]=f16x2(1,1) for all, b[1]=f16x2(1,1) for all");
+        println!("    D[0][0] = sum(A[0][k]*1.0 for k=0..15) = 1+2+4+8+16+32+64+128+256+512 = 1023");
+
+        unsafe { free_mapped_mem(status_host_ptr)?; }
+    }
+
+    println!("\n--- Split-K MMA GEMM Test (mma-splitk.2) ---");
+
+    let f_splitk = dev
+        .get_func("splitk_test", "full_gemm_splitk")
+        .ok_or(GpuHostError::KernelNotFound("full_gemm_splitk"))?;
+    let f_mma = dev
+        .get_func("splitk_test", "full_gemm_f32in")
+        .ok_or(GpuHostError::KernelNotFound("full_gemm_f32in"))?;
+    let f_f32 = dev
+        .get_func("splitk_test", "gemm_f32")
+        .ok_or(GpuHostError::KernelNotFound("gemm_f32"))?;
+
+    let (status_host_ptr, status_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 1)? };
+
+    fn f32_to_f16(val: f32) -> u16 {
+        let bits = val.to_bits();
+        let sign = (bits >> 31) & 1;
+        let exp = ((bits >> 23) & 0xFF) as i32;
+        let frac = bits & 0x7FFFFF;
+        if val == 0.0 {
+            return (sign << 15) as u16;
+        }
+        let new_exp = exp - 127 + 15;
+        if new_exp <= 0 {
+            return (sign << 15) as u16;
+        }
+        if new_exp >= 31 {
+            return ((sign << 15) | 0x7C00) as u16;
+        }
+        ((sign << 15) | ((new_exp as u32) << 10) | (frac >> 13)) as u16
+    }
+    fn pack_f16x2(lo: f32, hi: f32) -> u32 {
+        f32_to_f16(lo) as u32 | ((f32_to_f16(hi) as u32) << 16)
+    }
+    fn f16_to_f32(bits: u16) -> f32 {
+        let sign = ((bits >> 15) & 1) as u32;
+        let exp = ((bits >> 10) & 0x1F) as i32;
+        let frac = (bits & 0x3FF) as u32;
+        if exp == 0 && frac == 0 {
+            return f32::from_bits(sign << 31);
+        }
+        if exp == 0x1F {
+            return if frac == 0 {
+                f32::from_bits((sign << 31) | 0x7F800000)
+            } else {
+                f32::NAN
+            };
+        }
+        let f32_exp = (exp - 15 + 127) as u32;
+        f32::from_bits((sign << 31) | (f32_exp << 23) | (frac << 13))
+    }
+
+    fn to_col_major(w: &[f32], k: usize, n: usize) -> Vec<f32> {
+        let mut cm = vec![0.0f32; k * n];
+        for row in 0..k {
+            for col in 0..n {
+                cm[col * k + row] = w[row * n + col];
+            }
+        }
+        cm
+    }
+
+    // GPT-2 dimensions
+    let dims: &[(usize, usize, usize)] = &[
+        (128, 768, 768),
+        (128, 768, 2304),
+        (128, 768, 3072),
+        (128, 3072, 768),
+    ];
+
+    let split_k_values: &[u32] = &[1, 2, 4, 8];
+
+    for &(m, k, n) in dims {
+        println!("  {m}x{k} × {k}x{n}:");
+        let k_tiles = (k / 16) as u32;
+
+        // Generate deterministic data
+        let mut a_f32 = vec![0.0f32; m * k];
+        let mut b_rm = vec![0.0f32; k * n];
+        for i in 0..m {
+            for j in 0..k {
+                a_f32[i * k + j] = ((i * 7 + j * 3) % 5 + 1) as f32;
+            }
+        }
+        for i in 0..k {
+            for j in 0..n {
+                b_rm[i * n + j] = ((i * 11 + j * 13) % 7 + 1) as f32;
+            }
+        }
+
+        // Pack B as column-major f16x2 for MMA kernels
+        let mut b_packed = Vec::with_capacity(n * k / 2);
+        for col in 0..n {
+            for k_pair in 0..k / 2 {
+                let v0 = f16_to_f32(f32_to_f16(b_rm[k_pair * 2 * n + col]));
+                let v1 = f16_to_f32(f32_to_f16(b_rm[(k_pair * 2 + 1) * n + col]));
+                b_packed.push(pack_f16x2(v0, v1));
+            }
+        }
+        let b_cm = to_col_major(&b_rm, k, n);
+
+        let a_dev = dev.htod_sync_copy(&a_f32)?;
+        let b_mma_dev: CudaSlice<u32> = dev.htod_sync_copy(&b_packed)?;
+        let b_f32_dev = dev.htod_sync_copy(&b_cm)?;
+
+        // f32 FMA reference
+        let mut d_f32_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(m * n)?;
+        unsafe {
+            std::ptr::write_volatile(status_host_ptr, 0);
+            f_f32.clone().launch(
+                LaunchConfig {
+                    grid_dim: ((m / 32) as u32, (n / 16) as u32, 1),
+                    block_dim: (128, 1, 1),
+                    shared_mem_bytes: (32 * 16 + 16 * 16) * 4,
+                },
+                (
+                    &a_dev,
+                    &b_f32_dev,
+                    &mut d_f32_dev,
+                    k as u32,
+                    n as u32,
+                    status_dev_ptr,
+                ),
+            )?;
+        }
+        dev.synchronize()?;
+        let d_f32_ref: Vec<f32> = dev.dtoh_sync_copy(&d_f32_dev)?;
+
+        // Non-split MMA baseline (split_k=1, same as full_gemm_f32in)
+        let mut d_mma_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(m * n)?;
+        unsafe {
+            std::ptr::write_volatile(status_host_ptr, 0);
+            f_mma.clone().launch(
+                LaunchConfig {
+                    grid_dim: ((m / 32) as u32, (n / 16) as u32, 1),
+                    block_dim: (128, 1, 1),
+                    shared_mem_bytes: (256 + 128) * 4,
+                },
+                (
+                    &a_dev,
+                    &b_mma_dev,
+                    &mut d_mma_dev,
+                    k_tiles,
+                    n as u32,
+                    status_dev_ptr,
+                ),
+            )?;
+        }
+        dev.synchronize()?;
+        let d_mma_baseline: Vec<f32> = dev.dtoh_sync_copy(&d_mma_dev)?;
+
+        // Compute baseline error
+        let baseline_max_abs = d_mma_baseline
+            .iter()
+            .zip(d_f32_ref.iter())
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0f32, f32::max);
+
+        // Test each split-K factor
+        for &sk in split_k_values {
+            let mut d_splitk_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(m * n)?;
+
+            unsafe {
+                std::ptr::write_volatile(status_host_ptr, 0);
+                f_splitk.clone().launch(
+                    LaunchConfig {
+                        grid_dim: ((m / 32) as u32, (n / 16) as u32, sk),
+                        block_dim: (128, 1, 1),
+                        shared_mem_bytes: (256 + 128) * 4,
+                    },
+                    (
+                        &a_dev,
+                        &b_mma_dev,
+                        &mut d_splitk_dev,
+                        k_tiles,
+                        n as u32,
+                        sk,
+                        status_dev_ptr,
+                    ),
+                )?;
+            }
+            dev.synchronize()?;
+
+            let d_splitk: Vec<f32> = dev.dtoh_sync_copy(&d_splitk_dev)?;
+
+            let max_abs_err = d_splitk
+                .iter()
+                .zip(d_f32_ref.iter())
+                .map(|(a, b)| (a - b).abs())
+                .fold(0.0f32, f32::max);
+
+            let improvement = if max_abs_err > 0.0 {
+                baseline_max_abs / max_abs_err
+            } else {
+                f32::INFINITY
+            };
+
+            println!(
+                "    split_k={sk}: max_abs_err={max_abs_err:.4} (baseline={baseline_max_abs:.4}, {improvement:.1}x better)"
+            );
+
+            // Diagnostic removed for clean output
+        }
+    }
+
+    unsafe {
+        free_mapped_mem(status_host_ptr)?;
+    }
+
+    println!("  Split-K MMA GEMM — DONE (see error comparisons above)");
+    Ok(())
+}

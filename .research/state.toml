@@ -4,18 +4,18 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 350     # Monotonic counter, incremented after each completed phase
-completed_tasks = 380
+total_cycles = 352     # Monotonic counter, incremented after each completed phase
+completed_tasks = 383
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "warp-batch-io.2"
-last_summary = "BS96: project is feature-complete (19 epics, 379 tasks). Next direction: (1) unpark warp-batch-io, (2) ecosystem-launch epic, (3) developer-experience epic. Starting warp-batch-io first."
+current_task_id = "mma-splitk.3"
+last_summary = "mma-splitk.1+2 DONE: Found and fixed fundamental MMA fragment register bug — a[1] and a[2] were SWAPPED in all MMA kernels. Also fixed split-K atomicAdd race. MMA f16 now produces ZERO error vs f32 FMA at all GPT-2 dimensions. Split-K not needed for precision, only for occupancy."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 96
+brainstorm_seq = 97
 review_seq = 5
 
 # Brainstorm trigger control (event-driven, no fixed interval)
@@ -292,10 +292,37 @@ success_criteria = [
 # ecosystem-launch epic REMOVED — user explicitly prohibited all publishing/docs-site/blog actions
 
 [[epics]]
+id = "tensor-core-gemm"
+title = "Tensor Core GEMM — production-quality MMA kernel with correct precision and real speedup"
+status = "active"
+priority = "highest"
+success_criteria = [
+    "Split-K accumulation: large K dimensions (>=1024) chunked into independent f32 partial sums to prevent rounding error accumulation",
+    "Direct f16 weight loading (no f32->f16 conversion), eliminating input truncation as an error source",
+    "GPT-2 Small f16 MMA inference top-5 tokens match f32 FMA reference (at least 2/3 prompts) — WITHOUT model-side QAT/PTQ",
+    "MMA GEMM throughput >= 2x f32 FMA (Tensor Core hardware advantage must be measurable)",
+    "Per-token latency with MMA significantly lower than current f32 FMA baseline of 68ms/token",
+]
+
+[[epics]]
+id = "object-detection"
+title = "GPU Object Detection — YOLOv8-nano inference with hostcall result return"
+status = "active"
+priority = "high"
+depends_on = "tensor-core-gemm"
+success_criteria = [
+    "Conv2D kernel: f32 FMA or Tensor Core MMA, shared memory tiling, correct stride/padding handling",
+    "Complete YOLO backbone: Conv2D + BatchNorm + SiLU + Upsample + Concat",
+    "Detection head + NMS: output bounding boxes, class ID, confidence score",
+    "End-to-end demo: read image -> GPU inference -> hostcall returns detection results, correctly detect >=3 objects in a single image",
+    "All kernels in pure Rust inline PTX, no cuDNN/cuBLAS dependency",
+]
+
+[[epics]]
 id = "developer-experience"
 title = "Developer Experience — cargo xtask, rust-analyzer, onboarding"
 status = "active"
-priority = "medium"
+priority = "low"
 success_criteria = [
     "cargo xtask gpu-build compiles host + GPU kernel crates, runs PTX post-processing",
     "rust-analyzer provides completions and type checking for GPU kernel crates",
@@ -308,10 +335,23 @@ success_criteria = [
 # ============================================================
 
 [[themes]]
+id = "mma-splitk"
+epic = "tensor-core-gemm"
+title = "Split-K MMA GEMM with correct precision and real speedup"
+status = "active"
+goal = "Fix MMA GEMM precision via split-K accumulation + f16 weights, achieve >=2x throughput over f32 FMA"
+success_criteria = [
+    "Split-K GEMM kernel passes correctness test at all GPT-2 dimensions vs f32 FMA",
+    "GPT-2 inference top-5 matches f32 FMA baseline (2/3 prompts) without QAT/PTQ",
+    "GEMM throughput >= 2x f32 FMA, per-token latency significantly < 68ms",
+]
+
+[[themes]]
 id = "warp-batch-io"
 epic = "async-std"
 title = "Warp-batched hostcall — 32 lanes share 1 packet"
-status = "active"
+status = "parked"
+# PARKED at cycle 350 — user reprioritized: tensor-core-gemm and object-detection come first
 goal = "Lane 0 submits hostcall, result broadcast via shfl.sync to all lanes"
 success_criteria = [
     "GpuOpenFuture with lane-0-submits pattern",
@@ -329,6 +369,54 @@ success_criteria = [
 
 # (done tasks archived at cycle 342: tokio-investigate.1, tokio-investigate.2, tokio-impl.1, tokio-demo.1)
 # (done tasks archived at cycle 349: multi-gpu.1-2, cuda-streams.1-3, gpu-alloc.1, prebuilt-toolchain.1-2)
+
+# --- mma-splitk tasks ---
+
+[[tasks]]
+id = "mma-splitk.1"
+theme = "mma-splitk"
+title = "Investigation: study split-K GEMM implementations (CUTLASS, cuBLAS patterns)"
+kind = "investigation"
+status = "done"
+depends = []
+questions = [
+    "How does CUTLASS implement split-K? Grid dimensions, reduction strategy, workspace?",
+    "What K_CHUNK sizes are optimal for SM 86 (RTX 3060)?",
+    "Atomic reduction vs two-pass workspace — trade-offs for our use case?",
+    "How to handle non-power-of-2 K dimensions with split-K?",
+]
+
+[[tasks]]
+id = "mma-splitk.2"
+theme = "mma-splitk"
+title = "Experiment: implement split-K f16 MMA GEMM kernel + fix fragment mapping bug"
+kind = "experiment"
+status = "done"
+depends = ["mma-splitk.1"]
+
+[[tasks]]
+id = "mma-splitk.3"
+theme = "mma-splitk"
+title = "Experiment: direct f16 weight loading (eliminate f32->f16 truncation)"
+kind = "experiment"
+status = "pending"
+depends = ["mma-splitk.1"]
+
+[[tasks]]
+id = "mma-splitk.4"
+theme = "mma-splitk"
+title = "Experiment: GPT-2 inference with split-K MMA — validate top-5 agreement"
+kind = "experiment"
+status = "pending"
+depends = ["mma-splitk.2", "mma-splitk.3"]
+
+[[tasks]]
+id = "mma-splitk.5"
+theme = "mma-splitk"
+title = "Experiment: benchmark split-K MMA throughput and per-token latency"
+kind = "experiment"
+status = "pending"
+depends = ["mma-splitk.4"]
 
 # --- warp-batch-io tasks ---
 
@@ -373,6 +461,18 @@ depends = ["warp-batch-io.3"]
 # ============================================================
 # Brainstorms (last 3 only — older brainstorms archived)
 # ============================================================
+
+[[brainstorms]]
+seq = 97
+at_cycle = 351
+trigger = "User created tensor-core-gemm epic (highest priority) — need to plan themes and tasks"
+level = "standard"
+new_tasks_spawned = ["mma-splitk.1", "mma-splitk.2", "mma-splitk.3", "mma-splitk.4", "mma-splitk.5"]
+new_themes_spawned = ["mma-splitk"]
+new_epics_spawned = []
+themes_parked = ["warp-batch-io"]
+themes_completed = []
+key_insight = "Previous MMA failures were due to naive sequential K accumulation (192 tiles for K=3072). Fix: split-K (chunk K into 256-element blocks, independent f32 accumulators, then reduce) + direct f16 weights (skip f32->f16 truncation) + optional Kahan compensated summation. f16 MMA is best variant (1.8x speedup, 10-bit mantissa, K=16 tiles)."
 
 [[brainstorms]]
 seq = 96

@@ -1,7 +1,7 @@
 #!/bin/bash
-# async_gpu — environment check and setup guide
+# async_gpu — environment check
 #
-# Usage: bash scripts/setup.sh
+# Usage: bash scripts/env-check.sh
 #
 # Checks all prerequisites for building and running async_gpu examples.
 # Does NOT modify system state — only reports what is present/missing.
@@ -145,7 +145,7 @@ if [ "$ISSUES" -eq 0 ]; then
     printf "${GREEN}All prerequisites met!${NC}\n"
     echo ""
     echo "Quick start:"
-    echo "  cargo run --manifest-path examples/hello-gpu/host/Cargo.toml"
+    echo "  cargo run --manifest-path examples/hostcall/hello-gpu/host/Cargo.toml"
     echo ""
     echo "Or use xtask to build all GPU kernels:"
     echo "  cargo xtask gpu-build"

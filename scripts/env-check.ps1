@@ -1,6 +1,6 @@
-# async_gpu - environment check and setup guide (Windows)
+# async_gpu - environment check (Windows)
 #
-# Usage: powershell -ExecutionPolicy Bypass -File scripts\setup.ps1
+# Usage: powershell -ExecutionPolicy Bypass -File scripts\env-check.ps1
 #
 # Checks all prerequisites for building and running async_gpu examples.
 # Does NOT modify system state - only reports what is present/missing.
@@ -143,7 +143,7 @@ if ($Issues -eq 0) {
     Write-Host "All prerequisites met!" -ForegroundColor Green
     Write-Host ""
     Write-Host "Quick start:"
-    Write-Host "  cargo run --manifest-path examples\hello-gpu\host\Cargo.toml"
+    Write-Host "  cargo run --manifest-path examples\hostcall\hello-gpu\host\Cargo.toml"
     Write-Host ""
     Write-Host "Or use xtask to build all GPU kernels:"
     Write-Host "  cargo xtask gpu-build"

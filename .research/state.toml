@@ -12,10 +12,10 @@ status = "running"     # ready | running | blocked | completed
 current_mode = "do"
 current_step = "do.execute"
 current_task_id = "ve-model-paths.1"
-last_summary = "New epic: verify-examples — centralize model paths, run GPT-2/YOLO examples e2e, run existing tests, add nn layer unit tests. Starting with model path audit."
+last_summary = "Deep brainstorm bs102 complete. Roadmap: verify-examples (15t) → testing-infra (12t) → autograd-v1 (22t) → gpu-safety spike (2t). Scripts cleanup needed."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 100
+brainstorm_seq = 102
 review_seq = 5
 
 # Brainstorm trigger control (event-driven, no fixed interval)
@@ -1000,6 +1000,30 @@ depends = ["warp-batch-io.3"]
 # ============================================================
 
 [[brainstorms]]
+seq = 102
+at_cycle = 408
+trigger = "User chose roadmap: verify-examples → testing-infra → autograd → gpu-safety"
+level = "deep"
+new_tasks_spawned = ["ti-harness.1", "ti-harness.2", "ti-golden.1", "ti-golden.2", "ti-golden.3", "ti-golden.4", "ti-cpu-ref.1", "ti-cpu-ref.2", "ti-cpu-ref.3", "ti-cpu-ref.4", "ti-cpu-ref.5", "ag-tape.1", "ag-tape.2", "ag-tape.3", "ag-tape.4", "ag-tape.5", "ag-tape.6", "ag-tape.7", "ag-elemwise-bwd.1", "ag-elemwise-bwd.2", "ag-elemwise-bwd.3", "ag-elemwise-bwd.4", "ag-elemwise-bwd.5", "ag-gemm-bwd.1", "ag-gemm-bwd.2", "ag-gemm-bwd.3", "ag-gemm-bwd.4", "ag-norm-bwd.1", "ag-norm-bwd.2", "ag-norm-bwd.3", "ag-optim.1", "ag-optim.2", "ag-optim.3", "ag-loss.1", "ag-loss.2", "ag-loss.3", "ag-demo.1", "gs-spike.1", "gs-spike.2"]
+new_themes_spawned = ["ti-harness", "ti-golden", "ti-cpu-ref", "ag-tape", "ag-elemwise-bwd", "ag-gemm-bwd", "ag-norm-bwd", "ag-optim", "ag-loss", "ag-demo", "gs-spike"]
+new_epics_spawned = ["testing-infra", "autograd-v1", "gpu-safety-spike", "autograd-v2"]
+themes_parked = []
+themes_completed = []
+key_insight = "Split autograd into v1 (linear models, ~22 tasks) and v2 (conv/attention, future). gpu-safety needs a 2-task spike first to determine if GpuRef is safety or performance. Golden-file tests > property tests for GPU ops. Roadmap: VE → TI → AG-v1 → spike → decide."
+
+[[brainstorms]]
+seq = 101
+at_cycle = 407
+trigger = "User asked for brainstorm on new epics and reopens"
+level = "standard"
+new_tasks_spawned = []
+new_themes_spawned = []
+new_epics_spawned = []
+themes_parked = []
+themes_completed = []
+key_insight = "22 epics have breadth but need depth. Top candidates: testing-infra (#1), kernel-fusion (#2), autograd (#3), gpu-safety (#4). User chose testing-infra → autograd → gpu-safety path."
+
+[[brainstorms]]
 seq = 100
 at_cycle = 366
 trigger = "User created ml-framework epic — refactor scattered compute primitives into reusable nn API"
@@ -1231,4 +1255,531 @@ title = "Add MultiHeadAttention numerical correctness test"
 kind = "experiment"
 status = "pending"
 depends = ["ve-nn-unit-tests.1"]
+
+# ============================================================
+# testing-infra Epic
+# ============================================================
+
+[[epics]]
+id = "testing-infra"
+title = "Testing Infrastructure — golden-file tests, numerical accuracy harness, CPU references"
+status = "active"
+priority = "high"
+depends_on = "verify-examples"
+success_criteria = [
+    "Numerical comparison harness: assert_close(), max_abs_error(), mse() with configurable tolerance",
+    "Golden-file infrastructure: load/save/compare JSON golden files for ops and models",
+    "Golden outputs captured for GPT-2 and YOLOv8 from verified runs",
+    "CPU f64 reference implementations for key ops (matmul, layer_norm, conv2d, attention)",
+    "Regression tests: CI catches silent numerical changes in any op",
+]
+
+# --- testing-infra Themes ---
+
+[[themes]]
+id = "ti-harness"
+epic = "testing-infra"
+title = "Numerical comparison harness"
+status = "pending"
+goal = "Reusable assert_close/max_abs_error/mse utilities for GPU vs CPU comparison"
+success_criteria = [
+    "assert_close() with rtol/atol, per-element error reporting",
+    "Configurable tolerance presets (f32_loose, f32_strict, gradient)",
+]
+
+[[themes]]
+id = "ti-golden"
+epic = "testing-infra"
+title = "Golden-file infrastructure"
+status = "pending"
+goal = "JSON golden files for ops and model outputs, committed to repo"
+success_criteria = [
+    "Golden file JSON schema (input, output, params, tolerance)",
+    "Golden outputs captured from verified GPT-2 and YOLO runs",
+    "Regression test that asserts current output matches golden",
+]
+
+[[themes]]
+id = "ti-cpu-ref"
+epic = "testing-infra"
+title = "CPU f64 reference implementations"
+status = "pending"
+goal = "CPU reference for gradient checking and cross-validation"
+success_criteria = [
+    "CPU f64 matmul, layer_norm, conv2d (im2col+gemm), softmax+attention",
+    "Used by autograd for numerical gradient checking (finite differences)",
+]
+
+# --- testing-infra Tasks ---
+
+[[tasks]]
+id = "ti-harness.1"
+theme = "ti-harness"
+title = "Design + implement assert_close(), max_abs_error(), mse() in nn/test_utils.rs"
+kind = "experiment"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "ti-harness.2"
+theme = "ti-harness"
+title = "Add tolerance presets (f32_loose, f32_strict, gradient) and error formatting"
+kind = "experiment"
+status = "pending"
+depends = ["ti-harness.1"]
+
+[[tasks]]
+id = "ti-golden.1"
+theme = "ti-golden"
+title = "Design golden file JSON schema + implement load/save/compare functions"
+kind = "experiment"
+status = "pending"
+depends = ["ti-harness.1"]
+
+[[tasks]]
+id = "ti-golden.2"
+theme = "ti-golden"
+title = "Capture golden outputs from verified GPT-2 run (logits top-5 for 3 prompts)"
+kind = "experiment"
+status = "pending"
+depends = ["ti-golden.1", "ve-run-gpt2.1"]
+
+[[tasks]]
+id = "ti-golden.3"
+theme = "ti-golden"
+title = "Capture golden outputs from verified YOLO run (detections for test image)"
+kind = "experiment"
+status = "pending"
+depends = ["ti-golden.1", "ve-run-yolo.1"]
+
+[[tasks]]
+id = "ti-golden.4"
+theme = "ti-golden"
+title = "Golden regression tests: assert current output matches golden files"
+kind = "experiment"
+status = "pending"
+depends = ["ti-golden.2", "ti-golden.3"]
+
+[[tasks]]
+id = "ti-cpu-ref.1"
+theme = "ti-cpu-ref"
+title = "CPU f64 matmul reference for gradient checking"
+kind = "experiment"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "ti-cpu-ref.2"
+theme = "ti-cpu-ref"
+title = "CPU f64 layer_norm reference"
+kind = "experiment"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "ti-cpu-ref.3"
+theme = "ti-cpu-ref"
+title = "CPU f64 conv2d reference (im2col + matmul)"
+kind = "experiment"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "ti-cpu-ref.4"
+theme = "ti-cpu-ref"
+title = "CPU f64 softmax + attention reference"
+kind = "experiment"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "ti-cpu-ref.5"
+theme = "ti-cpu-ref"
+title = "Per-op validation tests: GPU output vs CPU f64 reference for all 13 ops"
+kind = "experiment"
+status = "pending"
+depends = ["ti-cpu-ref.1", "ti-cpu-ref.2", "ti-cpu-ref.3", "ti-cpu-ref.4", "ti-harness.2"]
+
+# ============================================================
+# autograd-v1 Epic
+# ============================================================
+
+[[epics]]
+id = "autograd-v1"
+title = "Autograd v1 — tape-based backward pass for linear models + optimizers"
+status = "active"
+priority = "high"
+depends_on = "testing-infra"
+success_criteria = [
+    "Tape records forward ops and backward() traverses in reverse topological order",
+    "Backward kernels for: Linear, LayerNorm, GELU, SiLU, sigmoid, ReLU, embedding, bias_add, elementwise_add",
+    "SGD and Adam optimizers with GPU-side parameter update kernels",
+    "cross_entropy_loss and mse_loss with forward + backward",
+    "End-to-end demo: train a 2-layer MLP to convergence (XOR or MNIST subset)",
+    "Numerical gradient check passes for all backward ops (finite differences vs autograd)",
+]
+
+# --- autograd-v1 Themes ---
+
+[[themes]]
+id = "ag-tape"
+epic = "autograd-v1"
+title = "Autograd tape — record forward ops, traverse backward"
+status = "pending"
+goal = "TapeEntry, TensorPool, backward() with reverse topological traversal"
+success_criteria = [
+    "Tape records op_kind, input/output TensorIds, saved tensors, metadata",
+    "backward() computes gradients via chain rule in correct order",
+    "requires_grad flag on GpuTensor controls tape recording",
+]
+
+[[themes]]
+id = "ag-elemwise-bwd"
+epic = "autograd-v1"
+title = "Element-wise backward kernels"
+status = "pending"
+goal = "GELU, SiLU, sigmoid, ReLU backward PTX kernels"
+success_criteria = [
+    "Each activation backward kernel matches numerical gradient check",
+]
+
+[[themes]]
+id = "ag-gemm-bwd"
+epic = "autograd-v1"
+title = "GEMM / Linear backward"
+status = "pending"
+goal = "matmul backward (reuse gemm_f32 transposed), Linear backward, bias_add backward"
+success_criteria = [
+    "dA = dC * B^T, dB = A^T * dC via existing gemm_f32",
+    "bias_add_backward: sum reduction kernel for bias gradient",
+    "Numerical gradient check passes",
+]
+
+[[themes]]
+id = "ag-norm-bwd"
+epic = "autograd-v1"
+title = "LayerNorm backward kernel"
+status = "pending"
+goal = "layer_norm_backward fused reduction kernel"
+success_criteria = [
+    "dX, dγ, dβ computed correctly in fused kernel",
+    "Numerical gradient check passes",
+]
+
+[[themes]]
+id = "ag-optim"
+epic = "autograd-v1"
+title = "Optimizers — SGD + Adam"
+status = "pending"
+goal = "GPU-side parameter update with momentum/variance state"
+success_criteria = [
+    "SGD with optional momentum",
+    "Adam with m,v state tensors, epsilon, weight decay",
+    "Fused sgd_step / adam_step PTX kernels",
+]
+
+[[themes]]
+id = "ag-loss"
+epic = "autograd-v1"
+title = "Loss functions — cross_entropy + MSE"
+status = "pending"
+goal = "Loss forward + backward with tape integration"
+success_criteria = [
+    "cross_entropy_loss: log_softmax + nll_loss fused",
+    "mse_loss: squared difference reduction",
+    "Both integrate with tape for backward()",
+]
+
+[[themes]]
+id = "ag-demo"
+epic = "autograd-v1"
+title = "Training demo — MLP on XOR/MNIST"
+status = "pending"
+goal = "Prove training works end-to-end"
+success_criteria = [
+    "2-layer MLP trains to convergence on XOR or MNIST subset",
+    "Loss decreases monotonically over epochs",
+]
+
+# --- autograd-v1 Tasks ---
+
+# ag-tape
+[[tasks]]
+id = "ag-tape.1"
+theme = "ag-tape"
+title = "Design TapeEntry, Tape, TensorPool, OpKind, OpMeta structs"
+kind = "design"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "ag-tape.2"
+theme = "ag-tape"
+title = "Implement TensorPool slab allocator with generation counting"
+kind = "experiment"
+status = "pending"
+depends = ["ag-tape.1"]
+
+[[tasks]]
+id = "ag-tape.3"
+theme = "ag-tape"
+title = "Implement Tape with recording on/off and append"
+kind = "experiment"
+status = "pending"
+depends = ["ag-tape.2"]
+
+[[tasks]]
+id = "ag-tape.4"
+theme = "ag-tape"
+title = "Add requires_grad flag to GpuTensor"
+kind = "experiment"
+status = "pending"
+depends = ["ag-tape.1"]
+
+[[tasks]]
+id = "ag-tape.5"
+theme = "ag-tape"
+title = "Modify forward ops to record on tape when recording=true"
+kind = "experiment"
+status = "pending"
+depends = ["ag-tape.3", "ag-tape.4"]
+
+[[tasks]]
+id = "ag-tape.6"
+theme = "ag-tape"
+title = "Implement backward() — reverse topological traversal + chain rule dispatch"
+kind = "experiment"
+status = "pending"
+depends = ["ag-tape.5"]
+
+[[tasks]]
+id = "ag-tape.7"
+theme = "ag-tape"
+title = "Test: simple chain a → linear → relu → mse_loss → backward, verify gradients"
+kind = "experiment"
+status = "pending"
+depends = ["ag-tape.6"]
+
+# ag-elemwise-bwd
+[[tasks]]
+id = "ag-elemwise-bwd.1"
+theme = "ag-elemwise-bwd"
+title = "gelu_backward PTX kernel + host wrapper"
+kind = "experiment"
+status = "pending"
+depends = ["ag-tape.6"]
+
+[[tasks]]
+id = "ag-elemwise-bwd.2"
+theme = "ag-elemwise-bwd"
+title = "silu_backward PTX kernel + host wrapper"
+kind = "experiment"
+status = "pending"
+depends = ["ag-tape.6"]
+
+[[tasks]]
+id = "ag-elemwise-bwd.3"
+theme = "ag-elemwise-bwd"
+title = "sigmoid_backward PTX kernel + host wrapper"
+kind = "experiment"
+status = "pending"
+depends = ["ag-tape.6"]
+
+[[tasks]]
+id = "ag-elemwise-bwd.4"
+theme = "ag-elemwise-bwd"
+title = "relu_backward PTX kernel (+ GPU relu_forward if missing)"
+kind = "experiment"
+status = "pending"
+depends = ["ag-tape.6"]
+
+[[tasks]]
+id = "ag-elemwise-bwd.5"
+theme = "ag-elemwise-bwd"
+title = "Numerical gradient check for all 4 activations (finite differences)"
+kind = "experiment"
+status = "pending"
+depends = ["ag-elemwise-bwd.1", "ag-elemwise-bwd.2", "ag-elemwise-bwd.3", "ag-elemwise-bwd.4", "ti-cpu-ref.1"]
+
+# ag-gemm-bwd
+[[tasks]]
+id = "ag-gemm-bwd.1"
+theme = "ag-gemm-bwd"
+title = "matmul_backward: dA = dC * B^T, dB = A^T * dC (reuse gemm_f32)"
+kind = "experiment"
+status = "pending"
+depends = ["ag-tape.6"]
+
+[[tasks]]
+id = "ag-gemm-bwd.2"
+theme = "ag-gemm-bwd"
+title = "linear_backward: decompose into matmul_bwd + bias_add_bwd"
+kind = "experiment"
+status = "pending"
+depends = ["ag-gemm-bwd.1"]
+
+[[tasks]]
+id = "ag-gemm-bwd.3"
+theme = "ag-gemm-bwd"
+title = "bias_add_backward: sum reduction kernel for bias gradient"
+kind = "experiment"
+status = "pending"
+depends = ["ag-tape.6"]
+
+[[tasks]]
+id = "ag-gemm-bwd.4"
+theme = "ag-gemm-bwd"
+title = "Numerical gradient check for Linear layer"
+kind = "experiment"
+status = "pending"
+depends = ["ag-gemm-bwd.2", "ti-cpu-ref.1"]
+
+# ag-norm-bwd
+[[tasks]]
+id = "ag-norm-bwd.1"
+theme = "ag-norm-bwd"
+title = "Design layer_norm_backward algorithm (Jacobian decomposition)"
+kind = "investigation"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "ag-norm-bwd.2"
+theme = "ag-norm-bwd"
+title = "Implement layer_norm_backward fused PTX kernel"
+kind = "experiment"
+status = "pending"
+depends = ["ag-norm-bwd.1", "ag-tape.6"]
+
+[[tasks]]
+id = "ag-norm-bwd.3"
+theme = "ag-norm-bwd"
+title = "Numerical gradient check for LayerNorm"
+kind = "experiment"
+status = "pending"
+depends = ["ag-norm-bwd.2", "ti-cpu-ref.2"]
+
+# ag-optim
+[[tasks]]
+id = "ag-optim.1"
+theme = "ag-optim"
+title = "Design Optimizer trait + SGD implementation"
+kind = "experiment"
+status = "pending"
+depends = ["ag-tape.6"]
+
+[[tasks]]
+id = "ag-optim.2"
+theme = "ag-optim"
+title = "Implement Adam optimizer with m,v state tensors"
+kind = "experiment"
+status = "pending"
+depends = ["ag-optim.1"]
+
+[[tasks]]
+id = "ag-optim.3"
+theme = "ag-optim"
+title = "sgd_step and adam_step fused PTX kernels"
+kind = "experiment"
+status = "pending"
+depends = ["ag-optim.2"]
+
+# ag-loss
+[[tasks]]
+id = "ag-loss.1"
+theme = "ag-loss"
+title = "cross_entropy_loss forward + backward (log_softmax + nll)"
+kind = "experiment"
+status = "pending"
+depends = ["ag-tape.6"]
+
+[[tasks]]
+id = "ag-loss.2"
+theme = "ag-loss"
+title = "mse_loss forward + backward"
+kind = "experiment"
+status = "pending"
+depends = ["ag-tape.6"]
+
+[[tasks]]
+id = "ag-loss.3"
+theme = "ag-loss"
+title = "Numerical gradient check for both losses"
+kind = "experiment"
+status = "pending"
+depends = ["ag-loss.1", "ag-loss.2", "ti-cpu-ref.1"]
+
+# ag-demo
+[[tasks]]
+id = "ag-demo.1"
+theme = "ag-demo"
+title = "End-to-end training: 2-layer MLP on XOR/MNIST, verify loss converges"
+kind = "experiment"
+status = "pending"
+depends = ["ag-optim.3", "ag-loss.1", "ag-elemwise-bwd.5", "ag-gemm-bwd.4"]
+
+# ============================================================
+# gpu-safety spike (investigation, not full epic yet)
+# ============================================================
+
+[[epics]]
+id = "gpu-safety-spike"
+title = "GPU Safety Spike — investigate whether GpuRef<'a,T> is needed or reframe as tensor views"
+status = "active"
+priority = "medium"
+success_criteria = [
+    "Document 3 concrete bug scenarios GpuRef would prevent (or prove none exist)",
+    "Assess whether zero-copy tensor views (reshape/slice without copy) are the real need",
+    "Decision: proceed with full gpu-safety epic, reframe as tensor-views, or skip",
+]
+
+[[themes]]
+id = "gs-spike"
+epic = "gpu-safety-spike"
+title = "GpuRef investigation spike"
+status = "pending"
+goal = "Resolve whether GpuRef is a safety feature or a performance feature"
+success_criteria = [
+    "3 concrete bug scenarios analyzed",
+    "cudarc RAII coverage assessed",
+    "Recommendation: full epic, reframe, or skip",
+]
+
+[[tasks]]
+id = "gs-spike.1"
+theme = "gs-spike"
+title = "Audit all unsafe blocks in nn module + tensor.rs for lifetime safety gaps"
+kind = "investigation"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "gs-spike.2"
+theme = "gs-spike"
+title = "Write decision doc: GpuRef vs arena vs current RAII — with concrete bug scenarios"
+kind = "design"
+status = "pending"
+depends = ["gs-spike.1"]
+
+# ============================================================
+# autograd-v2 Epic (future — conv/attention backward + checkpointing)
+# ============================================================
+
+[[epics]]
+id = "autograd-v2"
+title = "Autograd v2 — conv2d/attention backward, gradient checkpointing, mixed precision"
+status = "planned"  # not active yet — starts after autograd-v1
+priority = "medium"
+depends_on = "autograd-v1"
+success_criteria = [
+    "conv2d backward (col2im + weight grad) with numerical gradient check",
+    "Attention backward (decomposed: matmul+softmax backward) with gradient check",
+    "batch_norm, max_pool2d, upsample backward kernels",
+    "Gradient checkpointing: trade compute for memory on deep models",
+    "Train YOLOv8-nano or small CNN on CIFAR-10 subset",
+]
+
+# ============================================================
+# Brainstorms
+# ============================================================
 

@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 308     # Monotonic counter, incremented after each completed phase
-completed_tasks = 328
+total_cycles = 309     # Monotonic counter, incremented after each completed phase
+completed_tasks = 329
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "tla-model.3"
-last_summary = "tla-model.2 done: TLA+ spec verified by TLC — 367M states, 0 errors. ABA prevention confirmed. tla-model.3 next: liveness verification."
+current_task_id = ""
+last_summary = "formal-verification epic complete: TLA+ safety (367M states) + liveness (337K states) both pass. CAS protocol formally verified. No bugs found."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 87
@@ -203,7 +203,7 @@ success_criteria = [
 id = "tla-model"
 epic = "formal-verification"
 title = "TLA+ model of hostcall CAS protocol"
-status = "active"
+status = "completed"
 goal = "Formal verification of packet lifecycle FSM with multi-agent contention"
 success_criteria = [
     "TLA+ spec compiles and model-checks successfully",
@@ -264,7 +264,7 @@ id = "tla-model.3"
 theme = "tla-model"
 title = "Experiment: add multi-agent contention model, verify safety + liveness"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["tla-model.2"]
 
 # --- build-stabilize theme ---

@@ -1443,3 +1443,159 @@ title = "Design: GPU-side async executor with work-stealing"
 kind = "design"
 status = "done"
 depends = []
+
+# --- executor-impl (gpu-executor) — archived at cycle 327 ---
+
+[[tasks]]
+id = "executor-impl.1"
+theme = "executor-impl"
+title = "Investigation: verify indirect fn pointers work on nvptx64 PTX"
+kind = "investigation"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "executor-impl.2"
+theme = "executor-impl"
+title = "Experiment: implement WorkQueue + TaskSlot arena"
+kind = "experiment"
+status = "done"
+depends = ["executor-impl.1"]
+
+[[tasks]]
+id = "executor-impl.3"
+theme = "executor-impl"
+title = "Experiment: implement executor loop + spawn() API"
+kind = "experiment"
+status = "done"
+depends = ["executor-impl.2"]
+
+[[tasks]]
+id = "executor-impl.4"
+theme = "executor-impl"
+title = "Experiment: demo kernel with dynamic task spawning"
+kind = "experiment"
+status = "done"
+depends = ["executor-impl.3"]
+
+# --- std-sync (extended-std) — archived at cycle 327 ---
+
+[[tasks]]
+id = "std-sync.1"
+theme = "std-sync"
+title = "Investigation: GPU sync primitive feasibility (Mutex, RwLock, Barrier)"
+kind = "investigation"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "std-sync.2"
+theme = "std-sync"
+title = "Experiment: implement GPU Mutex<T> via atomic CAS"
+kind = "experiment"
+status = "done"
+depends = ["std-sync.1"]
+
+[[tasks]]
+id = "std-sync.3"
+theme = "std-sync"
+title = "Experiment: implement GPU-side HashMap with bump allocator"
+kind = "experiment"
+status = "done"
+depends = ["std-sync.1"]
+
+# --- api-ergonomics (public-api) — archived at cycle 327 ---
+
+[[tasks]]
+id = "api-ergonomics.1"
+theme = "api-ergonomics"
+title = "Investigation: audit API pain points from all 7 examples"
+kind = "investigation"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "api-ergonomics.2"
+theme = "api-ergonomics"
+title = "Experiment: builder pattern for HostcallBuffer + session management"
+kind = "experiment"
+status = "done"
+depends = ["api-ergonomics.1"]
+
+[[tasks]]
+id = "api-ergonomics.3"
+theme = "api-ergonomics"
+title = "Experiment: update remaining examples to use HostcallSession + require_func"
+kind = "experiment"
+status = "done"
+depends = ["api-ergonomics.1"]
+
+# --- bench-suite (benchmarks) — archived at cycle 327 ---
+
+[[tasks]]
+id = "bench-suite.1"
+theme = "bench-suite"
+title = "Investigation: design benchmark suite (metrics, methodology, baselines)"
+kind = "investigation"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "bench-suite.2"
+theme = "bench-suite"
+title = "Experiment: hostcall throughput + scalability benchmark"
+kind = "experiment"
+status = "done"
+depends = ["bench-suite.1"]
+
+[[tasks]]
+id = "bench-suite.3"
+theme = "bench-suite"
+title = "Experiment: file I/O latency + throughput benchmark"
+kind = "experiment"
+status = "done"
+depends = ["bench-suite.1"]
+
+[[tasks]]
+id = "bench-suite.4"
+theme = "bench-suite"
+title = "Design: consolidated benchmark results document"
+kind = "design"
+status = "done"
+depends = ["bench-suite.2", "bench-suite.3"]
+
+# --- api-examples (public-api) — archived at cycle 327 ---
+
+[[tasks]]
+id = "api-examples.1"
+theme = "api-examples"
+title = "Experiment: create hello-gpu standalone example"
+kind = "experiment"
+status = "done"
+depends = ["api-ergonomics.2"]
+
+[[tasks]]
+id = "api-examples.2"
+theme = "api-examples"
+title = "Experiment: create async-io example (file read/write on GPU)"
+kind = "experiment"
+status = "done"
+depends = ["api-ergonomics.2"]
+
+[[tasks]]
+id = "api-examples.3"
+theme = "api-examples"
+title = "Experiment: create compute example (data pipeline on GPU)"
+kind = "experiment"
+status = "done"
+depends = ["api-ergonomics.2"]
+
+# --- api-build (public-api) — archived at cycle 327 ---
+
+[[tasks]]
+id = "api-build.1"
+theme = "api-build"
+title = "Experiment: single-command build (xtask or build.rs)"
+kind = "experiment"
+status = "done"
+depends = []

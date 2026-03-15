@@ -496,3 +496,47 @@ epic = "public-api"
 title = "Design doc: GPU-side async task spawning executor"
 status = "completed"
 goal = "Architecture document for on-GPU work-stealing executor"
+
+# --- archived at cycle 327 ---
+
+[[themes]]
+id = "executor-impl"
+epic = "gpu-executor"
+title = "Implement GPU-side async executor MVP (Phase 1)"
+status = "completed"
+goal = "Working executor with MPMC queue, TaskSlot arena, spawn() + poll loop"
+
+[[themes]]
+id = "std-sync"
+epic = "extended-std"
+title = "GPU sync primitives + collections"
+status = "completed"
+goal = "Mutex<T>, HashMap on GPU via atomics + hostcall allocator"
+
+[[themes]]
+id = "api-ergonomics"
+epic = "public-api"
+title = "Polish public API — builder pattern, session management, error context"
+status = "completed"
+goal = "Reduce boilerplate, improve error messages, simplify kernel launch"
+
+[[themes]]
+id = "bench-suite"
+epic = "benchmarks"
+title = "Comprehensive benchmark suite"
+status = "completed"
+goal = "Measure hostcall latency, throughput, scalability, file I/O performance"
+
+[[themes]]
+id = "api-examples"
+epic = "public-api"
+title = "Working examples with documentation"
+status = "completed"
+goal = "At least 3 working standalone examples demonstrating gpu-host API"
+
+[[themes]]
+id = "api-build"
+epic = "public-api"
+title = "Single-command build system"
+status = "completed"
+goal = "Single cargo command compiles host + kernel PTX"

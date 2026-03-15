@@ -661,6 +661,179 @@ pub unsafe extern "ptx-kernel" fn executor_demo(executor_ptr: *mut u8, results: 
 }
 
 // ============================================================
+// Oneshot channel demo kernel (channel-oneshot.3)
+// ============================================================
+
+/// A future that sends a value through a oneshot channel.
+///
+/// On first poll: sends the value by writing to the slot and setting state to SENT.
+/// Uses the OneshotSlot's public accessors for state and value pointers.
+struct OneshotProducer {
+    sender_slot: *mut gpu_runtime::channel::OneshotSlot<u32>,
+    value: u32,
+    sent: bool,
+}
+
+impl core::future::Future for OneshotProducer {
+    type Output = ();
+
+    fn poll(
+        mut self: core::pin::Pin<&mut Self>,
+        _cx: &mut core::task::Context<'_>,
+    ) -> core::task::Poll<()> {
+        if self.sent {
+            return core::task::Poll::Ready(());
+        }
+        self.sent = true;
+        unsafe {
+            let slot = &*self.sender_slot;
+            // Write value first, then release-store SENT state
+            core::ptr::write_volatile(slot.value_ptr() as *mut u32, self.value);
+            gpu_atomics::sys_store_release_u32(slot.state_ptr(), 1); // ONESHOT_SENT
+        }
+        core::task::Poll::Ready(())
+    }
+}
+
+/// A future that receives a value from a oneshot channel and writes it to results.
+///
+/// Polls the slot's atomic state. Returns Pending until SENT, then reads the value.
+struct OneshotConsumer {
+    slot: *const gpu_runtime::channel::OneshotSlot<u32>,
+    result_ptr: *mut u32,
+}
+
+impl core::future::Future for OneshotConsumer {
+    type Output = ();
+
+    fn poll(
+        self: core::pin::Pin<&mut Self>,
+        _cx: &mut core::task::Context<'_>,
+    ) -> core::task::Poll<()> {
+        unsafe {
+            let slot = &*self.slot;
+            let state = gpu_atomics::sys_load_acquire_u32(slot.state_ptr() as *const u32);
+            if state == 1 {
+                // SENT — read value and write to result
+                let value = core::ptr::read_volatile(slot.value_ptr() as *const u32);
+                core::ptr::write_volatile(self.result_ptr, value);
+                core::task::Poll::Ready(())
+            } else {
+                core::task::Poll::Pending
+            }
+        }
+    }
+}
+
+/// Channel oneshot demo kernel: test inter-task communication via oneshot channels.
+///
+/// Thread 0 spawns 4 producer-consumer pairs. Each producer sends a different value
+/// through a oneshot channel; each consumer receives it and writes to results.
+///
+/// `executor_ptr` = device pointer to mapped memory for GpuExecutor (must be >= 256KB)
+/// `results` = output array of u32[16]:
+///   [0] = spawned count
+///   [1] = completed count
+///   [2] = tasks_executed from stats
+///   [3] = polls_total from stats
+///   [4..7] = values received by consumers (expect: 42, 100, 255, 1337)
+///   [8] = number of channel pairs (4)
+///   [9] = success flag (1 if all correct)
+///   [10] = phase marker
+///
+/// The channel slots are placed at the end of the executor memory region.
+/// executor_ptr must have enough space for GpuExecutor + 4 OneshotSlot<u32>.
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn channel_oneshot_demo(
+    executor_ptr: *mut u8,
+    results: *mut u32,
+) {
+    let thread_x = nvptx::_thread_idx_x() as u32;
+
+    // Initialize result buffer (thread 0 only)
+    if thread_x == 0 {
+        let mut i = 0u32;
+        while i < 16 {
+            core::ptr::write_volatile(results.add(i as usize), 0);
+            i += 1;
+        }
+        core::ptr::write_volatile(results.add(10), 1); // Phase 1: results zeroed
+    }
+
+    let mask = activemask();
+    gpu_atomics::syncwarp(mask);
+
+    let executor = &*(executor_ptr as *const gpu_runtime::executor::GpuExecutor);
+
+    // Place 4 OneshotSlot<u32> after the executor struct in mapped memory.
+    // GpuExecutor is large (~136KB) — slots go at a known offset.
+    let executor_size = core::mem::size_of::<gpu_runtime::executor::GpuExecutor>();
+    let slots_base = executor_ptr.add(executor_size) as *mut gpu_runtime::channel::OneshotSlot<u32>;
+
+    if thread_x == 0 {
+        executor.init();
+        core::ptr::write_volatile(results.add(10), 2); // Phase 2: executor initialized
+
+        // Initialize 4 oneshot slots
+        let values: [u32; 4] = [42, 100, 255, 1337];
+        let mut i = 0u32;
+        while i < 4 {
+            let slot = &mut *slots_base.add(i as usize);
+            slot.reset();
+
+            // Spawn consumer first (it will poll Pending until producer sends)
+            let _ = executor.spawn(OneshotConsumer {
+                slot: slot as *const _,
+                result_ptr: results.add(4 + i as usize),
+            });
+
+            // Spawn producer (it sends on first poll after yield)
+            let _ = executor.spawn(OneshotProducer {
+                sender_slot: slot as *mut _,
+                value: values[i as usize],
+                sent: false,
+            });
+
+            i += 1;
+        }
+        core::ptr::write_volatile(results.add(8), 4); // 4 channel pairs
+        core::ptr::write_volatile(results.add(10), 3); // Phase 3: all tasks spawned
+    }
+
+    gpu_atomics::syncwarp(mask);
+
+    let stats = executor.run(mask);
+
+    gpu_atomics::syncwarp(mask);
+
+    if thread_x == 0 {
+        core::ptr::write_volatile(results.add(10), 5); // Phase 5: executor finished
+        core::ptr::write_volatile(results.add(0), executor.spawned_count());
+        core::ptr::write_volatile(results.add(1), executor.completed_count());
+        core::ptr::write_volatile(results.add(2), stats.tasks_executed);
+        core::ptr::write_volatile(results.add(3), stats.polls_total);
+
+        // Verify results
+        let v0 = core::ptr::read_volatile(results.add(4) as *const u32);
+        let v1 = core::ptr::read_volatile(results.add(5) as *const u32);
+        let v2 = core::ptr::read_volatile(results.add(6) as *const u32);
+        let v3 = core::ptr::read_volatile(results.add(7) as *const u32);
+        let spawned = core::ptr::read_volatile(results.add(0) as *const u32);
+        let completed = core::ptr::read_volatile(results.add(1) as *const u32);
+
+        if spawned == 8
+            && completed == 8
+            && v0 == 42
+            && v1 == 100
+            && v2 == 255
+            && v3 == 1337
+        {
+            core::ptr::write_volatile(results.add(9), 1); // success
+        }
+    }
+}
+
+// ============================================================
 // File I/O latency benchmark kernel (bench-suite.3)
 // ============================================================
 

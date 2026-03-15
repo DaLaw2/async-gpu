@@ -216,3 +216,24 @@ new_themes_spawned = ["safety-audit", "api-docs"]
 themes_parked = []
 themes_completed = ["blog-update", "changelog-update"]
 key_insight = "Project at natural plateau. Safety audit is highest-value remaining work (202 unsafe, only 10 with SAFETY). Updated public-api epic criteria to match actual API names."
+
+# --- archived at cycle 327 ---
+
+[[brainstorms]]
+seq = 88
+at_cycle = 309
+trigger = "formal-verification epic completed, all bs87 tasks done"
+level = "quick"
+new_tasks_spawned = ["readme-tla.1", "executor-design.1"]
+new_themes_spawned = ["readme-tla", "executor-design"]
+key_insight = "formal-verification done (12th epic completed). README needs TLA+ section. GPU-side executor design doc is highest-value architectural work remaining."
+
+[[brainstorms]]
+seq = 87
+at_cycle = 303
+trigger = "all bs86 tasks completed, no ready tasks — deep brainstorm for new direction"
+level = "deep"
+new_tasks_spawned = ["tla-model.1", "tla-model.2", "tla-model.3", "build-stabilize.1", "validation-prep.1"]
+new_themes_spawned = ["tla-model", "build-stabilize", "validation-prep"]
+new_epics_spawned = ["formal-verification"]
+key_insight = "Project needs depth, not breadth. TLA+ formal verification of CAS protocol is highest-value work without GPU."

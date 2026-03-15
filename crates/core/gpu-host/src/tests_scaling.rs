@@ -1052,3 +1052,109 @@ pub(crate) fn run_executor_demo_test(dev: Arc<CudaDevice>) -> Result<()> {
     println!("  Executor demo — PASSED");
     Ok(())
 }
+
+/// Test the oneshot channel demo kernel.
+///
+/// Spawns 4 producer-consumer pairs that communicate via oneshot channels.
+/// Each producer sends a different value; each consumer writes the received
+/// value to a result slot.
+pub(crate) fn run_channel_oneshot_demo_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Channel Oneshot Demo Test (channel-oneshot.3) ---");
+    println!("  Spawns 4 producer-consumer pairs using oneshot channels.");
+
+    // Allocate mapped memory: executor + 4 OneshotSlot<u32> (~16 bytes each)
+    let executor_size = 256 * 1024 + 256; // 256KB for executor + extra for slots
+    let (exec_host_ptr, exec_dev_ptr) = unsafe { alloc_mapped_bytes(&dev, executor_size)? };
+
+    // Allocate results: 16 u32
+    let (results_host_ptr, results_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 16)? };
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "kernel_channel", &["channel_oneshot_demo"]);
+    let f = dev
+        .get_func("kernel_channel", "channel_oneshot_demo")
+        .ok_or(GpuHostError::KernelNotFound("channel_oneshot_demo"))?;
+
+    let cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (32, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    let dev2 = dev.clone();
+    let sync_done = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let sync_done2 = sync_done.clone();
+    let sync_thread = std::thread::spawn(move || {
+        unsafe {
+            f.launch(cfg, (exec_dev_ptr, results_dev_ptr)).unwrap();
+        }
+        let _ = dev2.synchronize();
+        sync_done2.store(true, std::sync::atomic::Ordering::Release);
+    });
+
+    // Poll phase marker with timeout
+    let timeout = std::time::Duration::from_secs(10);
+    let start = std::time::Instant::now();
+    let mut last_phase = 0u32;
+    loop {
+        let phase = unsafe { std::ptr::read_volatile(results_host_ptr.add(10)) };
+        if phase != last_phase {
+            println!("  phase marker = {phase}");
+            last_phase = phase;
+        }
+        if sync_done.load(std::sync::atomic::Ordering::Acquire) {
+            println!("  kernel completed (phase={phase})");
+            break;
+        }
+        if start.elapsed() > timeout {
+            println!("  TIMEOUT after {timeout:?}! phase={phase}");
+            println!("  results dump:");
+            for i in 0..16u32 {
+                let val = unsafe { std::ptr::read_volatile(results_host_ptr.add(i as usize)) };
+                println!("    results[{i}] = {val}");
+            }
+            unsafe {
+                free_mapped_bytes(exec_host_ptr)?;
+                free_mapped_mem(results_host_ptr)?;
+            }
+            return Err(GpuHostError::Timeout {
+                test: "channel_oneshot_demo",
+                detail: format!("kernel hung at phase {phase}"),
+            });
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    let _ = sync_thread.join();
+
+    // Read results
+    let spawned = unsafe { std::ptr::read_volatile(results_host_ptr.add(0)) };
+    let completed = unsafe { std::ptr::read_volatile(results_host_ptr.add(1)) };
+    let tasks_executed = unsafe { std::ptr::read_volatile(results_host_ptr.add(2)) };
+    let polls_total = unsafe { std::ptr::read_volatile(results_host_ptr.add(3)) };
+    let v0 = unsafe { std::ptr::read_volatile(results_host_ptr.add(4)) };
+    let v1 = unsafe { std::ptr::read_volatile(results_host_ptr.add(5)) };
+    let v2 = unsafe { std::ptr::read_volatile(results_host_ptr.add(6)) };
+    let v3 = unsafe { std::ptr::read_volatile(results_host_ptr.add(7)) };
+    let channels = unsafe { std::ptr::read_volatile(results_host_ptr.add(8)) };
+    let success = unsafe { std::ptr::read_volatile(results_host_ptr.add(9)) };
+
+    println!("  spawned={spawned} completed={completed} tasks_executed={tasks_executed} polls_total={polls_total}");
+    println!("  received values=[{v0}, {v1}, {v2}, {v3}]  channels={channels}  success={success}");
+
+    unsafe {
+        free_mapped_bytes(exec_host_ptr)?;
+        free_mapped_mem(results_host_ptr)?;
+    }
+
+    assert_eq!(spawned, 8, "expected 8 tasks spawned (4 producers + 4 consumers)");
+    assert_eq!(completed, 8, "expected 8 tasks completed");
+    assert_eq!(v0, 42, "channel[0] expected 42");
+    assert_eq!(v1, 100, "channel[1] expected 100");
+    assert_eq!(v2, 255, "channel[2] expected 255");
+    assert_eq!(v3, 1337, "channel[3] expected 1337");
+    assert_eq!(channels, 4, "expected 4 channel pairs");
+    assert_eq!(success, 1, "success flag expected 1");
+
+    println!("  Channel oneshot demo — PASSED");
+    Ok(())
+}

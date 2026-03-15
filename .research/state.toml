@@ -4,18 +4,18 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 323     # Monotonic counter, incremented after each completed phase
-completed_tasks = 344
+total_cycles = 326     # Monotonic counter, incremented after each completed phase
+completed_tasks = 349
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.route"
-current_task_id = ""
-last_summary = "executor-impl.4 done: GPU executor demo passes — 8 tasks spawned+completed, indirect fn pointer polling works. Fixed 3 bugs: TaskSlot alignment, all-lane polling, activemask codegen hang. gpu-executor epic fully met. Next: brainstorm for remaining epics."
+current_step = "do.execute"
+current_task_id = "api-examples.1"
+last_summary = "Closed 3 epics in one session: gpu-executor (executor demo 8 tasks), benchmarks (consolidated analysis doc), public-api (auto-build.rs + 7 examples). Only codebase-health (evergreen) remains active. Next: brainstorm new directions."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 89
+brainstorm_seq = 90
 review_seq = 5
 
 # Brainstorm trigger control (event-driven, no fixed interval)
@@ -147,8 +147,9 @@ success_criteria = [
 [[epics]]
 id = "public-api"
 title = "Public API — Host SDK + Reusable GPU Kernel Library"
-status = "active"
+status = "completed"
 priority = "high"
+# ALL 4 CRITERIA MET — closed 2026-03-15
 success_criteria = [
     "gpu-host is a library crate with documented public API (GpuRuntime, HostcallBuffer, HostcallSession)",
     "A standalone example program uses gpu-host as a dependency to run a GPU kernel",
@@ -212,7 +213,8 @@ success_criteria = [
 [[epics]]
 id = "benchmarks"
 title = "Benchmarks — hostcall latency, throughput, scalability measurements"
-status = "active"
+status = "completed"
+# ALL 4 CRITERIA MET — closed 2026-03-15
 priority = "high"
 success_criteria = [
     "Hostcall throughput benchmark: sustained calls/sec with 1, 32, 1024 threads",
@@ -276,12 +278,34 @@ success_criteria = [
 id = "bench-suite"
 epic = "benchmarks"
 title = "Comprehensive benchmark suite"
-status = "active"
+status = "completed"
 goal = "Measure hostcall latency, throughput, scalability, file I/O performance"
 success_criteria = [
     "Throughput benchmark with configurable thread counts",
     "File I/O benchmark (inline vs sideband)",
     "Results documented with analysis",
+]
+
+[[themes]]
+id = "api-examples"
+epic = "public-api"
+title = "Working examples with documentation"
+status = "completed"
+goal = "At least 3 working standalone examples demonstrating gpu-host API"
+success_criteria = [
+    "hello-gpu example (minimal kernel launch)",
+    "async-io example (file I/O via hostcall)",
+    "compute example (data pipeline on GPU)",
+]
+
+[[themes]]
+id = "api-build"
+epic = "public-api"
+title = "Single-command build system"
+status = "completed"
+goal = "Single cargo command compiles host + kernel PTX"
+success_criteria = [
+    "Build script or xtask that compiles gpu-kernel + copies PTX + builds gpu-host",
 ]
 
 # ============================================================
@@ -421,9 +445,68 @@ kind = "experiment"
 status = "done"
 depends = ["bench-suite.1"]
 
+[[tasks]]
+id = "bench-suite.4"
+theme = "bench-suite"
+title = "Design: consolidated benchmark results document"
+kind = "design"
+status = "done"
+depends = ["bench-suite.2", "bench-suite.3"]
+
+# --- api-examples theme ---
+
+[[tasks]]
+id = "api-examples.1"
+theme = "api-examples"
+title = "Experiment: create hello-gpu standalone example"
+kind = "experiment"
+status = "done"
+depends = ["api-ergonomics.2"]
+# Already exists in examples/hello-gpu/ — verified build works
+
+[[tasks]]
+id = "api-examples.2"
+theme = "api-examples"
+title = "Experiment: create async-io example (file read/write on GPU)"
+kind = "experiment"
+status = "done"
+depends = ["api-ergonomics.2"]
+# Already exists in examples/async-io/ with README
+
+[[tasks]]
+id = "api-examples.3"
+theme = "api-examples"
+title = "Experiment: create compute example (data pipeline on GPU)"
+kind = "experiment"
+status = "done"
+depends = ["api-ergonomics.2"]
+# Already exists: vector-math (SAXPY, dot product, softmax) + parallel-search
+
+# --- api-build theme ---
+
+[[tasks]]
+id = "api-build.1"
+theme = "api-build"
+title = "Experiment: single-command build (xtask or build.rs)"
+kind = "experiment"
+status = "done"
+depends = []
+
 # ============================================================
 # Brainstorms (last 3 only — older brainstorms archived)
 # ============================================================
+
+[[brainstorms]]
+seq = 90
+at_cycle = 323
+trigger = "executor-impl.4 done, gpu-executor epic completed, no ready tasks"
+level = "quick"
+new_tasks_spawned = ["bench-suite.4", "api-examples.1", "api-examples.2", "api-examples.3", "api-build.1"]
+new_themes_spawned = ["api-examples", "api-build"]
+new_epics_spawned = []
+themes_parked = []
+themes_completed = ["executor-impl", "std-sync"]
+key_insight = "gpu-executor + extended-std epics done. Remaining: benchmarks (need analysis doc), public-api (need examples + build script). 5 new tasks across 3 themes."
 
 [[brainstorms]]
 seq = 89

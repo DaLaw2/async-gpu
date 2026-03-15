@@ -177,6 +177,10 @@ fn main() -> Result<()> {
                 tests_scaling::run_compute_pipeline_demo_test(Arc::clone(&dev))?;
                 return Ok(());
             }
+            "compute_bench" => {
+                tests_scaling::run_compute_benchmark_test(Arc::clone(&dev))?;
+                return Ok(());
+            }
             "bench" => {
                 tests_benchmark::run_throughput_benchmark(Arc::clone(&dev))?;
                 tests_benchmark::run_scalability_benchmark(Arc::clone(&dev))?;

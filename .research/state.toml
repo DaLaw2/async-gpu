@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 332     # Monotonic counter, incremented after each completed phase
-completed_tasks = 360
+total_cycles = 333     # Monotonic counter, incremented after each completed phase
+completed_tasks = 361
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "demo-pipeline.2"
-last_summary = "demo-pipeline.1 design done: iterative softmax+GELU pipeline, GPU-autonomous convergence, uses compute utils. Next: implement kernel + host test."
+current_task_id = "demo-pipeline.3"
+last_summary = "compute-utils epic COMPLETE (46 functions, 5 modules). demo-pipeline.2 done (3 demo kernels + host test). gpu_runtime split from 5937→514 lines. Next: demo-pipeline.3 benchmark."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 92
@@ -213,7 +213,8 @@ success_criteria = [
 [[epics]]
 id = "compute-utils"
 title = "GPU Compute Utils — expose all internal compute functions as public API"
-status = "active"
+status = "completed"
+# ALL 5 CRITERIA MET — 46 public functions in 5 modules, all compile to PTX, docs generated
 priority = "high"
 success_criteria = [
     "Full audit of all compute functions across codebase (compute_*.rs, helpers.rs, etc.)",
@@ -428,7 +429,7 @@ id = "demo-pipeline.2"
 theme = "demo-pipeline"
 title = "Experiment: implement multi-stage compute pipeline demo"
 kind = "experiment"
-status = "active"
+status = "done"
 depends = ["demo-pipeline.1", "compute-extract.3"]
 
 [[tasks]]
@@ -436,7 +437,7 @@ id = "demo-pipeline.3"
 theme = "demo-pipeline"
 title = "Experiment: benchmark async pipeline vs sequential kernel launches"
 kind = "experiment"
-status = "pending"
+status = "active"
 depends = ["demo-pipeline.2"]
 
 # --- channel-oneshot theme ---

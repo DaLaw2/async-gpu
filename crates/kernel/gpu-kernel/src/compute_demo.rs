@@ -14,6 +14,63 @@
 #[cfg(target_arch = "nvptx64")]
 use core::arch::nvptx;
 
+// ============================================================
+// Separate stage kernels for multi-launch benchmark comparison
+// (simulating the CUDA way: one kernel per compute stage)
+// ============================================================
+
+/// Stage kernel: warp softmax (one stage only).
+/// For multi-launch benchmark comparison.
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn bench_stage_softmax(data: *mut f32, status: *mut u32) {
+    #[cfg(target_arch = "nvptx64")]
+    {
+        use gpu_runtime::{index, nn};
+        let tid = index::thread_idx_x();
+        let val = *data.add(tid as usize);
+        let result = nn::warp_softmax_f32(val);
+        *data.add(tid as usize) = result;
+        if tid == 0 {
+            core::ptr::write_volatile(status, 1);
+        }
+    }
+}
+
+/// Stage kernel: element-wise GELU activation (one stage only).
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn bench_stage_gelu(data: *mut f32, status: *mut u32) {
+    #[cfg(target_arch = "nvptx64")]
+    {
+        use gpu_runtime::{index, nn};
+        let tid = index::thread_idx_x();
+        let val = *data.add(tid as usize);
+        *data.add(tid as usize) = nn::gelu_f32(val);
+        if tid == 0 {
+            core::ptr::write_volatile(status, 1);
+        }
+    }
+}
+
+/// Stage kernel: warp reduction sum + write result.
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn bench_stage_reduce(
+    data: *const f32,
+    result: *mut f32,
+    status: *mut u32,
+) {
+    #[cfg(target_arch = "nvptx64")]
+    {
+        use gpu_runtime::{index, warp};
+        let tid = index::thread_idx_x();
+        let val = *data.add(tid as usize);
+        let sum = warp::reduce_sum_f32(val);
+        if tid == 0 {
+            core::ptr::write_volatile(result, sum);
+            core::ptr::write_volatile(status, 1);
+        }
+    }
+}
+
 /// Multi-stage compute pipeline with GPU-autonomous convergence.
 ///
 /// # Arguments

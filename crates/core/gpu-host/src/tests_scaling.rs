@@ -1244,3 +1244,195 @@ pub(crate) fn run_compute_pipeline_demo_test(dev: Arc<CudaDevice>) -> Result<()>
     println!("  Compute pipeline demo — PASSED");
     Ok(())
 }
+
+/// Benchmark: single-launch async pipeline vs multi-launch sequential kernels.
+///
+/// Runs the same computation two ways:
+/// 1. Single launch: compute_pipeline_demo (all stages in one kernel)
+/// 2. Multi launch: bench_stage_softmax + bench_stage_gelu + bench_stage_reduce (3 separate launches)
+///
+/// Measures host-side wall time for both approaches.
+pub(crate) fn run_compute_benchmark_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Compute Benchmark: single-launch vs multi-launch ---");
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
+    let _ = dev.load_ptx(
+        ptx,
+        "compute_bench",
+        &[
+            "compute_pipeline_demo",
+            "bench_stage_softmax",
+            "bench_stage_gelu",
+            "bench_stage_reduce",
+        ],
+    );
+
+    let warp_cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (32, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    let n_warmup = 3;
+    let n_trials = 10;
+
+    // ── Benchmark 1: Single-launch async pipeline ──
+    let f_pipeline = dev
+        .get_func("compute_bench", "compute_pipeline_demo")
+        .ok_or(GpuHostError::KernelNotFound("compute_pipeline_demo"))?;
+
+    let (output_host, output_dev) = unsafe { alloc_mapped_result_array(&dev, 32)? };
+    let (status_host, status_dev) = unsafe { alloc_mapped_result_array(&dev, 4)? };
+
+    // Warmup
+    for _ in 0..n_warmup {
+        unsafe {
+            for i in 0..4 {
+                core::ptr::write_volatile(status_host.add(i), 0);
+            }
+            f_pipeline
+                .clone()
+                .launch(warp_cfg, (output_dev, status_dev))?;
+        }
+        dev.synchronize()?;
+    }
+
+    // Timed trials
+    let mut single_times = Vec::with_capacity(n_trials);
+    for _ in 0..n_trials {
+        unsafe {
+            for i in 0..4 {
+                core::ptr::write_volatile(status_host.add(i), 0);
+            }
+        }
+        let start = std::time::Instant::now();
+        unsafe {
+            f_pipeline
+                .clone()
+                .launch(warp_cfg, (output_dev, status_dev))?;
+        }
+        dev.synchronize()?;
+        single_times.push(start.elapsed());
+    }
+
+    let single_median = {
+        let mut sorted: Vec<_> = single_times.to_vec();
+        sorted.sort();
+        sorted[n_trials / 2]
+    };
+
+    // Read GPU timing from last run
+    let gpu_nanos = {
+        let lo = unsafe { std::ptr::read_volatile(status_host.add(1)) } as u64;
+        let hi = unsafe { std::ptr::read_volatile(status_host.add(2)) } as u64;
+        lo | (hi << 32)
+    };
+    let iterations = unsafe { std::ptr::read_volatile(status_host.add(0)) };
+
+    unsafe {
+        free_mapped_mem(output_host)?;
+        free_mapped_mem(status_host)?;
+    }
+
+    // ── Benchmark 2: Multi-launch (3 separate kernels per iteration) ──
+    let f_softmax = dev
+        .get_func("compute_bench", "bench_stage_softmax")
+        .ok_or(GpuHostError::KernelNotFound("bench_stage_softmax"))?;
+    let f_gelu = dev
+        .get_func("compute_bench", "bench_stage_gelu")
+        .ok_or(GpuHostError::KernelNotFound("bench_stage_gelu"))?;
+    let f_reduce = dev
+        .get_func("compute_bench", "bench_stage_reduce")
+        .ok_or(GpuHostError::KernelNotFound("bench_stage_reduce"))?;
+
+    let (data_host, data_dev) = unsafe { alloc_mapped_result_array(&dev, 32)? };
+    let (result_host, result_dev) = unsafe { alloc_mapped_result_array(&dev, 1)? };
+    let (flag_host, flag_dev) = unsafe { alloc_mapped_result_array(&dev, 1)? };
+
+    // Initialize data
+    for i in 0..32 {
+        let x = (i as f32 * 0.3).sin() + (i as f32 * 0.17).cos() + 1.0;
+        unsafe {
+            core::ptr::write_volatile(data_host.add(i) as *mut f32, x);
+        }
+    }
+
+    // Warmup
+    for _ in 0..n_warmup {
+        unsafe {
+            core::ptr::write_volatile(flag_host, 0);
+            f_softmax.clone().launch(warp_cfg, (data_dev, flag_dev))?;
+            dev.synchronize()?;
+            core::ptr::write_volatile(flag_host, 0);
+            f_gelu.clone().launch(warp_cfg, (data_dev, flag_dev))?;
+            dev.synchronize()?;
+            core::ptr::write_volatile(flag_host, 0);
+            f_reduce
+                .clone()
+                .launch(warp_cfg, (data_dev, result_dev, flag_dev))?;
+            dev.synchronize()?;
+        }
+    }
+
+    // Timed trials (3 launches per trial, to match iterations=1 of the pipeline)
+    let mut multi_times = Vec::with_capacity(n_trials);
+    for _ in 0..n_trials {
+        // Re-initialize data
+        for i in 0..32 {
+            let x = (i as f32 * 0.3).sin() + (i as f32 * 0.17).cos() + 1.0;
+            unsafe {
+                core::ptr::write_volatile(data_host.add(i) as *mut f32, x);
+            }
+        }
+
+        let start = std::time::Instant::now();
+        unsafe {
+            core::ptr::write_volatile(flag_host, 0);
+            f_softmax.clone().launch(warp_cfg, (data_dev, flag_dev))?;
+            dev.synchronize()?;
+
+            core::ptr::write_volatile(flag_host, 0);
+            f_gelu.clone().launch(warp_cfg, (data_dev, flag_dev))?;
+            dev.synchronize()?;
+
+            core::ptr::write_volatile(flag_host, 0);
+            f_reduce
+                .clone()
+                .launch(warp_cfg, (data_dev, result_dev, flag_dev))?;
+            dev.synchronize()?;
+        }
+        multi_times.push(start.elapsed());
+    }
+
+    let multi_median = {
+        let mut sorted: Vec<_> = multi_times.to_vec();
+        sorted.sort();
+        sorted[n_trials / 2]
+    };
+
+    unsafe {
+        free_mapped_mem(data_host)?;
+        free_mapped_mem(result_host)?;
+        free_mapped_mem(flag_host)?;
+    }
+
+    // ── Report results ──
+    println!("  Single-launch (async pipeline):");
+    println!("    Host median: {single_median:?}");
+    println!(
+        "    GPU time: {gpu_nanos} ns ({:.2} μs)",
+        gpu_nanos as f64 / 1000.0
+    );
+    println!("    Iterations: {iterations}");
+    println!("  Multi-launch (3 separate kernels × 1 iteration):");
+    println!("    Host median: {multi_median:?}");
+    let speedup = multi_median.as_nanos() as f64 / single_median.as_nanos().max(1) as f64;
+    println!("  Launch overhead ratio: {speedup:.2}× (multi/single)");
+    println!(
+        "  With {iterations} iterations: est. {:.2}× overhead for CUDA-style",
+        speedup * iterations as f64
+    );
+
+    println!("  Compute benchmark — DONE");
+    Ok(())
+}

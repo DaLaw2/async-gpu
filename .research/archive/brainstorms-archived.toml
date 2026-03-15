@@ -277,3 +277,17 @@ new_epics_spawned = ["gpu-channels"]
 themes_parked = []
 themes_completed = ["api-ergonomics"]
 key_insight = "GPU executor works but tasks can't communicate. Channels (oneshot + mpsc) are the missing piece for real async patterns. Created gpu-channels epic with 4 themes, 8 tasks."
+
+# --- Archived at cycle 349 ---
+
+[[brainstorms]]
+seq = 92
+at_cycle = 328
+trigger = "user pivot: demos are all I/O, need compute. Expose internal compute functions + build compelling demo."
+level = "quick"
+new_tasks_spawned = ["compute-audit.1", "compute-audit.2", "compute-extract.1", "compute-extract.2", "compute-extract.3", "demo-pipeline.1", "demo-pipeline.2", "demo-pipeline.3"]
+new_themes_spawned = ["compute-audit", "compute-extract", "demo-pipeline"]
+new_epics_spawned = ["compute-utils", "compute-demo"]
+themes_parked = ["channel-mpsc", "channel-waker", "channel-demo"]
+themes_completed = []
+key_insight = "User pivot: all demos are I/O, no compute. We have GEMM, transformer ops, reductions buried in kernel code but not exposed. Two new epics: extract compute utils as public API, build compelling compute demo."

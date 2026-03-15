@@ -634,3 +634,53 @@ epic = "tokio-bridge"
 title = "Demo: tokio server that offloads compute to GPU"
 status = "completed"
 goal = "End-to-end example showing tokio + GPU async bridge"
+
+# --- Archived at cycle 349 (production-ready epic completed) ---
+
+[[themes]]
+id = "multi-gpu"
+epic = "production-ready"
+title = "Multi-GPU support — device selection + multi-context"
+status = "completed"
+goal = "GpuRuntime can target any GPU device, multiple runtimes coexist"
+success_criteria = [
+    "GpuRuntime::new(device_ordinal) works for any valid device",
+    "Multiple GpuRuntime instances can coexist (one per device)",
+    "Device enumeration API (list available GPUs)",
+]
+
+[[themes]]
+id = "cuda-streams"
+epic = "production-ready"
+title = "CUDA stream support — overlapping compute and I/O"
+status = "completed"
+goal = "Kernel launches can use non-default streams for pipelining"
+success_criteria = [
+    "GpuRuntime supports creating and managing CUDA streams",
+    "Kernel launch can target a specific stream",
+    "Host can synchronize per-stream (not just global device sync)",
+]
+
+[[themes]]
+id = "gpu-alloc"
+epic = "production-ready"
+title = "GPU memory pool — slab allocator with deallocation"
+status = "completed"
+goal = "Replace bump-only allocator with slab allocator that supports free()"
+success_criteria = [
+    "GPU allocator supports deallocation (free returns memory to pool)",
+    "No fragmentation under typical patterns (alloc/free/realloc)",
+    "Existing Vec, String, Box work with new allocator",
+]
+
+[[themes]]
+id = "prebuilt-toolchain"
+epic = "production-ready"
+title = "Pre-built toolchain binaries via CI"
+status = "completed"
+goal = "GitHub Actions builds patched rustc and publishes as release artifact"
+success_criteria = [
+    "CI workflow builds patched toolchain for Linux x86_64",
+    "Download script fetches and installs pre-built toolchain",
+    "First-time setup reduced from 2-3 hours to < 10 minutes",
+]

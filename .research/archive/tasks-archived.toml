@@ -1779,3 +1779,93 @@ title = "Experiment: build tokio GPU compute offload example"
 kind = "experiment"
 status = "done"
 depends = ["tokio-impl.1"]
+
+# --- Archived at cycle 349 (production-ready themes) ---
+
+[[tasks]]
+id = "multi-gpu.1"
+theme = "multi-gpu"
+title = "Investigation: current GpuRuntime device handling and cudarc multi-device support"
+kind = "investigation"
+status = "done"
+depends = []
+questions = [
+    "Does GpuRuntime::new(n) already work for n > 0?",
+    "Can two CudaDevice instances coexist for different ordinals?",
+    "What are the CUDA context implications of multi-device?",
+    "Does cudarc handle primary context vs explicit context?",
+]
+
+[[tasks]]
+id = "multi-gpu.2"
+theme = "multi-gpu"
+title = "Experiment: implement multi-GPU device enumeration + validation"
+kind = "experiment"
+status = "done"
+depends = ["multi-gpu.1"]
+
+[[tasks]]
+id = "cuda-streams.1"
+theme = "cuda-streams"
+title = "Investigation: cudarc stream API and async launch patterns"
+kind = "investigation"
+status = "done"
+depends = []
+questions = [
+    "How does cudarc expose CUDA streams?",
+    "Can LaunchAsync::launch target a specific stream?",
+    "How does stream synchronization differ from device synchronization?",
+    "What's the interaction between streams and hostcall listener?",
+]
+
+[[tasks]]
+id = "cuda-streams.2"
+theme = "cuda-streams"
+title = "Design: stream-aware launch wrapper + per-stream sync API"
+kind = "design"
+status = "done"
+depends = ["cuda-streams.1"]
+
+[[tasks]]
+id = "cuda-streams.3"
+theme = "cuda-streams"
+title = "Experiment: implement GpuStream wrapper + basic overlap test"
+kind = "experiment"
+status = "done"
+depends = ["cuda-streams.2"]
+
+[[tasks]]
+id = "gpu-alloc.1"
+theme = "gpu-alloc"
+title = "Investigation: current GPU allocator design and slab allocator options"
+kind = "investigation"
+status = "done"
+depends = []
+questions = [
+    "What allocator does the GPU currently use (bump/linear)?",
+    "What's the interface — global_allocator trait vs custom?",
+    "What slab allocator designs work on GPU (no OS, no TLS)?",
+    "Can we use a buddy allocator or power-of-2 free list?",
+]
+
+[[tasks]]
+id = "prebuilt-toolchain.1"
+theme = "prebuilt-toolchain"
+title = "Investigation: CI workflow for building + publishing patched rustc"
+kind = "investigation"
+status = "done"
+depends = []
+questions = [
+    "What CI resources are needed to build rustc (RAM, disk, time)?",
+    "How to package the sysroot for distribution (tar.gz, .rustup component)?",
+    "What GitHub Actions runners have enough resources?",
+    "How to handle nightly version pinning in distributed builds?",
+]
+
+[[tasks]]
+id = "prebuilt-toolchain.2"
+theme = "prebuilt-toolchain"
+title = "Experiment: create CI workflow + download script for pre-built toolchain"
+kind = "experiment"
+status = "done"
+depends = ["prebuilt-toolchain.1"]

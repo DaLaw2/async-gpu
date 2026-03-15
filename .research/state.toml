@@ -4,14 +4,14 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 349     # Monotonic counter, incremented after each completed phase
-completed_tasks = 379
+total_cycles = 350     # Monotonic counter, incremented after each completed phase
+completed_tasks = 380
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "warp-batch-io.1"
+current_task_id = "warp-batch-io.2"
 last_summary = "BS96: project is feature-complete (19 epics, 379 tasks). Next direction: (1) unpark warp-batch-io, (2) ecosystem-launch epic, (3) developer-experience epic. Starting warp-batch-io first."
 
 # Sequence counters for unique file naming across iterations
@@ -289,17 +289,7 @@ success_criteria = [
     "Pre-built toolchain binaries via CI (reduce first-time setup to < 10 min)",
 ]
 
-[[epics]]
-id = "ecosystem-launch"
-title = "Ecosystem Launch — crates.io publish, docs site, public visibility"
-status = "active"
-priority = "high"
-success_criteria = [
-    "gpu-host published to crates.io at version 0.1.0 with documented public API",
-    "gpu-protocol published to crates.io (required as dependency)",
-    "Documentation site (mdBook) with architecture overview + getting started guide + example walkthroughs",
-    "Technical blog post suitable for r/rust, HN, or Rust forum — explaining the approach",
-]
+# ecosystem-launch epic REMOVED — user explicitly prohibited all publishing/docs-site/blog actions
 
 [[epics]]
 id = "developer-experience"
@@ -347,7 +337,7 @@ id = "warp-batch-io.1"
 theme = "warp-batch-io"
 title = "Investigation: review ADR-10 design + current hostcall Future patterns"
 kind = "investigation"
-status = "pending"
+status = "done"
 depends = []
 questions = [
     "What does the ADR-10 warp-batching design specify?",

@@ -1985,3 +1985,218 @@ pub unsafe extern "ptx-kernel" fn newton_sqrt_kernel(
     core::ptr::write_volatile(output, x);
     core::ptr::write_volatile(iterations, iter);
 }
+
+// ============================================================
+// MPSC channel demo kernel (channel-mpsc.2)
+// ============================================================
+
+/// A future that sends multiple values through an MPSC channel.
+///
+/// Uses the channel's raw `try_send_raw` method to send values.
+/// Retries on full (returns Pending to let executor re-poll).
+struct MpscProducer {
+    channel: *const gpu_runtime::channel::MpscChannel<u32, 16>,
+    values: [u32; 4],
+    next_idx: u32,
+}
+
+impl core::future::Future for MpscProducer {
+    type Output = ();
+
+    fn poll(
+        mut self: core::pin::Pin<&mut Self>,
+        _cx: &mut core::task::Context<'_>,
+    ) -> core::task::Poll<()> {
+        unsafe {
+            let ch = &*self.channel;
+            while (self.next_idx as usize) < self.values.len() {
+                let val = self.values[self.next_idx as usize];
+                match ch.try_send(val) {
+                    Ok(()) => {
+                        self.next_idx += 1;
+                    }
+                    Err(_) => {
+                        // Channel full or closed — yield and retry later
+                        return core::task::Poll::Pending;
+                    }
+                }
+            }
+            core::task::Poll::Ready(())
+        }
+    }
+}
+
+/// A future that receives values from an MPSC channel and accumulates sum.
+///
+/// Expects exactly `expected_count` values, then writes sum to result pointer.
+struct MpscConsumer {
+    channel: *const gpu_runtime::channel::MpscChannel<u32, 16>,
+    result_ptr: *mut u32,
+    count_ptr: *mut u32,
+    sum: u32,
+    received: u32,
+    expected: u32,
+}
+
+impl core::future::Future for MpscConsumer {
+    type Output = ();
+
+    fn poll(
+        mut self: core::pin::Pin<&mut Self>,
+        cx: &mut core::task::Context<'_>,
+    ) -> core::task::Poll<()> {
+        unsafe {
+            let ch = &*self.channel;
+            // Drain all available values
+            loop {
+                if self.received >= self.expected {
+                    // All expected values received — write results
+                    core::ptr::write_volatile(self.result_ptr, self.sum);
+                    core::ptr::write_volatile(self.count_ptr, self.received);
+                    return core::task::Poll::Ready(());
+                }
+                match ch.try_recv() {
+                    Some(val) => {
+                        self.sum += val;
+                        self.received += 1;
+                    }
+                    None => {
+                        // Store waker so producer's try_send will re-enqueue us
+                        ch.store_waker(cx);
+                        // Double-check: value may have arrived between try_recv and store_waker
+                        match ch.try_recv() {
+                            Some(val) => {
+                                self.sum += val;
+                                self.received += 1;
+                                // Continue draining
+                            }
+                            None => {
+                                return core::task::Poll::Pending;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// MPSC channel demo kernel: test multi-producer single-consumer channel.
+///
+/// Thread 0 spawns 3 producers + 1 consumer. Each producer sends 4 values
+/// through the shared MPSC channel. The consumer receives all 12 values
+/// and writes their sum.
+///
+/// `executor_ptr` = device pointer to mapped memory for GpuExecutor (>= 256KB)
+/// `results` = output array of u32[8]:
+///   [0] = spawned count
+///   [1] = completed count
+///   [2] = tasks_executed from stats
+///   [3] = polls_total from stats
+///   [4] = received sum (expect: 3*10 + 3*20 + 3*30 + 3*40 = 300, or exact sum of all values)
+///   [5] = received count (expect: 12)
+///   [6] = success flag (1 if correct)
+///   [7] = phase marker
+///
+/// The MPSC channel is placed after the executor struct in mapped memory.
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn channel_mpsc_demo(
+    executor_ptr: *mut u8,
+    results: *mut u32,
+) {
+    let thread_x = nvptx::_thread_idx_x() as u32;
+
+    // Initialize result buffer (thread 0 only)
+    if thread_x == 0 {
+        let mut i = 0u32;
+        while i < 8 {
+            core::ptr::write_volatile(results.add(i as usize), 0);
+            i += 1;
+        }
+        core::ptr::write_volatile(results.add(7), 1); // Phase 1: results zeroed
+    }
+
+    let mask = activemask();
+    gpu_atomics::syncwarp(mask);
+
+    let executor = &*(executor_ptr as *const gpu_runtime::executor::GpuExecutor);
+
+    // Place MpscChannel after executor struct
+    let executor_size = core::mem::size_of::<gpu_runtime::executor::GpuExecutor>();
+    // Align to 128 bytes for cache-line separation
+    let channel_offset = (executor_size + 127) & !127;
+    let channel_ptr =
+        executor_ptr.add(channel_offset) as *mut gpu_runtime::channel::MpscChannel<u32, 16>;
+
+    if thread_x == 0 {
+        executor.init();
+
+        // Initialize MPSC channel
+        let channel = &*channel_ptr;
+        channel.init();
+
+        core::ptr::write_volatile(results.add(7), 2); // Phase 2: initialized
+
+        // Producer values: 3 producers, each sends 4 values
+        // Producer 0: [10, 20, 30, 40] → sum = 100
+        // Producer 1: [11, 21, 31, 41] → sum = 104
+        // Producer 2: [12, 22, 32, 42] → sum = 108
+        // Total expected sum = 312, count = 12
+
+        // Spawn consumer FIRST — tests waker integration:
+        // Consumer will return Pending (no values yet), executor parks it.
+        // When producers send values, channel's wake_consumer() re-enqueues
+        // the consumer task via the stored waker.
+        let _ = executor.spawn(MpscConsumer {
+            channel: channel_ptr as *const _,
+            result_ptr: results.add(4),
+            count_ptr: results.add(5),
+            sum: 0,
+            received: 0,
+            expected: 12,
+        });
+
+        // Spawn 3 producers (will wake consumer via channel waker)
+        let _ = executor.spawn(MpscProducer {
+            channel: channel_ptr as *const _,
+            values: [10, 20, 30, 40],
+            next_idx: 0,
+        });
+        let _ = executor.spawn(MpscProducer {
+            channel: channel_ptr as *const _,
+            values: [11, 21, 31, 41],
+            next_idx: 0,
+        });
+        let _ = executor.spawn(MpscProducer {
+            channel: channel_ptr as *const _,
+            values: [12, 22, 32, 42],
+            next_idx: 0,
+        });
+
+        core::ptr::write_volatile(results.add(7), 3); // Phase 3: all tasks spawned
+    }
+
+    gpu_atomics::syncwarp(mask);
+
+    let stats = executor.run(mask);
+
+    gpu_atomics::syncwarp(mask);
+
+    if thread_x == 0 {
+        core::ptr::write_volatile(results.add(7), 5); // Phase 5: executor finished
+        core::ptr::write_volatile(results.add(0), executor.spawned_count());
+        core::ptr::write_volatile(results.add(1), executor.completed_count());
+        core::ptr::write_volatile(results.add(2), stats.tasks_executed);
+        core::ptr::write_volatile(results.add(3), stats.polls_total);
+
+        // Verify: sum = 10+20+30+40+11+21+31+41+12+22+32+42 = 312, count = 12
+        let sum = core::ptr::read_volatile(results.add(4) as *const u32);
+        let count = core::ptr::read_volatile(results.add(5) as *const u32);
+        let spawned = core::ptr::read_volatile(results.add(0) as *const u32);
+        let completed = core::ptr::read_volatile(results.add(1) as *const u32);
+
+        if spawned == 4 && completed == 4 && sum == 312 && count == 12 {
+            core::ptr::write_volatile(results.add(6), 1); // success
+        }
+    }
+}

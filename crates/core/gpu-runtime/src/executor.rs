@@ -3,8 +3,8 @@ use core::future::Future;
 use core::pin::Pin;
 use core::task::{Context, Poll};
 use gpu_atomics::{
-    lane_id, shfl_sync_idx_u32, syncwarp, sys_cas_u64, sys_load_acquire_u64,
-    sys_spin_load_acquire_u32, sys_store_release_u32,
+    lane_id, shfl_sync_idx_u32, syncwarp, sys_cas_u32, sys_cas_u64, sys_load_acquire_u32,
+    sys_load_acquire_u64, sys_spin_load_acquire_u32, sys_store_release_u32,
 };
 
 /// Maximum number of tasks the executor can hold.
@@ -16,14 +16,15 @@ pub const TASK_FUTURE_MAX_SIZE: usize = 512;
 /// Sentinel value for empty queue/slot entries.
 pub const EMPTY_SENTINEL: u32 = 0xFFFF_FFFF;
 
-/// Maximum polls before a task is considered stuck.
-/// Kept conservative to avoid GPU TDR timeouts on complex futures.
-const MAX_POLLS_PER_TASK: u32 = 1_000;
-
 // Task slot states
 const SLOT_FREE: u32 = 0;
 const SLOT_QUEUED: u32 = 1;
 const SLOT_RUNNING: u32 = 2;
+/// Task returned Pending — waiting for a waker to re-enqueue it.
+pub const SLOT_PARKED: u32 = 3;
+
+/// Sentinel: no waker registered.
+pub const NO_WAKER: u32 = EMPTY_SENTINEL;
 
 /// Error type for executor operations.
 #[derive(Debug, Clone, Copy)]
@@ -371,18 +372,67 @@ unsafe impl Sync for TaskSlot {}
 unsafe impl Send for FreeSlotStack {}
 unsafe impl Sync for FreeSlotStack {}
 
-/// No-op waker vtable for GPU (no real wake mechanism).
-const NOOP_VTABLE: core::task::RawWakerVTable = core::task::RawWakerVTable::new(
-    |_| core::task::RawWaker::new(core::ptr::null(), &NOOP_VTABLE),
-    |_| {},
-    |_| {},
+// ================================================================
+// GPU Waker — re-enqueues parked tasks into the WorkQueue
+// ================================================================
+
+/// Waker data encodes two pieces of information in a single u64:
+/// - bits 63..8: WorkQueue pointer (bottom 8 bits masked off — CUDA allocs are 256-byte aligned)
+/// - bits 7..0: task slot index (0..255, fits in u8 since MAX_TASKS=256)
+///
+/// On wake, the task is re-enqueued into the WorkQueue.
+#[inline(always)]
+fn pack_waker_data(work_queue: *const WorkQueue, task_id: u32) -> *const () {
+    let ptr_bits = work_queue as u64;
+    // SAFETY: CUDA cuMemHostAlloc returns at least 256-byte aligned pointers,
+    // so the bottom 8 bits of the WorkQueue address are always 0.
+    let packed = (ptr_bits & !0xFF) | ((task_id as u64) & 0xFF);
+    packed as *const ()
+}
+
+#[inline(always)]
+fn unpack_waker_data(data: *const ()) -> (*const WorkQueue, u32) {
+    let packed = data as u64;
+    let task_id = (packed & 0xFF) as u32;
+    let ptr_bits = packed & !0xFF;
+    (ptr_bits as *const WorkQueue, task_id)
+}
+
+/// GPU waker vtable — clone returns a copy, wake re-enqueues the task.
+const GPU_WAKER_VTABLE: core::task::RawWakerVTable = core::task::RawWakerVTable::new(
+    // clone: just copy the data (no allocation)
+    |data| core::task::RawWaker::new(data, &GPU_WAKER_VTABLE),
+    // wake: re-enqueue and consume
+    gpu_waker_wake_impl,
+    // wake_by_ref: re-enqueue
+    gpu_waker_wake_impl,
+    // drop: no-op (no heap allocation)
     |_| {},
 );
 
+/// Re-enqueue a parked task into the WorkQueue.
 #[inline(always)]
-fn noop_waker() -> core::task::Waker {
+fn gpu_waker_wake_impl(data: *const ()) {
+    wake_task_from_data(data);
+}
+
+/// Re-enqueue a parked task. Public so channels can call this directly.
+///
+/// `data` is a packed pointer encoding (work_queue_ptr | task_id).
+#[inline(always)]
+pub fn wake_task_from_data(data: *const ()) {
+    let (work_queue, task_id) = unpack_waker_data(data);
     unsafe {
-        core::task::Waker::from_raw(core::task::RawWaker::new(core::ptr::null(), &NOOP_VTABLE))
+        let _ = (*work_queue).enqueue(task_id);
+    }
+}
+
+/// Create a waker for a specific task slot.
+#[inline(always)]
+fn make_task_waker(work_queue: *const WorkQueue, task_id: u32) -> core::task::Waker {
+    unsafe {
+        let data = pack_waker_data(work_queue, task_id);
+        core::task::Waker::from_raw(core::task::RawWaker::new(data, &GPU_WAKER_VTABLE))
     }
 }
 
@@ -469,10 +519,12 @@ impl GpuExecutor {
         Ok(TaskId(slot_idx as u32))
     }
 
-    /// Enter the executor loop (ExitOnEmpty policy).
+    /// Enter the executor loop with waker support.
     ///
-    /// Dequeues and polls tasks until the queue is empty. All 32 lanes of
-    /// the calling warp must call this simultaneously.
+    /// Dequeues and polls tasks. When a future returns `Poll::Pending`, the
+    /// task is parked (not re-polled). Wakers re-enqueue parked tasks.
+    /// Exits when the queue is empty AND no tasks are active (all completed or
+    /// no tasks spawned), or when the safety valve triggers.
     ///
     /// `mask` must be the warp's active lane mask (from `activemask()`).
     /// Taking it as a parameter avoids GPU hangs caused by LLVM nvptx
@@ -487,22 +539,23 @@ impl GpuExecutor {
         let mut tasks_executed: u32 = 0;
         let mut polls_total: u32 = 0;
 
-        // Build waker + context. Use ManuallyDrop to avoid drop glue.
-        let waker = core::mem::ManuallyDrop::new(noop_waker());
-        let mut cx = Context::from_waker(&waker);
+        let work_queue_ptr = &self.work_queue as *const WorkQueue;
 
-        let mut outer_count: u32 = 0;
+        // Safety valve: total iterations (dequeue attempts + empty waits)
+        let mut iterations: u32 = 0;
+        let max_iterations = MAX_TASKS as u32 * 4 + 64;
+        let mut empty_spins: u32 = 0;
+        let max_empty_spins: u32 = 64; // give wakers time to re-enqueue
+
         loop {
-            // Safety valve: prevent infinite outer loops
-            outer_count += 1;
-            if outer_count > MAX_TASKS as u32 + 2 {
+            iterations += 1;
+            if iterations > max_iterations {
                 break;
             }
 
             // Lane 0 dequeues, broadcasts to all lanes
             let mut task_id: u32 = EMPTY_SENTINEL;
             if lid == 0 {
-                // Inline dequeue: read head/tail, check empty, CAS
                 let head_ptr = self.work_queue.head.get();
                 let tail_ptr = self.work_queue.tail.get();
                 let old_head = sys_load_acquire_u64(head_ptr as *const _);
@@ -510,8 +563,8 @@ impl GpuExecutor {
                 let head_idx = old_head as u32;
                 let tail_idx = old_tail as u32;
                 if head_idx != tail_idx {
-                    let slot = head_idx & (MAX_TASKS as u32 - 1);
-                    let buf_ptr = self.work_queue.buffer[slot as usize].get();
+                    let slot_idx = head_idx & (MAX_TASKS as u32 - 1);
+                    let buf_ptr = self.work_queue.buffer[slot_idx as usize].get();
                     let tid = sys_spin_load_acquire_u32(buf_ptr as *const _);
                     if tid != EMPTY_SENTINEL {
                         let new_tag = (old_head >> 32).wrapping_add(1);
@@ -527,8 +580,56 @@ impl GpuExecutor {
             syncwarp(mask);
 
             if task_id == EMPTY_SENTINEL {
-                break;
+                // Queue is empty — check if all tasks are done
+                let mut should_exit: u32 = 0;
+                if lid == 0 {
+                    let spawned = core::ptr::read_volatile(self.tasks_spawned.get());
+                    let completed = core::ptr::read_volatile(self.tasks_completed.get());
+                    if spawned == completed {
+                        should_exit = 1;
+                    } else {
+                        // Re-enqueue all PARKED tasks as a fallback for futures
+                        // that don't use wakers (e.g., legacy oneshot receivers).
+                        // This is equivalent to a spin-poll but respects parking.
+                        let mut re_enqueued = false;
+                        let mut i: u32 = 0;
+                        while i < MAX_TASKS as u32 {
+                            let st = sys_load_acquire_u32(
+                                self.slots[i as usize].state.get() as *const u32
+                            );
+                            if st == SLOT_PARKED {
+                                // CAS PARKED → QUEUED to prevent double-enqueue
+                                let old = sys_cas_u32(
+                                    self.slots[i as usize].state.get(),
+                                    SLOT_PARKED,
+                                    SLOT_QUEUED,
+                                );
+                                if old == SLOT_PARKED {
+                                    let _ = self.work_queue.enqueue(i);
+                                    re_enqueued = true;
+                                }
+                            }
+                            i += 1;
+                        }
+                        if !re_enqueued {
+                            // No parked tasks — nothing more to do
+                            if empty_spins >= max_empty_spins {
+                                should_exit = 1;
+                            }
+                        }
+                    }
+                }
+                let should_exit = shfl_sync_idx_u32(mask, should_exit, 0);
+                syncwarp(mask);
+                if should_exit != 0 {
+                    break;
+                }
+                empty_spins += 1;
+                #[cfg(target_arch = "nvptx64")]
+                core::arch::asm!("nanosleep.u32 1000;", options(nostack));
+                continue;
             }
+            empty_spins = 0;
 
             if task_id as usize >= MAX_TASKS {
                 break;
@@ -551,41 +652,38 @@ impl GpuExecutor {
             let poll_fn = poll_fn.unwrap();
             let future_ptr = (*slot.future_bytes.get()).as_mut_ptr();
 
-            // Inner poll loop — only lane 0 polls
-            let mut polls: u32 = 0;
-            loop {
-                let mut is_ready: u32 = 0;
-                if lid == 0 {
-                    let result = poll_fn(future_ptr, &mut cx);
-                    is_ready = match result {
-                        Poll::Ready(()) => 1,
-                        Poll::Pending => 0,
-                    };
-                }
-                let is_ready = shfl_sync_idx_u32(mask, is_ready, 0);
-                syncwarp(mask);
-                polls_total += 1;
-                polls += 1;
+            // Build per-task waker
+            let waker = core::mem::ManuallyDrop::new(make_task_waker(work_queue_ptr, task_id));
+            let mut cx = Context::from_waker(&waker);
 
-                if is_ready != 0 {
-                    if lid == 0 {
-                        core::ptr::write_volatile(slot.state.get(), SLOT_FREE);
-                        let old = core::ptr::read_volatile(self.tasks_completed.get());
-                        core::ptr::write_volatile(self.tasks_completed.get(), old.wrapping_add(1));
-                    }
-                    syncwarp(mask);
-                    tasks_executed += 1;
-                    break;
+            // Poll once — if Pending, park the task (waker will re-enqueue)
+            let mut is_ready: u32 = 0;
+            if lid == 0 {
+                let result = poll_fn(future_ptr, &mut cx);
+                is_ready = match result {
+                    Poll::Ready(()) => 1,
+                    Poll::Pending => 0,
+                };
+            }
+            let is_ready = shfl_sync_idx_u32(mask, is_ready, 0);
+            syncwarp(mask);
+            polls_total += 1;
+
+            if is_ready != 0 {
+                // Task completed
+                if lid == 0 {
+                    core::ptr::write_volatile(slot.state.get(), SLOT_FREE);
+                    let old = core::ptr::read_volatile(self.tasks_completed.get());
+                    core::ptr::write_volatile(self.tasks_completed.get(), old.wrapping_add(1));
                 }
-                if polls >= MAX_POLLS_PER_TASK {
-                    if lid == 0 {
-                        core::ptr::write_volatile(slot.state.get(), SLOT_FREE);
-                    }
-                    syncwarp(mask);
-                    break;
+                syncwarp(mask);
+                tasks_executed += 1;
+            } else {
+                // Task pending — park it. Waker (from channel/future) will re-enqueue.
+                if lid == 0 {
+                    sys_store_release_u32(slot.state.get(), SLOT_PARKED);
                 }
-                #[cfg(target_arch = "nvptx64")]
-                core::arch::asm!("nanosleep.u32 1000;", options(nostack));
+                syncwarp(mask);
             }
         }
 

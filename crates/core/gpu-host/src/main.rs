@@ -173,6 +173,10 @@ fn main() -> Result<()> {
                 tests_scaling::run_channel_oneshot_demo_test(Arc::clone(&dev))?;
                 return Ok(());
             }
+            "channel_mpsc" | "mpsc" => {
+                tests_scaling::run_channel_mpsc_demo_test(Arc::clone(&dev))?;
+                return Ok(());
+            }
             "compute" | "compute_pipeline" => {
                 tests_scaling::run_compute_pipeline_demo_test(Arc::clone(&dev))?;
                 return Ok(());

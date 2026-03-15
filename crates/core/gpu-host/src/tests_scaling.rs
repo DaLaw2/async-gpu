@@ -1217,13 +1217,14 @@ pub(crate) fn run_compute_pipeline_demo_test(dev: Arc<CudaDevice>) -> Result<()>
     );
     println!("  done_flag = {done}");
 
-    // Read output values and compute sum
+    // Read output values and show statistics
     let mut sum: f32 = 0.0;
     for i in 0..32 {
         let val = unsafe { std::ptr::read_volatile(output_host_ptr.add(i) as *const f32) };
         sum += val;
     }
-    println!("  Output sum: {sum:.4} (target: 16.0)");
+    let mean = sum / 32.0;
+    println!("  Output: mean={mean:.4}, sum={sum:.4}");
 
     unsafe {
         free_mapped_mem(output_host_ptr)?;
@@ -1434,5 +1435,111 @@ pub(crate) fn run_compute_benchmark_test(dev: Arc<CudaDevice>) -> Result<()> {
     );
 
     println!("  Compute benchmark — DONE");
+    Ok(())
+}
+
+/// Test the MPSC channel demo kernel.
+///
+/// Spawns 3 producers + 1 consumer. Each producer sends 4 values through
+/// a shared MPSC channel. The consumer receives all 12 values and sums them.
+pub(crate) fn run_channel_mpsc_demo_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Channel MPSC Demo Test (channel-mpsc.2) ---");
+    println!("  Spawns 3 producers + 1 consumer using MPSC channel.");
+
+    // Allocate mapped memory: executor + MpscChannel<u32, 16>
+    // MpscChannel<u32, 16> is small (~256 bytes), executor is ~136KB
+    let executor_size = 256 * 1024 + 1024; // 256KB for executor + extra for channel
+    let (exec_host_ptr, exec_dev_ptr) = unsafe { alloc_mapped_bytes(&dev, executor_size)? };
+
+    // Allocate results: 8 u32
+    let (results_host_ptr, results_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 8)? };
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "kernel_mpsc", &["channel_mpsc_demo"]);
+    let f = dev
+        .get_func("kernel_mpsc", "channel_mpsc_demo")
+        .ok_or(GpuHostError::KernelNotFound("channel_mpsc_demo"))?;
+
+    let cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (32, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    let dev2 = dev.clone();
+    let sync_done = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let sync_done2 = sync_done.clone();
+    let sync_thread = std::thread::spawn(move || {
+        unsafe {
+            f.launch(cfg, (exec_dev_ptr, results_dev_ptr)).unwrap();
+        }
+        let _ = dev2.synchronize();
+        sync_done2.store(true, std::sync::atomic::Ordering::Release);
+    });
+
+    // Poll phase marker with timeout
+    let timeout = std::time::Duration::from_secs(10);
+    let start = std::time::Instant::now();
+    let mut last_phase = 0u32;
+    loop {
+        let phase = unsafe { std::ptr::read_volatile(results_host_ptr.add(7)) };
+        if phase != last_phase {
+            println!("  phase marker = {phase}");
+            last_phase = phase;
+        }
+        if sync_done.load(std::sync::atomic::Ordering::Acquire) {
+            println!("  kernel completed (phase={phase})");
+            break;
+        }
+        if start.elapsed() > timeout {
+            println!("  TIMEOUT after {timeout:?}! phase={phase}");
+            println!("  results dump:");
+            for i in 0..8u32 {
+                let val = unsafe { std::ptr::read_volatile(results_host_ptr.add(i as usize)) };
+                println!("    results[{i}] = {val}");
+            }
+            unsafe {
+                free_mapped_bytes(exec_host_ptr)?;
+                free_mapped_mem(results_host_ptr)?;
+            }
+            return Err(GpuHostError::Timeout {
+                test: "channel_mpsc_demo",
+                detail: format!("kernel hung at phase {phase}"),
+            });
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    let _ = sync_thread.join();
+
+    // Read results
+    let spawned = unsafe { std::ptr::read_volatile(results_host_ptr.add(0)) };
+    let completed = unsafe { std::ptr::read_volatile(results_host_ptr.add(1)) };
+    let tasks_executed = unsafe { std::ptr::read_volatile(results_host_ptr.add(2)) };
+    let polls_total = unsafe { std::ptr::read_volatile(results_host_ptr.add(3)) };
+    let sum = unsafe { std::ptr::read_volatile(results_host_ptr.add(4)) };
+    let count = unsafe { std::ptr::read_volatile(results_host_ptr.add(5)) };
+    let success = unsafe { std::ptr::read_volatile(results_host_ptr.add(6)) };
+
+    println!("  spawned={spawned} completed={completed} tasks_executed={tasks_executed} polls_total={polls_total}");
+    println!("  received: sum={sum} count={count}  success={success}");
+
+    unsafe {
+        free_mapped_bytes(exec_host_ptr)?;
+        free_mapped_mem(results_host_ptr)?;
+    }
+
+    assert_eq!(
+        spawned, 4,
+        "expected 4 tasks spawned (3 producers + 1 consumer)"
+    );
+    assert_eq!(completed, 4, "expected 4 tasks completed");
+    assert_eq!(
+        sum, 312,
+        "expected sum = 312 (10+20+30+40+11+21+31+41+12+22+32+42)"
+    );
+    assert_eq!(count, 12, "expected 12 values received");
+    assert_eq!(success, 1, "success flag expected 1");
+
+    println!("  Channel MPSC demo — PASSED");
     Ok(())
 }

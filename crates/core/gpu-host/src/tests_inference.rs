@@ -14,7 +14,8 @@ use crate::mapped_mem::{alloc_mapped_result_array, free_mapped_mem};
 /// embedding + 12 transformer layers + final LayerNorm on GPU.
 /// Skips if model file is not present.
 pub(crate) fn run_full_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
-    let model_path = std::path::Path::new("../../models/model.safetensors");
+    let model_path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../models/model.safetensors");
     if !model_path.exists() {
         println!("\n--- Skipping 12-layer forward pass (models/model.safetensors not found) ---");
         return Ok(());
@@ -23,11 +24,12 @@ pub(crate) fn run_full_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
     println!("\n--- 12-layer GPT-2 forward pass (full-inference.2) ---");
 
     // Load weights
-    let weights =
-        gpu_host::model::load_gpt2_weights(model_path).map_err(|e| GpuHostError::Verification {
+    let weights = gpu_host::model::load_gpt2_weights(&model_path).map_err(|e| {
+        GpuHostError::Verification {
             test: "full_forward",
             detail: format!("weight loading: {e}"),
-        })?;
+        }
+    })?;
     println!(
         "  Loaded {} params ({:.1} MB)",
         weights.total_params(),
@@ -794,7 +796,8 @@ pub(crate) fn run_full_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
 /// No KV cache — full recompute each step (proof of concept).
 /// Skips if model file is not present.
 pub(crate) fn run_generation_test(dev: Arc<CudaDevice>) -> Result<()> {
-    let model_path = std::path::Path::new("../../models/model.safetensors");
+    let model_path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../models/model.safetensors");
     if !model_path.exists() {
         println!("\n--- Skipping generation test (models/model.safetensors not found) ---");
         return Ok(());
@@ -803,11 +806,12 @@ pub(crate) fn run_generation_test(dev: Arc<CudaDevice>) -> Result<()> {
     println!("\n--- Greedy autoregressive generation (full-inference.4) ---");
 
     // Load weights
-    let weights =
-        gpu_host::model::load_gpt2_weights(model_path).map_err(|e| GpuHostError::Verification {
+    let weights = gpu_host::model::load_gpt2_weights(&model_path).map_err(|e| {
+        GpuHostError::Verification {
             test: "generation",
             detail: format!("weight loading: {e}"),
-        })?;
+        }
+    })?;
 
     // Tokenize
     let tokenizer =
@@ -1469,7 +1473,8 @@ pub(crate) fn run_generation_test(dev: Arc<CudaDevice>) -> Result<()> {
 /// instead of packed f16x2. This validates whether f16 precision was
 /// the reason for wrong predictions.
 pub(crate) fn run_f32_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
-    let model_path = std::path::Path::new("../../models/model.safetensors");
+    let model_path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../models/model.safetensors");
     if !model_path.exists() {
         println!("\n--- Skipping f32 GEMM forward pass (models/model.safetensors not found) ---");
         return Ok(());
@@ -1477,11 +1482,12 @@ pub(crate) fn run_f32_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
 
     println!("\n--- f32 GEMM forward pass (full-inference.6) ---");
 
-    let weights =
-        gpu_host::model::load_gpt2_weights(model_path).map_err(|e| GpuHostError::Verification {
+    let weights = gpu_host::model::load_gpt2_weights(&model_path).map_err(|e| {
+        GpuHostError::Verification {
             test: "f32_forward",
             detail: format!("weight loading: {e}"),
-        })?;
+        }
+    })?;
 
     let tokenizer =
         gpu_host::tokenizer::Gpt2Tokenizer::new().map_err(|e| GpuHostError::Verification {
@@ -2102,7 +2108,8 @@ pub(crate) fn run_f32_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
 /// (FMA reference), comparing top-5 predictions. BF16 takes f32 column-major inputs
 /// (no host-side f16 packing needed). Reports timing for both paths.
 pub(crate) fn run_bf16_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
-    let model_path = std::path::Path::new("../../models/model.safetensors");
+    let model_path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../models/model.safetensors");
     if !model_path.exists() {
         println!(
             "\n--- Skipping BF16 inference validation (models/model.safetensors not found) ---"
@@ -2112,11 +2119,12 @@ pub(crate) fn run_bf16_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
 
     println!("\n--- BF16 mixed-precision inference (mixed-precision.2) ---");
 
-    let weights =
-        gpu_host::model::load_gpt2_weights(model_path).map_err(|e| GpuHostError::Verification {
+    let weights = gpu_host::model::load_gpt2_weights(&model_path).map_err(|e| {
+        GpuHostError::Verification {
             test: "bf16_forward",
             detail: format!("weight loading: {e}"),
-        })?;
+        }
+    })?;
 
     let tokenizer =
         gpu_host::tokenizer::Gpt2Tokenizer::new().map_err(|e| GpuHostError::Verification {
@@ -2874,29 +2882,33 @@ pub(crate) fn run_bf16_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
 /// f16x2 instead of column-major f32. Compares top-5 output against the f32 FMA
 /// baseline to validate MMA correctness in inference context.
 pub(crate) fn run_mma_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
-    let model_path = std::path::Path::new("../../models/model.safetensors");
+    let model_path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../models/model.safetensors");
     if !model_path.exists() {
         println!("\n--- Skipping MMA forward pass (models/model.safetensors not found) ---");
         return Ok(());
     }
 
-    println!("\n--- MMA forward pass (mma-fix.3) ---");
+    println!("\n--- MMA forward pass (mma-splitk.4: multi-prompt) ---");
 
-    let weights =
-        gpu_host::model::load_gpt2_weights(model_path).map_err(|e| GpuHostError::Verification {
+    let weights = gpu_host::model::load_gpt2_weights(&model_path).map_err(|e| {
+        GpuHostError::Verification {
             test: "mma_forward",
             detail: format!("weight loading: {e}"),
-        })?;
+        }
+    })?;
 
     let tokenizer =
         gpu_host::tokenizer::Gpt2Tokenizer::new().map_err(|e| GpuHostError::Verification {
             test: "mma_forward",
             detail: format!("tokenizer: {e}"),
         })?;
-    let prompt = "The capital of France is";
-    let prompt_tokens = tokenizer.encode(prompt);
-    let actual_seq = prompt_tokens.len();
-    println!("  Prompt: \"{prompt}\" → {actual_seq} tokens: {prompt_tokens:?}");
+
+    let prompts = [
+        "The capital of France is",
+        "In 1969, the first man to walk on the moon was",
+        "The largest ocean on Earth is the",
+    ];
 
     const SEQ: u32 = 32;
     const D_MODEL: u32 = 768;
@@ -2908,9 +2920,6 @@ pub(crate) fn run_mma_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
     let seq = SEQ;
     let total_seq_model = (seq * D_MODEL) as usize;
     let head_total = (N_HEADS * seq * D_HEAD) as usize;
-
-    let mut token_ids_u32: Vec<u32> = prompt_tokens.clone();
-    token_ids_u32.resize(seq as usize, 0);
 
     // Load PTX
     let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
@@ -2951,53 +2960,11 @@ pub(crate) fn run_mma_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
 
     let (status_host_ptr, status_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 1)? };
 
-    // Upload embedding tables
+    // Upload embedding tables (shared across all prompts)
     let wte_dev = dev.htod_sync_copy(&weights.wte)?;
     let wpe_dev = dev.htod_sync_copy(&weights.wpe)?;
-    let token_ids_dev = dev.htod_sync_copy(&token_ids_u32)?;
 
-    // === Embedding ===
     let mut hidden_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(total_seq_model)?;
-    unsafe {
-        f_embed.clone().launch(
-            LaunchConfig {
-                grid_dim: ((total_seq_model as u32).div_ceil(256), 1, 1),
-                block_dim: (256, 1, 1),
-                shared_mem_bytes: 0,
-            },
-            (
-                &wte_dev,
-                &wpe_dev,
-                &token_ids_dev,
-                &mut hidden_dev,
-                seq,
-                D_MODEL,
-                status_dev_ptr,
-            ),
-        )?;
-    }
-    dev.synchronize()?;
-
-    // Zero padded positions
-    let pad_start = (actual_seq as u32) * D_MODEL;
-    let pad_count = total_seq_model as u32 - pad_start;
-    if pad_count > 0 {
-        unsafe {
-            f_zero.clone().launch(
-                LaunchConfig {
-                    grid_dim: (pad_count.div_ceil(256), 1, 1),
-                    block_dim: (256, 1, 1),
-                    shared_mem_bytes: 0,
-                },
-                (&mut hidden_dev, pad_start, total_seq_model as u32),
-            )?;
-        }
-        dev.synchronize()?;
-    }
-    println!("  Embedding done (seq={seq}, actual={actual_seq})");
-
-    drop(wte_dev);
-    drop(wpe_dev);
 
     // === Helper: f32 ↔ f16 conversion for weight packing ===
     fn f32_to_f16(val: f32) -> u16 {
@@ -3100,132 +3067,31 @@ pub(crate) fn run_mma_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
     let mma_shared = (256 + 128) * 4; // shared memory for full_gemm_f32in
     let n_q_tiles = (seq as usize).div_ceil(32) as u32;
 
-    let fwd_start = std::time::Instant::now();
+    let mut mma_top5_results: Vec<Vec<usize>> = Vec::new();
 
-    // === 12 transformer layers ===
-    for layer_idx in 0..12u32 {
-        let lw = &gpu_layers[layer_idx as usize];
+    for prompt in &prompts {
+        let prompt_tokens = tokenizer.encode(prompt);
+        let actual_seq = prompt_tokens.len();
+        println!("\n  Prompt: \"{prompt}\" → {actual_seq} tokens: {prompt_tokens:?}");
 
-        // LN1
+        let mut token_ids_u32: Vec<u32> = prompt_tokens.clone();
+        token_ids_u32.resize(seq as usize, 0);
+        let token_ids_dev = dev.htod_sync_copy(&token_ids_u32)?;
+
+        // === Embedding ===
         unsafe {
-            f_ln.clone().launch(
+            f_embed.clone().launch(
                 LaunchConfig {
-                    grid_dim: (seq, 1, 1),
-                    block_dim: (32, 1, 1),
-                    shared_mem_bytes: 0,
-                },
-                (
-                    &hidden_dev,
-                    &mut ln_out_dev,
-                    &lw.ln1_g,
-                    &lw.ln1_b,
-                    D_MODEL,
-                    EPS,
-                    status_dev_ptr,
-                ),
-            )?;
-        }
-        dev.synchronize()?;
-
-        // QKV GEMM (MMA): ln_out[32,768] × w_qkv[768,2304] → qkv[32,2304]
-        let qkv_k_tiles = (768 / 16) as u32;
-        unsafe {
-            f_gemm.clone().launch(
-                LaunchConfig {
-                    grid_dim: (seq / 32, 2304 / 16, 1),
-                    block_dim: (128, 1, 1),
-                    shared_mem_bytes: mma_shared,
-                },
-                (
-                    &ln_out_dev,
-                    &lw.w_qkv,
-                    &mut qkv_dev,
-                    qkv_k_tiles,
-                    2304u32,
-                    status_dev_ptr,
-                ),
-            )?;
-        }
-        dev.synchronize()?;
-
-        // QKV bias
-        let total_qkv = seq * 2304;
-        unsafe {
-            f_bias.clone().launch(
-                LaunchConfig {
-                    grid_dim: (total_qkv.div_ceil(256), 1, 1),
-                    block_dim: (256, 1, 1),
-                    shared_mem_bytes: 0,
-                },
-                (&mut qkv_dev, &lw.b_qkv, 2304u32, total_qkv, status_dev_ptr),
-            )?;
-        }
-        dev.synchronize()?;
-
-        // Split QKV
-        unsafe {
-            f_split.clone().launch(
-                LaunchConfig {
-                    grid_dim: ((head_total as u32).div_ceil(256), 1, 1),
+                    grid_dim: ((total_seq_model as u32).div_ceil(256), 1, 1),
                     block_dim: (256, 1, 1),
                     shared_mem_bytes: 0,
                 },
                 (
-                    &qkv_dev, &mut q_dev, &mut k_dev, &mut v_dev, seq, N_HEADS, D_HEAD,
-                ),
-            )?;
-        }
-        dev.synchronize()?;
-
-        // Flash attention (causal)
-        unsafe {
-            f_attn.clone().launch(
-                LaunchConfig {
-                    grid_dim: (N_HEADS, n_q_tiles, 1),
-                    block_dim: (32, 1, 1),
-                    shared_mem_bytes: 2 * 32 * 64 * 4,
-                },
-                (
-                    &q_dev,
-                    &k_dev,
-                    &v_dev,
-                    &mut attn_out_dev,
+                    &wte_dev,
+                    &wpe_dev,
+                    &token_ids_dev,
+                    &mut hidden_dev,
                     seq,
-                    D_HEAD,
-                    1u32,
-                    status_dev_ptr,
-                ),
-            )?;
-        }
-        dev.synchronize()?;
-
-        // Concat heads
-        unsafe {
-            f_concat.clone().launch(
-                LaunchConfig {
-                    grid_dim: ((total_seq_model as u32).div_ceil(256), 1, 1),
-                    block_dim: (256, 1, 1),
-                    shared_mem_bytes: 0,
-                },
-                (&attn_out_dev, &mut concat_dev, seq, N_HEADS, D_HEAD),
-            )?;
-        }
-        dev.synchronize()?;
-
-        // Output projection (MMA GEMM)
-        let proj_k_tiles = (768 / 16) as u32;
-        unsafe {
-            f_gemm.clone().launch(
-                LaunchConfig {
-                    grid_dim: (seq / 32, D_MODEL / 16, 1),
-                    block_dim: (128, 1, 1),
-                    shared_mem_bytes: mma_shared,
-                },
-                (
-                    &concat_dev,
-                    &lw.w_proj,
-                    &mut proj_out_dev,
-                    proj_k_tiles,
                     D_MODEL,
                     status_dev_ptr,
                 ),
@@ -3233,36 +3099,11 @@ pub(crate) fn run_mma_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
         }
         dev.synchronize()?;
 
-        // Proj bias
-        unsafe {
-            f_bias.clone().launch(
-                LaunchConfig {
-                    grid_dim: ((total_seq_model as u32).div_ceil(256), 1, 1),
-                    block_dim: (256, 1, 1),
-                    shared_mem_bytes: 0,
-                },
-                (
-                    &mut proj_out_dev,
-                    &lw.b_proj,
-                    D_MODEL,
-                    total_seq_model as u32,
-                    status_dev_ptr,
-                ),
-            )?;
-        }
-        dev.synchronize()?;
-
-        // Residual 1 + zero pad
-        unsafe {
-            f_add.clone().launch(
-                LaunchConfig {
-                    grid_dim: ((total_seq_model as u32).div_ceil(256), 1, 1),
-                    block_dim: (256, 1, 1),
-                    shared_mem_bytes: 0,
-                },
-                (&mut hidden_dev, &proj_out_dev, total_seq_model as u32),
-            )?;
-            if pad_count > 0 {
+        // Zero padded positions
+        let pad_start = (actual_seq as u32) * D_MODEL;
+        let pad_count = total_seq_model as u32 - pad_start;
+        if pad_count > 0 {
+            unsafe {
                 f_zero.clone().launch(
                     LaunchConfig {
                         grid_dim: (pad_count.div_ceil(256), 1, 1),
@@ -3272,10 +3113,334 @@ pub(crate) fn run_mma_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
                     (&mut hidden_dev, pad_start, total_seq_model as u32),
                 )?;
             }
+            dev.synchronize()?;
         }
-        dev.synchronize()?;
+        println!("  Embedding done (seq={seq}, actual={actual_seq})");
 
-        // LN2
+        let fwd_start = std::time::Instant::now();
+
+        // === 12 transformer layers ===
+        for layer_idx in 0..12u32 {
+            let lw = &gpu_layers[layer_idx as usize];
+
+            // LN1
+            unsafe {
+                f_ln.clone().launch(
+                    LaunchConfig {
+                        grid_dim: (seq, 1, 1),
+                        block_dim: (32, 1, 1),
+                        shared_mem_bytes: 0,
+                    },
+                    (
+                        &hidden_dev,
+                        &mut ln_out_dev,
+                        &lw.ln1_g,
+                        &lw.ln1_b,
+                        D_MODEL,
+                        EPS,
+                        status_dev_ptr,
+                    ),
+                )?;
+            }
+            dev.synchronize()?;
+
+            // QKV GEMM (MMA): ln_out[32,768] × w_qkv[768,2304] → qkv[32,2304]
+            let qkv_k_tiles = (768 / 16) as u32;
+            unsafe {
+                f_gemm.clone().launch(
+                    LaunchConfig {
+                        grid_dim: (seq / 32, 2304 / 16, 1),
+                        block_dim: (128, 1, 1),
+                        shared_mem_bytes: mma_shared,
+                    },
+                    (
+                        &ln_out_dev,
+                        &lw.w_qkv,
+                        &mut qkv_dev,
+                        qkv_k_tiles,
+                        2304u32,
+                        status_dev_ptr,
+                    ),
+                )?;
+            }
+            dev.synchronize()?;
+
+            // QKV bias
+            let total_qkv = seq * 2304;
+            unsafe {
+                f_bias.clone().launch(
+                    LaunchConfig {
+                        grid_dim: (total_qkv.div_ceil(256), 1, 1),
+                        block_dim: (256, 1, 1),
+                        shared_mem_bytes: 0,
+                    },
+                    (&mut qkv_dev, &lw.b_qkv, 2304u32, total_qkv, status_dev_ptr),
+                )?;
+            }
+            dev.synchronize()?;
+
+            // Split QKV
+            unsafe {
+                f_split.clone().launch(
+                    LaunchConfig {
+                        grid_dim: ((head_total as u32).div_ceil(256), 1, 1),
+                        block_dim: (256, 1, 1),
+                        shared_mem_bytes: 0,
+                    },
+                    (
+                        &qkv_dev, &mut q_dev, &mut k_dev, &mut v_dev, seq, N_HEADS, D_HEAD,
+                    ),
+                )?;
+            }
+            dev.synchronize()?;
+
+            // Flash attention (causal)
+            unsafe {
+                f_attn.clone().launch(
+                    LaunchConfig {
+                        grid_dim: (N_HEADS, n_q_tiles, 1),
+                        block_dim: (32, 1, 1),
+                        shared_mem_bytes: 2 * 32 * 64 * 4,
+                    },
+                    (
+                        &q_dev,
+                        &k_dev,
+                        &v_dev,
+                        &mut attn_out_dev,
+                        seq,
+                        D_HEAD,
+                        1u32,
+                        status_dev_ptr,
+                    ),
+                )?;
+            }
+            dev.synchronize()?;
+
+            // Concat heads
+            unsafe {
+                f_concat.clone().launch(
+                    LaunchConfig {
+                        grid_dim: ((total_seq_model as u32).div_ceil(256), 1, 1),
+                        block_dim: (256, 1, 1),
+                        shared_mem_bytes: 0,
+                    },
+                    (&attn_out_dev, &mut concat_dev, seq, N_HEADS, D_HEAD),
+                )?;
+            }
+            dev.synchronize()?;
+
+            // Output projection (MMA GEMM)
+            let proj_k_tiles = (768 / 16) as u32;
+            unsafe {
+                f_gemm.clone().launch(
+                    LaunchConfig {
+                        grid_dim: (seq / 32, D_MODEL / 16, 1),
+                        block_dim: (128, 1, 1),
+                        shared_mem_bytes: mma_shared,
+                    },
+                    (
+                        &concat_dev,
+                        &lw.w_proj,
+                        &mut proj_out_dev,
+                        proj_k_tiles,
+                        D_MODEL,
+                        status_dev_ptr,
+                    ),
+                )?;
+            }
+            dev.synchronize()?;
+
+            // Proj bias
+            unsafe {
+                f_bias.clone().launch(
+                    LaunchConfig {
+                        grid_dim: ((total_seq_model as u32).div_ceil(256), 1, 1),
+                        block_dim: (256, 1, 1),
+                        shared_mem_bytes: 0,
+                    },
+                    (
+                        &mut proj_out_dev,
+                        &lw.b_proj,
+                        D_MODEL,
+                        total_seq_model as u32,
+                        status_dev_ptr,
+                    ),
+                )?;
+            }
+            dev.synchronize()?;
+
+            // Residual 1 + zero pad
+            unsafe {
+                f_add.clone().launch(
+                    LaunchConfig {
+                        grid_dim: ((total_seq_model as u32).div_ceil(256), 1, 1),
+                        block_dim: (256, 1, 1),
+                        shared_mem_bytes: 0,
+                    },
+                    (&mut hidden_dev, &proj_out_dev, total_seq_model as u32),
+                )?;
+                if pad_count > 0 {
+                    f_zero.clone().launch(
+                        LaunchConfig {
+                            grid_dim: (pad_count.div_ceil(256), 1, 1),
+                            block_dim: (256, 1, 1),
+                            shared_mem_bytes: 0,
+                        },
+                        (&mut hidden_dev, pad_start, total_seq_model as u32),
+                    )?;
+                }
+            }
+            dev.synchronize()?;
+
+            // LN2
+            unsafe {
+                f_ln.clone().launch(
+                    LaunchConfig {
+                        grid_dim: (seq, 1, 1),
+                        block_dim: (32, 1, 1),
+                        shared_mem_bytes: 0,
+                    },
+                    (
+                        &hidden_dev,
+                        &mut ln_out_dev,
+                        &lw.ln2_g,
+                        &lw.ln2_b,
+                        D_MODEL,
+                        EPS,
+                        status_dev_ptr,
+                    ),
+                )?;
+            }
+            dev.synchronize()?;
+
+            // FFN up (MMA GEMM): ln_out[32,768] × w_fc[768,3072] → ffn[32,3072]
+            let ffn_up_k_tiles = (768 / 16) as u32;
+            unsafe {
+                f_gemm.clone().launch(
+                    LaunchConfig {
+                        grid_dim: (seq / 32, D_FFN / 16, 1),
+                        block_dim: (128, 1, 1),
+                        shared_mem_bytes: mma_shared,
+                    },
+                    (
+                        &ln_out_dev,
+                        &lw.w_fc,
+                        &mut ffn_hidden_dev,
+                        ffn_up_k_tiles,
+                        D_FFN,
+                        status_dev_ptr,
+                    ),
+                )?;
+            }
+            dev.synchronize()?;
+
+            // FFN bias
+            let total_ffn = seq * D_FFN;
+            unsafe {
+                f_bias.clone().launch(
+                    LaunchConfig {
+                        grid_dim: (total_ffn.div_ceil(256), 1, 1),
+                        block_dim: (256, 1, 1),
+                        shared_mem_bytes: 0,
+                    },
+                    (
+                        &mut ffn_hidden_dev,
+                        &lw.b_fc,
+                        D_FFN,
+                        total_ffn,
+                        status_dev_ptr,
+                    ),
+                )?;
+            }
+            dev.synchronize()?;
+
+            // GELU
+            unsafe {
+                f_gelu.clone().launch(
+                    LaunchConfig {
+                        grid_dim: (total_ffn.div_ceil(256), 1, 1),
+                        block_dim: (256, 1, 1),
+                        shared_mem_bytes: 0,
+                    },
+                    (
+                        &ffn_hidden_dev,
+                        &mut gelu_out_dev,
+                        total_ffn,
+                        status_dev_ptr,
+                    ),
+                )?;
+            }
+            dev.synchronize()?;
+
+            // FFN down (MMA GEMM): gelu[32,3072] × w_fc_proj[3072,768] → ffn_out[32,768]
+            let ffn_down_k_tiles = (3072 / 16) as u32;
+            unsafe {
+                f_gemm.clone().launch(
+                    LaunchConfig {
+                        grid_dim: (seq / 32, D_MODEL / 16, 1),
+                        block_dim: (128, 1, 1),
+                        shared_mem_bytes: mma_shared,
+                    },
+                    (
+                        &gelu_out_dev,
+                        &lw.w_fc_proj,
+                        &mut ffn_out_dev,
+                        ffn_down_k_tiles,
+                        D_MODEL,
+                        status_dev_ptr,
+                    ),
+                )?;
+            }
+            dev.synchronize()?;
+
+            // FFN bias
+            unsafe {
+                f_bias.clone().launch(
+                    LaunchConfig {
+                        grid_dim: ((total_seq_model as u32).div_ceil(256), 1, 1),
+                        block_dim: (256, 1, 1),
+                        shared_mem_bytes: 0,
+                    },
+                    (
+                        &mut ffn_out_dev,
+                        &lw.b_fc_proj,
+                        D_MODEL,
+                        total_seq_model as u32,
+                        status_dev_ptr,
+                    ),
+                )?;
+            }
+            dev.synchronize()?;
+
+            // Residual 2 + zero pad
+            unsafe {
+                f_add.clone().launch(
+                    LaunchConfig {
+                        grid_dim: ((total_seq_model as u32).div_ceil(256), 1, 1),
+                        block_dim: (256, 1, 1),
+                        shared_mem_bytes: 0,
+                    },
+                    (&mut hidden_dev, &ffn_out_dev, total_seq_model as u32),
+                )?;
+                if pad_count > 0 {
+                    f_zero.clone().launch(
+                        LaunchConfig {
+                            grid_dim: (pad_count.div_ceil(256), 1, 1),
+                            block_dim: (256, 1, 1),
+                            shared_mem_bytes: 0,
+                        },
+                        (&mut hidden_dev, pad_start, total_seq_model as u32),
+                    )?;
+                }
+            }
+            dev.synchronize()?;
+
+            if layer_idx == 0 || layer_idx == 5 || layer_idx == 11 {
+                println!("    Layer {layer_idx} done");
+            }
+        }
+
+        // === Final LayerNorm ===
         unsafe {
             f_ln.clone().launch(
                 LaunchConfig {
@@ -3286,8 +3451,8 @@ pub(crate) fn run_mma_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
                 (
                     &hidden_dev,
                     &mut ln_out_dev,
-                    &lw.ln2_g,
-                    &lw.ln2_b,
+                    &ln_f_g_dev,
+                    &ln_f_b_dev,
                     D_MODEL,
                     EPS,
                     status_dev_ptr,
@@ -3296,225 +3461,105 @@ pub(crate) fn run_mma_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
         }
         dev.synchronize()?;
 
-        // FFN up (MMA GEMM): ln_out[32,768] × w_fc[768,3072] → ffn[32,3072]
-        let ffn_up_k_tiles = (768 / 16) as u32;
-        unsafe {
-            f_gemm.clone().launch(
-                LaunchConfig {
-                    grid_dim: (seq / 32, D_FFN / 16, 1),
-                    block_dim: (128, 1, 1),
-                    shared_mem_bytes: mma_shared,
-                },
-                (
-                    &ln_out_dev,
-                    &lw.w_fc,
-                    &mut ffn_hidden_dev,
-                    ffn_up_k_tiles,
-                    D_FFN,
-                    status_dev_ptr,
-                ),
-            )?;
-        }
-        dev.synchronize()?;
+        let fwd_elapsed = fwd_start.elapsed();
 
-        // FFN bias
-        let total_ffn = seq * D_FFN;
-        unsafe {
-            f_bias.clone().launch(
-                LaunchConfig {
-                    grid_dim: (total_ffn.div_ceil(256), 1, 1),
-                    block_dim: (256, 1, 1),
-                    shared_mem_bytes: 0,
-                },
-                (
-                    &mut ffn_hidden_dev,
-                    &lw.b_fc,
-                    D_FFN,
-                    total_ffn,
-                    status_dev_ptr,
-                ),
-            )?;
-        }
-        dev.synchronize()?;
+        // Download output
+        let output: Vec<f32> = dev.dtoh_sync_copy(&ln_out_dev)?;
 
-        // GELU
-        unsafe {
-            f_gelu.clone().launch(
-                LaunchConfig {
-                    grid_dim: (total_ffn.div_ceil(256), 1, 1),
-                    block_dim: (256, 1, 1),
-                    shared_mem_bytes: 0,
-                },
-                (
-                    &ffn_hidden_dev,
-                    &mut gelu_out_dev,
-                    total_ffn,
-                    status_dev_ptr,
-                ),
-            )?;
-        }
-        dev.synchronize()?;
+        // Check prediction position
+        let last_pos = actual_seq - 1;
+        let last_row = &output[last_pos * dm..(last_pos + 1) * dm];
+        let pred_nan = last_row.iter().filter(|v| v.is_nan()).count();
+        let pred_inf = last_row.iter().filter(|v| v.is_infinite()).count();
+        let max_abs = last_row
+            .iter()
+            .filter(|v| !v.is_nan() && !v.is_infinite())
+            .fold(0.0f32, |m, &v| m.max(v.abs()));
 
-        // FFN down (MMA GEMM): gelu[32,3072] × w_fc_proj[3072,768] → ffn_out[32,768]
-        let ffn_down_k_tiles = (3072 / 16) as u32;
-        unsafe {
-            f_gemm.clone().launch(
-                LaunchConfig {
-                    grid_dim: (seq / 32, D_MODEL / 16, 1),
-                    block_dim: (128, 1, 1),
-                    shared_mem_bytes: mma_shared,
-                },
-                (
-                    &gelu_out_dev,
-                    &lw.w_fc_proj,
-                    &mut ffn_out_dev,
-                    ffn_down_k_tiles,
-                    D_MODEL,
-                    status_dev_ptr,
-                ),
-            )?;
-        }
-        dev.synchronize()?;
-
-        // FFN bias
-        unsafe {
-            f_bias.clone().launch(
-                LaunchConfig {
-                    grid_dim: ((total_seq_model as u32).div_ceil(256), 1, 1),
-                    block_dim: (256, 1, 1),
-                    shared_mem_bytes: 0,
-                },
-                (
-                    &mut ffn_out_dev,
-                    &lw.b_fc_proj,
-                    D_MODEL,
-                    total_seq_model as u32,
-                    status_dev_ptr,
-                ),
-            )?;
-        }
-        dev.synchronize()?;
-
-        // Residual 2 + zero pad
-        unsafe {
-            f_add.clone().launch(
-                LaunchConfig {
-                    grid_dim: ((total_seq_model as u32).div_ceil(256), 1, 1),
-                    block_dim: (256, 1, 1),
-                    shared_mem_bytes: 0,
-                },
-                (&mut hidden_dev, &ffn_out_dev, total_seq_model as u32),
-            )?;
-            if pad_count > 0 {
-                f_zero.clone().launch(
-                    LaunchConfig {
-                        grid_dim: (pad_count.div_ceil(256), 1, 1),
-                        block_dim: (256, 1, 1),
-                        shared_mem_bytes: 0,
-                    },
-                    (&mut hidden_dev, pad_start, total_seq_model as u32),
-                )?;
-            }
-        }
-        dev.synchronize()?;
-
-        if layer_idx == 0 || layer_idx == 5 || layer_idx == 11 {
-            println!("    Layer {layer_idx} done");
-        }
-    }
-
-    // === Final LayerNorm ===
-    unsafe {
-        f_ln.clone().launch(
-            LaunchConfig {
-                grid_dim: (seq, 1, 1),
-                block_dim: (32, 1, 1),
-                shared_mem_bytes: 0,
-            },
-            (
-                &hidden_dev,
-                &mut ln_out_dev,
-                &ln_f_g_dev,
-                &ln_f_b_dev,
-                D_MODEL,
-                EPS,
-                status_dev_ptr,
-            ),
-        )?;
-    }
-    dev.synchronize()?;
-
-    let fwd_elapsed = fwd_start.elapsed();
-
-    // Download output
-    let output: Vec<f32> = dev.dtoh_sync_copy(&ln_out_dev)?;
-
-    // Check prediction position
-    let last_pos = actual_seq - 1;
-    let last_row = &output[last_pos * dm..(last_pos + 1) * dm];
-    let pred_nan = last_row.iter().filter(|v| v.is_nan()).count();
-    let pred_inf = last_row.iter().filter(|v| v.is_infinite()).count();
-    let max_abs = last_row
-        .iter()
-        .filter(|v| !v.is_nan() && !v.is_infinite())
-        .fold(0.0f32, |m, &v| m.max(v.abs()));
-
-    println!(
-        "  MMA forward pass: {:.1}ms",
-        fwd_elapsed.as_secs_f64() * 1000.0
-    );
-    println!("  Prediction pos {last_pos}: nan={pred_nan}, inf={pred_inf}, max|val|={max_abs:.4}");
-
-    if pred_nan > 0 || pred_inf > 0 {
-        return Err(GpuHostError::Verification {
-            test: "mma_forward",
-            detail: format!("prediction has {pred_nan} NaN, {pred_inf} Inf"),
-        });
-    }
-
-    // CPU LM head: logits[v] = dot(hidden[last_pos], wte[v])
-    let vocab_size = 50257;
-    let hidden = last_row;
-    let mut logits = vec![0.0f32; vocab_size];
-    for v in 0..vocab_size {
-        let wte_row = &weights.wte[v * dm..(v + 1) * dm];
-        let mut dot = 0.0f32;
-        for d in 0..dm {
-            dot += hidden[d] * wte_row[d];
-        }
-        logits[v] = dot;
-    }
-
-    // Top-5
-    let mut indices: Vec<usize> = (0..vocab_size).collect();
-    indices.sort_unstable_by(|&a, &b| logits[b].partial_cmp(&logits[a]).unwrap());
-
-    println!("  Top-5 predictions (MMA):");
-    for rank in 0..5 {
-        let idx = indices[rank];
-        let tok = tokenizer
-            .decode(&[idx as u32])
-            .unwrap_or_else(|_| format!("<tok {idx}>"));
         println!(
-            "    #{}: token {} = {:?} (logit={:.2})",
-            rank + 1,
-            idx,
-            tok,
-            logits[idx],
+            "  MMA forward pass: {:.1}ms",
+            fwd_elapsed.as_secs_f64() * 1000.0
         );
-    }
+        println!(
+            "  Prediction pos {last_pos}: nan={pred_nan}, inf={pred_inf}, max|val|={max_abs:.4}"
+        );
 
-    let top1 = indices[0];
-    let top1_str = tokenizer
-        .decode(&[top1 as u32])
-        .unwrap_or_else(|_| format!("<tok {top1}>"));
-    println!("  MMA greedy: {} = {:?}", top1, top1_str);
+        if pred_nan > 0 || pred_inf > 0 {
+            return Err(GpuHostError::Verification {
+                test: "mma_forward",
+                detail: format!("prediction has {pred_nan} NaN, {pred_inf} Inf"),
+            });
+        }
+
+        // CPU LM head: logits[v] = dot(hidden[last_pos], wte[v])
+        let vocab_size = 50257;
+        let hidden = last_row;
+        let mut logits = vec![0.0f32; vocab_size];
+        for v in 0..vocab_size {
+            let wte_row = &weights.wte[v * dm..(v + 1) * dm];
+            let mut dot = 0.0f32;
+            for d in 0..dm {
+                dot += hidden[d] * wte_row[d];
+            }
+            logits[v] = dot;
+        }
+
+        // Top-5
+        let mut indices: Vec<usize> = (0..vocab_size).collect();
+        indices.sort_unstable_by(|&a, &b| logits[b].partial_cmp(&logits[a]).unwrap());
+
+        println!("  Top-5 predictions (MMA):");
+        for rank in 0..5 {
+            let idx = indices[rank];
+            let tok = tokenizer
+                .decode(&[idx as u32])
+                .unwrap_or_else(|_| format!("<tok {idx}>"));
+            println!(
+                "    #{}: token {} = {:?} (logit={:.2})",
+                rank + 1,
+                idx,
+                tok,
+                logits[idx],
+            );
+        }
+
+        let top5: Vec<usize> = indices[..5].to_vec();
+        let top1 = top5[0];
+        let top1_str = tokenizer
+            .decode(&[top1 as u32])
+            .unwrap_or_else(|_| format!("<tok {top1}>"));
+        println!("  MMA greedy: {} = {:?}", top1, top1_str);
+
+        mma_top5_results.push(top5);
+    } // end prompt loop
+
+    drop(wte_dev);
+    drop(wpe_dev);
 
     unsafe {
         free_mapped_mem(status_host_ptr)?;
     }
 
-    println!("  MMA forward pass — PASSED");
+    println!(
+        "\n  === Multi-prompt summary ({} prompts) ===",
+        prompts.len()
+    );
+    for (i, prompt) in prompts.iter().enumerate() {
+        let top5 = &mma_top5_results[i];
+        let tokens: Vec<String> = top5
+            .iter()
+            .map(|&idx| {
+                tokenizer
+                    .decode(&[idx as u32])
+                    .unwrap_or_else(|_| format!("<tok {idx}>"))
+            })
+            .collect();
+        println!("  Prompt {}: {:?} → {:?}", i + 1, prompt, tokens);
+    }
+    println!(
+        "  All {} prompts completed without NaN/Inf — PASSED",
+        prompts.len()
+    );
     Ok(())
 }
 
@@ -3530,7 +3575,8 @@ pub(crate) fn run_mma_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
 /// Also performs per-layer intermediate predictions (full-inference.9): applies
 /// LM head after each of 12 layers to track where semantic content appears/is lost.
 pub(crate) fn run_cpu_f64_reference_test() -> Result<()> {
-    let model_path = std::path::Path::new("../../models/model.safetensors");
+    let model_path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../models/model.safetensors");
     if !model_path.exists() {
         println!("\n--- Skipping CPU f64 reference (models/model.safetensors not found) ---");
         return Ok(());
@@ -3538,11 +3584,12 @@ pub(crate) fn run_cpu_f64_reference_test() -> Result<()> {
 
     println!("\n--- CPU f64 reference forward pass (full-inference.8+9+10) ---");
 
-    let weights =
-        gpu_host::model::load_gpt2_weights(model_path).map_err(|e| GpuHostError::Verification {
+    let weights = gpu_host::model::load_gpt2_weights(&model_path).map_err(|e| {
+        GpuHostError::Verification {
             test: "cpu_f64_ref",
             detail: format!("weight loading: {e}"),
-        })?;
+        }
+    })?;
 
     let tokenizer =
         gpu_host::tokenizer::Gpt2Tokenizer::new().map_err(|e| GpuHostError::Verification {
@@ -4512,7 +4559,8 @@ pub(crate) fn run_cpu_f64_reference_test() -> Result<()> {
 /// Phase 2 (decode): generate tokens one at a time using cached K/V.
 /// Compares output tokens against non-cached generation to verify correctness.
 pub(crate) fn run_kv_cached_generation_test(dev: Arc<CudaDevice>) -> Result<()> {
-    let model_path = std::path::Path::new("../../models/model.safetensors");
+    let model_path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../models/model.safetensors");
     if !model_path.exists() {
         println!("\n--- Skipping KV-cached generation (models/model.safetensors not found) ---");
         return Ok(());
@@ -4520,11 +4568,12 @@ pub(crate) fn run_kv_cached_generation_test(dev: Arc<CudaDevice>) -> Result<()> 
 
     println!("\n--- KV-cached autoregressive generation (kv-cache.3) ---");
 
-    let weights =
-        gpu_host::model::load_gpt2_weights(model_path).map_err(|e| GpuHostError::Verification {
+    let weights = gpu_host::model::load_gpt2_weights(&model_path).map_err(|e| {
+        GpuHostError::Verification {
             test: "kv_cached_generation",
             detail: format!("weight loading: {e}"),
-        })?;
+        }
+    })?;
 
     let tokenizer =
         gpu_host::tokenizer::Gpt2Tokenizer::new().map_err(|e| GpuHostError::Verification {

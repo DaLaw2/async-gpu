@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 352     # Monotonic counter, incremented after each completed phase
-completed_tasks = 383
+total_cycles = 353     # Monotonic counter, incremented after each completed phase
+completed_tasks = 384
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "mma-splitk.3"
-last_summary = "mma-splitk.1+2 DONE: Found and fixed fundamental MMA fragment register bug — a[1] and a[2] were SWAPPED in all MMA kernels. Also fixed split-K atomicAdd race. MMA f16 now produces ZERO error vs f32 FMA at all GPT-2 dimensions. Split-K not needed for precision, only for occupancy."
+current_task_id = "mma-splitk.5"
+last_summary = "mma-splitk.4 DONE: MMA f16 inference matches f32 FMA top-5 on all 3 prompts (Paris, Neil, Pacific in top-5). MMA forward 26ms vs f32 36ms (1.34x). Fixed model path for crates/core/ relocation. Next: mma-splitk.5 throughput benchmarks."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 97
@@ -405,17 +405,17 @@ depends = ["mma-splitk.1"]
 [[tasks]]
 id = "mma-splitk.4"
 theme = "mma-splitk"
-title = "Experiment: GPT-2 inference with split-K MMA — validate top-5 agreement"
+title = "Experiment: GPT-2 inference with MMA — validate top-5 agreement"
 kind = "experiment"
-status = "pending"
-depends = ["mma-splitk.2", "mma-splitk.3"]
+status = "done"
+depends = ["mma-splitk.2"]
 
 [[tasks]]
 id = "mma-splitk.5"
 theme = "mma-splitk"
 title = "Experiment: benchmark split-K MMA throughput and per-token latency"
 kind = "experiment"
-status = "pending"
+status = "active"
 depends = ["mma-splitk.4"]
 
 # --- warp-batch-io tasks ---

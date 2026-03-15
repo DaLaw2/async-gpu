@@ -1977,8 +1977,7 @@ pub(crate) fn run_splitk_gemm_test(dev: Arc<CudaDevice>) -> Result<()> {
 
     // Minimal test: A=all 1.0 (32x16), B=all 1.0 (16x16), expect D=16.0 everywhere
     {
-        let (status_host_ptr, status_dev_ptr) =
-            unsafe { alloc_mapped_result_array(&dev, 1)? };
+        let (status_host_ptr, status_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 1)? };
         let m = 32usize;
         let k = 16usize;
         let n = 16usize;
@@ -2004,7 +2003,7 @@ pub(crate) fn run_splitk_gemm_test(dev: Arc<CudaDevice>) -> Result<()> {
                     &a_dev,
                     &b_dev,
                     &mut d_dev,
-                    1u32,  // k_tiles = 16/16 = 1
+                    1u32, // k_tiles = 16/16 = 1
                     n as u32,
                     status_dev_ptr,
                 ),
@@ -2012,7 +2011,10 @@ pub(crate) fn run_splitk_gemm_test(dev: Arc<CudaDevice>) -> Result<()> {
         }
         dev.synchronize()?;
         let d_out: Vec<f32> = dev.dtoh_sync_copy(&d_dev)?;
-        let max_err = d_out.iter().map(|v| (v - 16.0).abs()).fold(0.0f32, f32::max);
+        let max_err = d_out
+            .iter()
+            .map(|v| (v - 16.0).abs())
+            .fold(0.0f32, f32::max);
         println!("  d[0..8]: {:?}", &d_out[..8]);
         println!("  d[16..24]: {:?}", &d_out[16..24]);
         println!("  max_err from 16.0: {max_err}");
@@ -2021,14 +2023,15 @@ pub(crate) fn run_splitk_gemm_test(dev: Arc<CudaDevice>) -> Result<()> {
         } else {
             println!("  PASS — single-tile all-1.0 MMA is correct");
         }
-        unsafe { free_mapped_mem(status_host_ptr)?; }
+        unsafe {
+            free_mapped_mem(status_host_ptr)?;
+        }
     }
 
     // Multi-tile test: K=32 (2 tiles), all 1.0, expect 32.0
     println!("\n--- MMA Sanity Check: all-1.0, 32x32x16, K=32 (2 tiles) ---");
     {
-        let (status_host_ptr, status_dev_ptr) =
-            unsafe { alloc_mapped_result_array(&dev, 1)? };
+        let (status_host_ptr, status_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 1)? };
         let m = 32usize;
         let k = 32usize;
         let n = 16usize;
@@ -2052,7 +2055,7 @@ pub(crate) fn run_splitk_gemm_test(dev: Arc<CudaDevice>) -> Result<()> {
                     &a_dev,
                     &b_dev,
                     &mut d_dev,
-                    2u32,  // k_tiles = 32/16 = 2
+                    2u32, // k_tiles = 32/16 = 2
                     n as u32,
                     status_dev_ptr,
                 ),
@@ -2060,7 +2063,10 @@ pub(crate) fn run_splitk_gemm_test(dev: Arc<CudaDevice>) -> Result<()> {
         }
         dev.synchronize()?;
         let d_out: Vec<f32> = dev.dtoh_sync_copy(&d_dev)?;
-        let max_err = d_out.iter().map(|v| (v - 32.0).abs()).fold(0.0f32, f32::max);
+        let max_err = d_out
+            .iter()
+            .map(|v| (v - 32.0).abs())
+            .fold(0.0f32, f32::max);
         println!("  d[0..8]: {:?}", &d_out[..8]);
         println!("  max_err from 32.0: {max_err}");
         if max_err > 0.01 {
@@ -2068,7 +2074,9 @@ pub(crate) fn run_splitk_gemm_test(dev: Arc<CudaDevice>) -> Result<()> {
         } else {
             println!("  PASS — 2-tile all-1.0 MMA is correct");
         }
-        unsafe { free_mapped_mem(status_host_ptr)?; }
+        unsafe {
+            free_mapped_mem(status_host_ptr)?;
+        }
     }
 
     // Multi-tile test with small integers: K=32, A[i][j] = ((j%5)+1), B = 1.0
@@ -2077,8 +2085,7 @@ pub(crate) fn run_splitk_gemm_test(dev: Arc<CudaDevice>) -> Result<()> {
     // Expected: 6*15 + 3 = 93
     println!("\n--- MMA Sanity Check: pattern A, all-1 B, 32x32x16 ---");
     {
-        let (status_host_ptr, status_dev_ptr) =
-            unsafe { alloc_mapped_result_array(&dev, 1)? };
+        let (status_host_ptr, status_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 1)? };
         let m = 32usize;
         let k = 32usize;
         let n = 16usize;
@@ -2103,36 +2110,36 @@ pub(crate) fn run_splitk_gemm_test(dev: Arc<CudaDevice>) -> Result<()> {
                     block_dim: (128, 1, 1),
                     shared_mem_bytes: (256 + 128) * 4,
                 },
-                (
-                    &a_dev,
-                    &b_dev,
-                    &mut d_dev,
-                    2u32,
-                    n as u32,
-                    status_dev_ptr,
-                ),
+                (&a_dev, &b_dev, &mut d_dev, 2u32, n as u32, status_dev_ptr),
             )?;
         }
         dev.synchronize()?;
         let d_out: Vec<f32> = dev.dtoh_sync_copy(&d_dev)?;
         // CPU check
         let expected: f32 = (0..k).map(|j| ((j % 5) + 1) as f32).sum();
-        let max_err = d_out.iter().map(|v| (v - expected).abs()).fold(0.0f32, f32::max);
+        let max_err = d_out
+            .iter()
+            .map(|v| (v - expected).abs())
+            .fold(0.0f32, f32::max);
         println!("  expected: {expected}, d[0..8]: {:?}", &d_out[..8]);
         println!("  max_err: {max_err}");
         if max_err > 0.01 {
-            println!("  FAIL — multi-tile pattern broken! (expected {expected}, got {})", d_out[0]);
+            println!(
+                "  FAIL — multi-tile pattern broken! (expected {expected}, got {})",
+                d_out[0]
+            );
         } else {
             println!("  PASS — 2-tile pattern MMA is correct");
         }
-        unsafe { free_mapped_mem(status_host_ptr)?; }
+        unsafe {
+            free_mapped_mem(status_host_ptr)?;
+        }
     }
 
     // Single-tile K=16 with pattern
     println!("\n--- MMA Sanity: pattern A, all-1 B, K=16 (1 tile) ---");
     {
-        let (status_host_ptr, status_dev_ptr) =
-            unsafe { alloc_mapped_result_array(&dev, 1)? };
+        let (status_host_ptr, status_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 1)? };
         let m = 32usize;
         let k = 16usize;
         let n = 16usize;
@@ -2163,17 +2170,21 @@ pub(crate) fn run_splitk_gemm_test(dev: Arc<CudaDevice>) -> Result<()> {
         dev.synchronize()?;
         let d_out: Vec<f32> = dev.dtoh_sync_copy(&d_dev)?;
         let expected: f32 = (0..k).map(|j| ((j % 5) + 1) as f32).sum();
-        let max_err = d_out.iter().map(|v| (v - expected).abs()).fold(0.0f32, f32::max);
+        let max_err = d_out
+            .iter()
+            .map(|v| (v - expected).abs())
+            .fold(0.0f32, f32::max);
         println!("  expected: {expected}, d[0..8]: {:?}", &d_out[..8]);
         println!("  max_err: {max_err}");
-        unsafe { free_mapped_mem(status_host_ptr)?; }
+        unsafe {
+            free_mapped_mem(status_host_ptr)?;
+        }
     }
 
     // Binary diagnostic: A[k] = 2^k for k=0..9, 0 for k=10..15
     println!("\n--- MMA Binary Diagnostic: A[k]=2^k, K=16 ---");
     {
-        let (status_host_ptr, status_dev_ptr) =
-            unsafe { alloc_mapped_result_array(&dev, 1)? };
+        let (status_host_ptr, status_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 1)? };
         let m = 32usize;
         let k = 16usize;
         let n = 16usize;
@@ -2183,10 +2194,16 @@ pub(crate) fn run_splitk_gemm_test(dev: Arc<CudaDevice>) -> Result<()> {
             let sign = (bits >> 31) & 1;
             let exp = ((bits >> 23) & 0xFF) as i32;
             let frac = bits & 0x7FFFFF;
-            if val == 0.0 { return (sign << 15) as u16; }
+            if val == 0.0 {
+                return (sign << 15) as u16;
+            }
             let new_exp = exp - 127 + 15;
-            if new_exp <= 0 { return (sign << 15) as u16; }
-            if new_exp >= 31 { return ((sign << 15) | 0x7C00) as u16; }
+            if new_exp <= 0 {
+                return (sign << 15) as u16;
+            }
+            if new_exp >= 31 {
+                return ((sign << 15) | 0x7C00) as u16;
+            }
             ((sign << 15) | ((new_exp as u32) << 10) | (frac >> 13)) as u16
         }
         fn pack_f16x2_local(lo: f32, hi: f32) -> u32 {
@@ -2223,7 +2240,10 @@ pub(crate) fn run_splitk_gemm_test(dev: Arc<CudaDevice>) -> Result<()> {
             }
             dev.synchronize()?;
             let d_out: Vec<f32> = dev.dtoh_sync_copy(&d_dev)?;
-            println!("  [f32in]  D[0][0] = {:.0} (expect 1023, 0b{:010b})", d_out[0], d_out[0] as u32);
+            println!(
+                "  [f32in]  D[0][0] = {:.0} (expect 1023, 0b{:010b})",
+                d_out[0], d_out[0] as u32
+            );
         }
 
         // Test 2: multi_block_gemm (pre-packed f16x2 A, no GPU conversion)
@@ -2263,7 +2283,7 @@ pub(crate) fn run_splitk_gemm_test(dev: Arc<CudaDevice>) -> Result<()> {
                         &a_dev,
                         &b_dev,
                         &mut d_dev,
-                        1u32,  // k_tiles
+                        1u32, // k_tiles
                         n as u32,
                         m as u32,
                         status_dev_ptr,
@@ -2272,9 +2292,14 @@ pub(crate) fn run_splitk_gemm_test(dev: Arc<CudaDevice>) -> Result<()> {
             }
             dev.synchronize()?;
             let d_out: Vec<f32> = dev.dtoh_sync_copy(&d_dev)?;
-            println!("  [prepack] D[0][0] = {:.0} (expect 1023, 0b{:010b})", d_out[0], d_out[0] as u32);
+            println!(
+                "  [prepack] D[0][0] = {:.0} (expect 1023, 0b{:010b})",
+                d_out[0], d_out[0] as u32
+            );
         }
-        unsafe { free_mapped_mem(status_host_ptr)?; }
+        unsafe {
+            free_mapped_mem(status_host_ptr)?;
+        }
     }
 
     // === MMA Fragment Diagnostic ===
@@ -2289,24 +2314,31 @@ pub(crate) fn run_splitk_gemm_test(dev: Arc<CudaDevice>) -> Result<()> {
             .get_func("mma_diag_mod", "mma_diag")
             .ok_or(GpuHostError::KernelNotFound("mma_diag"))?;
 
-        let (status_host_ptr, status_dev_ptr) =
-            unsafe { alloc_mapped_result_array(&dev, 1)? };
+        let (status_host_ptr, status_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 1)? };
 
         let m = 32usize;
         let k = 16usize;
         let n = 16usize;
 
+        #[allow(dead_code)]
         fn f32_to_f16_diag(val: f32) -> u16 {
             let bits = val.to_bits();
             let sign = (bits >> 31) & 1;
             let exp = ((bits >> 23) & 0xFF) as i32;
             let frac = bits & 0x7FFFFF;
-            if val == 0.0 { return (sign << 15) as u16; }
+            if val == 0.0 {
+                return (sign << 15) as u16;
+            }
             let new_exp = exp - 127 + 15;
-            if new_exp <= 0 { return (sign << 15) as u16; }
-            if new_exp >= 31 { return ((sign << 15) | 0x7C00) as u16; }
+            if new_exp <= 0 {
+                return (sign << 15) as u16;
+            }
+            if new_exp >= 31 {
+                return ((sign << 15) | 0x7C00) as u16;
+            }
             ((sign << 15) | ((new_exp as u32) << 10) | (frac >> 13)) as u16
         }
+        #[allow(dead_code)]
         fn pack_f16x2_diag(lo: f32, hi: f32) -> u32 {
             f32_to_f16_diag(lo) as u32 | ((f32_to_f16_diag(hi) as u32) << 16)
         }
@@ -2318,7 +2350,11 @@ pub(crate) fn run_splitk_gemm_test(dev: Arc<CudaDevice>) -> Result<()> {
                 return f32::from_bits(sign << 31);
             }
             if exp == 31 {
-                return if frac == 0 { f32::from_bits((sign << 31) | 0x7F800000) } else { f32::NAN };
+                return if frac == 0 {
+                    f32::from_bits((sign << 31) | 0x7F800000)
+                } else {
+                    f32::NAN
+                };
             }
             let f32_exp = (exp - 15 + 127) as u32;
             f32::from_bits((sign << 31) | (f32_exp << 23) | (frac << 13))
@@ -2348,7 +2384,14 @@ pub(crate) fn run_splitk_gemm_test(dev: Arc<CudaDevice>) -> Result<()> {
                     block_dim: (128, 1, 1),
                     shared_mem_bytes: (256 + 128) * 4,
                 },
-                (&a_dev, &b_dev, &mut d_dev, &mut dbg_dev, n as u32, status_dev_ptr),
+                (
+                    &a_dev,
+                    &b_dev,
+                    &mut d_dev,
+                    &mut dbg_dev,
+                    n as u32,
+                    status_dev_ptr,
+                ),
             )?;
         }
         dev.synchronize()?;
@@ -2360,21 +2403,46 @@ pub(crate) fn run_splitk_gemm_test(dev: Arc<CudaDevice>) -> Result<()> {
 
         // Print fragment values for thread 0 (groupID=0, threadID_in_group=0)
         println!("\n  Thread 0 fragments (group=0, lane=0):");
-        let a0 = dbg[0]; let a1 = dbg[32]; let a2 = dbg[64]; let a3 = dbg[96];
-        let b0 = dbg[128]; let b1 = dbg[160];
-        let d0 = dbg[192]; let d1 = dbg[224]; let d2 = dbg[256]; let d3 = dbg[288];
-        println!("    a0 = 0x{a0:08X} = f16x2({}, {})",
-            f16_to_f32_diag(a0 as u16), f16_to_f32_diag((a0 >> 16) as u16));
-        println!("    a1 = 0x{a1:08X} = f16x2({}, {})",
-            f16_to_f32_diag(a1 as u16), f16_to_f32_diag((a1 >> 16) as u16));
-        println!("    a2 = 0x{a2:08X} = f16x2({}, {})",
-            f16_to_f32_diag(a2 as u16), f16_to_f32_diag((a2 >> 16) as u16));
-        println!("    a3 = 0x{a3:08X} = f16x2({}, {})",
-            f16_to_f32_diag(a3 as u16), f16_to_f32_diag((a3 >> 16) as u16));
-        println!("    b0 = 0x{b0:08X} = f16x2({}, {})",
-            f16_to_f32_diag(b0 as u16), f16_to_f32_diag((b0 >> 16) as u16));
-        println!("    b1 = 0x{b1:08X} = f16x2({}, {})",
-            f16_to_f32_diag(b1 as u16), f16_to_f32_diag((b1 >> 16) as u16));
+        let a0 = dbg[0];
+        let a1 = dbg[32];
+        let a2 = dbg[64];
+        let a3 = dbg[96];
+        let b0 = dbg[128];
+        let b1 = dbg[160];
+        let d0 = dbg[192];
+        let d1 = dbg[224];
+        let d2 = dbg[256];
+        let d3 = dbg[288];
+        println!(
+            "    a0 = 0x{a0:08X} = f16x2({}, {})",
+            f16_to_f32_diag(a0 as u16),
+            f16_to_f32_diag((a0 >> 16) as u16)
+        );
+        println!(
+            "    a1 = 0x{a1:08X} = f16x2({}, {})",
+            f16_to_f32_diag(a1 as u16),
+            f16_to_f32_diag((a1 >> 16) as u16)
+        );
+        println!(
+            "    a2 = 0x{a2:08X} = f16x2({}, {})",
+            f16_to_f32_diag(a2 as u16),
+            f16_to_f32_diag((a2 >> 16) as u16)
+        );
+        println!(
+            "    a3 = 0x{a3:08X} = f16x2({}, {})",
+            f16_to_f32_diag(a3 as u16),
+            f16_to_f32_diag((a3 >> 16) as u16)
+        );
+        println!(
+            "    b0 = 0x{b0:08X} = f16x2({}, {})",
+            f16_to_f32_diag(b0 as u16),
+            f16_to_f32_diag((b0 >> 16) as u16)
+        );
+        println!(
+            "    b1 = 0x{b1:08X} = f16x2({}, {})",
+            f16_to_f32_diag(b1 as u16),
+            f16_to_f32_diag((b1 >> 16) as u16)
+        );
         println!("    d0 = 0x{d0:08X} = f32({})", f32::from_bits(d0));
         println!("    d1 = 0x{d1:08X} = f32({})", f32::from_bits(d1));
         println!("    d2 = 0x{d2:08X} = f32({})", f32::from_bits(d2));
@@ -2382,10 +2450,15 @@ pub(crate) fn run_splitk_gemm_test(dev: Arc<CudaDevice>) -> Result<()> {
 
         // Print fragments for threads 1-3 (same group, different lanes)
         for t in 1..4u32 {
-            let a0t = dbg[t as usize]; let a1t = dbg[(32 + t) as usize];
-            println!("  T{t}: a0=0x{a0t:08X}=f16x2({},{}), a1=0x{a1t:08X}=f16x2({},{})",
-                f16_to_f32_diag(a0t as u16), f16_to_f32_diag((a0t >> 16) as u16),
-                f16_to_f32_diag(a1t as u16), f16_to_f32_diag((a1t >> 16) as u16));
+            let a0t = dbg[t as usize];
+            let a1t = dbg[(32 + t) as usize];
+            println!(
+                "  T{t}: a0=0x{a0t:08X}=f16x2({},{}), a1=0x{a1t:08X}=f16x2({},{})",
+                f16_to_f32_diag(a0t as u16),
+                f16_to_f32_diag((a0t >> 16) as u16),
+                f16_to_f32_diag(a1t as u16),
+                f16_to_f32_diag((a1t >> 16) as u16)
+            );
         }
 
         // Print shared memory row 0 (8 entries = 16 f16 values = full K=16 for row 0)
@@ -2394,8 +2467,11 @@ pub(crate) fn run_splitk_gemm_test(dev: Arc<CudaDevice>) -> Result<()> {
             let v = dbg[(320 + j) as usize];
             let lo = f16_to_f32_diag(v as u16);
             let hi = f16_to_f32_diag((v >> 16) as u16);
-            println!("    a_smem[{j}] = 0x{v:08X} = f16x2({lo}, {hi}) → k={},{}",
-                j * 2, j * 2 + 1);
+            println!(
+                "    a_smem[{j}] = 0x{v:08X} = f16x2({lo}, {hi}) → k={},{}",
+                j * 2,
+                j * 2 + 1
+            );
         }
 
         // Print shared memory B col 0 (8 entries)
@@ -2414,9 +2490,13 @@ pub(crate) fn run_splitk_gemm_test(dev: Arc<CudaDevice>) -> Result<()> {
         println!("    T2: a[0]=f16x2(A[0][4],A[0][5])=f16x2(16,32), a[1]=f16x2(A[0][12],A[0][13])=f16x2(0,0)");
         println!("    T3: a[0]=f16x2(A[0][6],A[0][7])=f16x2(64,128), a[1]=f16x2(A[0][14],A[0][15])=f16x2(0,0)");
         println!("    b[0]=f16x2(1,1) for all, b[1]=f16x2(1,1) for all");
-        println!("    D[0][0] = sum(A[0][k]*1.0 for k=0..15) = 1+2+4+8+16+32+64+128+256+512 = 1023");
+        println!(
+            "    D[0][0] = sum(A[0][k]*1.0 for k=0..15) = 1+2+4+8+16+32+64+128+256+512 = 1023"
+        );
 
-        unsafe { free_mapped_mem(status_host_ptr)?; }
+        unsafe {
+            free_mapped_mem(status_host_ptr)?;
+        }
     }
 
     println!("\n--- Split-K MMA GEMM Test (mma-splitk.2) ---");

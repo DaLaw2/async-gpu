@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 336     # Monotonic counter, incremented after each completed phase
-completed_tasks = 363
+total_cycles = 338     # Monotonic counter, incremented after each completed phase
+completed_tasks = 367
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "channel-waker.2"
-last_summary = "bs93 done. Direction: gpu-channels (unpark) → tokio-bridge (new). Next: select ready tasks from unparked channels."
+current_task_id = "tokio-investigate.2"
+last_summary = "channel-demo.1 + tokio-investigate.1 done. gpu-channels epic COMPLETED (all 4 criteria). Tokio already has optional dep + async_rt.rs with AsyncGpuRuntime/AsyncHostcallSession. Next: tokio-investigate.2 (design bridge architecture)."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 93
@@ -240,8 +240,8 @@ success_criteria = [
 [[epics]]
 id = "gpu-channels"
 title = "GPU Async Channels — inter-task communication on GPU"
-status = "active"
-# UNPARKED at cycle 335. Oneshot done; mpsc + waker + demo remaining.
+status = "completed"
+# ALL 4 CRITERIA MET — closed 2026-03-15. Oneshot + MPSC + waker + demo all verified on GPU.
 priority = "high"
 success_criteria = [
     "Oneshot<T> channel: sender.send(val) + receiver.await works between GPU async tasks",
@@ -292,22 +292,10 @@ success_criteria = [
 # PARKED: depends on executor + std decisions settling first
 
 [[themes]]
-id = "channel-oneshot"
-epic = "gpu-channels"
-title = "Oneshot<T> channel — single-value single-use channel"
-status = "completed"
-goal = "Sender sends one value, Receiver awaits it as a Future"
-success_criteria = [
-    "Oneshot channel state machine (Empty → Sent → Received) via atomics",
-    "OneshotReceiver implements Future (polls atomic state)",
-    "Verified on GPU with executor",
-]
-
-[[themes]]
 id = "channel-mpsc"
 epic = "gpu-channels"
 title = "Mpsc<T> channel — multi-producer single-consumer"
-status = "active"
+status = "completed"
 goal = "Lock-free ring buffer with CAS-based enqueue, atomic waker"
 success_criteria = [
     "Ring buffer with CAS enqueue, atomic head/tail",
@@ -319,7 +307,7 @@ success_criteria = [
 id = "channel-waker"
 epic = "gpu-channels"
 title = "Waker integration — sender wakes receiver task in executor"
-status = "active"
+status = "completed"
 goal = "When sender.send() completes, receiver task is re-enqueued in executor"
 success_criteria = [
     "Waker stored by receiver, called by sender on send()",
@@ -330,208 +318,20 @@ success_criteria = [
 id = "channel-demo"
 epic = "gpu-channels"
 title = "Demo: producer-consumer pipeline with channels"
-status = "active"
+status = "completed"
 goal = "End-to-end demo kernel showing channels + executor working together"
 success_criteria = [
     "Producer task sends values via channel, consumer receives and processes",
     "All tasks complete correctly via executor",
 ]
 
-[[themes]]
-id = "compute-audit"
-epic = "compute-utils"
-title = "Full audit of all compute functions in codebase"
-status = "completed"
-goal = "Scan every file, catalog all reusable compute functions"
-success_criteria = [
-    "Complete inventory of all compute functions with categories",
-    "Decision on which functions to expose vs keep internal",
-]
-
-[[themes]]
-id = "compute-extract"
-epic = "compute-utils"
-title = "Extract and expose compute functions in gpu_runtime::compute"
-status = "completed"
-goal = "Create public gpu_runtime::compute module with documented API"
-success_criteria = [
-    "Warp-level: reduce_sum, shuffle variants",
-    "Block-level: shared memory reduction, bar_sync wrapper",
-    "Math: GEMM, softmax, GELU, LayerNorm",
-    "All compile to PTX and documented",
-]
-
-[[themes]]
-id = "demo-pipeline"
-epic = "compute-demo"
-title = "Multi-stage compute pipeline demo"
-status = "completed"
-goal = "Demo that proves async GPU is simpler and faster than sequential kernel launches"
-success_criteria = [
-    "Multi-stage pipeline using compute utils + async",
-    "Comparison with equivalent multi-launch approach",
-    "User-facing quality code and documentation",
-]
+# (completed themes archived at cycle 337: channel-oneshot, compute-audit, compute-extract, demo-pipeline)
 
 # ============================================================
 # Tasks (pending/active only — done tasks archived in archive/)
 # ============================================================
 
-# --- compute-audit theme ---
-
-[[tasks]]
-id = "compute-audit.1"
-theme = "compute-audit"
-title = "Investigation: full scan of all compute functions in codebase"
-kind = "investigation"
-status = "done"
-depends = []
-questions = [
-    "What compute functions exist in compute_gemm.rs, compute_transformer.rs, compute_math.rs, compute_search.rs, compute_mma.rs?",
-    "What helper functions in helpers.rs are compute-related (shared mem, bar_sync, math intrinsics)?",
-    "Which functions are reusable vs tightly coupled to specific kernels?",
-    "What categories: warp primitives, block primitives, math, linear algebra, ML ops?",
-]
-
-[[tasks]]
-id = "compute-audit.2"
-theme = "compute-audit"
-title = "Design: decide API surface for gpu_runtime::compute"
-kind = "design"
-status = "done"
-depends = ["compute-audit.1"]
-
-# --- compute-extract theme ---
-
-[[tasks]]
-id = "compute-extract.1"
-theme = "compute-extract"
-title = "Experiment: extract all compute primitives (index/math/warp/block/nn)"
-kind = "experiment"
-status = "done"
-depends = ["compute-audit.2"]
-
-[[tasks]]
-id = "compute-extract.2"
-theme = "compute-extract"
-title = "Experiment: add block-level reduction (shared mem reduce_sum/max/min)"
-kind = "experiment"
-status = "done"
-depends = ["compute-extract.1"]
-
-[[tasks]]
-id = "compute-extract.3"
-theme = "compute-extract"
-title = "Experiment: add warp_softmax_f32 and warp_layer_norm_f32 to nn module"
-kind = "experiment"
-status = "done"
-depends = ["compute-extract.1"]
-
-# --- demo-pipeline theme ---
-
-[[tasks]]
-id = "demo-pipeline.1"
-theme = "demo-pipeline"
-title = "Design: choose compute demo scenario and architecture"
-kind = "design"
-status = "done"
-depends = ["compute-extract.1"]
-
-[[tasks]]
-id = "demo-pipeline.2"
-theme = "demo-pipeline"
-title = "Experiment: implement multi-stage compute pipeline demo"
-kind = "experiment"
-status = "done"
-depends = ["demo-pipeline.1", "compute-extract.3"]
-
-[[tasks]]
-id = "demo-pipeline.3"
-theme = "demo-pipeline"
-title = "Experiment: benchmark async pipeline vs sequential kernel launches"
-kind = "experiment"
-status = "done"
-depends = ["demo-pipeline.2"]
-
-# --- channel-oneshot theme ---
-
-[[tasks]]
-id = "channel-oneshot.1"
-theme = "channel-oneshot"
-title = "Investigation: oneshot channel design for GPU async tasks"
-kind = "investigation"
-status = "done"
-depends = []
-questions = [
-    "What memory model for oneshot on GPU? Mapped memory slot with atomic state?",
-    "How to handle Sender/Receiver lifetime without heap allocation?",
-    "What state machine: Empty → Sent → Received? Atomic u32 with acquire/release?",
-    "How does Receiver::poll interact with executor waker mechanism?",
-]
-
-[[tasks]]
-id = "channel-oneshot.2"
-theme = "channel-oneshot"
-title = "Experiment: implement Oneshot<T> sender + receiver on GPU"
-kind = "experiment"
-status = "done"
-depends = ["channel-oneshot.1"]
-
-[[tasks]]
-id = "channel-oneshot.3"
-theme = "channel-oneshot"
-title = "Experiment: oneshot receiver as Future (poll returns Pending until sent)"
-kind = "experiment"
-status = "done"
-depends = ["channel-oneshot.2"]
-
-# --- channel-mpsc theme ---
-
-[[tasks]]
-id = "channel-mpsc.1"
-theme = "channel-mpsc"
-title = "Investigation: MPSC channel design — lock-free ring buffer on GPU"
-kind = "investigation"
-status = "done"
-depends = ["channel-oneshot.1"]
-questions = [
-    "Ring buffer vs linked list for MPSC on GPU?",
-    "CAS-based enqueue with atomic head/tail pointers?",
-    "Fixed capacity — what size? How to handle full buffer (spin vs Pending)?",
-    "Memory layout for cache-line alignment on GPU (128B L2 sectors)?",
-]
-
-[[tasks]]
-id = "channel-mpsc.2"
-theme = "channel-mpsc"
-title = "Experiment: implement Mpsc<T> sender + receiver on GPU"
-kind = "experiment"
-status = "done"
-depends = ["channel-mpsc.1", "channel-oneshot.3"]
-
-# --- channel-waker theme ---
-
-[[tasks]]
-id = "channel-waker.1"
-theme = "channel-waker"
-title = "Investigation: waker integration — how sender wakes receiver task"
-kind = "investigation"
-status = "done"
-depends = ["channel-oneshot.1"]
-questions = [
-    "How does send() notify the executor that receiver task is ready?",
-    "Can we reuse executor's WorkQueue to re-enqueue woken tasks?",
-    "Waker storage: where does the receiver store its waker for sender to call?",
-    "Atomics needed: state transitions + waker handoff without races?",
-]
-
-[[tasks]]
-id = "channel-waker.2"
-theme = "channel-waker"
-title = "Experiment: implement waker-based wake-on-send for channels"
-kind = "experiment"
-status = "pending"
-depends = ["channel-waker.1", "channel-oneshot.2"]
+# (done tasks archived at cycle 337)
 
 # --- tokio-bridge themes ---
 
@@ -552,7 +352,7 @@ id = "tokio-investigate.1"
 theme = "tokio-investigate"
 title = "Investigation: current host threading model and tokio integration points"
 kind = "investigation"
-status = "pending"
+status = "done"
 depends = []
 questions = [
     "How does GpuRuntime currently manage threads (hostcall listener, kernel launch)?",
@@ -576,7 +376,7 @@ id = "channel-demo.1"
 theme = "channel-demo"
 title = "Experiment: demo kernel — producer-consumer pipeline with channels + executor"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["channel-oneshot.3", "channel-waker.2"]
 
 # ============================================================
@@ -619,28 +419,6 @@ themes_parked = []
 themes_completed = ["api-ergonomics"]
 key_insight = "GPU executor works but tasks can't communicate. Channels (oneshot + mpsc) are the missing piece for real async patterns. Created gpu-channels epic with 4 themes, 8 tasks."
 
-[[brainstorms]]
-seq = 90
-at_cycle = 323
-trigger = "executor-impl.4 done, gpu-executor epic completed, no ready tasks"
-level = "quick"
-new_tasks_spawned = ["bench-suite.4", "api-examples.1", "api-examples.2", "api-examples.3", "api-build.1"]
-new_themes_spawned = ["api-examples", "api-build"]
-new_epics_spawned = []
-themes_parked = []
-themes_completed = ["executor-impl", "std-sync"]
-key_insight = "gpu-executor + extended-std epics done. Remaining: benchmarks (need analysis doc), public-api (need examples + build script). 5 new tasks across 3 themes."
-
-[[brainstorms]]
-seq = 89
-at_cycle = 311
-trigger = "user directed 4 new development areas: gpu-executor, extended-std, public-api, benchmarks"
-level = "quick"
-new_tasks_spawned = ["executor-impl.1", "executor-impl.2", "executor-impl.3", "executor-impl.4", "std-sync.1", "std-sync.2", "std-sync.3", "api-ergonomics.1", "api-ergonomics.2", "api-ergonomics.3", "bench-suite.1", "bench-suite.2", "bench-suite.3"]
-new_themes_spawned = ["executor-impl", "std-sync", "api-ergonomics", "bench-suite"]
-new_epics_spawned = ["gpu-executor", "extended-std", "benchmarks"]
-themes_parked = []
-themes_completed = []
-key_insight = "User directed 4 areas: GPU executor impl (design exists), extended std (sync+collections), public API polish, benchmarks. 3 new epics + public-api upgraded to high priority. 13 tasks across 4 themes."
+# (brainstorms 89-90 archived at cycle 337)
 
 

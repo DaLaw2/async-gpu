@@ -540,3 +540,53 @@ epic = "public-api"
 title = "Single-command build system"
 status = "completed"
 goal = "Single cargo command compiles host + kernel PTX"
+
+# --- Archived at cycle 337 ---
+
+[[themes]]
+id = "channel-oneshot"
+epic = "gpu-channels"
+title = "Oneshot<T> channel — single-value single-use channel"
+status = "completed"
+goal = "Sender sends one value, Receiver awaits it as a Future"
+success_criteria = [
+    "Oneshot channel state machine (Empty → Sent → Received) via atomics",
+    "OneshotReceiver implements Future (polls atomic state)",
+    "Verified on GPU with executor",
+]
+
+[[themes]]
+id = "compute-audit"
+epic = "compute-utils"
+title = "Full audit of all compute functions in codebase"
+status = "completed"
+goal = "Scan every file, catalog all reusable compute functions"
+success_criteria = [
+    "Complete inventory of all compute functions with categories",
+    "Decision on which functions to expose vs keep internal",
+]
+
+[[themes]]
+id = "compute-extract"
+epic = "compute-utils"
+title = "Extract and expose compute functions in gpu_runtime::compute"
+status = "completed"
+goal = "Create public gpu_runtime::compute module with documented API"
+success_criteria = [
+    "Warp-level: reduce_sum, shuffle variants",
+    "Block-level: shared memory reduction, bar_sync wrapper",
+    "Math: GEMM, softmax, GELU, LayerNorm",
+    "All compile to PTX and documented",
+]
+
+[[themes]]
+id = "demo-pipeline"
+epic = "compute-demo"
+title = "Multi-stage compute pipeline demo"
+status = "completed"
+goal = "Demo that proves async GPU is simpler and faster than sequential kernel launches"
+success_criteria = [
+    "Multi-stage pipeline using compute utils + async",
+    "Comparison with equivalent multi-launch approach",
+    "User-facing quality code and documentation",
+]

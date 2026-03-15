@@ -1599,3 +1599,143 @@ title = "Experiment: single-command build (xtask or build.rs)"
 kind = "experiment"
 status = "done"
 depends = []
+
+# --- Archived at cycle 337 ---
+
+# --- compute-audit theme ---
+
+[[tasks]]
+id = "compute-audit.1"
+theme = "compute-audit"
+title = "Investigation: full scan of all compute functions in codebase"
+kind = "investigation"
+status = "done"
+depends = []
+questions = [
+    "What compute functions exist in compute_gemm.rs, compute_transformer.rs, compute_math.rs, compute_search.rs, compute_mma.rs?",
+    "What helper functions in helpers.rs are compute-related (shared mem, bar_sync, math intrinsics)?",
+    "Which functions are reusable vs tightly coupled to specific kernels?",
+    "What categories: warp primitives, block primitives, math, linear algebra, ML ops?",
+]
+
+[[tasks]]
+id = "compute-audit.2"
+theme = "compute-audit"
+title = "Design: decide API surface for gpu_runtime::compute"
+kind = "design"
+status = "done"
+depends = ["compute-audit.1"]
+
+# --- compute-extract theme ---
+
+[[tasks]]
+id = "compute-extract.1"
+theme = "compute-extract"
+title = "Experiment: extract all compute primitives (index/math/warp/block/nn)"
+kind = "experiment"
+status = "done"
+depends = ["compute-audit.2"]
+
+[[tasks]]
+id = "compute-extract.2"
+theme = "compute-extract"
+title = "Experiment: add block-level reduction (shared mem reduce_sum/max/min)"
+kind = "experiment"
+status = "done"
+depends = ["compute-extract.1"]
+
+[[tasks]]
+id = "compute-extract.3"
+theme = "compute-extract"
+title = "Experiment: add warp_softmax_f32 and warp_layer_norm_f32 to nn module"
+kind = "experiment"
+status = "done"
+depends = ["compute-extract.1"]
+
+# --- demo-pipeline theme ---
+
+[[tasks]]
+id = "demo-pipeline.1"
+theme = "demo-pipeline"
+title = "Design: choose compute demo scenario and architecture"
+kind = "design"
+status = "done"
+depends = ["compute-extract.1"]
+
+[[tasks]]
+id = "demo-pipeline.2"
+theme = "demo-pipeline"
+title = "Experiment: implement multi-stage compute pipeline demo"
+kind = "experiment"
+status = "done"
+depends = ["demo-pipeline.1", "compute-extract.3"]
+
+[[tasks]]
+id = "demo-pipeline.3"
+theme = "demo-pipeline"
+title = "Experiment: benchmark async pipeline vs sequential kernel launches"
+kind = "experiment"
+status = "done"
+depends = ["demo-pipeline.2"]
+
+# --- channel-oneshot theme ---
+
+[[tasks]]
+id = "channel-oneshot.1"
+theme = "channel-oneshot"
+title = "Investigation: oneshot channel design for GPU async tasks"
+kind = "investigation"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "channel-oneshot.2"
+theme = "channel-oneshot"
+title = "Experiment: implement Oneshot<T> sender + receiver on GPU"
+kind = "experiment"
+status = "done"
+depends = ["channel-oneshot.1"]
+
+[[tasks]]
+id = "channel-oneshot.3"
+theme = "channel-oneshot"
+title = "Experiment: oneshot receiver as Future (poll returns Pending until sent)"
+kind = "experiment"
+status = "done"
+depends = ["channel-oneshot.2"]
+
+# --- channel-mpsc theme ---
+
+[[tasks]]
+id = "channel-mpsc.1"
+theme = "channel-mpsc"
+title = "Investigation: MPSC channel design — lock-free ring buffer on GPU"
+kind = "investigation"
+status = "done"
+depends = ["channel-oneshot.1"]
+
+[[tasks]]
+id = "channel-mpsc.2"
+theme = "channel-mpsc"
+title = "Experiment: implement Mpsc<T> sender + receiver on GPU"
+kind = "experiment"
+status = "done"
+depends = ["channel-mpsc.1", "channel-oneshot.3"]
+
+# --- channel-waker theme ---
+
+[[tasks]]
+id = "channel-waker.1"
+theme = "channel-waker"
+title = "Investigation: waker integration — how sender wakes receiver task"
+kind = "investigation"
+status = "done"
+depends = ["channel-oneshot.1"]
+
+[[tasks]]
+id = "channel-waker.2"
+theme = "channel-waker"
+title = "Experiment: implement waker-based wake-on-send for channels"
+kind = "experiment"
+status = "done"
+depends = ["channel-waker.1", "channel-oneshot.2"]

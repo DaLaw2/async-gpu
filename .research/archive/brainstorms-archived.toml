@@ -237,3 +237,29 @@ new_tasks_spawned = ["tla-model.1", "tla-model.2", "tla-model.3", "build-stabili
 new_themes_spawned = ["tla-model", "build-stabilize", "validation-prep"]
 new_epics_spawned = ["formal-verification"]
 key_insight = "Project needs depth, not breadth. TLA+ formal verification of CAS protocol is highest-value work without GPU."
+
+# --- Archived at cycle 337 ---
+
+[[brainstorms]]
+seq = 90
+at_cycle = 323
+trigger = "executor-impl.4 done, gpu-executor epic completed, no ready tasks"
+level = "quick"
+new_tasks_spawned = ["bench-suite.4", "api-examples.1", "api-examples.2", "api-examples.3", "api-build.1"]
+new_themes_spawned = ["api-examples", "api-build"]
+new_epics_spawned = []
+themes_parked = []
+themes_completed = ["executor-impl", "std-sync"]
+key_insight = "gpu-executor + extended-std epics done. Remaining: benchmarks (need analysis doc), public-api (need examples + build script). 5 new tasks across 3 themes."
+
+[[brainstorms]]
+seq = 89
+at_cycle = 311
+trigger = "user directed 4 new development areas: gpu-executor, extended-std, public-api, benchmarks"
+level = "quick"
+new_tasks_spawned = ["executor-impl.1", "executor-impl.2", "executor-impl.3", "executor-impl.4", "std-sync.1", "std-sync.2", "std-sync.3", "api-ergonomics.1", "api-ergonomics.2", "api-ergonomics.3", "bench-suite.1", "bench-suite.2", "bench-suite.3"]
+new_themes_spawned = ["executor-impl", "std-sync", "api-ergonomics", "bench-suite"]
+new_epics_spawned = ["gpu-executor", "extended-std", "benchmarks"]
+themes_parked = []
+themes_completed = []
+key_insight = "User directed 4 areas: GPU executor impl (design exists), extended std (sync+collections), public API polish, benchmarks. 3 new epics + public-api upgraded to high priority. 13 tasks across 4 themes."

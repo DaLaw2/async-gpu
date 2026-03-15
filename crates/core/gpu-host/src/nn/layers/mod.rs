@@ -3,21 +3,26 @@
 //! Each layer owns its weights (uploaded once at construction) and implements
 //! `forward()` for inference. Layers can be composed into models by calling
 //! them in sequence.
-//!
-//! # Example
-//!
-//! ```no_run
-//! # use gpu_host::nn::layers::Module;
-//! # use gpu_host::nn::GpuTensor;
-//! // Any type implementing Module can be used:
-//! // let output = layer.forward(&input)?;
-//! ```
 
+pub mod activation;
+pub mod attention;
+pub mod conv;
+pub mod embedding;
+pub mod linear;
+pub mod norm;
+pub mod pool;
 pub mod sequential;
 
 use super::error::Result;
 use super::tensor::GpuTensor;
 
+pub use activation::{ReLU, SiLU, Sigmoid, GELU};
+pub use attention::MultiHeadAttention;
+pub use conv::Conv2d;
+pub use embedding::Embedding;
+pub use linear::Linear;
+pub use norm::{BatchNorm2d, LayerNorm};
+pub use pool::MaxPool2d;
 pub use sequential::Sequential;
 
 /// Trait for neural network layers — PyTorch-like `forward()`.

@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 384     # Monotonic counter, incremented after each completed phase
-completed_tasks = 422
+total_cycles = 406     # Monotonic counter, incremented after each completed phase
+completed_tasks = 444
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
 current_task_id = "nn-tensor.1"
-last_summary = "Phase 1 complete: GpuTensor (N-dim, SmallVec, all ops), NnError, KernelRegistry (23 ML kernels, auto-config), Module trait, Sequential container, Gpt2Config. Examples reorganized: hostcall/ (8 old) + std/ (new). 18 tasks done. Next: nn-ops (stateless op wrappers)."
+last_summary = "Phase 1-2 complete: nn-tensor (8), nn-registry (4), nn-ops (13), nn-layers (11), nn-gpt2 config (1), nn-migrate examples+lib (3). Total 40/58 tasks done. Full nn module: GpuTensor, KernelRegistry, all ops (matmul/conv2d/layer_norm/etc), all layers (Linear/Conv2d/MHA/etc). Next: nn-gpt2 model (TransformerBlock, Gpt2Model, examples)."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 100
@@ -583,7 +583,7 @@ id = "nn-ops.1"
 theme = "nn-ops"
 title = "matmul(a, b) -> GpuTensor wrapping gemm_f32 kernel"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["nn-registry.4", "nn-tensor.4"]
 
 [[tasks]]
@@ -591,7 +591,7 @@ id = "nn-ops.2"
 theme = "nn-ops"
 title = "conv2d(input, weight, stride, padding) -> GpuTensor wrapping im2col+gemm"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["nn-ops.1"]
 
 [[tasks]]
@@ -599,7 +599,7 @@ id = "nn-ops.3"
 theme = "nn-ops"
 title = "layer_norm(input, gamma, beta, eps) -> GpuTensor"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["nn-registry.4"]
 
 [[tasks]]
@@ -607,7 +607,7 @@ id = "nn-ops.4"
 theme = "nn-ops"
 title = "batch_norm(input, gamma, beta, mean, var, eps) -> GpuTensor"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["nn-registry.4"]
 
 [[tasks]]
@@ -615,7 +615,7 @@ id = "nn-ops.5"
 theme = "nn-ops"
 title = "batch_norm_silu(input, gamma, beta, mean, var, eps) -> GpuTensor (fused)"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["nn-registry.4"]
 
 [[tasks]]
@@ -623,7 +623,7 @@ id = "nn-ops.6"
 theme = "nn-ops"
 title = "Activations: gelu(), silu(), sigmoid(), relu()"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["nn-registry.4"]
 
 [[tasks]]
@@ -631,7 +631,7 @@ id = "nn-ops.7"
 theme = "nn-ops"
 title = "max_pool2d(input, kernel_size, stride, padding) -> GpuTensor"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["nn-registry.4"]
 
 [[tasks]]
@@ -639,7 +639,7 @@ id = "nn-ops.8"
 theme = "nn-ops"
 title = "upsample_nearest_2x(input) -> GpuTensor"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["nn-registry.4"]
 
 [[tasks]]
@@ -647,7 +647,7 @@ id = "nn-ops.9"
 theme = "nn-ops"
 title = "scaled_dot_product_attention(q, k, v) -> GpuTensor wrapping flash_attention"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["nn-ops.1"]
 
 [[tasks]]
@@ -655,7 +655,7 @@ id = "nn-ops.10"
 theme = "nn-ops"
 title = "embedding_lookup(indices, weight) -> GpuTensor"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["nn-registry.4"]
 
 [[tasks]]
@@ -663,7 +663,7 @@ id = "nn-ops.11"
 theme = "nn-ops"
 title = "bias_add(input, bias) and elementwise_add(a, b) -> GpuTensor"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["nn-registry.4"]
 
 [[tasks]]
@@ -671,7 +671,7 @@ id = "nn-ops.12"
 theme = "nn-ops"
 title = "concat_channels(a, b) and split_channels(input, sizes)"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["nn-registry.4"]
 
 [[tasks]]
@@ -679,7 +679,7 @@ id = "nn-ops.13"
 theme = "nn-ops"
 title = "Integration tests: each op tested with CPU reference values"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["nn-ops.1", "nn-ops.2", "nn-ops.3", "nn-ops.4", "nn-ops.5", "nn-ops.6", "nn-ops.7", "nn-ops.8", "nn-ops.9", "nn-ops.10", "nn-ops.11", "nn-ops.12"]
 
 # --- nn-layers tasks ---
@@ -697,7 +697,7 @@ id = "nn-layers.2"
 theme = "nn-layers"
 title = "Linear layer: weight upload, GEMM-based forward, optional bias"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["nn-ops.1"]
 
 [[tasks]]
@@ -705,7 +705,7 @@ id = "nn-layers.3"
 theme = "nn-layers"
 title = "Conv2d layer: weight reshaping to column-major, im2col+GEMM forward"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["nn-ops.2"]
 
 [[tasks]]
@@ -713,7 +713,7 @@ id = "nn-layers.4"
 theme = "nn-layers"
 title = "LayerNorm layer"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["nn-ops.3"]
 
 [[tasks]]
@@ -721,7 +721,7 @@ id = "nn-layers.5"
 theme = "nn-layers"
 title = "BatchNorm2d layer with optional fused SiLU"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["nn-ops.4", "nn-ops.5"]
 
 [[tasks]]
@@ -729,7 +729,7 @@ id = "nn-layers.6"
 theme = "nn-layers"
 title = "Embedding layer"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["nn-ops.10"]
 
 [[tasks]]
@@ -737,7 +737,7 @@ id = "nn-layers.7"
 theme = "nn-layers"
 title = "MultiHeadAttention layer: QKV projection, split heads, attention, concat, output projection"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["nn-ops.9", "nn-layers.2"]
 
 [[tasks]]
@@ -745,7 +745,7 @@ id = "nn-layers.8"
 theme = "nn-layers"
 title = "Activation layers: GELU, SiLU, Sigmoid, ReLU (zero-param Module wrappers)"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["nn-ops.6"]
 
 [[tasks]]
@@ -753,7 +753,7 @@ id = "nn-layers.9"
 theme = "nn-layers"
 title = "MaxPool2d layer"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["nn-ops.7"]
 
 [[tasks]]
@@ -769,7 +769,7 @@ id = "nn-layers.11"
 theme = "nn-layers"
 title = "Integration tests: Linear forward matches CPU, Conv2d matches PyTorch reference"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["nn-layers.2", "nn-layers.3"]
 
 # --- nn-gpt2 tasks ---

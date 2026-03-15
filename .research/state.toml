@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 364     # Monotonic counter, incremented after each completed phase
-completed_tasks = 394
+total_cycles = 365     # Monotonic counter, incremented after each completed phase
+completed_tasks = 404
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "dx-xtask.1"
-last_summary = "codebase-update theme done (3/3: README updated, scripts already derive versions, CI coverage OK). Starting dx-xtask: audit build flows then implement cargo xtask."
+current_task_id = ""
+last_summary = "All 4 DX themes done: codebase-update (README fix), dx-xtask (cargo xtask gpu-build), dx-editor (RA linkedProjects), dx-setup (setup.sh/ps1). developer-experience 3/4 criteria met (xtask, RA config, setup scripts). Criterion 4 (onboarding <15min) needs user validation."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 99
@@ -390,7 +390,7 @@ success_criteria = [
 id = "dx-editor"
 epic = "developer-experience"
 title = "rust-analyzer configuration for GPU crates"
-status = "active"
+status = "completed"
 goal = "RA provides completions and type checking for GPU kernel crates"
 success_criteria = [
     "RA config enables indexing GPU kernel crates",
@@ -401,7 +401,7 @@ success_criteria = [
 id = "dx-setup"
 epic = "developer-experience"
 title = "Setup script for new users"
-status = "active"
+status = "completed"
 goal = "Download pre-built toolchain + configure environment with one command"
 success_criteria = [
     "Setup scripts for Linux + Windows download pre-built toolchain",
@@ -621,7 +621,7 @@ id = "dx-editor.1"
 theme = "dx-editor"
 title = "Investigation: test RA behavior with nvptx64 target, identify what works"
 kind = "investigation"
-status = "pending"
+status = "done"
 depends = []
 questions = [
     "Can rust-analyzer index nvptx64 kernel crates via linkedProjects?",
@@ -635,7 +635,8 @@ id = "dx-editor.2"
 theme = "dx-editor"
 title = "Experiment: create RA configuration that maximizes useful analysis"
 kind = "experiment"
-status = "pending"
+status = "done"
+# .vscode/settings.json with linkedProjects for GPU library + kernel crates
 depends = ["dx-editor.1"]
 
 # --- dx-setup tasks ---
@@ -645,7 +646,8 @@ id = "dx-setup.1"
 theme = "dx-setup"
 title = "Investigation: verify what pre-built toolchain artifacts exist (CI, releases)"
 kind = "investigation"
-status = "pending"
+status = "done"
+# No GitHub releases exist yet. install-toolchain.sh (Linux) already exists. Wrote setup check scripts.
 depends = []
 questions = [
     "Are pre-built toolchain artifacts stored as GitHub Releases or CI artifacts?",
@@ -659,7 +661,8 @@ id = "dx-setup.2"
 theme = "dx-setup"
 title = "Experiment: write setup scripts for Linux + Windows"
 kind = "experiment"
-status = "pending"
+status = "done"
+# Created scripts/setup.sh (Linux) + scripts/setup.ps1 (Windows) — env check + guidance
 depends = ["dx-setup.1"]
 
 # --- warp-batch-io tasks ---

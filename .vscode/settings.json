@@ -1,0 +1,12 @@
+{
+    "rust-analyzer.linkedProjects": [
+        "crates/core/gpu-runtime/Cargo.toml",
+        "crates/core/gpu-atomics/Cargo.toml",
+        "crates/core/gpu-libc/Cargo.toml",
+        "crates/kernel/gpu-kernel/Cargo.toml",
+        "crates/kernel/gpu-kernel-std/Cargo.toml"
+    ],
+    "rust-analyzer.diagnostics.disabled": [
+        "unresolved-extern-crate"
+    ]
+}

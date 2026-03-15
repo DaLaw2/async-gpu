@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 316     # Monotonic counter, incremented after each completed phase
-completed_tasks = 336
+total_cycles = 318     # Monotonic counter, incremented after each completed phase
+completed_tasks = 340
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "api-ergonomics.3"
-last_summary = "bs89 quick: user directed 4 new epics — gpu-executor, extended-std, public-api (upgraded), benchmarks. 4 themes, 12 tasks spawned."
+current_task_id = "executor-impl.4"
+last_summary = "std-sync.2 done (Mutex<T>), executor-impl.2+3 done (WorkQueue, TaskSlot, GpuExecutor with spawn()+run()). api-ergonomics.3 in progress. Next: executor-impl.4 demo kernel, std-sync.3 HashMap."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 89
@@ -306,7 +306,7 @@ id = "executor-impl.2"
 theme = "executor-impl"
 title = "Experiment: implement WorkQueue + TaskSlot arena"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["executor-impl.1"]
 
 [[tasks]]
@@ -314,8 +314,9 @@ id = "executor-impl.3"
 theme = "executor-impl"
 title = "Experiment: implement executor loop + spawn() API"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["executor-impl.2"]
+# NOTE: run() + spawn() implemented in executor-impl.2 — this task merged in
 
 [[tasks]]
 id = "executor-impl.4"
@@ -345,7 +346,7 @@ id = "std-sync.2"
 theme = "std-sync"
 title = "Experiment: implement GPU Mutex<T> via atomic CAS"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["std-sync.1"]
 
 [[tasks]]
@@ -382,9 +383,9 @@ depends = ["api-ergonomics.1"]
 [[tasks]]
 id = "api-ergonomics.3"
 theme = "api-ergonomics"
-title = "Experiment: high-level GpuKernel launch helper (hide thread::scope)"
+title = "Experiment: update remaining examples to use HostcallSession + require_func"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["api-ergonomics.1"]
 
 # --- bench-suite theme ---

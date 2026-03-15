@@ -8,7 +8,7 @@
 //! Futures — each `.await` yields the warp so other warps can execute.
 
 use cudarc::driver::LaunchAsync;
-use gpu_host::{GpuHostError, GpuRuntime, HostcallBuffer, MappedBuffer};
+use gpu_host::{GpuRuntime, HostcallSession, MappedBuffer};
 
 const KERNEL_PTX: &str = include_str!(concat!(env!("OUT_DIR"), "/kernel.ptx"));
 
@@ -39,31 +39,18 @@ fn run_small_io_demo(rt: &GpuRuntime) -> Result<(), Box<dyn std::error::Error>> 
     std::fs::write("pipeline_input.txt", input_data)?;
     println!("[host] Created pipeline_input.txt ({} bytes)", input_data.len());
 
-    let hcbuf = HostcallBuffer::new(8)?;
+    let session = HostcallSession::start(8)?;
     let result_buf = MappedBuffer::<u32>::new_zeroed(1)?;
     let cfg = GpuRuntime::launch_config((1, 1, 1), (1, 1, 1), 0);
 
-    std::thread::scope(|scope| -> gpu_host::Result<()> {
-        let listener = scope.spawn(|| {
-            hcbuf.listen(|msg| {
-                let s = std::str::from_utf8(msg).unwrap_or("<invalid utf8>");
-                println!("[GPU] {s}");
-            });
-        });
-
-        println!("[host] Launching async_data_pipeline kernel...");
-        let f = rt
-            .get_func("pipeline", "async_data_pipeline")
-            .ok_or(GpuHostError::KernelNotFound("async_data_pipeline"))?;
-        unsafe {
-            f.launch(cfg, (hcbuf.dev_ptr as u64, result_buf.dev_ptr() as u64))?;
-        }
-        rt.synchronize()?;
-        std::thread::sleep(std::time::Duration::from_millis(50));
-        hcbuf.signal_shutdown();
-        let _ = listener;
-        Ok(())
-    })?;
+    println!("[host] Launching async_data_pipeline kernel...");
+    let f = rt.require_func("pipeline", "async_data_pipeline")?;
+    unsafe {
+        f.launch(cfg, (session.dev_ptr(), result_buf.dev_ptr() as u64))?;
+    }
+    rt.synchronize()?;
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    session.shutdown();
 
     let result = unsafe { result_buf.read(0) };
     println!("\n[host] Kernel result: 0x{result:X} ({result})");
@@ -97,38 +84,25 @@ fn run_bulk_io_demo(rt: &GpuRuntime) -> Result<(), Box<dyn std::error::Error>> {
     std::fs::write("bulk_input.txt", input_data)?;
     println!("[host] Created bulk_input.txt ({} bytes)", input_data.len());
 
-    let hcbuf = HostcallBuffer::new(8)?;
+    let session = HostcallSession::start(8)?;
     let result_buf = MappedBuffer::<u32>::new_zeroed(1)?;
     let cfg = GpuRuntime::launch_config((1, 1, 1), (1, 1, 1), 0);
 
-    std::thread::scope(|scope| -> gpu_host::Result<()> {
-        let listener = scope.spawn(|| {
-            hcbuf.listen(|msg| {
-                let s = std::str::from_utf8(msg).unwrap_or("<invalid utf8>");
-                println!("[GPU] {s}");
-            });
-        });
-
-        println!("[host] Launching async_bulk_pipeline kernel...");
-        let f = rt
-            .get_func("pipeline", "async_bulk_pipeline")
-            .ok_or(GpuHostError::KernelNotFound("async_bulk_pipeline"))?;
-        unsafe {
-            f.launch(
-                cfg,
-                (
-                    hcbuf.dev_ptr as u64,
-                    hcbuf.sideband_dev_ptr as u64,
-                    result_buf.dev_ptr() as u64,
-                ),
-            )?;
-        }
-        rt.synchronize()?;
-        std::thread::sleep(std::time::Duration::from_millis(50));
-        hcbuf.signal_shutdown();
-        let _ = listener;
-        Ok(())
-    })?;
+    println!("[host] Launching async_bulk_pipeline kernel...");
+    let f = rt.require_func("pipeline", "async_bulk_pipeline")?;
+    unsafe {
+        f.launch(
+            cfg,
+            (
+                session.dev_ptr(),
+                session.sideband_dev_ptr(),
+                result_buf.dev_ptr() as u64,
+            ),
+        )?;
+    }
+    rt.synchronize()?;
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    session.shutdown();
 
     let result = unsafe { result_buf.read(0) };
     println!("\n[host] Kernel result: 0x{result:X} ({result})");

@@ -6,7 +6,7 @@
 //! 4. Verifies GPU count matches CPU count
 
 use cudarc::driver::LaunchAsync;
-use gpu_host::{GpuHostError, GpuRuntime, HostcallBuffer, MappedBuffer};
+use gpu_host::{GpuRuntime, HostcallSession, MappedBuffer};
 
 const KERNEL_PTX: &str = include_str!(concat!(env!("OUT_DIR"), "/kernel.ptx"));
 
@@ -43,7 +43,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("[host] PTX loaded.\n");
 
     // Step 3: Set up buffers
-    let hcbuf = HostcallBuffer::new(8)?;
+    let session = HostcallSession::start(8)?;
     let result_buf = MappedBuffer::<u32>::new_zeroed(1)?;
 
     // Pattern buffer (mapped memory so GPU can read it)
@@ -59,37 +59,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cfg = GpuRuntime::launch_config((1, 1, 1), (32, 1, 1), 0);
 
     // Step 4: Launch kernel
-    std::thread::scope(|scope| -> gpu_host::Result<()> {
-        let listener = scope.spawn(|| {
-            hcbuf.listen(|msg| {
-                let s = std::str::from_utf8(msg).unwrap_or("<invalid utf8>");
-                println!("[GPU] {s}");
-            });
-        });
-
-        println!("[host] Launching parallel_search kernel (32 threads)...");
-        let f = rt
-            .get_func("search", "parallel_search")
-            .ok_or(GpuHostError::KernelNotFound("parallel_search"))?;
-        unsafe {
-            f.launch(
-                cfg,
-                (
-                    hcbuf.dev_ptr as u64,
-                    hcbuf.sideband_dev_ptr as u64,
-                    pattern_buf.dev_ptr() as u64,
-                    pattern.len() as u32,
-                    data_buf.dev_ptr() as u64,
-                    result_buf.dev_ptr() as u64,
-                ),
-            )?;
-        }
-        rt.synchronize()?;
-        std::thread::sleep(std::time::Duration::from_millis(50));
-        hcbuf.signal_shutdown();
-        let _ = listener;
-        Ok(())
-    })?;
+    println!("[host] Launching parallel_search kernel (32 threads)...");
+    let f = rt.require_func("search", "parallel_search")?;
+    unsafe {
+        f.launch(
+            cfg,
+            (
+                session.dev_ptr(),
+                session.sideband_dev_ptr(),
+                pattern_buf.dev_ptr() as u64,
+                pattern.len() as u32,
+                data_buf.dev_ptr() as u64,
+                result_buf.dev_ptr() as u64,
+            ),
+        )?;
+    }
+    rt.synchronize()?;
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    session.shutdown();
 
     // Step 5: Check results
     let gpu_count = unsafe { result_buf.read(0) };

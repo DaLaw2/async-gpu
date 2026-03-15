@@ -4,13 +4,13 @@
 //! 2. Launches a GPU kernel that connects, sends a message, reads the echo
 //! 3. Verifies the kernel received the correct response
 //!
-//! Uses the three core SDK types:
+//! Uses the core SDK types:
 //! - [`GpuRuntime`] -- device init, PTX loading, kernel launch
-//! - [`HostcallBuffer`] -- GPU-host RPC communication
+//! - [`HostcallSession`] -- managed GPU-host RPC communication
 //! - [`MappedBuffer`] -- RAII pinned device-mapped memory
 
 use cudarc::driver::LaunchAsync;
-use gpu_host::{GpuHostError, GpuRuntime, HostcallBuffer, MappedBuffer};
+use gpu_host::{GpuRuntime, HostcallSession, MappedBuffer};
 use std::io::{Read, Write};
 use std::net::TcpListener;
 
@@ -52,60 +52,47 @@ fn main() -> gpu_host::Result<()> {
     rt.load_ptx(KERNEL_PTX, "tcpecho", &["tcp_echo_kernel"])?;
     println!("[host] PTX module loaded.\n");
 
-    let hcbuf = HostcallBuffer::new(8)?;
+    let session = HostcallSession::start(8)?;
     let mut output_buf = MappedBuffer::<u32>::new_zeroed(1)?;
 
     let cfg = GpuRuntime::launch_config((1, 1, 1), (32, 1, 1), 0);
 
-    // Step 3: Launch kernel with hostcall listener
-    std::thread::scope(|scope| -> gpu_host::Result<()> {
-        let listener = scope.spawn(|| {
-            hcbuf.listen(|msg| {
-                let s = std::str::from_utf8(msg).unwrap_or("<invalid utf8>");
-                println!("[GPU] {}", s);
-            });
-        });
-
-        println!("--- TCP Echo: GPU connects, sends, reads echo ---");
-        unsafe { output_buf.write(0, 0) };
-        {
-            let f = rt
-                .get_func("tcpecho", "tcp_echo_kernel")
-                .ok_or(GpuHostError::KernelNotFound("tcp_echo_kernel"))?;
-            unsafe {
-                f.launch(
-                    cfg,
-                    (
-                        hcbuf.dev_ptr as u64,
-                        hcbuf.sideband_dev_ptr as u64,
-                        port as u32,
-                        output_buf.dev_ptr() as u64,
-                    ),
-                )?;
-            }
-            rt.synchronize()?;
-            std::thread::sleep(std::time::Duration::from_millis(50));
-            let result = unsafe { output_buf.read(0) };
-
-            if result == 0xDEAD {
-                println!("[host] tcp_echo_kernel: FAILED (error sentinel 0xDEAD)");
-            } else {
-                let expected_len = EXPECTED_MSG.len() as u32;
-                let passed = result == expected_len;
-                println!(
-                    "[host] tcp_echo_kernel: {} (response length: {}, expected: {})",
-                    if passed { "PASSED" } else { "FAILED" },
-                    result,
-                    expected_len,
-                );
-            }
-            println!();
+    // Step 3: Launch kernel
+    println!("--- TCP Echo: GPU connects, sends, reads echo ---");
+    unsafe { output_buf.write(0, 0) };
+    {
+        let f = rt.require_func("tcpecho", "tcp_echo_kernel")?;
+        unsafe {
+            f.launch(
+                cfg,
+                (
+                    session.dev_ptr(),
+                    session.sideband_dev_ptr(),
+                    port as u32,
+                    output_buf.dev_ptr() as u64,
+                ),
+            )?;
         }
+        rt.synchronize()?;
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        let result = unsafe { output_buf.read(0) };
 
-        hcbuf.signal_shutdown();
-        let _ = listener;
-        Ok(())
-    })?;
+        if result == 0xDEAD {
+            println!("[host] tcp_echo_kernel: FAILED (error sentinel 0xDEAD)");
+        } else {
+            let expected_len = EXPECTED_MSG.len() as u32;
+            let passed = result == expected_len;
+            println!(
+                "[host] tcp_echo_kernel: {} (response length: {}, expected: {})",
+                if passed { "PASSED" } else { "FAILED" },
+                result,
+                expected_len,
+            );
+        }
+        println!();
+    }
+
+    session.shutdown();
 
     // Wait for the echo server thread to finish
     echo_handle.join().expect("Echo server thread panicked");

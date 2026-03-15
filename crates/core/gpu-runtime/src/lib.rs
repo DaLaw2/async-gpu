@@ -3696,6 +3696,801 @@ pub mod flight_recorder {
     }
 }
 
+/// GPU-side async task executor with dynamic spawning.
+///
+/// Provides a work-stealing executor where warps dequeue tasks from a lock-free
+/// MPMC queue, poll type-erased futures, and recycle slots on completion. Tasks
+/// can spawn new tasks dynamically via `GpuExecutor::spawn()`.
+///
+/// # Architecture
+///
+/// - **WorkQueue**: Bounded FIFO using tagged CAS (same pattern as hostcall protocol)
+/// - **TaskSlot**: Fixed-size arena slot with type-erased `poll_fn` + inline future bytes
+/// - **Free list**: Tagged CAS stack for slot recycling (no general allocator needed)
+/// - **Scheduling**: Lane 0 dequeues, broadcasts task ID via `shfl.sync` to all 32 lanes
+///
+/// # Safety
+///
+/// The executor must reside in GPU global memory (device or mapped). All warps
+/// entering `run()` must have all 32 lanes active.
+pub mod executor {
+    use core::cell::UnsafeCell;
+    use core::future::Future;
+    use core::pin::Pin;
+    use core::task::{Context, Poll};
+    use gpu_atomics::{
+        activemask, lane_id, shfl_sync_idx_u32, syncwarp, sys_cas_u64, sys_load_acquire_u64,
+        sys_spin_load_acquire_u32, sys_store_release_u32,
+    };
+
+    /// Maximum number of tasks the executor can hold.
+    pub const MAX_TASKS: usize = 256;
+
+    /// Maximum size of a spawned future in bytes.
+    pub const TASK_FUTURE_MAX_SIZE: usize = 512;
+
+    /// Sentinel value for empty queue/slot entries.
+    pub const EMPTY_SENTINEL: u32 = 0xFFFF_FFFF;
+
+    /// Maximum polls before a task is considered stuck.
+    const MAX_POLLS_PER_TASK: u32 = 10_000_000;
+
+    // Task slot states
+    const SLOT_FREE: u32 = 0;
+    const SLOT_QUEUED: u32 = 1;
+    const SLOT_RUNNING: u32 = 2;
+
+    /// Error type for executor operations.
+    #[derive(Debug, Clone, Copy)]
+    pub enum ExecutorError {
+        /// Work queue is full.
+        QueueFull,
+        /// No free task slots available.
+        NoFreeSlots,
+        /// Future exceeds `TASK_FUTURE_MAX_SIZE` bytes.
+        FutureTooLarge,
+    }
+
+    /// Handle to a spawned task.
+    #[derive(Clone, Copy, Debug)]
+    pub struct TaskId(pub u32);
+
+    /// Statistics returned when a warp exits the executor loop.
+    #[derive(Clone, Copy, Debug)]
+    pub struct ExecutorStats {
+        /// Number of tasks this warp executed to completion.
+        pub tasks_executed: u32,
+        /// Total number of poll calls this warp made.
+        pub polls_total: u32,
+    }
+
+    // ================================================================
+    // Tagged pointer helpers (same pattern as hostcall protocol)
+    // ================================================================
+
+    #[inline(always)]
+    const fn tagged_value(tag: u32, index: u32) -> u64 {
+        ((tag as u64) << 32) | (index as u64)
+    }
+
+    #[inline(always)]
+    fn tagged_tag(v: u64) -> u32 {
+        (v >> 32) as u32
+    }
+
+    #[inline(always)]
+    fn tagged_index(v: u64) -> u32 {
+        v as u32
+    }
+
+    // ================================================================
+    // WorkQueue — bounded lock-free MPMC FIFO
+    // ================================================================
+
+    /// Bounded lock-free MPMC FIFO queue.
+    ///
+    /// Uses tagged CAS on head and tail to prevent ABA. The buffer is a
+    /// circular array of task slot indices.
+    #[repr(C)]
+    pub struct WorkQueue {
+        /// Consumer index (dequeue here). Tagged u64 for ABA prevention.
+        head: UnsafeCell<u64>,
+        /// Producer index (enqueue here). Tagged u64 for ABA prevention.
+        tail: UnsafeCell<u64>,
+        /// Circular buffer of task slot indices. EMPTY_SENTINEL = unoccupied.
+        buffer: [UnsafeCell<u32>; MAX_TASKS],
+    }
+
+    #[allow(clippy::new_without_default)]
+    impl WorkQueue {
+        /// Create a new empty work queue.
+        pub const fn new() -> Self {
+            #[allow(clippy::declare_interior_mutable_const)]
+            const EMPTY: UnsafeCell<u32> = UnsafeCell::new(EMPTY_SENTINEL);
+            Self {
+                head: UnsafeCell::new(tagged_value(0, 0)),
+                tail: UnsafeCell::new(tagged_value(0, 0)),
+                buffer: [EMPTY; MAX_TASKS],
+            }
+        }
+
+        /// Enqueue a task index. Returns Err if the queue is full.
+        ///
+        /// # Safety
+        /// Must be called from a single lane (typically lane 0).
+        #[inline(always)]
+        pub unsafe fn enqueue(&self, task_id: u32) -> Result<(), ExecutorError> {
+            let head_ptr = self.head.get();
+            let tail_ptr = self.tail.get();
+
+            loop {
+                let old_tail = sys_load_acquire_u64(tail_ptr as *const _);
+                let old_head = sys_load_acquire_u64(head_ptr as *const _);
+
+                let tail_idx = tagged_index(old_tail);
+                let head_idx = tagged_index(old_head);
+
+                // Check if full (allow wraparound comparison)
+                if tail_idx.wrapping_sub(head_idx) >= MAX_TASKS as u32 {
+                    return Err(ExecutorError::QueueFull);
+                }
+
+                let slot = tail_idx & (MAX_TASKS as u32 - 1);
+                let new_tag = tagged_tag(old_tail).wrapping_add(1);
+                let new_tail = tagged_value(new_tag, tail_idx.wrapping_add(1));
+
+                if sys_cas_u64(tail_ptr, old_tail, new_tail) == old_tail {
+                    // Write the task ID into the buffer slot
+                    sys_store_release_u32(self.buffer[slot as usize].get(), task_id);
+                    return Ok(());
+                }
+                // CAS failed — retry
+            }
+        }
+
+        /// Dequeue a task index. Returns EMPTY_SENTINEL if the queue is empty.
+        ///
+        /// # Safety
+        /// Must be called from a single lane (typically lane 0).
+        #[inline(always)]
+        pub unsafe fn dequeue(&self) -> u32 {
+            let head_ptr = self.head.get();
+            let tail_ptr = self.tail.get();
+
+            loop {
+                let old_head = sys_load_acquire_u64(head_ptr as *const _);
+                let old_tail = sys_load_acquire_u64(tail_ptr as *const _);
+
+                let head_idx = tagged_index(old_head);
+                let tail_idx = tagged_index(old_tail);
+
+                // Empty check
+                if head_idx == tail_idx {
+                    return EMPTY_SENTINEL;
+                }
+
+                let slot = head_idx & (MAX_TASKS as u32 - 1);
+
+                // Read the task ID
+                let task_id =
+                    sys_spin_load_acquire_u32(self.buffer[slot as usize].get() as *const _);
+                if task_id == EMPTY_SENTINEL {
+                    // Producer hasn't written yet — retry
+                    continue;
+                }
+
+                let new_tag = tagged_tag(old_head).wrapping_add(1);
+                let new_head = tagged_value(new_tag, head_idx.wrapping_add(1));
+
+                if sys_cas_u64(head_ptr, old_head, new_head) == old_head {
+                    // Clear the buffer slot
+                    sys_store_release_u32(self.buffer[slot as usize].get(), EMPTY_SENTINEL);
+                    return task_id;
+                }
+                // CAS failed — retry
+            }
+        }
+    }
+
+    // ================================================================
+    // TaskSlot — type-erased future storage
+    // ================================================================
+
+    /// Type alias for a type-erased poll function pointer.
+    type PollFn = unsafe fn(*mut u8, &mut Context<'_>) -> Poll<()>;
+
+    /// A fixed-size slot for storing a type-erased future.
+    ///
+    /// The future bytes are stored inline. The `poll_fn` pointer provides
+    /// type-erased access to `Future::poll()`.
+    #[repr(C)]
+    pub struct TaskSlot {
+        /// Slot state: FREE / QUEUED / RUNNING
+        state: UnsafeCell<u32>,
+        /// Type-erased poll function.
+        poll_fn: UnsafeCell<Option<PollFn>>,
+        /// Size of the stored future in bytes (for debugging).
+        future_size: UnsafeCell<u32>,
+        /// Inline storage for the future.
+        future_bytes: UnsafeCell<[u8; TASK_FUTURE_MAX_SIZE]>,
+    }
+
+    #[allow(clippy::new_without_default)]
+    impl TaskSlot {
+        /// Create a new free task slot.
+        pub const fn new() -> Self {
+            Self {
+                state: UnsafeCell::new(SLOT_FREE),
+                poll_fn: UnsafeCell::new(None),
+                future_size: UnsafeCell::new(0),
+                future_bytes: UnsafeCell::new([0u8; TASK_FUTURE_MAX_SIZE]),
+            }
+        }
+    }
+
+    /// Type-erased poll trampoline. Casts the raw bytes back to `F` and polls.
+    ///
+    /// # Safety
+    /// `ptr` must point to a valid `F` that was previously copied into the slot.
+    #[inline(always)]
+    unsafe fn erased_poll<F: Future<Output = ()>>(ptr: *mut u8, cx: &mut Context<'_>) -> Poll<()> {
+        let future = &mut *(ptr as *mut F);
+        Pin::new_unchecked(future).poll(cx)
+    }
+
+    // ================================================================
+    // Free slot stack (tagged CAS, same as hostcall free packets)
+    // ================================================================
+
+    /// Tagged free-slot stack head.
+    /// Bits 63-48: epoch tag, Bits 15-0: slot index (0xFFFF = empty)
+    #[repr(C)]
+    pub struct FreeSlotStack {
+        head: UnsafeCell<u64>,
+    }
+
+    /// Encode a free-stack tagged pointer.
+    #[inline(always)]
+    const fn free_tagged(tag: u16, index: u16) -> u64 {
+        ((tag as u64) << 48) | (index as u64)
+    }
+
+    #[inline(always)]
+    fn free_tag(v: u64) -> u16 {
+        (v >> 48) as u16
+    }
+
+    #[inline(always)]
+    fn free_index(v: u64) -> u16 {
+        v as u16
+    }
+
+    const FREE_NULL: u16 = 0xFFFF;
+
+    impl FreeSlotStack {
+        /// Create a stack pre-populated with all slot indices [0..count).
+        ///
+        /// The `next` links are stored in the task slots' `future_size` field
+        /// (reused as a next pointer when the slot is FREE).
+        pub const fn empty() -> Self {
+            Self {
+                head: UnsafeCell::new(free_tagged(0, FREE_NULL)),
+            }
+        }
+
+        /// Initialize the stack with slots [0..count). Must be called once
+        /// before any pop/push operations.
+        ///
+        /// # Safety
+        /// `slots` must point to a valid TaskSlot array of at least `count` elements.
+        pub unsafe fn init(&self, slots: *mut TaskSlot, count: usize) {
+            // Build a linked list: slot[0] -> slot[1] -> ... -> slot[count-1] -> NULL
+            // We store the "next" pointer in the slot's `future_size` field (reused).
+            for i in 0..count {
+                let slot = &*slots.add(i);
+                let next = if i + 1 < count {
+                    (i + 1) as u32
+                } else {
+                    FREE_NULL as u32
+                };
+                core::ptr::write_volatile(slot.future_size.get(), next);
+                core::ptr::write_volatile(slot.state.get(), SLOT_FREE);
+            }
+            // Head points to slot 0
+            core::ptr::write_volatile(self.head.get(), free_tagged(0, 0));
+        }
+
+        /// Pop a free slot index. Returns FREE_NULL if none available.
+        ///
+        /// # Safety
+        /// `slots` must point to the TaskSlot array.
+        #[inline(always)]
+        pub unsafe fn pop(&self, slots: *const TaskSlot) -> u16 {
+            let head_ptr = self.head.get();
+            loop {
+                let old_head = sys_load_acquire_u64(head_ptr as *const _);
+                let idx = free_index(old_head);
+                if idx == FREE_NULL {
+                    return FREE_NULL;
+                }
+                // Read next pointer from the slot's future_size field
+                let slot = &*slots.add(idx as usize);
+                let next_idx = core::ptr::read_volatile(slot.future_size.get()) as u16;
+                let new_tag = free_tag(old_head).wrapping_add(1);
+                let new_head = free_tagged(new_tag, next_idx);
+                if sys_cas_u64(head_ptr, old_head, new_head) == old_head {
+                    return idx;
+                }
+            }
+        }
+
+        /// Push a slot back onto the free stack.
+        ///
+        /// # Safety
+        /// `slots` must point to the TaskSlot array. The slot must not be in use.
+        #[inline(always)]
+        pub unsafe fn push(&self, slots: *mut TaskSlot, slot_idx: u16) {
+            let head_ptr = self.head.get();
+            let slot = &*slots.add(slot_idx as usize);
+            loop {
+                let old_head = sys_load_acquire_u64(head_ptr as *const _);
+                // Store current head as our "next"
+                core::ptr::write_volatile(slot.future_size.get(), free_index(old_head) as u32);
+                let new_tag = free_tag(old_head).wrapping_add(1);
+                let new_head = free_tagged(new_tag, slot_idx);
+                if sys_cas_u64(head_ptr, old_head, new_head) == old_head {
+                    return;
+                }
+            }
+        }
+    }
+
+    // ================================================================
+    // GpuExecutor — the main executor struct
+    // ================================================================
+
+    /// GPU-side async task executor with work-stealing.
+    ///
+    /// Allocated in global memory. Host initializes, kernel warps call `run()`.
+    #[repr(C)]
+    pub struct GpuExecutor {
+        /// Lock-free MPMC work queue.
+        pub work_queue: WorkQueue,
+        /// Free slot recycling stack.
+        free_slots: FreeSlotStack,
+        /// Number of active tasks (for shutdown detection).
+        tasks_active: UnsafeCell<u32>,
+        /// Shutdown flag (0 = running, 1 = shutting down).
+        shutdown: UnsafeCell<u32>,
+        /// Total tasks spawned (diagnostic counter).
+        tasks_spawned: UnsafeCell<u32>,
+        /// Total tasks completed (diagnostic counter).
+        tasks_completed: UnsafeCell<u32>,
+        /// Task slot arena.
+        slots: [TaskSlot; MAX_TASKS],
+    }
+
+    // SAFETY: GpuExecutor is designed for concurrent access across warps/blocks.
+    // All mutable state is protected by atomic CAS operations.
+    unsafe impl Send for GpuExecutor {}
+    unsafe impl Sync for GpuExecutor {}
+    unsafe impl Send for WorkQueue {}
+    unsafe impl Sync for WorkQueue {}
+    unsafe impl Send for TaskSlot {}
+    unsafe impl Sync for TaskSlot {}
+    unsafe impl Send for FreeSlotStack {}
+    unsafe impl Sync for FreeSlotStack {}
+
+    /// No-op waker vtable for GPU (no real wake mechanism).
+    const NOOP_VTABLE: core::task::RawWakerVTable = core::task::RawWakerVTable::new(
+        |_| core::task::RawWaker::new(core::ptr::null(), &NOOP_VTABLE),
+        |_| {},
+        |_| {},
+        |_| {},
+    );
+
+    #[inline(always)]
+    fn noop_waker() -> core::task::Waker {
+        unsafe {
+            core::task::Waker::from_raw(core::task::RawWaker::new(core::ptr::null(), &NOOP_VTABLE))
+        }
+    }
+
+    #[allow(clippy::new_without_default)]
+    impl GpuExecutor {
+        /// Create a new executor with all slots free.
+        ///
+        /// After construction, call `init()` to set up the free slot linked list.
+        pub const fn new() -> Self {
+            #[allow(clippy::declare_interior_mutable_const)]
+            const SLOT: TaskSlot = TaskSlot::new();
+            Self {
+                work_queue: WorkQueue::new(),
+                free_slots: FreeSlotStack::empty(),
+                tasks_active: UnsafeCell::new(0),
+                shutdown: UnsafeCell::new(0),
+                tasks_spawned: UnsafeCell::new(0),
+                tasks_completed: UnsafeCell::new(0),
+                slots: [SLOT; MAX_TASKS],
+            }
+        }
+
+        /// Initialize the executor. Must be called once before `spawn()` or `run()`.
+        ///
+        /// Sets up the free slot linked list.
+        ///
+        /// # Safety
+        /// Must be called by exactly one thread (e.g., lane 0 of the first warp).
+        pub unsafe fn init(&self) {
+            self.free_slots
+                .init(self.slots.as_ptr() as *mut TaskSlot, MAX_TASKS);
+            core::ptr::write_volatile(self.tasks_active.get(), 0);
+            core::ptr::write_volatile(self.shutdown.get(), 0);
+            core::ptr::write_volatile(self.tasks_spawned.get(), 0);
+            core::ptr::write_volatile(self.tasks_completed.get(), 0);
+        }
+
+        /// Spawn a new async task onto the executor.
+        ///
+        /// The future is copied into a task slot and enqueued for execution.
+        /// Any warp currently in `run()` may pick it up.
+        ///
+        /// # Safety
+        /// - `self` must point to valid executor memory in global/mapped space
+        /// - The future must be safe to poll from any warp
+        /// - Should be called from lane 0 only (single-lane operation)
+        #[inline(always)]
+        pub unsafe fn spawn<F: Future<Output = ()>>(
+            &self,
+            future: F,
+        ) -> Result<TaskId, ExecutorError> {
+            let size = core::mem::size_of::<F>();
+            if size > TASK_FUTURE_MAX_SIZE {
+                return Err(ExecutorError::FutureTooLarge);
+            }
+
+            // Allocate a free slot
+            let slot_idx = self.free_slots.pop(self.slots.as_ptr());
+            if slot_idx == FREE_NULL {
+                return Err(ExecutorError::NoFreeSlots);
+            }
+
+            let slot = &self.slots[slot_idx as usize];
+
+            // Copy future bytes into the slot
+            core::ptr::copy_nonoverlapping(
+                &future as *const F as *const u8,
+                (*slot.future_bytes.get()).as_mut_ptr(),
+                size,
+            );
+            core::mem::forget(future); // ownership transferred to slot
+
+            // Set the type-erased poll function
+            core::ptr::write(slot.poll_fn.get(), Some(erased_poll::<F> as _));
+            core::ptr::write_volatile(slot.future_size.get(), size as u32);
+
+            // Mark as queued (release store ensures all prior writes visible)
+            sys_store_release_u32(slot.state.get(), SLOT_QUEUED);
+
+            // Enqueue into work queue
+            self.work_queue.enqueue(slot_idx as u32)?;
+
+            // Increment spawn counter
+            let old = core::ptr::read_volatile(self.tasks_spawned.get());
+            core::ptr::write_volatile(self.tasks_spawned.get(), old.wrapping_add(1));
+
+            Ok(TaskId(slot_idx as u32))
+        }
+
+        /// Enter the executor loop (ExitOnEmpty policy).
+        ///
+        /// The calling warp dequeues and executes tasks until the queue is empty
+        /// and no more tasks are active. All 32 lanes of the warp must call this.
+        ///
+        /// # Safety
+        /// - Must be called by all active lanes of a warp simultaneously
+        /// - `self` must point to valid executor memory
+        #[inline(always)]
+        pub unsafe fn run(&self) -> ExecutorStats {
+            let mask = activemask();
+            let lid = lane_id();
+            let mut stats = ExecutorStats {
+                tasks_executed: 0,
+                polls_total: 0,
+            };
+
+            let waker = noop_waker();
+            let mut cx = Context::from_waker(&waker);
+
+            loop {
+                // Lane 0 dequeues, broadcasts to all lanes
+                let mut task_id: u32 = EMPTY_SENTINEL;
+                if lid == 0 {
+                    task_id = self.work_queue.dequeue();
+                }
+                let task_id = shfl_sync_idx_u32(mask, task_id, 0);
+                syncwarp(mask);
+
+                if task_id == EMPTY_SENTINEL {
+                    // Check shutdown or no more active tasks
+                    let shutdown = core::ptr::read_volatile(self.shutdown.get() as *const u32);
+                    if shutdown != 0 {
+                        break;
+                    }
+                    // ExitOnEmpty: if nothing in queue, exit
+                    break;
+                }
+
+                // Mark slot as RUNNING
+                let slot = &self.slots[task_id as usize];
+                if lid == 0 {
+                    sys_store_release_u32(slot.state.get(), SLOT_RUNNING);
+                }
+                syncwarp(mask);
+
+                // Get the poll function
+                let poll_fn = core::ptr::read_volatile(slot.poll_fn.get());
+                let poll_fn = match poll_fn {
+                    Some(f) => f,
+                    None => {
+                        // Invalid slot — skip (shouldn't happen)
+                        if lid == 0 {
+                            self.recycle_slot(task_id);
+                        }
+                        syncwarp(mask);
+                        continue;
+                    }
+                };
+
+                let future_ptr = (*slot.future_bytes.get()).as_mut_ptr();
+
+                // Spin-poll the task to completion
+                let mut polls: u32 = 0;
+                loop {
+                    let result = poll_fn(future_ptr, &mut cx);
+                    stats.polls_total += 1;
+                    polls += 1;
+
+                    match result {
+                        Poll::Ready(()) => {
+                            // Task complete — recycle (lane 0 only)
+                            if lid == 0 {
+                                self.recycle_slot(task_id);
+                                let old = core::ptr::read_volatile(self.tasks_completed.get());
+                                core::ptr::write_volatile(
+                                    self.tasks_completed.get(),
+                                    old.wrapping_add(1),
+                                );
+                            }
+                            syncwarp(mask);
+                            stats.tasks_executed += 1;
+                            break;
+                        }
+                        Poll::Pending => {
+                            if polls >= MAX_POLLS_PER_TASK {
+                                // Task stuck — recycle and move on
+                                if lid == 0 {
+                                    self.recycle_slot(task_id);
+                                }
+                                syncwarp(mask);
+                                break;
+                            }
+                            #[cfg(target_arch = "nvptx64")]
+                            core::arch::asm!("nanosleep.u32 1000;", options(nostack));
+                        }
+                    }
+                }
+            }
+
+            stats
+        }
+
+        /// Recycle a task slot back to the free list.
+        ///
+        /// # Safety
+        /// Must be called by lane 0 only. The task must be complete.
+        #[inline(always)]
+        unsafe fn recycle_slot(&self, task_id: u32) {
+            let slot = &self.slots[task_id as usize];
+            core::ptr::write_volatile(slot.state.get(), SLOT_FREE);
+            core::ptr::write(slot.poll_fn.get(), None);
+            self.free_slots
+                .push(self.slots.as_ptr() as *mut TaskSlot, task_id as u16);
+        }
+
+        /// Signal shutdown. Warps in `run()` will exit after draining the queue.
+        ///
+        /// # Safety
+        /// Must be called by lane 0 of exactly one warp.
+        #[inline(always)]
+        pub unsafe fn shutdown(&self) {
+            sys_store_release_u32(self.shutdown.get(), 1);
+        }
+
+        /// Get the number of tasks spawned (diagnostic).
+        pub unsafe fn spawned_count(&self) -> u32 {
+            core::ptr::read_volatile(self.tasks_spawned.get() as *const u32)
+        }
+
+        /// Get the number of tasks completed (diagnostic).
+        pub unsafe fn completed_count(&self) -> u32 {
+            core::ptr::read_volatile(self.tasks_completed.get() as *const u32)
+        }
+    }
+}
+
+/// GPU synchronization primitives — Mutex, MutexGuard.
+///
+/// Provides cross-warp/cross-block mutual exclusion on GPU using system-scope
+/// atomic CAS spin-locks. Designed for protecting shared data structures in
+/// global (mapped) memory.
+///
+/// # Design Notes
+///
+/// - Uses `sys_cas_u32` for lock acquisition (system-scope CAS)
+/// - Uses `sys_store_release_u32` for unlock (release semantics)
+/// - Spin-loop includes `nanosleep` yield via `sys_spin_load_acquire_u32`
+/// - Safe across warps and blocks (different warps have independent PCs)
+/// - **Not recommended for intra-warp use** — warp-cooperative patterns
+///   (lane 0 acts, `shfl.sync` broadcasts) are strictly superior
+/// - No poisoning semantics (GPU panics trap the thread)
+pub mod sync {
+    use core::cell::UnsafeCell;
+    use core::ops::{Deref, DerefMut};
+    use gpu_atomics::{sys_cas_u32, sys_spin_load_acquire_u32, sys_store_release_u32};
+
+    /// Maximum spin iterations before `lock()` panics with a timeout.
+    /// Same as the hostcall protocol's GPU_MAX_SPIN (10M iterations).
+    pub const MUTEX_MAX_SPIN: u32 = 10_000_000;
+
+    /// Lock states.
+    const UNLOCKED: u32 = 0;
+    const LOCKED: u32 = 1;
+
+    /// A mutual exclusion primitive for GPU global memory.
+    ///
+    /// Protects shared data with a spin-lock using system-scope atomic CAS.
+    /// Works correctly across warps and blocks. The lock word and data must
+    /// reside in global memory (device or mapped) — not shared or local memory.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use gpu_runtime::sync::Mutex;
+    ///
+    /// // In global memory (e.g., passed as kernel argument pointer)
+    /// let mutex: &Mutex<u32> = unsafe { &*(ptr as *const Mutex<u32>) };
+    ///
+    /// // Lock, modify, auto-unlock via Drop
+    /// {
+    ///     let mut guard = unsafe { mutex.lock() };
+    ///     *guard += 1;
+    /// } // guard dropped here → unlock
+    /// ```
+    #[repr(C)]
+    pub struct Mutex<T> {
+        lock_word: UnsafeCell<u32>,
+        data: UnsafeCell<T>,
+    }
+
+    // SAFETY: GPU threads are not OS threads. The Mutex provides the necessary
+    // synchronization for cross-warp/cross-block access. Marking as Send+Sync
+    // allows Mutex to be used in static/global contexts on GPU.
+    unsafe impl<T: Send> Send for Mutex<T> {}
+    unsafe impl<T: Send> Sync for Mutex<T> {}
+
+    impl<T> Mutex<T> {
+        /// Create a new unlocked Mutex wrapping the given value.
+        ///
+        /// The Mutex must reside in global memory for cross-warp/cross-block use.
+        /// Typically you'll initialize a Mutex in mapped memory from the host side
+        /// by zeroing the lock word and writing the initial value.
+        pub const fn new(value: T) -> Self {
+            Self {
+                lock_word: UnsafeCell::new(UNLOCKED),
+                data: UnsafeCell::new(value),
+            }
+        }
+
+        /// Acquire the lock, spinning until it becomes available.
+        ///
+        /// Returns a `MutexGuard` that automatically releases the lock on drop.
+        /// Panics (traps) if the lock is not acquired within `MUTEX_MAX_SPIN`
+        /// iterations, indicating likely deadlock.
+        ///
+        /// # Safety
+        ///
+        /// - The Mutex must reside in global memory (device or mapped).
+        /// - Must not be called from within the same warp that already holds
+        ///   the lock (will deadlock on pre-Volta GPUs, may stall on Volta+).
+        #[inline(always)]
+        pub unsafe fn lock(&self) -> MutexGuard<'_, T> {
+            let lock_ptr = self.lock_word.get();
+            let mut spins: u32 = 0;
+            loop {
+                // Try to acquire: CAS(ptr, UNLOCKED, LOCKED)
+                // If returns UNLOCKED, we won the lock.
+                let old = sys_cas_u32(lock_ptr, UNLOCKED, LOCKED);
+                if old == UNLOCKED {
+                    return MutexGuard { mutex: self };
+                }
+                // Spin with nanosleep yield (prevents warp starvation)
+                let _ = sys_spin_load_acquire_u32(lock_ptr as *const u32);
+                spins += 1;
+                if spins >= MUTEX_MAX_SPIN {
+                    // Likely deadlock — trap
+                    #[cfg(target_arch = "nvptx64")]
+                    core::arch::asm!("trap;", options(noreturn, nostack));
+                    #[cfg(not(target_arch = "nvptx64"))]
+                    panic!("GPU Mutex: spin timeout (likely deadlock)");
+                }
+            }
+        }
+
+        /// Try to acquire the lock without spinning.
+        ///
+        /// Returns `Some(MutexGuard)` if the lock was acquired, `None` if
+        /// it's currently held by another thread.
+        ///
+        /// # Safety
+        ///
+        /// Same requirements as `lock()`.
+        #[inline(always)]
+        pub unsafe fn try_lock(&self) -> Option<MutexGuard<'_, T>> {
+            let lock_ptr = self.lock_word.get();
+            let old = sys_cas_u32(lock_ptr, UNLOCKED, LOCKED);
+            if old == UNLOCKED {
+                Some(MutexGuard { mutex: self })
+            } else {
+                None
+            }
+        }
+
+        /// Release the lock.
+        ///
+        /// Normally called automatically via `MutexGuard::drop()`. Only call
+        /// this directly if you need to release without a guard.
+        ///
+        /// # Safety
+        ///
+        /// Caller must hold the lock.
+        #[inline(always)]
+        unsafe fn unlock(&self) {
+            sys_store_release_u32(self.lock_word.get(), UNLOCKED);
+        }
+    }
+
+    /// RAII guard for a locked Mutex. Releases the lock on drop.
+    pub struct MutexGuard<'a, T> {
+        mutex: &'a Mutex<T>,
+    }
+
+    impl<'a, T> Deref for MutexGuard<'a, T> {
+        type Target = T;
+        #[inline(always)]
+        fn deref(&self) -> &T {
+            // SAFETY: We hold the lock, so exclusive access is guaranteed.
+            unsafe { &*self.mutex.data.get() }
+        }
+    }
+
+    impl<'a, T> DerefMut for MutexGuard<'a, T> {
+        #[inline(always)]
+        fn deref_mut(&mut self) -> &mut T {
+            // SAFETY: We hold the lock, so exclusive access is guaranteed.
+            unsafe { &mut *self.mutex.data.get() }
+        }
+    }
+
+    impl<'a, T> Drop for MutexGuard<'a, T> {
+        #[inline(always)]
+        fn drop(&mut self) {
+            // SAFETY: Guard exists only when lock is held.
+            unsafe { self.mutex.unlock() };
+        }
+    }
+}
+
 /// Prelude — import everything you need for a basic GPU kernel.
 ///
 /// The prelude exports high-level APIs for common tasks. For low-level
@@ -3756,4 +4551,10 @@ pub mod prelude {
         GpuReadFuture, GpuTcpBulkReadFuture, GpuTcpBulkWriteFuture, GpuTcpCloseFuture,
         GpuTcpConnectFuture, GpuTcpReadFuture, GpuTcpWriteFuture, GpuWriteFuture,
     };
+
+    // --- Sync primitives ---
+    pub use crate::sync::{Mutex, MutexGuard};
+
+    // --- Executor ---
+    pub use crate::executor::{ExecutorError, ExecutorStats, GpuExecutor, TaskId};
 }

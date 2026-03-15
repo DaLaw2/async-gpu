@@ -9,7 +9,7 @@
 //! No hostcall needed — pure compute kernels.
 
 use cudarc::driver::LaunchAsync;
-use gpu_host::{GpuHostError, GpuRuntime};
+use gpu_host::GpuRuntime;
 
 const KERNEL_PTX: &str = include_str!(concat!(env!("OUT_DIR"), "/kernel.ptx"));
 
@@ -42,9 +42,7 @@ fn main() -> gpu_host::Result<()> {
         let x_dev = rt.htod_sync_copy(&x)?;
         let mut y_dev = rt.htod_sync_copy(&y_orig)?;
 
-        let f = rt
-            .get_func("vecmath", "saxpy")
-            .ok_or(GpuHostError::KernelNotFound("saxpy"))?;
+        let f = rt.require_func("vecmath", "saxpy")?;
         let cfg = GpuRuntime::launch_config(((N as u32).div_ceil(256), 1, 1), (256, 1, 1), 0);
         unsafe { f.launch(cfg, (&x_dev, &mut y_dev, a, N as u32))? };
         let result = rt.dtoh_sync_copy(&y_dev)?;
@@ -70,9 +68,7 @@ fn main() -> gpu_host::Result<()> {
         let y_dev = rt.htod_sync_copy(&y)?;
         let mut products_dev = rt.alloc_zeros::<f32>(N)?;
 
-        let f = rt
-            .get_func("vecmath", "elementwise_mul")
-            .ok_or(GpuHostError::KernelNotFound("elementwise_mul"))?;
+        let f = rt.require_func("vecmath", "elementwise_mul")?;
         let cfg = GpuRuntime::launch_config(((N as u32).div_ceil(256), 1, 1), (256, 1, 1), 0);
         unsafe { f.launch(cfg, (&x_dev, &y_dev, &mut products_dev, N as u32))? };
         let products = rt.dtoh_sync_copy(&products_dev)?;
@@ -101,9 +97,7 @@ fn main() -> gpu_host::Result<()> {
         let mut exp_dev = rt.alloc_zeros::<f32>(N)?;
 
         // Step 2: GPU computes exp(x - max)
-        let f_exp = rt
-            .get_func("vecmath", "softmax_exp")
-            .ok_or(GpuHostError::KernelNotFound("softmax_exp"))?;
+        let f_exp = rt.require_func("vecmath", "softmax_exp")?;
         let cfg = GpuRuntime::launch_config(((N as u32).div_ceil(256), 1, 1), (256, 1, 1), 0);
         unsafe { f_exp.launch(cfg, (&input_dev, &mut exp_dev, max_val, N as u32))? };
         let exp_vals = rt.dtoh_sync_copy(&exp_dev)?;
@@ -113,9 +107,7 @@ fn main() -> gpu_host::Result<()> {
 
         // Step 4: GPU normalizes
         let mut result_dev = rt.htod_sync_copy(&exp_vals)?;
-        let f_norm = rt
-            .get_func("vecmath", "softmax_normalize")
-            .ok_or(GpuHostError::KernelNotFound("softmax_normalize"))?;
+        let f_norm = rt.require_func("vecmath", "softmax_normalize")?;
         unsafe { f_norm.launch(cfg, (&mut result_dev, exp_sum, N as u32))? };
         let result = rt.dtoh_sync_copy(&result_dev)?;
 

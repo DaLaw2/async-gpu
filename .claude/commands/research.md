@@ -166,8 +166,10 @@ For each task:
 
 **kind = "experiment"**:
 - Read relevant same-theme findings first
+- **Baseline-first**: Before making any changes, run the relevant test/benchmark on the *current* code to capture a baseline result. Record it in the findings file. All subsequent changes are measured against this baseline.
 - Write code → compile → fix → retry (max 5 rounds)
-- If 5 rounds fail → `status = "blocked"`, continue to next task (brainstorm later)
+- If 5 rounds fail → `status = "blocked"`, `git reset` to pre-experiment commit, continue to next task (brainstorm later)
+- **Output redirection**: For long-running commands (`cargo test`, `cargo bench`, etc.), redirect output to a temp file (`> .research/run.log 2>&1`) and `grep` only the key results (pass/fail counts, metrics). Only read full output on failure (`tail -50`). Delete the log file after use.
 
 **kind = "design"**: Synthesize findings, produce architecture doc, record ADR in `decisions.md`.
 
@@ -282,7 +284,7 @@ last_summary = "atomics.4 done: u64 CAS/add/exchange + spin-load + activemask al
 ---
 
 ## Error Handling
-- Compilation fails 5 times → mark blocked, continue to next task, brainstorm later
+- Compilation fails 5 times → mark blocked, `git reset` to pre-experiment commit, continue to next task, brainstorm later
 - Missing system lib → STOP, ask user
 - `git push` fails → warn user, continue (data committed locally)
 - All routes blocked → full blocker analysis, STOP

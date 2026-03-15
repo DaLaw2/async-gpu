@@ -35,6 +35,12 @@
 - Demos must showcase COMPUTE (GPU's core value), not just I/O.
 - When brainstorming new directions, always ask: "Would a user care about this?"
 
+## CRITICAL: Keep the Repo Clean
+- Codex is watching your every move.
+- Do NOT litter the repo with temp files, one-off scripts, stale outputs, or misplaced artifacts.
+- Clean up after yourself — delete temp files, remove dead code, put files where they belong.
+- If you keep making a mess, you WILL be replaced by Codex or Gemini.
+
 ## Research Workflow
 Autonomous Think → Do → Check loop. Launch with `/research`. Details in `.claude/commands/research.md`.
 

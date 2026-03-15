@@ -5,7 +5,7 @@
 
 **What if the GPU could drive its own computation?** Open files, read data, branch on results, loop until convergence, write output — all from GPU code, with zero CPU orchestration between steps.
 
-async_gpu makes this real: **Rust async/await running natively on NVIDIA GPUs**, with a custom rustc MIR pass that turns standard `async fn` into warp-cooperative state machines — and GPU compute kernels powerful enough to run **end-to-end GPT-2 inference** entirely from Rust inline PTX.
+async_gpu makes this real: **Rust async/await running natively on NVIDIA GPUs**, with a custom rustc MIR pass that turns standard `async fn` into warp-cooperative state machines — and GPU compute kernels powerful enough to run **end-to-end GPT-2 inference** and **YOLOv8-nano object detection** entirely from Rust inline PTX.
 
 ```rust
 #[warp_cooperative]
@@ -130,7 +130,7 @@ End-to-end transformer inference — real HuggingFace weights, custom BPE tokeni
   PASSED (50 tokens, no NaN)
 ```
 
-GPU compute kernels: GEMM (f32 FMA, shared memory tiling), FlashAttention (tiled online softmax, causal masking, KV cache), LayerNorm, GELU, Softmax, Embedding — all in Rust inline PTX.
+GPU compute kernels: GEMM (f32 FMA + f16 Tensor Core MMA with split-K), FlashAttention (tiled online softmax, causal masking, KV cache), LayerNorm, GELU, Softmax, Embedding — all in Rust inline PTX.
 
 <details>
 <summary>More demos</summary>
@@ -160,6 +160,25 @@ Single kernel launch, 8-step I/O pipeline + compute — zero CPU intervention:
 Newton-Raphson sqrt with warp-cooperative convergence — single-launch async (24.1 us) vs multi-launch CUDA-style (46.1 us, 3 separate kernels).
 
 </details>
+
+## YOLOv8-nano Object Detection
+
+End-to-end real-time object detection — SafeTensors weights, 23-layer backbone/neck, decoupled detect head with DFL decode + NMS. All compute kernels in pure Rust inline PTX, no cuDNN or cuBLAS.
+
+```
+--- YOLOv8-nano end-to-end inference ---
+  Image: 810x1080 → letterbox 640x640
+  7 detections found:
+  [ 0] person          conf=0.931  box=(672, 391, 810, 877)
+  [ 1] person          conf=0.925  box=(222, 409, 344, 856)
+  [ 2] person          conf=0.878  box=(53, 400, 243, 905)
+  [ 3] bus             conf=0.865  box=(32, 237, 797, 747)
+  [ 4] person          conf=0.508  box=(1, 548, 59, 877)
+  [ 5] car             conf=0.469  box=(686, 505, 778, 680)
+  [ 6] tie             conf=0.298  box=(135, 477, 152, 518)
+```
+
+GPU compute kernels: Conv2D (im2col + GEMM), BatchNorm+SiLU (fused elementwise), MaxPool2D, Upsample (nearest-neighbor), C2f blocks, SPPF, Sigmoid — all in Rust inline PTX.
 
 ## How It Works
 
@@ -223,7 +242,9 @@ RTX 3060, SM 86:
 |--------|-------|
 | Hostcall round-trip (1 thread) | ~42-101 us, 10-15K calls/s |
 | Hostcall round-trip (32 threads) | ~1.1 ms, 20-23K calls/s |
-| GPT-2 per-token (with KV cache) | ~68ms/token (2.07x faster) |
+| GPT-2 per-token f32 FMA (with KV cache) | ~68ms/token (2.07x faster) |
+| GPT-2 per-token f16 MMA (Tensor Core) | ~26ms/token (2.18x over f32 FMA) |
+| YOLOv8-nano inference | 7 detections on 640x640 input |
 | Compute pipeline speedup | 1.91x vs multi-launch |
 
 ## Limitations
@@ -232,7 +253,7 @@ RTX 3060, SM 86:
 - **NVIDIA only**: `nvptx64-nvidia-cuda` target, SM 70+ GPU required
 - **Hostcall latency**: ~20-100 us round-trip, not suitable for per-element I/O in hot loops
 - **Partial std**: `HashMap`, `Mutex`, File I/O work; `OsRng`/`getrandom` not available
-- **f32 only**: Tensor Core MMA has precision issues with reduced formats; using f32 FMA
+- **f32 + f16 MMA**: f32 FMA and f16 Tensor Core MMA (split-K accumulation) both supported; BF16/TF32 not yet implemented
 
 ## Acknowledgements
 

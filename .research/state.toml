@@ -10,12 +10,12 @@ status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.route"
-current_task_id = ""
-last_summary = "yolo-inference.8 DONE: End-to-end YOLOv8-nano inference working — 7 detections on bus.jpg (3 persons, bus, car, person, tie). ALL 5 object-detection epic criteria met. yolo-inference theme completed. Next: brainstorm for remaining active epics."
+current_step = "do.execute"
+current_task_id = "codebase-update.1"
+last_summary = "BS99 done: 4 themes spawned (codebase-update, dx-xtask, dx-editor, dx-setup). Starting codebase-update batch: README fix, toolchain consolidation, CI coverage."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 98
+brainstorm_seq = 99
 review_seq = 5
 
 # Brainstorm trigger control (event-driven, no fixed interval)
@@ -294,7 +294,8 @@ success_criteria = [
 [[epics]]
 id = "tensor-core-gemm"
 title = "Tensor Core GEMM — production-quality MMA kernel with correct precision and real speedup"
-status = "active"
+status = "completed"
+# ALL 5 CRITERIA MET — closed 2026-03-15. Split-K f16 MMA: 2.18x throughput, 26ms/token, 3/3 prompts match.
 priority = "highest"
 success_criteria = [
     "Split-K accumulation: large K dimensions (>=1024) chunked into independent f32 partial sums to prevent rounding error accumulation",
@@ -359,6 +360,52 @@ success_criteria = [
     "Full backbone produces features matching PyTorch reference",
     "Detection head + host-side NMS outputs valid bounding boxes",
     "End-to-end demo detects >=3 objects correctly",
+]
+
+[[themes]]
+id = "codebase-update"
+epic = "codebase-health"
+title = "README + build script maintenance"
+status = "completed"
+goal = "README reflects current state; build scripts use single toolchain source"
+success_criteria = [
+    "README limitations section updated (MMA works, YOLO added)",
+    "Performance table updated with MMA and YOLO numbers",
+    "Build scripts derive nightly version from rust-toolchain.toml",
+]
+
+[[themes]]
+id = "dx-xtask"
+epic = "developer-experience"
+title = "cargo xtask for GPU build"
+status = "active"
+goal = "Single command to build host + GPU kernels with PTX post-processing"
+success_criteria = [
+    "cargo xtask gpu-build discovers and builds all GPU kernel crates",
+    "Per-example build support with PTX post-processing",
+    "Passes cargo check on host platforms",
+]
+
+[[themes]]
+id = "dx-editor"
+epic = "developer-experience"
+title = "rust-analyzer configuration for GPU crates"
+status = "active"
+goal = "RA provides completions and type checking for GPU kernel crates"
+success_criteria = [
+    "RA config enables indexing GPU kernel crates",
+    "Struct/enum definitions from gpu-protocol resolve correctly",
+]
+
+[[themes]]
+id = "dx-setup"
+epic = "developer-experience"
+title = "Setup script for new users"
+status = "active"
+goal = "Download pre-built toolchain + configure environment with one command"
+success_criteria = [
+    "Setup scripts for Linux + Windows download pre-built toolchain",
+    "Script verifies CUDA installation and reports missing prerequisites",
 ]
 
 [[themes]]
@@ -506,6 +553,114 @@ kind = "experiment"
 status = "done"
 depends = ["yolo-inference.7"]
 
+# --- codebase-update tasks ---
+
+[[tasks]]
+id = "codebase-update.1"
+theme = "codebase-update"
+title = "Fix: update README with MMA GEMM and YOLOv8-nano achievements"
+kind = "experiment"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "codebase-update.2"
+theme = "codebase-update"
+title = "Fix: consolidate nightly toolchain version in build scripts"
+kind = "experiment"
+status = "done"
+# No changes needed — all scripts already derive from rust-toolchain.toml or clone fresh rustc
+depends = []
+
+[[tasks]]
+id = "codebase-update.3"
+theme = "codebase-update"
+title = "Fix: ensure all examples and test crates covered in ci-lint.sh"
+kind = "experiment"
+status = "done"
+# No changes needed — all examples covered; warp-cooperative intentionally excluded (needs patched rustc)
+depends = []
+
+# --- dx-xtask tasks ---
+
+[[tasks]]
+id = "dx-xtask.1"
+theme = "dx-xtask"
+title = "Investigation: audit current build flows (build.rs, ci-lint.sh, PTX post-processing)"
+kind = "investigation"
+status = "pending"
+depends = []
+questions = [
+    "What build.rs patterns exist across examples?",
+    "How does ci-lint.sh discover and build kernel crates?",
+    "What PTX post-processing steps are needed (stub list, .ptr .align removal)?",
+    "What is the minimal xtask interface for gpu-build?",
+]
+
+[[tasks]]
+id = "dx-xtask.2"
+theme = "dx-xtask"
+title = "Experiment: implement xtask crate with gpu-build subcommand"
+kind = "experiment"
+status = "pending"
+depends = ["dx-xtask.1"]
+
+[[tasks]]
+id = "dx-xtask.3"
+theme = "dx-xtask"
+title = "Experiment: add per-example build support + PTX post-processing"
+kind = "experiment"
+status = "pending"
+depends = ["dx-xtask.2"]
+
+# --- dx-editor tasks ---
+
+[[tasks]]
+id = "dx-editor.1"
+theme = "dx-editor"
+title = "Investigation: test RA behavior with nvptx64 target, identify what works"
+kind = "investigation"
+status = "pending"
+depends = []
+questions = [
+    "Can rust-analyzer index nvptx64 kernel crates via linkedProjects?",
+    "Which types resolve correctly (gpu-protocol structs, gpu-runtime functions)?",
+    "Does core::arch::nvptx resolve? What about inline PTX asm?",
+    "What RA config gives the best experience for this split-workspace setup?",
+]
+
+[[tasks]]
+id = "dx-editor.2"
+theme = "dx-editor"
+title = "Experiment: create RA configuration that maximizes useful analysis"
+kind = "experiment"
+status = "pending"
+depends = ["dx-editor.1"]
+
+# --- dx-setup tasks ---
+
+[[tasks]]
+id = "dx-setup.1"
+theme = "dx-setup"
+title = "Investigation: verify what pre-built toolchain artifacts exist (CI, releases)"
+kind = "investigation"
+status = "pending"
+depends = []
+questions = [
+    "Are pre-built toolchain artifacts stored as GitHub Releases or CI artifacts?",
+    "What is the download URL pattern?",
+    "Do they include the patched std sysroot for nvptx64?",
+    "What prerequisites does a new user need (CUDA version, rustup, etc.)?",
+]
+
+[[tasks]]
+id = "dx-setup.2"
+theme = "dx-setup"
+title = "Experiment: write setup scripts for Linux + Windows"
+kind = "experiment"
+status = "pending"
+depends = ["dx-setup.1"]
+
 # --- warp-batch-io tasks ---
 
 [[tasks]]
@@ -549,6 +704,18 @@ depends = ["warp-batch-io.3"]
 # ============================================================
 # Brainstorms (last 3 only — older brainstorms archived)
 # ============================================================
+
+[[brainstorms]]
+seq = 99
+at_cycle = 364
+trigger = "object-detection + tensor-core-gemm epics completed, only low-priority epics remain"
+level = "standard"
+new_tasks_spawned = ["codebase-update.1", "codebase-update.2", "codebase-update.3", "dx-xtask.1", "dx-xtask.2", "dx-xtask.3", "dx-editor.1", "dx-editor.2", "dx-setup.1", "dx-setup.2"]
+new_themes_spawned = ["codebase-update", "dx-xtask", "dx-editor", "dx-setup"]
+new_epics_spawned = []
+themes_parked = []
+themes_completed = ["yolo-inference", "mma-splitk"]
+key_insight = "Project is feature-complete (21+ epics, 394 tasks). Remaining work is DX + codebase-health: fix stale README (MMA works, YOLO added), cargo xtask for unified build, rust-analyzer config, setup scripts. No new epics needed."
 
 [[brainstorms]]
 seq = 97

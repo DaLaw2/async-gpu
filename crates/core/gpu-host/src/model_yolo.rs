@@ -34,28 +34,28 @@ pub const NUM_LAYERS: usize = 23;
 /// Weights for a Conv2d + BatchNorm2d + SiLU block.
 #[derive(Debug)]
 pub struct ConvBnSiluWeights {
-    /// Conv2d weight [C_out, C_in, kH, kW], stored as flat f32.
+    /// Conv2d weight \[C_out, C_in, kH, kW\], stored as flat f32.
     pub conv_weight: Vec<f32>,
-    /// Conv2d weight shape [C_out, C_in, kH, kW].
+    /// Conv2d weight shape \[C_out, C_in, kH, kW\].
     pub conv_shape: Vec<usize>,
-    /// BatchNorm gamma [C].
+    /// BatchNorm gamma \[C\].
     pub bn_weight: Vec<f32>,
-    /// BatchNorm beta [C].
+    /// BatchNorm beta \[C\].
     pub bn_bias: Vec<f32>,
-    /// BatchNorm running mean [C].
+    /// BatchNorm running mean \[C\].
     pub bn_running_mean: Vec<f32>,
-    /// BatchNorm running var [C].
+    /// BatchNorm running var \[C\].
     pub bn_running_var: Vec<f32>,
 }
 
 /// Weights for a bare Conv2d (no BN, no activation) — used in detect head final layers.
 #[derive(Debug)]
 pub struct ConvWeights {
-    /// Conv2d weight [C_out, C_in, kH, kW].
+    /// Conv2d weight \[C_out, C_in, kH, kW\].
     pub weight: Vec<f32>,
-    /// Conv2d weight shape [C_out, C_in, kH, kW].
+    /// Conv2d weight shape \[C_out, C_in, kH, kW\].
     pub shape: Vec<usize>,
-    /// Conv2d bias [C_out].
+    /// Conv2d bias \[C_out\].
     pub bias: Vec<f32>,
 }
 

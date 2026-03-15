@@ -8,7 +8,7 @@
 //! - **Compute streams** ([`GpuStream`]): For pure compute kernels that don't
 //!   use hostcall I/O. Can overlap freely on independent streams.
 //! - **Hostcall kernels**: Must use the default stream via [`GpuRuntime`] or
-//!   [`GpuTask`](crate::async_rt::GpuTask). Device-level sync is required
+//!   `GpuTask`. Device-level sync is required
 //!   before hostcall packet reset.
 //!
 //! [`CudaStream`]: cudarc::driver::CudaStream

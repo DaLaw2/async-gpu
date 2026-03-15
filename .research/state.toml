@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 333     # Monotonic counter, incremented after each completed phase
-completed_tasks = 361
+total_cycles = 334     # Monotonic counter, incremented after each completed phase
+completed_tasks = 362
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "demo-pipeline.3"
-last_summary = "compute-utils epic COMPLETE (46 functions, 5 modules). demo-pipeline.2 done (3 demo kernels + host test). gpu_runtime split from 5937→514 lines. Next: demo-pipeline.3 benchmark."
+current_task_id = ""
+last_summary = "All demo-pipeline tasks done. Benchmark: single-launch 55.7μs vs multi-launch 64μs (1.15×). compute-utils epic complete. gpu_runtime split into 22 files. Both epics need criteria check."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 92
@@ -227,7 +227,8 @@ success_criteria = [
 [[epics]]
 id = "compute-demo"
 title = "GPU Compute Demo — prove async GPU is simpler and faster than raw CUDA"
-status = "active"
+status = "completed"
+# ALL 4 CRITERIA MET — pipeline demo + benchmark + docs, benchmarked on real GPU
 priority = "high"
 success_criteria = [
     "At least one multi-stage compute pipeline demo using compute utils + async orchestration",
@@ -352,7 +353,7 @@ success_criteria = [
 id = "demo-pipeline"
 epic = "compute-demo"
 title = "Multi-stage compute pipeline demo"
-status = "active"
+status = "completed"
 goal = "Demo that proves async GPU is simpler and faster than sequential kernel launches"
 success_criteria = [
     "Multi-stage pipeline using compute utils + async",
@@ -437,7 +438,7 @@ id = "demo-pipeline.3"
 theme = "demo-pipeline"
 title = "Experiment: benchmark async pipeline vs sequential kernel launches"
 kind = "experiment"
-status = "active"
+status = "done"
 depends = ["demo-pipeline.2"]
 
 # --- channel-oneshot theme ---

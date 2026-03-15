@@ -4,18 +4,18 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 328     # Monotonic counter, incremented after each completed phase
-completed_tasks = 352
+total_cycles = 331     # Monotonic counter, incremented after each completed phase
+completed_tasks = 359
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "channel-oneshot.3"
-last_summary = "Brainstorm 91: created gpu-channels epic (oneshot + mpsc channels between GPU async tasks). 4 themes, 8 tasks. Next: execute channel-oneshot.1 investigation."
+current_task_id = "demo-pipeline.1"
+last_summary = "compute-extract theme COMPLETE: 46 public compute functions in 5 modules (index/math/warp/block/nn). Block reductions + warp_softmax + warp_layer_norm all added and verified. Next: demo-pipeline.1 design."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 91
+brainstorm_seq = 92
 review_seq = 5
 
 # Brainstorm trigger control (event-driven, no fixed interval)
@@ -211,9 +211,35 @@ success_criteria = [
 ]
 
 [[epics]]
+id = "compute-utils"
+title = "GPU Compute Utils — expose all internal compute functions as public API"
+status = "active"
+priority = "high"
+success_criteria = [
+    "Full audit of all compute functions across codebase (compute_*.rs, helpers.rs, etc.)",
+    "gpu_runtime::compute module with public API: reductions, GEMM, activation functions, etc.",
+    "Warp-level primitives exposed: reduce_sum, scan, ballot, shuffle variants",
+    "Block-level primitives: shared memory helpers, bar_sync, parallel reduction",
+    "All exposed functions compile to valid PTX and have documentation",
+]
+
+[[epics]]
+id = "compute-demo"
+title = "GPU Compute Demo — prove async GPU is simpler and faster than raw CUDA"
+status = "active"
+priority = "high"
+success_criteria = [
+    "At least one multi-stage compute pipeline demo using compute utils + async orchestration",
+    "Demonstrate elimination of kernel launch overhead vs raw CUDA equivalent",
+    "User-facing quality: clean API, good documentation, easy to understand",
+    "Benchmark data comparing async GPU vs sequential kernel launches",
+]
+
+[[epics]]
 id = "gpu-channels"
 title = "GPU Async Channels — inter-task communication on GPU"
-status = "active"
+status = "parked"
+# PARKED: user pivot to compute-utils + compute-demo. Oneshot done, rest deferred.
 priority = "high"
 success_criteria = [
     "Oneshot<T> channel: sender.send(val) + receiver.await works between GPU async tasks",
@@ -267,7 +293,7 @@ success_criteria = [
 id = "channel-mpsc"
 epic = "gpu-channels"
 title = "Mpsc<T> channel — multi-producer single-consumer"
-status = "active"
+status = "parked"
 goal = "Lock-free ring buffer with CAS-based enqueue, atomic waker"
 success_criteria = [
     "Ring buffer with CAS enqueue, atomic head/tail",
@@ -279,7 +305,7 @@ success_criteria = [
 id = "channel-waker"
 epic = "gpu-channels"
 title = "Waker integration — sender wakes receiver task in executor"
-status = "active"
+status = "parked"
 goal = "When sender.send() completes, receiver task is re-enqueued in executor"
 success_criteria = [
     "Waker stored by receiver, called by sender on send()",
@@ -290,16 +316,128 @@ success_criteria = [
 id = "channel-demo"
 epic = "gpu-channels"
 title = "Demo: producer-consumer pipeline with channels"
-status = "active"
+status = "parked"
 goal = "End-to-end demo kernel showing channels + executor working together"
 success_criteria = [
     "Producer task sends values via channel, consumer receives and processes",
     "All tasks complete correctly via executor",
 ]
 
+[[themes]]
+id = "compute-audit"
+epic = "compute-utils"
+title = "Full audit of all compute functions in codebase"
+status = "completed"
+goal = "Scan every file, catalog all reusable compute functions"
+success_criteria = [
+    "Complete inventory of all compute functions with categories",
+    "Decision on which functions to expose vs keep internal",
+]
+
+[[themes]]
+id = "compute-extract"
+epic = "compute-utils"
+title = "Extract and expose compute functions in gpu_runtime::compute"
+status = "completed"
+goal = "Create public gpu_runtime::compute module with documented API"
+success_criteria = [
+    "Warp-level: reduce_sum, shuffle variants",
+    "Block-level: shared memory reduction, bar_sync wrapper",
+    "Math: GEMM, softmax, GELU, LayerNorm",
+    "All compile to PTX and documented",
+]
+
+[[themes]]
+id = "demo-pipeline"
+epic = "compute-demo"
+title = "Multi-stage compute pipeline demo"
+status = "active"
+goal = "Demo that proves async GPU is simpler and faster than sequential kernel launches"
+success_criteria = [
+    "Multi-stage pipeline using compute utils + async",
+    "Comparison with equivalent multi-launch approach",
+    "User-facing quality code and documentation",
+]
+
 # ============================================================
 # Tasks (pending/active only — done tasks archived in archive/)
 # ============================================================
+
+# --- compute-audit theme ---
+
+[[tasks]]
+id = "compute-audit.1"
+theme = "compute-audit"
+title = "Investigation: full scan of all compute functions in codebase"
+kind = "investigation"
+status = "done"
+depends = []
+questions = [
+    "What compute functions exist in compute_gemm.rs, compute_transformer.rs, compute_math.rs, compute_search.rs, compute_mma.rs?",
+    "What helper functions in helpers.rs are compute-related (shared mem, bar_sync, math intrinsics)?",
+    "Which functions are reusable vs tightly coupled to specific kernels?",
+    "What categories: warp primitives, block primitives, math, linear algebra, ML ops?",
+]
+
+[[tasks]]
+id = "compute-audit.2"
+theme = "compute-audit"
+title = "Design: decide API surface for gpu_runtime::compute"
+kind = "design"
+status = "done"
+depends = ["compute-audit.1"]
+
+# --- compute-extract theme ---
+
+[[tasks]]
+id = "compute-extract.1"
+theme = "compute-extract"
+title = "Experiment: extract all compute primitives (index/math/warp/block/nn)"
+kind = "experiment"
+status = "done"
+depends = ["compute-audit.2"]
+
+[[tasks]]
+id = "compute-extract.2"
+theme = "compute-extract"
+title = "Experiment: add block-level reduction (shared mem reduce_sum/max/min)"
+kind = "experiment"
+status = "done"
+depends = ["compute-extract.1"]
+
+[[tasks]]
+id = "compute-extract.3"
+theme = "compute-extract"
+title = "Experiment: add warp_softmax_f32 and warp_layer_norm_f32 to nn module"
+kind = "experiment"
+status = "done"
+depends = ["compute-extract.1"]
+
+# --- demo-pipeline theme ---
+
+[[tasks]]
+id = "demo-pipeline.1"
+theme = "demo-pipeline"
+title = "Design: choose compute demo scenario and architecture"
+kind = "design"
+status = "active"
+depends = ["compute-extract.1"]
+
+[[tasks]]
+id = "demo-pipeline.2"
+theme = "demo-pipeline"
+title = "Experiment: implement multi-stage compute pipeline demo"
+kind = "experiment"
+status = "pending"
+depends = ["demo-pipeline.1", "compute-extract.3"]
+
+[[tasks]]
+id = "demo-pipeline.3"
+theme = "demo-pipeline"
+title = "Experiment: benchmark async pipeline vs sequential kernel launches"
+kind = "experiment"
+status = "pending"
+depends = ["demo-pipeline.2"]
 
 # --- channel-oneshot theme ---
 
@@ -340,7 +478,7 @@ id = "channel-mpsc.1"
 theme = "channel-mpsc"
 title = "Investigation: MPSC channel design — lock-free ring buffer on GPU"
 kind = "investigation"
-status = "active"
+status = "done"
 depends = ["channel-oneshot.1"]
 questions = [
     "Ring buffer vs linked list for MPSC on GPU?",
@@ -364,7 +502,7 @@ id = "channel-waker.1"
 theme = "channel-waker"
 title = "Investigation: waker integration — how sender wakes receiver task"
 kind = "investigation"
-status = "active"
+status = "done"
 depends = ["channel-oneshot.1"]
 questions = [
     "How does send() notify the executor that receiver task is ready?",
@@ -394,6 +532,18 @@ depends = ["channel-oneshot.3", "channel-waker.2"]
 # ============================================================
 # Brainstorms (last 3 only — older brainstorms archived)
 # ============================================================
+
+[[brainstorms]]
+seq = 92
+at_cycle = 328
+trigger = "user pivot: demos are all I/O, need compute. Expose internal compute functions + build compelling demo."
+level = "quick"
+new_tasks_spawned = ["compute-audit.1", "compute-audit.2", "compute-extract.1", "compute-extract.2", "compute-extract.3", "demo-pipeline.1", "demo-pipeline.2", "demo-pipeline.3"]
+new_themes_spawned = ["compute-audit", "compute-extract", "demo-pipeline"]
+new_epics_spawned = ["compute-utils", "compute-demo"]
+themes_parked = ["channel-mpsc", "channel-waker", "channel-demo"]
+themes_completed = []
+key_insight = "User pivot: all demos are I/O, no compute. We have GEMM, transformer ops, reductions buried in kernel code but not exposed. Two new epics: extract compute utils as public API, build compelling compute demo."
 
 [[brainstorms]]
 seq = 91

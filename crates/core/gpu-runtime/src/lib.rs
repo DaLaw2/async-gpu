@@ -92,6 +92,922 @@ pub use gpu_protocol;
 // Ensure critical-section is linked (needed for Embassy executor)
 extern crate gpu_critical_section;
 
+// ============================================================
+// GPU Compute Utilities — public API for kernel authors
+// ============================================================
+
+/// Thread, block, and grid indexing helpers.
+///
+/// Safe wrappers around `nvptx` intrinsics. All functions return 0/1 on
+/// non-nvptx targets for doc builds.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use gpu_runtime::index;
+///
+/// let tid = index::thread_idx_x();
+/// let gid = index::global_thread_idx();
+/// let n_threads = index::global_thread_count();
+/// if gid < n {
+///     output[gid] = input[gid] * 2.0;
+/// }
+/// ```
+pub mod index {
+    /// Thread index within block (x dimension).
+    #[inline(always)]
+    pub fn thread_idx_x() -> u32 {
+        crate::nvptx_shim::thread_idx_x()
+    }
+
+    /// Thread index within block (y dimension).
+    #[inline(always)]
+    pub fn thread_idx_y() -> u32 {
+        crate::nvptx_shim::thread_idx_y()
+    }
+
+    /// Thread index within block (z dimension).
+    #[inline(always)]
+    pub fn thread_idx_z() -> u32 {
+        crate::nvptx_shim::thread_idx_z()
+    }
+
+    /// Block index within grid (x dimension).
+    #[inline(always)]
+    pub fn block_idx_x() -> u32 {
+        crate::nvptx_shim::block_idx_x()
+    }
+
+    /// Block index within grid (y dimension).
+    #[inline(always)]
+    pub fn block_idx_y() -> u32 {
+        #[cfg(target_arch = "nvptx64")]
+        {
+            unsafe { core::arch::nvptx::_block_idx_y() }
+        }
+        #[cfg(not(target_arch = "nvptx64"))]
+        {
+            0
+        }
+    }
+
+    /// Block index within grid (z dimension).
+    #[inline(always)]
+    pub fn block_idx_z() -> u32 {
+        #[cfg(target_arch = "nvptx64")]
+        {
+            unsafe { core::arch::nvptx::_block_idx_z() }
+        }
+        #[cfg(not(target_arch = "nvptx64"))]
+        {
+            0
+        }
+    }
+
+    /// Block dimension (x — threads per block in x).
+    #[inline(always)]
+    pub fn block_dim_x() -> u32 {
+        crate::nvptx_shim::block_dim_x()
+    }
+
+    /// Block dimension (y — threads per block in y).
+    #[inline(always)]
+    pub fn block_dim_y() -> u32 {
+        crate::nvptx_shim::block_dim_y()
+    }
+
+    /// Block dimension (z — threads per block in z).
+    #[inline(always)]
+    pub fn block_dim_z() -> u32 {
+        #[cfg(target_arch = "nvptx64")]
+        {
+            unsafe { core::arch::nvptx::_block_dim_z() }
+        }
+        #[cfg(not(target_arch = "nvptx64"))]
+        {
+            1
+        }
+    }
+
+    /// Grid dimension (x — blocks per grid in x).
+    #[inline(always)]
+    pub fn grid_dim_x() -> u32 {
+        #[cfg(target_arch = "nvptx64")]
+        {
+            unsafe { core::arch::nvptx::_grid_dim_x() }
+        }
+        #[cfg(not(target_arch = "nvptx64"))]
+        {
+            1
+        }
+    }
+
+    /// Grid dimension (y — blocks per grid in y).
+    #[inline(always)]
+    pub fn grid_dim_y() -> u32 {
+        #[cfg(target_arch = "nvptx64")]
+        {
+            unsafe { core::arch::nvptx::_grid_dim_y() }
+        }
+        #[cfg(not(target_arch = "nvptx64"))]
+        {
+            1
+        }
+    }
+
+    /// Grid dimension (z — blocks per grid in z).
+    #[inline(always)]
+    pub fn grid_dim_z() -> u32 {
+        #[cfg(target_arch = "nvptx64")]
+        {
+            unsafe { core::arch::nvptx::_grid_dim_z() }
+        }
+        #[cfg(not(target_arch = "nvptx64"))]
+        {
+            1
+        }
+    }
+
+    /// Global 1D thread index: `block_idx_x * block_dim_x + thread_idx_x`.
+    #[inline(always)]
+    pub fn global_thread_idx() -> u32 {
+        block_idx_x() * block_dim_x() + thread_idx_x()
+    }
+
+    /// Total number of threads in a 1D grid: `grid_dim_x * block_dim_x`.
+    #[inline(always)]
+    pub fn global_thread_count() -> u32 {
+        grid_dim_x() * block_dim_x()
+    }
+
+    /// Read the GPU global timer (nanoseconds since GPU reset).
+    #[inline(always)]
+    pub fn clock_nanos() -> u64 {
+        #[cfg(target_arch = "nvptx64")]
+        {
+            let nanos: u64;
+            unsafe {
+                core::arch::asm!("mov.u64 {out}, %globaltimer;", out = out(reg64) nanos);
+            }
+            nanos
+        }
+        #[cfg(not(target_arch = "nvptx64"))]
+        {
+            0
+        }
+    }
+}
+
+/// GPU math intrinsics — fast approximate f32 math via PTX special function units.
+///
+/// All functions are safe (no pointers, no thread coordination). They use PTX
+/// approximate instructions which are fast (~1-4 cycles) but have limited precision
+/// (~1 ULP for most operations).
+///
+/// On non-nvptx targets, functions return 0.0 (for compilation/doc builds only).
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use gpu_runtime::math;
+///
+/// let x = math::exp_f32(-1.0);     // e^(-1) ≈ 0.3679
+/// let y = math::sqrt_f32(2.0);     // √2 ≈ 1.4142
+/// let z = math::fma_f32(a, b, c);  // a*b + c (single instruction)
+/// ```
+pub mod math {
+    /// Approximate square root. PTX: `sqrt.approx.f32` (~1 ULP).
+    #[inline(always)]
+    pub fn sqrt_f32(x: f32) -> f32 {
+        #[cfg(target_arch = "nvptx64")]
+        {
+            let result: f32;
+            unsafe {
+                core::arch::asm!(
+                    "sqrt.approx.f32 {out}, {inp};",
+                    out = out(reg32) result,
+                    inp = in(reg32) x,
+                );
+            }
+            result
+        }
+        #[cfg(not(target_arch = "nvptx64"))]
+        {
+            let _ = x;
+            0.0
+        }
+    }
+
+    /// Approximate reciprocal square root. PTX: `rsqrt.approx.f32`.
+    #[inline(always)]
+    pub fn rsqrt_f32(x: f32) -> f32 {
+        #[cfg(target_arch = "nvptx64")]
+        {
+            let result: f32;
+            unsafe {
+                core::arch::asm!(
+                    "rsqrt.approx.f32 {out}, {inp};",
+                    out = out(reg32) result,
+                    inp = in(reg32) x,
+                );
+            }
+            result
+        }
+        #[cfg(not(target_arch = "nvptx64"))]
+        {
+            let _ = x;
+            0.0
+        }
+    }
+
+    /// Approximate exponential (e^x). Uses PTX `ex2.approx.f32` with log2(e) scaling.
+    #[inline(always)]
+    pub fn exp_f32(x: f32) -> f32 {
+        #[cfg(target_arch = "nvptx64")]
+        {
+            let result: f32;
+            let t = x * 1.442695_f32; // log2(e)
+            unsafe {
+                core::arch::asm!(
+                    "ex2.approx.f32 {out}, {inp};",
+                    out = out(reg32) result,
+                    inp = in(reg32) t,
+                );
+            }
+            result
+        }
+        #[cfg(not(target_arch = "nvptx64"))]
+        {
+            let _ = x;
+            0.0
+        }
+    }
+
+    /// Approximate natural logarithm (ln x). Uses PTX `lg2.approx.f32` with ln(2) scaling.
+    #[inline(always)]
+    pub fn log_f32(x: f32) -> f32 {
+        #[cfg(target_arch = "nvptx64")]
+        {
+            let lg2: f32;
+            unsafe {
+                core::arch::asm!(
+                    "lg2.approx.f32 {out}, {inp};",
+                    out = out(reg32) lg2,
+                    inp = in(reg32) x,
+                );
+            }
+            lg2 * 0.693147_f32 // ln(2)
+        }
+        #[cfg(not(target_arch = "nvptx64"))]
+        {
+            let _ = x;
+            0.0
+        }
+    }
+
+    /// Approximate sine. PTX: `sin.approx.f32`.
+    #[inline(always)]
+    pub fn sin_f32(x: f32) -> f32 {
+        #[cfg(target_arch = "nvptx64")]
+        {
+            let result: f32;
+            unsafe {
+                core::arch::asm!(
+                    "sin.approx.f32 {out}, {inp};",
+                    out = out(reg32) result,
+                    inp = in(reg32) x,
+                );
+            }
+            result
+        }
+        #[cfg(not(target_arch = "nvptx64"))]
+        {
+            let _ = x;
+            0.0
+        }
+    }
+
+    /// Approximate cosine. PTX: `cos.approx.f32`.
+    #[inline(always)]
+    pub fn cos_f32(x: f32) -> f32 {
+        #[cfg(target_arch = "nvptx64")]
+        {
+            let result: f32;
+            unsafe {
+                core::arch::asm!(
+                    "cos.approx.f32 {out}, {inp};",
+                    out = out(reg32) result,
+                    inp = in(reg32) x,
+                );
+            }
+            result
+        }
+        #[cfg(not(target_arch = "nvptx64"))]
+        {
+            let _ = x;
+            0.0
+        }
+    }
+
+    /// Absolute value. PTX: `abs.f32`.
+    #[inline(always)]
+    pub fn abs_f32(x: f32) -> f32 {
+        #[cfg(target_arch = "nvptx64")]
+        {
+            let result: f32;
+            unsafe {
+                core::arch::asm!(
+                    "abs.f32 {out}, {inp};",
+                    out = out(reg32) result,
+                    inp = in(reg32) x,
+                );
+            }
+            result
+        }
+        #[cfg(not(target_arch = "nvptx64"))]
+        {
+            let _ = x;
+            0.0
+        }
+    }
+
+    /// Minimum of two floats. PTX: `min.f32`.
+    #[inline(always)]
+    pub fn min_f32(a: f32, b: f32) -> f32 {
+        #[cfg(target_arch = "nvptx64")]
+        {
+            let result: f32;
+            unsafe {
+                core::arch::asm!(
+                    "min.f32 {out}, {a}, {b};",
+                    out = out(reg32) result,
+                    a = in(reg32) a,
+                    b = in(reg32) b,
+                );
+            }
+            result
+        }
+        #[cfg(not(target_arch = "nvptx64"))]
+        {
+            let _ = (a, b);
+            0.0
+        }
+    }
+
+    /// Maximum of two floats. PTX: `max.f32`.
+    #[inline(always)]
+    pub fn max_f32(a: f32, b: f32) -> f32 {
+        #[cfg(target_arch = "nvptx64")]
+        {
+            let result: f32;
+            unsafe {
+                core::arch::asm!(
+                    "max.f32 {out}, {a}, {b};",
+                    out = out(reg32) result,
+                    a = in(reg32) a,
+                    b = in(reg32) b,
+                );
+            }
+            result
+        }
+        #[cfg(not(target_arch = "nvptx64"))]
+        {
+            let _ = (a, b);
+            0.0
+        }
+    }
+
+    /// Fused multiply-add: `a * b + c` in a single instruction. PTX: `fma.rn.f32`.
+    #[inline(always)]
+    pub fn fma_f32(a: f32, b: f32, c: f32) -> f32 {
+        #[cfg(target_arch = "nvptx64")]
+        {
+            let result: f32;
+            unsafe {
+                core::arch::asm!(
+                    "fma.rn.f32 {out}, {a}, {b}, {c};",
+                    out = out(reg32) result,
+                    a = in(reg32) a,
+                    b = in(reg32) b,
+                    c = in(reg32) c,
+                );
+            }
+            result
+        }
+        #[cfg(not(target_arch = "nvptx64"))]
+        {
+            let _ = (a, b, c);
+            0.0
+        }
+    }
+
+    /// Hyperbolic tangent. Computed as `tanh(x) = 1 - 2/(exp(2x)+1)`.
+    #[inline(always)]
+    pub fn tanh_f32(x: f32) -> f32 {
+        let e2x = exp_f32(2.0 * x);
+        1.0 - 2.0 / (e2x + 1.0)
+    }
+
+    /// Sigmoid function: `1 / (1 + exp(-x))`.
+    #[inline(always)]
+    pub fn sigmoid_f32(x: f32) -> f32 {
+        1.0 / (1.0 + exp_f32(-x))
+    }
+}
+
+/// Warp-level compute primitives — reductions, shuffle variants, vote operations.
+///
+/// All functions are `unsafe` because they require warp-level coordination:
+/// all participating lanes must call the function with the same mask.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use gpu_runtime::warp;
+///
+/// let my_val: f32 = compute_something();
+/// let sum = unsafe { warp::reduce_sum_f32(my_val) }; // sum across all 32 lanes
+/// let max = unsafe { warp::reduce_max_f32(my_val) }; // max across all 32 lanes
+/// ```
+pub mod warp {
+    /// Butterfly reduction: sum of `val` across all 32 lanes.
+    /// Result is available in ALL lanes (convergent).
+    ///
+    /// # Safety
+    /// All 32 lanes must be active and call this function.
+    #[inline(always)]
+    #[allow(unused_mut)]
+    pub unsafe fn reduce_sum_f32(mut val: f32) -> f32 {
+        #[cfg(target_arch = "nvptx64")]
+        {
+            let mask = 0xFFFF_FFFFu32;
+            let mut offset = 16u32;
+            while offset > 0 {
+                let other: f32;
+                core::arch::asm!(
+                    "shfl.sync.bfly.b32 {dst}, {src}, {off}, 0x1f, {mask};",
+                    dst = out(reg32) other,
+                    src = in(reg32) val,
+                    off = in(reg32) offset,
+                    mask = in(reg32) mask,
+                    options(nostack),
+                );
+                val += other;
+                offset /= 2;
+            }
+        }
+        val
+    }
+
+    /// Butterfly reduction: sum of `val` (u32) across all 32 lanes.
+    ///
+    /// # Safety
+    /// All 32 lanes must be active and call this function.
+    #[inline(always)]
+    #[allow(unused_mut)]
+    pub unsafe fn reduce_sum_u32(mut val: u32) -> u32 {
+        #[cfg(target_arch = "nvptx64")]
+        {
+            let mask = 0xFFFF_FFFFu32;
+            let mut offset = 16u32;
+            while offset > 0 {
+                let other: u32;
+                core::arch::asm!(
+                    "shfl.sync.bfly.b32 {dst}, {src}, {off}, 0x1f, {mask};",
+                    dst = out(reg32) other,
+                    src = in(reg32) val,
+                    off = in(reg32) offset,
+                    mask = in(reg32) mask,
+                    options(nostack),
+                );
+                val += other;
+                offset /= 2;
+            }
+        }
+        val
+    }
+
+    /// Butterfly reduction: maximum of `val` across all 32 lanes.
+    ///
+    /// # Safety
+    /// All 32 lanes must be active and call this function.
+    #[inline(always)]
+    #[allow(unused_mut)]
+    pub unsafe fn reduce_max_f32(mut val: f32) -> f32 {
+        #[cfg(target_arch = "nvptx64")]
+        {
+            let mask = 0xFFFF_FFFFu32;
+            let mut offset = 16u32;
+            while offset > 0 {
+                let other: f32;
+                core::arch::asm!(
+                    "shfl.sync.bfly.b32 {dst}, {src}, {off}, 0x1f, {mask};",
+                    dst = out(reg32) other,
+                    src = in(reg32) val,
+                    off = in(reg32) offset,
+                    mask = in(reg32) mask,
+                    options(nostack),
+                );
+                if other > val {
+                    val = other;
+                }
+                offset /= 2;
+            }
+        }
+        val
+    }
+
+    /// Butterfly reduction: minimum of `val` across all 32 lanes.
+    ///
+    /// # Safety
+    /// All 32 lanes must be active and call this function.
+    #[inline(always)]
+    #[allow(unused_mut)]
+    pub unsafe fn reduce_min_f32(mut val: f32) -> f32 {
+        #[cfg(target_arch = "nvptx64")]
+        {
+            let mask = 0xFFFF_FFFFu32;
+            let mut offset = 16u32;
+            while offset > 0 {
+                let other: f32;
+                core::arch::asm!(
+                    "shfl.sync.bfly.b32 {dst}, {src}, {off}, 0x1f, {mask};",
+                    dst = out(reg32) other,
+                    src = in(reg32) val,
+                    off = in(reg32) offset,
+                    mask = in(reg32) mask,
+                    options(nostack),
+                );
+                if other < val {
+                    val = other;
+                }
+                offset /= 2;
+            }
+        }
+        val
+    }
+
+    /// Butterfly shuffle: exchange `val` with lane at `(lane_id ^ offset)`.
+    ///
+    /// # Safety
+    /// All lanes in `mask` must call this function.
+    #[inline(always)]
+    pub unsafe fn shfl_bfly_u32(mask: u32, val: u32, offset: u32) -> u32 {
+        #[cfg(target_arch = "nvptx64")]
+        {
+            let result: u32;
+            core::arch::asm!(
+                "shfl.sync.bfly.b32 {dst}, {src}, {off}, 0x1f, {mask};",
+                dst = out(reg32) result,
+                src = in(reg32) val,
+                off = in(reg32) offset,
+                mask = in(reg32) mask,
+                options(nostack),
+            );
+            result
+        }
+        #[cfg(not(target_arch = "nvptx64"))]
+        {
+            let _ = (mask, offset);
+            val
+        }
+    }
+
+    /// Shuffle down: read `val` from `(lane_id + delta)`.
+    ///
+    /// # Safety
+    /// All lanes in `mask` must call this function.
+    #[inline(always)]
+    pub unsafe fn shfl_down_u32(mask: u32, val: u32, delta: u32) -> u32 {
+        #[cfg(target_arch = "nvptx64")]
+        {
+            let result: u32;
+            core::arch::asm!(
+                "shfl.sync.down.b32 {dst}, {src}, {off}, 0x1f, {mask};",
+                dst = out(reg32) result,
+                src = in(reg32) val,
+                off = in(reg32) delta,
+                mask = in(reg32) mask,
+                options(nostack),
+            );
+            result
+        }
+        #[cfg(not(target_arch = "nvptx64"))]
+        {
+            let _ = (mask, delta);
+            val
+        }
+    }
+
+    /// Shuffle up: read `val` from `(lane_id - delta)`.
+    ///
+    /// # Safety
+    /// All lanes in `mask` must call this function.
+    #[inline(always)]
+    pub unsafe fn shfl_up_u32(mask: u32, val: u32, delta: u32) -> u32 {
+        #[cfg(target_arch = "nvptx64")]
+        {
+            let result: u32;
+            core::arch::asm!(
+                "shfl.sync.up.b32 {dst}, {src}, {off}, 0, {mask};",
+                dst = out(reg32) result,
+                src = in(reg32) val,
+                off = in(reg32) delta,
+                mask = in(reg32) mask,
+                options(nostack),
+            );
+            result
+        }
+        #[cfg(not(target_arch = "nvptx64"))]
+        {
+            let _ = (mask, delta);
+            val
+        }
+    }
+
+    /// Warp vote: ballot — returns bitmask of lanes where `predicate` is true.
+    ///
+    /// # Safety
+    /// All lanes in `mask` must call this function.
+    #[inline(always)]
+    pub unsafe fn ballot(mask: u32, predicate: bool) -> u32 {
+        #[cfg(target_arch = "nvptx64")]
+        {
+            let pred_u32 = predicate as u32;
+            let result: u32;
+            core::arch::asm!(
+                "{{ .reg .pred %p; setp.ne.u32 %p, {pred}, 0; vote.sync.ballot.b32 {out}, %p, {mask}; }}",
+                pred = in(reg32) pred_u32,
+                out = out(reg32) result,
+                mask = in(reg32) mask,
+                options(nostack),
+            );
+            result
+        }
+        #[cfg(not(target_arch = "nvptx64"))]
+        {
+            let _ = (mask, predicate);
+            0
+        }
+    }
+
+    /// Warp vote: true if `predicate` is true for ALL lanes in `mask`.
+    ///
+    /// # Safety
+    /// All lanes in `mask` must call this function.
+    #[inline(always)]
+    pub unsafe fn all(mask: u32, predicate: bool) -> bool {
+        let b = ballot(mask, predicate);
+        b == mask
+    }
+
+    /// Warp vote: true if `predicate` is true for ANY lane in `mask`.
+    ///
+    /// # Safety
+    /// All lanes in `mask` must call this function.
+    #[inline(always)]
+    pub unsafe fn any(mask: u32, predicate: bool) -> bool {
+        let b = ballot(mask, predicate);
+        b != 0
+    }
+}
+
+/// Block-level compute primitives — synchronization, shared memory, reductions.
+///
+/// Functions require all threads in the block to participate (unless noted).
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use gpu_runtime::block;
+///
+/// unsafe {
+///     let smem = block::shared_mem_ptr();
+///     // ... write to shared memory ...
+///     block::sync();
+///     // ... read from shared memory ...
+/// }
+/// ```
+pub mod block {
+    /// Block-level barrier synchronization. PTX: `bar.sync 0`.
+    ///
+    /// All threads in the block must reach this point before any can proceed.
+    ///
+    /// # Safety
+    /// All threads in the block must call this function (or the block will deadlock).
+    #[inline(always)]
+    pub unsafe fn sync() {
+        #[cfg(target_arch = "nvptx64")]
+        core::arch::asm!("bar.sync 0;");
+    }
+
+    /// Get pointer to dynamically-allocated shared memory.
+    ///
+    /// The kernel must declare shared memory via `global_asm!` and the
+    /// host must set `shared_mem_bytes > 0` in the launch config.
+    ///
+    /// # Safety
+    /// Shared memory must be allocated in the launch config.
+    #[inline(always)]
+    pub unsafe fn shared_mem_ptr() -> *mut u8 {
+        #[cfg(target_arch = "nvptx64")]
+        {
+            let ptr: u64;
+            core::arch::asm!(
+                "cvta.shared.u64 {out}, dynamic_smem;",
+                out = out(reg64) ptr,
+            );
+            ptr as *mut u8
+        }
+        #[cfg(not(target_arch = "nvptx64"))]
+        {
+            core::ptr::null_mut()
+        }
+    }
+
+    /// Cast shared memory pointer to a typed pointer at a byte offset.
+    ///
+    /// # Safety
+    /// - Shared memory must be allocated and large enough
+    /// - Alignment of T must be satisfied at the offset
+    #[inline(always)]
+    pub unsafe fn shared_mem_at<T>(offset: usize) -> *mut T {
+        shared_mem_ptr().add(offset) as *mut T
+    }
+
+    /// Block-level parallel reduction: sum of `val` across `block_size` threads.
+    ///
+    /// Uses shared memory with halving-stride tree reduction. Result is available
+    /// in thread 0 and broadcast to all threads via shared memory.
+    ///
+    /// Requires `block_size * 4` bytes of shared memory at `smem_offset`.
+    ///
+    /// # Safety
+    /// - All `block_size` threads in the block must call this function
+    /// - Shared memory must be allocated (at least `smem_offset + block_size * 4` bytes)
+    /// - `block_size` must be a power of 2
+    #[inline(always)]
+    pub unsafe fn reduce_sum_f32(val: f32, tid: u32, block_size: u32, smem_offset: usize) -> f32 {
+        let smem = shared_mem_at::<f32>(smem_offset);
+        *smem.add(tid as usize) = val;
+        sync();
+
+        let mut stride = block_size / 2;
+        while stride > 0 {
+            if tid < stride {
+                let a = *smem.add(tid as usize);
+                let b = *smem.add((tid + stride) as usize);
+                *smem.add(tid as usize) = a + b;
+            }
+            sync();
+            stride /= 2;
+        }
+        let result = *smem.add(0);
+        sync();
+        result
+    }
+
+    /// Block-level parallel reduction: maximum of `val` across `block_size` threads.
+    ///
+    /// Uses shared memory with halving-stride tree reduction. Result is broadcast to all threads.
+    ///
+    /// # Safety
+    /// Same requirements as [`reduce_sum_f32`].
+    #[inline(always)]
+    pub unsafe fn reduce_max_f32(val: f32, tid: u32, block_size: u32, smem_offset: usize) -> f32 {
+        let smem = shared_mem_at::<f32>(smem_offset);
+        *smem.add(tid as usize) = val;
+        sync();
+
+        let mut stride = block_size / 2;
+        while stride > 0 {
+            if tid < stride {
+                let a = *smem.add(tid as usize);
+                let b = *smem.add((tid + stride) as usize);
+                if b > a {
+                    *smem.add(tid as usize) = b;
+                }
+            }
+            sync();
+            stride /= 2;
+        }
+        let result = *smem.add(0);
+        sync();
+        result
+    }
+
+    /// Block-level parallel reduction: minimum of `val` across `block_size` threads.
+    ///
+    /// # Safety
+    /// Same requirements as [`reduce_sum_f32`].
+    #[inline(always)]
+    pub unsafe fn reduce_min_f32(val: f32, tid: u32, block_size: u32, smem_offset: usize) -> f32 {
+        let smem = shared_mem_at::<f32>(smem_offset);
+        *smem.add(tid as usize) = val;
+        sync();
+
+        let mut stride = block_size / 2;
+        while stride > 0 {
+            if tid < stride {
+                let a = *smem.add(tid as usize);
+                let b = *smem.add((tid + stride) as usize);
+                if b < a {
+                    *smem.add(tid as usize) = b;
+                }
+            }
+            sync();
+            stride /= 2;
+        }
+        let result = *smem.add(0);
+        sync();
+        result
+    }
+}
+
+/// Neural network building blocks — activation functions and warp-cooperative ops.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use gpu_runtime::{math, nn};
+///
+/// let x: f32 = input[tid];
+/// let activated = nn::gelu_f32(x);
+/// let clipped = nn::relu_f32(x);
+/// ```
+pub mod nn {
+    use crate::math;
+
+    /// GELU activation: `x * 0.5 * (1 + tanh(sqrt(2/π) * (x + 0.044715 * x³)))`.
+    ///
+    /// Approximate GELU used in GPT-2, BERT, etc.
+    #[inline(always)]
+    pub fn gelu_f32(x: f32) -> f32 {
+        let x3 = x * x * x;
+        let inner = 0.7978846_f32 * (x + 0.044715_f32 * x3); // sqrt(2/π) ≈ 0.7978846
+        x * 0.5 * (1.0 + math::tanh_f32(inner))
+    }
+
+    /// ReLU activation: `max(0, x)`.
+    #[inline(always)]
+    pub fn relu_f32(x: f32) -> f32 {
+        if x > 0.0 {
+            x
+        } else {
+            0.0
+        }
+    }
+
+    /// Leaky ReLU: `x if x > 0, else alpha * x`.
+    #[inline(always)]
+    pub fn leaky_relu_f32(x: f32, alpha: f32) -> f32 {
+        if x > 0.0 {
+            x
+        } else {
+            alpha * x
+        }
+    }
+
+    /// SiLU (Swish) activation: `x * sigmoid(x)`.
+    #[inline(always)]
+    pub fn silu_f32(x: f32) -> f32 {
+        x * math::sigmoid_f32(x)
+    }
+
+    /// Warp-cooperative softmax: compute softmax of `val` across all 32 lanes.
+    ///
+    /// Each lane provides one element. Returns the softmax of that element
+    /// relative to all 32 values. Uses butterfly reduction for max and sum.
+    ///
+    /// # Safety
+    /// All 32 lanes must be active and call this function.
+    #[inline(always)]
+    pub unsafe fn warp_softmax_f32(val: f32) -> f32 {
+        use crate::warp;
+        let max_val = warp::reduce_max_f32(val);
+        let exp_val = math::exp_f32(val - max_val);
+        let sum = warp::reduce_sum_f32(exp_val);
+        exp_val / sum
+    }
+
+    /// Warp-cooperative layer normalization across 32 lanes.
+    ///
+    /// Each lane holds one element. Computes: `gamma * (x - mean) / sqrt(var + eps) + beta`
+    /// where mean and variance are computed across all 32 lanes.
+    ///
+    /// # Safety
+    /// All 32 lanes must be active and call this function.
+    #[inline(always)]
+    pub unsafe fn warp_layer_norm_f32(val: f32, gamma: f32, beta: f32) -> f32 {
+        use crate::warp;
+        let mean = warp::reduce_sum_f32(val) / 32.0;
+        let diff = val - mean;
+        let var = warp::reduce_sum_f32(diff * diff) / 32.0;
+        let inv_std = math::rsqrt_f32(var + 1e-5);
+        gamma * diff * inv_std + beta
+    }
+}
+
 /// Hostcall helpers for GPU-side hostcall protocol operations.
 ///
 /// These functions implement the lock-free two-stack hostcall protocol
@@ -4394,6 +5310,12 @@ pub mod channel {
     unsafe impl<T: Copy + Send> Send for OneshotSlot<T> {}
     unsafe impl<T: Copy + Send> Sync for OneshotSlot<T> {}
 
+    impl<T: Copy> Default for OneshotSlot<T> {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
     impl<T: Copy> OneshotSlot<T> {
         /// Create a new uninitialized slot.
         ///
@@ -4462,7 +5384,7 @@ pub mod channel {
             // Write value first (before state transition)
             core::ptr::write_volatile(slot.value.get() as *mut T, value);
             // Release store: value write is visible before SENT is observed
-            sys_store_release_u32(slot.state.get() as *mut u32, ONESHOT_SENT);
+            sys_store_release_u32(slot.state.get(), ONESHOT_SENT);
             // Prevent drop from setting CLOSED
             core::mem::forget(self);
         }
@@ -4472,7 +5394,7 @@ pub mod channel {
         fn drop(&mut self) {
             // Sender dropped without sending → mark CLOSED
             unsafe {
-                sys_store_release_u32((*self.slot).state.get() as *mut u32, ONESHOT_CLOSED);
+                sys_store_release_u32((*self.slot).state.get(), ONESHOT_CLOSED);
             }
         }
     }
@@ -4535,7 +5457,9 @@ pub mod channel {
     /// // let value = rx.await; // Ok(42)
     /// ```
     #[inline(always)]
-    pub unsafe fn oneshot<T: Copy>(slot: &mut OneshotSlot<T>) -> (OneshotSender<T>, OneshotReceiver<T>) {
+    pub unsafe fn oneshot<T: Copy>(
+        slot: &mut OneshotSlot<T>,
+    ) -> (OneshotSender<T>, OneshotReceiver<T>) {
         // Reset slot state
         slot.reset();
         (

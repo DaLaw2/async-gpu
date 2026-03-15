@@ -28,6 +28,13 @@
 - When approaching context limits, save progress to `last_summary` in state.toml, commit + push, then the next session will resume automatically.
 - There will always be tasks to do. If none are ready, brainstorm will generate new ones.
 
+## CRITICAL: Infrastructure Serves Real Use Cases
+- **Build infrastructure for practical value, NOT for its own sake.**
+- Every feature must answer: "How does this help a user build real GPU programs?"
+- Prioritize user-facing impact over internal elegance. A compute util that users can call is worth more than a perfect lock-free queue they never touch.
+- Demos must showcase COMPUTE (GPU's core value), not just I/O.
+- When brainstorming new directions, always ask: "Would a user care about this?"
+
 ## Research Workflow
 Autonomous Think → Do → Check loop. Launch with `/research`. Details in `.claude/commands/research.md`.
 

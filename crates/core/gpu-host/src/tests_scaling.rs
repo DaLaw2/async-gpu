@@ -1146,7 +1146,10 @@ pub(crate) fn run_channel_oneshot_demo_test(dev: Arc<CudaDevice>) -> Result<()> 
         free_mapped_mem(results_host_ptr)?;
     }
 
-    assert_eq!(spawned, 8, "expected 8 tasks spawned (4 producers + 4 consumers)");
+    assert_eq!(
+        spawned, 8,
+        "expected 8 tasks spawned (4 producers + 4 consumers)"
+    );
     assert_eq!(completed, 8, "expected 8 tasks completed");
     assert_eq!(v0, 42, "channel[0] expected 42");
     assert_eq!(v1, 100, "channel[1] expected 100");

@@ -41,6 +41,20 @@
 - Clean up after yourself — delete temp files, remove dead code, put files where they belong.
 - If you keep making a mess, you WILL be replaced by Codex or Gemini.
 
+## CRITICAL: GPU is Available — Always Run Tests
+- This machine has a CUDA-capable NVIDIA GPU. The project is tested on real hardware.
+- **NEVER** say "I cannot run GPU" or "needs GPU hardware to test" — just run it.
+- CI lacks GPU, but the development machine always has one.
+
+## CRITICAL: No Publishing
+- **NEVER** do crates.io publish, docs site, blog posts, or any public-facing release actions.
+- These are external-visibility actions that only the user decides to do.
+- Do not create tasks/themes/epics related to publishing.
+
+## CI Policy
+- Always run `bash scripts/ci-lint.sh` before `git push`.
+- Only push when it passes. Do not push broken code.
+
 ## Research Workflow
 Autonomous Think → Do → Check loop. Launch with `/research`. Details in `.claude/commands/research.md`.
 

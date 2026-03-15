@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 353     # Monotonic counter, incremented after each completed phase
-completed_tasks = 384
+total_cycles = 354     # Monotonic counter, incremented after each completed phase
+completed_tasks = 385
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "mma-splitk.5"
-last_summary = "mma-splitk.4 DONE: MMA f16 inference matches f32 FMA top-5 on all 3 prompts (Paris, Neil, Pacific in top-5). MMA forward 26ms vs f32 36ms (1.34x). Fixed model path for crates/core/ relocation. Next: mma-splitk.5 throughput benchmarks."
+current_task_id = ""
+last_summary = "mma-splitk.5 DONE: MMA GEMM 2.18x throughput over f32 FMA, 26ms forward pass (62% below 68ms baseline). 4/5 tensor-core-gemm criteria met. Only f16 weight loading (perf optimization) remains. Need brainstorm to close epic and plan next."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 97
@@ -415,7 +415,7 @@ id = "mma-splitk.5"
 theme = "mma-splitk"
 title = "Experiment: benchmark split-K MMA throughput and per-token latency"
 kind = "experiment"
-status = "active"
+status = "done"
 depends = ["mma-splitk.4"]
 
 # --- warp-batch-io tasks ---

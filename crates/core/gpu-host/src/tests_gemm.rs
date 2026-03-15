@@ -2711,3 +2711,223 @@ pub(crate) fn run_splitk_gemm_test(dev: Arc<CudaDevice>) -> Result<()> {
     println!("  Split-K MMA GEMM — DONE (see error comparisons above)");
     Ok(())
 }
+
+/// mma-splitk.5: Benchmark MMA GEMM throughput vs f32 FMA at GPT-2 dimensions.
+///
+/// Measures raw GEMM kernel execution time for both MMA (full_gemm_f32in) and
+/// scalar (gemm_f32) kernels at representative GPT-2 dimensions. Reports
+/// GFLOPS and speedup ratio.
+pub(crate) fn run_gemm_benchmark(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- GEMM Throughput Benchmark (mma-splitk.5) ---");
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "gemm_bench", &["full_gemm_f32in", "gemm_f32"]);
+    let f_mma = dev
+        .get_func("gemm_bench", "full_gemm_f32in")
+        .ok_or(GpuHostError::KernelNotFound("full_gemm_f32in"))?;
+    let f_f32 = dev
+        .get_func("gemm_bench", "gemm_f32")
+        .ok_or(GpuHostError::KernelNotFound("gemm_f32"))?;
+
+    let (status_host_ptr, status_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 1)? };
+
+    fn f32_to_f16(val: f32) -> u16 {
+        let bits = val.to_bits();
+        let sign = (bits >> 31) & 1;
+        let exp = ((bits >> 23) & 0xFF) as i32;
+        let frac = bits & 0x7FFFFF;
+        if val == 0.0 {
+            return (sign << 15) as u16;
+        }
+        let new_exp = exp - 127 + 15;
+        if new_exp <= 0 {
+            return (sign << 15) as u16;
+        }
+        if new_exp >= 31 {
+            return ((sign << 15) | 0x7C00) as u16;
+        }
+        ((sign << 15) | ((new_exp as u32) << 10) | (frac >> 13)) as u16
+    }
+    fn pack_f16x2(lo: f32, hi: f32) -> u32 {
+        f32_to_f16(lo) as u32 | ((f32_to_f16(hi) as u32) << 16)
+    }
+
+    // GPT-2 GEMM dimensions: (M, K, N)
+    let dims: &[(usize, usize, usize, &str)] = &[
+        (32, 768, 2304, "QKV proj"),
+        (32, 768, 768, "Out proj"),
+        (32, 768, 3072, "FFN up"),
+        (32, 3072, 768, "FFN down"),
+        (128, 768, 2304, "QKV proj (seq=128)"),
+        (128, 768, 768, "Out proj (seq=128)"),
+    ];
+
+    let warmup_iters = 5;
+    let bench_iters = 20;
+
+    println!(
+        "  {:>22}  {:>10} {:>10} {:>8} {:>8}",
+        "Dimension", "MMA (ms)", "f32 (ms)", "Speedup", "GFLOPS"
+    );
+    println!(
+        "  {:-<22}  {:-<10} {:-<10} {:-<8} {:-<8}",
+        "", "", "", "", ""
+    );
+
+    let mut total_mma_us = 0.0f64;
+    let mut total_f32_us = 0.0f64;
+
+    for &(m, k, n, label) in dims {
+        let k_tiles = (k / 16) as u32;
+
+        // Generate test data
+        let a_f32: Vec<f32> = (0..m * k).map(|i| ((i * 7 + 3) % 5 + 1) as f32).collect();
+        let mut b_packed = Vec::with_capacity(n * k / 2);
+        for col in 0..n {
+            for k_pair in 0..k / 2 {
+                let v0 = ((k_pair * 2 * n + col) * 11 % 7 + 1) as f32;
+                let v1 = (((k_pair * 2 + 1) * n + col) * 11 % 7 + 1) as f32;
+                b_packed.push(pack_f16x2(v0, v1));
+            }
+        }
+        let mut b_cm = vec![0.0f32; k * n];
+        for row in 0..k {
+            for col in 0..n {
+                b_cm[col * k + row] = ((row * n + col) * 11 % 7 + 1) as f32;
+            }
+        }
+
+        let a_dev = dev.htod_sync_copy(&a_f32)?;
+        let b_mma_dev: CudaSlice<u32> = dev.htod_sync_copy(&b_packed)?;
+        let b_f32_dev = dev.htod_sync_copy(&b_cm)?;
+        let mut d_mma_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(m * n)?;
+        let mut d_f32_dev: CudaSlice<f32> = dev.alloc_zeros::<f32>(m * n)?;
+
+        let num_blocks_m = (m / 32) as u32;
+        let num_blocks_n = (n / 16) as u32;
+        let mma_shared = (256 + 128) * 4;
+        let f32_shared = (32 * 16 + 16 * 16) * 4;
+
+        // Warmup
+        for _ in 0..warmup_iters {
+            unsafe {
+                f_mma.clone().launch(
+                    LaunchConfig {
+                        grid_dim: (num_blocks_m, num_blocks_n, 1),
+                        block_dim: (128, 1, 1),
+                        shared_mem_bytes: mma_shared,
+                    },
+                    (
+                        &a_dev,
+                        &b_mma_dev,
+                        &mut d_mma_dev,
+                        k_tiles,
+                        n as u32,
+                        status_dev_ptr,
+                    ),
+                )?;
+                f_f32.clone().launch(
+                    LaunchConfig {
+                        grid_dim: (num_blocks_m, num_blocks_n, 1),
+                        block_dim: (128, 1, 1),
+                        shared_mem_bytes: f32_shared,
+                    },
+                    (
+                        &a_dev,
+                        &b_f32_dev,
+                        &mut d_f32_dev,
+                        k as u32,
+                        n as u32,
+                        status_dev_ptr,
+                    ),
+                )?;
+            }
+            dev.synchronize()?;
+        }
+
+        // Benchmark MMA
+        let mma_start = std::time::Instant::now();
+        for _ in 0..bench_iters {
+            unsafe {
+                f_mma.clone().launch(
+                    LaunchConfig {
+                        grid_dim: (num_blocks_m, num_blocks_n, 1),
+                        block_dim: (128, 1, 1),
+                        shared_mem_bytes: mma_shared,
+                    },
+                    (
+                        &a_dev,
+                        &b_mma_dev,
+                        &mut d_mma_dev,
+                        k_tiles,
+                        n as u32,
+                        status_dev_ptr,
+                    ),
+                )?;
+            }
+            dev.synchronize()?;
+        }
+        let mma_elapsed = mma_start.elapsed();
+        let mma_us = mma_elapsed.as_secs_f64() * 1e6 / bench_iters as f64;
+
+        // Benchmark f32
+        let f32_start = std::time::Instant::now();
+        for _ in 0..bench_iters {
+            unsafe {
+                f_f32.clone().launch(
+                    LaunchConfig {
+                        grid_dim: (num_blocks_m, num_blocks_n, 1),
+                        block_dim: (128, 1, 1),
+                        shared_mem_bytes: f32_shared,
+                    },
+                    (
+                        &a_dev,
+                        &b_f32_dev,
+                        &mut d_f32_dev,
+                        k as u32,
+                        n as u32,
+                        status_dev_ptr,
+                    ),
+                )?;
+            }
+            dev.synchronize()?;
+        }
+        let f32_elapsed = f32_start.elapsed();
+        let f32_us = f32_elapsed.as_secs_f64() * 1e6 / bench_iters as f64;
+
+        let speedup = f32_us / mma_us;
+        let flops = 2.0 * m as f64 * k as f64 * n as f64;
+        let gflops_mma = flops / (mma_us * 1e3);
+
+        total_mma_us += mma_us;
+        total_f32_us += f32_us;
+
+        println!(
+            "  {label:>22}  {mma_ms:>10.3} {f32_ms:>10.3} {speedup:>7.2}x {gflops_mma:>7.1}",
+            mma_ms = mma_us / 1e3,
+            f32_ms = f32_us / 1e3,
+        );
+    }
+
+    let overall_speedup = total_f32_us / total_mma_us;
+    println!(
+        "  {:-<22}  {:-<10} {:-<10} {:-<8} {:-<8}",
+        "", "", "", "", ""
+    );
+    println!(
+        "  {:>22}  {:>10.3} {:>10.3} {:>7.2}x",
+        "Total",
+        total_mma_us / 1e3,
+        total_f32_us / 1e3,
+        overall_speedup,
+    );
+
+    println!("\n  Overall MMA speedup: {overall_speedup:.2}x");
+
+    unsafe {
+        free_mapped_mem(status_host_ptr)?;
+    }
+
+    println!("  GEMM Benchmark — DONE");
+    Ok(())
+}

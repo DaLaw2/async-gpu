@@ -54,6 +54,10 @@ fn main() -> Result<()> {
                 tests_gemm::run_mma_diag(Arc::clone(&dev))?;
                 return Ok(());
             }
+            "splitk" => {
+                tests_gemm::run_splitk_gemm_test(Arc::clone(&dev))?;
+                return Ok(());
+            }
             "mma_fwd" => {
                 tests_inference::run_mma_forward_test(Arc::clone(&dev))?;
                 return Ok(());
@@ -194,6 +198,10 @@ fn main() -> Result<()> {
                         test: "tokio_bridge",
                         detail: format!("{e}"),
                     })?;
+                return Ok(());
+            }
+            "gemm_bench" => {
+                tests_gemm::run_gemm_benchmark(Arc::clone(&dev))?;
                 return Ok(());
             }
             "bench" => {

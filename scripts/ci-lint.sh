@@ -68,7 +68,7 @@ done
 # --- example hosts ---
 run "check hello-gpu-host" "cargo +stable check --manifest-path examples/hello-gpu/host/Cargo.toml"
 run "check async-io-host" "cargo +stable check --manifest-path examples/async-io/host/Cargo.toml"
-run "check async-pipeline-host" "cargo +stable check --manifest-path examples/async-pipeline/host/Cargo.toml"
+# Note: async-pipeline-host excluded — its build.rs compiles the kernel which requires patched rustc (#[warp_cooperative])
 run "check vector-math-host" "cargo +stable check --manifest-path examples/vector-math/host/Cargo.toml"
 run "check parallel-search-host" "cargo +stable check --manifest-path examples/parallel-search/host/Cargo.toml"
 run "check tcp-echo-host" "cargo +stable check --manifest-path examples/tcp-echo/host/Cargo.toml"

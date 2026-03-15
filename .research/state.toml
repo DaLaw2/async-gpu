@@ -12,7 +12,7 @@ status = "running"     # ready | running | blocked | completed
 current_mode = "do"
 current_step = "do.execute"
 current_task_id = "tla-model.3"
-last_summary = "bs87 deep: formal-verification epic created. TLA+ model of CAS protocol is highest-value work. Also: build-stabilize + validation-prep themes for codebase-health."
+last_summary = "tla-model.2 done: TLA+ spec verified by TLC — 367M states, 0 errors. ABA prevention confirmed. tla-model.3 next: liveness verification."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 87

@@ -25,3 +25,6 @@ gpu_roundtrip.txt
 examples/*/host/Cargo.lock
 examples/*/kernel/Cargo.lock
 .research/toolchain-build*.log
+formal/tla2tools.jar
+formal/HostcallProtocol_TTrace_*.bin
+formal/states/

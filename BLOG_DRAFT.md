@@ -122,13 +122,24 @@ To demonstrate genuine GPU parallelism, we built a "GPU grep" — all 32 warp la
 
 Thread 0 reads the file via sideband bulk I/O. All 32 threads search their 128-byte chunk. Lane 0 gathers results via `shfl.sync.idx` warp reduction. The GPU count matches the CPU reference exactly.
 
+## Formal Verification
+
+The lock-free CAS protocol is the system's correctness foundation — if it has a bug, everything breaks. We wrote a 750-line TLA+ specification modeling the full packet lifecycle (FREE → FILLING → READY → PROCESSING → DONE → FREE) with multiple GPU agents and a host agent, then ran the TLC model checker.
+
+**Safety** (3 GPU + 1 host + 3 packets): 367 million states explored, zero errors. No double-ownership, no lost packets, no ABA corruption.
+
+**Liveness** (2 GPU + 1 host + 2 packets): 337 thousand states explored, zero errors. Every request eventually gets a response. Every packet completes its full lifecycle.
+
+The model also confirmed that our ABA prevention strategy (monotonic epoch tags in tagged pointers) is essential — without it, TLC immediately finds counterexamples.
+
 ## What's Next
 
 The project is [open source](https://github.com/DaLaw2/async-gpu) under MIT/Apache-2.0. It includes:
 
-- 6 working examples (hello-gpu, async-pipeline, parallel-search, async-io, vector-math, tcp-echo)
+- 7 working examples (hello-gpu, async-pipeline, parallel-search, async-io, vector-math, tcp-echo, warp-cooperative)
 - A complete host SDK (`GpuRuntime`, `HostcallBuffer`, `MappedBuffer`)
 - GPT-2 124M inference running entirely on GPU (68ms/token)
+- TLA+ formal verification of the lock-free protocol ([`formal/`](formal/))
 - Comprehensive [ARCHITECTURE.md](ARCHITECTURE.md) for contributors
 
 The main limitation is the patched rustc requirement — the MIR pass hasn't been upstreamed. Stock nightly works for everything except `#[warp_cooperative]`.

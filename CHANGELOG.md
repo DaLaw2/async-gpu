@@ -24,8 +24,20 @@ TCP networking from GPU kernels and developer experience improvements.
 - `CONTRIBUTING.md` developer guide
 - CI badge and license badge in README
 - Convenience `run.sh` / `run.bat` scripts for examples
-- Toolchain build scripts split into `.sh` (Linux) + `.ps1` (Windows)
-- 296 research cycles, 317 completed tasks
+- Toolchain build scripts split into `.sh` (Linux) + `.bat` (Windows)
+- `VALIDATION.md` first-run hardware validation checklist
+- 309 research cycles, 329 completed tasks
+
+### Formal Verification
+
+- **TLA+ specification** of the CAS hostcall protocol (750 lines)
+- **Safety verified**: 367M states, no double-ownership, no lost packets, no ABA
+- **Liveness verified**: 337K states, all packets complete full lifecycle
+
+### Code Quality
+
+- ~83 `// SAFETY` comments added to all high-risk unsafe blocks
+- Module-level `//!` docs for `gpu-host` lib.rs and hostcall.rs
 
 ## v0.1.0 — 2026-03-15
 

@@ -9,8 +9,8 @@ completed_tasks = 329
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
-current_mode = "do"
-current_step = "do.execute"
+current_mode = "think"
+current_step = "think.triage"
 current_task_id = ""
 last_summary = "formal-verification epic complete: TLA+ safety (367M states) + liveness (337K states) both pass. CAS protocol formally verified. No bugs found."
 
@@ -173,7 +173,8 @@ success_criteria = [
 [[epics]]
 id = "formal-verification"
 title = "Formal Verification — TLA+ model of CAS hostcall protocol"
-status = "active"
+status = "completed"
+# ALL 5 CRITERIA MET — closed 2026-03-15. TLC: 367M safety states + 337K liveness states, 0 errors.
 priority = "medium"
 success_criteria = [
     "TLA+ model covers packet lifecycle (FREE → FILLING → READY → PROCESSING → DONE → FREE)",

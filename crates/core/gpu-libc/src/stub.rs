@@ -184,11 +184,120 @@ pub unsafe extern "C" fn nanosleep(_req: *const c_void, _rem: *mut c_void) -> c_
 }
 
 // ============================================================
-// Synchronization stubs (futex-based sync in std)
+// Synchronization (pthread_mutex via CAS spin-lock)
+// ============================================================
+// GPU implementation of POSIX mutex API using atomic CAS spin-locks.
+// The first 4 bytes of pthread_mutex_t are used as a lock word:
+// 0 = unlocked, 1 = locked.
+
+/// pthread_mutex_init — initialize mutex (set lock word to 0).
+#[no_mangle]
+pub unsafe extern "C" fn pthread_mutex_init(mutex: *mut c_void, _attr: *const c_void) -> c_int {
+    if !mutex.is_null() {
+        core::ptr::write_volatile(mutex as *mut u32, 0);
+    }
+    0
+}
+
+/// pthread_mutex_destroy — no-op on GPU (no resources to free).
+#[no_mangle]
+pub unsafe extern "C" fn pthread_mutex_destroy(_mutex: *mut c_void) -> c_int {
+    0
+}
+
+/// pthread_mutex_lock — spin-lock using CAS.
+#[no_mangle]
+pub unsafe extern "C" fn pthread_mutex_lock(mutex: *mut c_void) -> c_int {
+    let lock_ptr = mutex as *mut u32;
+    let mut spins: u32 = 0;
+    loop {
+        // CAS(ptr, 0, 1) — try to acquire
+        let old: u32;
+        #[cfg(target_arch = "nvptx64")]
+        {
+            core::arch::asm!(
+                "atom.cas.sys.global.b32 {old}, [{ptr}], {expected}, {desired};",
+                old = out(reg32) old,
+                ptr = in(reg64) lock_ptr,
+                expected = in(reg32) 0u32,
+                desired = in(reg32) 1u32,
+                options(nostack),
+            );
+        }
+        #[cfg(not(target_arch = "nvptx64"))]
+        {
+            let _ = lock_ptr;
+            old = 1; // simulate failure on non-GPU
+        }
+        if old == 0 {
+            return 0; // acquired
+        }
+        // Yield the warp scheduler slot
+        #[cfg(target_arch = "nvptx64")]
+        core::arch::asm!("nanosleep.u32 64;", options(nostack));
+        spins += 1;
+        if spins >= 10_000_000 {
+            // Likely deadlock
+            #[cfg(target_arch = "nvptx64")]
+            core::arch::asm!("trap;", options(noreturn, nostack));
+            #[cfg(not(target_arch = "nvptx64"))]
+            return ENOSYS;
+        }
+    }
+}
+
+/// pthread_mutex_trylock — single CAS attempt.
+#[no_mangle]
+pub unsafe extern "C" fn pthread_mutex_trylock(mutex: *mut c_void) -> c_int {
+    let lock_ptr = mutex as *mut u32;
+    let old: u32;
+    #[cfg(target_arch = "nvptx64")]
+    {
+        core::arch::asm!(
+            "atom.cas.sys.global.b32 {old}, [{ptr}], {expected}, {desired};",
+            old = out(reg32) old,
+            ptr = in(reg64) lock_ptr,
+            expected = in(reg32) 0u32,
+            desired = in(reg32) 1u32,
+            options(nostack),
+        );
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = lock_ptr;
+        old = 1;
+    }
+    if old == 0 {
+        0
+    } else {
+        16
+    } // 16 = EBUSY
+}
+
+/// pthread_mutex_unlock — release store of 0.
+#[no_mangle]
+pub unsafe extern "C" fn pthread_mutex_unlock(mutex: *mut c_void) -> c_int {
+    let lock_ptr = mutex as *mut u32;
+    #[cfg(target_arch = "nvptx64")]
+    core::arch::asm!(
+        "st.release.sys.global.u32 [{ptr}], {val};",
+        ptr = in(reg64) lock_ptr,
+        val = in(reg32) 0u32,
+        options(nostack),
+    );
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = lock_ptr;
+    }
+    0
+}
+
+// ============================================================
+// Synchronization stubs (futex, condvar — not fully supported)
 // ============================================================
 
 // Linux futex syscall — std uses this for Mutex/Condvar on Linux.
-// On GPU, we'd use spinlocks from gpu-atomics instead.
+// With pthread_mutex_* implemented above, std's Mutex may use those instead.
 #[no_mangle]
 pub unsafe extern "C" fn syscall(_number: c_long, _args: ...) -> c_long {
     set_errno(ENOSYS);

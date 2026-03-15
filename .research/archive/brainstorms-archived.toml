@@ -263,3 +263,17 @@ new_epics_spawned = ["gpu-executor", "extended-std", "benchmarks"]
 themes_parked = []
 themes_completed = []
 key_insight = "User directed 4 areas: GPU executor impl (design exists), extended std (sync+collections), public API polish, benchmarks. 3 new epics + public-api upgraded to high priority. 13 tasks across 4 themes."
+
+# --- Archived at cycle 342 ---
+
+[[brainstorms]]
+seq = 91
+at_cycle = 326
+trigger = "3 epics closed (gpu-executor, benchmarks, public-api), no high-priority active epics"
+level = "standard"
+new_tasks_spawned = ["channel-oneshot.1", "channel-oneshot.2", "channel-oneshot.3", "channel-mpsc.1", "channel-mpsc.2", "channel-waker.1", "channel-waker.2", "channel-demo.1"]
+new_themes_spawned = ["channel-oneshot", "channel-mpsc", "channel-waker", "channel-demo"]
+new_epics_spawned = ["gpu-channels"]
+themes_parked = []
+themes_completed = ["api-ergonomics"]
+key_insight = "GPU executor works but tasks can't communicate. Channels (oneshot + mpsc) are the missing piece for real async patterns. Created gpu-channels epic with 4 themes, 8 tasks."

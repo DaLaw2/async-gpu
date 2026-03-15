@@ -4,18 +4,18 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 341     # Monotonic counter, incremented after each completed phase
-completed_tasks = 370
+total_cycles = 345     # Monotonic counter, incremented after each completed phase
+completed_tasks = 375
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.select"
 current_task_id = ""
-last_summary = "bs94 done. New production-ready epic: multi-GPU, CUDA streams, GPU alloc, pre-built toolchain. 5 new tasks across 4 themes. Next: select + execute ready investigation tasks (all 4 have no deps)."
+last_summary = "BS95 quick: gpu-alloc already done (slab allocator exists). Spawned cuda-streams.2 (design) + prebuilt-toolchain.2 (experiment). multi-gpu.2 ready. Next: execute multi-gpu.2 + cuda-streams.2 + prebuilt-toolchain.2."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 94
+brainstorm_seq = 95
 review_seq = 5
 
 # Brainstorm trigger control (event-driven, no fixed interval)
@@ -281,6 +281,7 @@ id = "production-ready"
 title = "Production Readiness — multi-GPU, streams, memory management"
 status = "active"
 priority = "high"
+# Criterion 3 ALREADY MET (patched-std slab+bitmap allocator). Criteria 1,2,4 in progress.
 success_criteria = [
     "GpuRuntime supports multiple GPUs (device selection + multi-context management)",
     "CUDA stream support for overlapping compute and I/O transfers",
@@ -304,128 +305,13 @@ success_criteria = [
 ]
 # PARKED: depends on executor + std decisions settling first
 
-[[themes]]
-id = "channel-mpsc"
-epic = "gpu-channels"
-title = "Mpsc<T> channel — multi-producer single-consumer"
-status = "completed"
-goal = "Lock-free ring buffer with CAS-based enqueue, atomic waker"
-success_criteria = [
-    "Ring buffer with CAS enqueue, atomic head/tail",
-    "MpscReceiver implements Future",
-    "Multiple senders can enqueue concurrently",
-]
-
-[[themes]]
-id = "channel-waker"
-epic = "gpu-channels"
-title = "Waker integration — sender wakes receiver task in executor"
-status = "completed"
-goal = "When sender.send() completes, receiver task is re-enqueued in executor"
-success_criteria = [
-    "Waker stored by receiver, called by sender on send()",
-    "Woken task re-enqueued in executor's WorkQueue",
-]
-
-[[themes]]
-id = "channel-demo"
-epic = "gpu-channels"
-title = "Demo: producer-consumer pipeline with channels"
-status = "completed"
-goal = "End-to-end demo kernel showing channels + executor working together"
-success_criteria = [
-    "Producer task sends values via channel, consumer receives and processes",
-    "All tasks complete correctly via executor",
-]
-
-# (completed themes archived at cycle 337: channel-oneshot, compute-audit, compute-extract, demo-pipeline)
+# (completed themes archived at cycle 342: channel-mpsc, channel-waker, channel-demo, tokio-investigate, tokio-impl, tokio-demo)
 
 # ============================================================
 # Tasks (pending/active only — done tasks archived in archive/)
 # ============================================================
 
-# (done tasks archived at cycle 337)
-
-# --- tokio-bridge themes ---
-
-[[themes]]
-id = "tokio-investigate"
-epic = "tokio-bridge"
-title = "Investigation: tokio integration architecture"
-status = "completed"
-goal = "Understand current host architecture and design tokio integration points"
-success_criteria = [
-    "Map current GpuRuntime / HostcallSession threading model",
-    "Design tokio task structure for hostcall listener",
-    "Design gpu_spawn() API that returns impl Future",
-]
-
-[[tasks]]
-id = "tokio-investigate.1"
-theme = "tokio-investigate"
-title = "Investigation: current host threading model and tokio integration points"
-kind = "investigation"
-status = "done"
-depends = []
-questions = [
-    "How does GpuRuntime currently manage threads (hostcall listener, kernel launch)?",
-    "What would need to change to run hostcall listener as a tokio task?",
-    "How should gpu_spawn() work — what does the returned Future poll on?",
-    "Does gpu-host already depend on tokio, or would this be a new dependency?",
-]
-
-[[tasks]]
-id = "tokio-investigate.2"
-theme = "tokio-investigate"
-title = "Design: tokio bridge architecture (GpuRuntime + gpu_spawn API)"
-kind = "design"
-status = "done"
-depends = ["tokio-investigate.1"]
-
-# (done tasks archived at cycle 337: channel-demo.1)
-
-# --- tokio-impl theme ---
-
-[[themes]]
-id = "tokio-impl"
-epic = "tokio-bridge"
-title = "Implement GpuTask API + async kernel launch"
-status = "completed"
-goal = "Add GpuTask struct to async_rt.rs that orchestrates launch + hostcall + events"
-success_criteria = [
-    "GpuTask::new() creates session + runtime handle",
-    "GpuTask::launch() launches kernel and awaits completion",
-    "GpuTask::next_event() streams HostcallEvents asynchronously",
-]
-
-[[tasks]]
-id = "tokio-impl.1"
-theme = "tokio-impl"
-title = "Experiment: implement GpuTask struct in async_rt.rs"
-kind = "experiment"
-status = "done"
-depends = ["tokio-investigate.2"]
-
-# --- tokio-demo theme ---
-
-[[themes]]
-id = "tokio-demo"
-epic = "tokio-bridge"
-title = "Demo: tokio server that offloads compute to GPU"
-status = "completed"
-goal = "End-to-end example showing tokio + GPU async bridge"
-success_criteria = [
-    "Standalone example using GpuTask API",
-    "Shows concurrent GPU + host async work",
-]
-
-[[tasks]]
-id = "tokio-demo.1"
-theme = "tokio-demo"
-title = "Experiment: build tokio GPU compute offload example"
-kind = "experiment"
-status = "done"
-depends = ["tokio-impl.1"]
+# (done tasks archived at cycle 342: tokio-investigate.1, tokio-investigate.2, tokio-impl.1, tokio-demo.1)
 
 # --- production-ready themes ---
 
@@ -446,7 +332,7 @@ id = "multi-gpu.1"
 theme = "multi-gpu"
 title = "Investigation: current GpuRuntime device handling and cudarc multi-device support"
 kind = "investigation"
-status = "pending"
+status = "done"
 depends = []
 questions = [
     "Does GpuRuntime::new(n) already work for n > 0?",
@@ -480,7 +366,7 @@ id = "cuda-streams.1"
 theme = "cuda-streams"
 title = "Investigation: cudarc stream API and async launch patterns"
 kind = "investigation"
-status = "pending"
+status = "done"
 depends = []
 questions = [
     "How does cudarc expose CUDA streams?",
@@ -489,12 +375,21 @@ questions = [
     "What's the interaction between streams and hostcall listener?",
 ]
 
+[[tasks]]
+id = "cuda-streams.2"
+theme = "cuda-streams"
+title = "Design: stream-aware launch wrapper + per-stream sync API"
+kind = "design"
+status = "pending"
+depends = ["cuda-streams.1"]
+
 [[themes]]
 id = "gpu-alloc"
 epic = "production-ready"
 title = "GPU memory pool — slab allocator with deallocation"
-status = "active"
+status = "completed"
 goal = "Replace bump-only allocator with slab allocator that supports free()"
+# ALL 3 CRITERIA ALREADY MET — patched-std has slab+bitmap allocator with deallocation, tested with 32 concurrent threads
 success_criteria = [
     "GPU allocator supports deallocation (free returns memory to pool)",
     "No fragmentation under typical patterns (alloc/free/realloc)",
@@ -506,7 +401,7 @@ id = "gpu-alloc.1"
 theme = "gpu-alloc"
 title = "Investigation: current GPU allocator design and slab allocator options"
 kind = "investigation"
-status = "pending"
+status = "done"
 depends = []
 questions = [
     "What allocator does the GPU currently use (bump/linear)?",
@@ -528,11 +423,19 @@ success_criteria = [
 ]
 
 [[tasks]]
+id = "prebuilt-toolchain.2"
+theme = "prebuilt-toolchain"
+title = "Experiment: create CI workflow + download script for pre-built toolchain"
+kind = "experiment"
+status = "pending"
+depends = ["prebuilt-toolchain.1"]
+
+[[tasks]]
 id = "prebuilt-toolchain.1"
 theme = "prebuilt-toolchain"
 title = "Investigation: CI workflow for building + publishing patched rustc"
 kind = "investigation"
-status = "pending"
+status = "done"
 depends = []
 questions = [
     "What CI resources are needed to build rustc (RAM, disk, time)?",
@@ -544,6 +447,18 @@ questions = [
 # ============================================================
 # Brainstorms (last 3 only — older brainstorms archived)
 # ============================================================
+
+[[brainstorms]]
+seq = 95
+at_cycle = 345
+trigger = "all 4 production-ready investigations complete, gpu-alloc already satisfied"
+level = "quick"
+new_tasks_spawned = ["cuda-streams.2", "prebuilt-toolchain.2"]
+new_themes_spawned = []
+new_epics_spawned = []
+themes_parked = []
+themes_completed = ["gpu-alloc"]
+key_insight = "gpu-alloc criterion already met by patched-std slab+bitmap allocator (surprise!). cuda-streams needs design (cudarc doesn't support stream launch). multi-gpu.2 and prebuilt-toolchain.2 ready as experiments."
 
 [[brainstorms]]
 seq = 94
@@ -581,18 +496,6 @@ themes_parked = ["channel-mpsc", "channel-waker", "channel-demo"]
 themes_completed = []
 key_insight = "User pivot: all demos are I/O, no compute. We have GEMM, transformer ops, reductions buried in kernel code but not exposed. Two new epics: extract compute utils as public API, build compelling compute demo."
 
-[[brainstorms]]
-seq = 91
-at_cycle = 326
-trigger = "3 epics closed (gpu-executor, benchmarks, public-api), no high-priority active epics"
-level = "standard"
-new_tasks_spawned = ["channel-oneshot.1", "channel-oneshot.2", "channel-oneshot.3", "channel-mpsc.1", "channel-mpsc.2", "channel-waker.1", "channel-waker.2", "channel-demo.1"]
-new_themes_spawned = ["channel-oneshot", "channel-mpsc", "channel-waker", "channel-demo"]
-new_epics_spawned = ["gpu-channels"]
-themes_parked = []
-themes_completed = ["api-ergonomics"]
-key_insight = "GPU executor works but tasks can't communicate. Channels (oneshot + mpsc) are the missing piece for real async patterns. Created gpu-channels epic with 4 themes, 8 tasks."
-
-# (brainstorms 89-90 archived at cycle 337)
+# (brainstorms 89-91 archived at cycle 342)
 
 

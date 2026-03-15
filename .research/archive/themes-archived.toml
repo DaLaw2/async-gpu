@@ -590,3 +590,47 @@ success_criteria = [
     "Comparison with equivalent multi-launch approach",
     "User-facing quality code and documentation",
 ]
+
+# --- Archived at cycle 342 ---
+
+[[themes]]
+id = "channel-mpsc"
+epic = "gpu-channels"
+title = "Mpsc<T> channel — multi-producer single-consumer"
+status = "completed"
+goal = "Lock-free ring buffer with CAS-based enqueue, atomic waker"
+
+[[themes]]
+id = "channel-waker"
+epic = "gpu-channels"
+title = "Waker integration — sender wakes receiver task in executor"
+status = "completed"
+goal = "When sender.send() completes, receiver task is re-enqueued in executor"
+
+[[themes]]
+id = "channel-demo"
+epic = "gpu-channels"
+title = "Demo: producer-consumer pipeline with channels"
+status = "completed"
+goal = "End-to-end demo kernel showing channels + executor working together"
+
+[[themes]]
+id = "tokio-investigate"
+epic = "tokio-bridge"
+title = "Investigation: tokio integration architecture"
+status = "completed"
+goal = "Understand current host architecture and design tokio integration points"
+
+[[themes]]
+id = "tokio-impl"
+epic = "tokio-bridge"
+title = "Implement GpuTask API + async kernel launch"
+status = "completed"
+goal = "Add GpuTask struct to async_rt.rs that orchestrates launch + hostcall + events"
+
+[[themes]]
+id = "tokio-demo"
+epic = "tokio-bridge"
+title = "Demo: tokio server that offloads compute to GPU"
+status = "completed"
+goal = "End-to-end example showing tokio + GPU async bridge"

@@ -1739,3 +1739,43 @@ title = "Experiment: implement waker-based wake-on-send for channels"
 kind = "experiment"
 status = "done"
 depends = ["channel-waker.1", "channel-oneshot.2"]
+
+# --- Archived at cycle 342 ---
+
+# --- tokio-investigate ---
+
+[[tasks]]
+id = "tokio-investigate.1"
+theme = "tokio-investigate"
+title = "Investigation: current host threading model and tokio integration points"
+kind = "investigation"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "tokio-investigate.2"
+theme = "tokio-investigate"
+title = "Design: tokio bridge architecture (GpuRuntime + gpu_spawn API)"
+kind = "design"
+status = "done"
+depends = ["tokio-investigate.1"]
+
+# --- tokio-impl ---
+
+[[tasks]]
+id = "tokio-impl.1"
+theme = "tokio-impl"
+title = "Experiment: implement GpuTask struct in async_rt.rs"
+kind = "experiment"
+status = "done"
+depends = ["tokio-investigate.2"]
+
+# --- tokio-demo ---
+
+[[tasks]]
+id = "tokio-demo.1"
+theme = "tokio-demo"
+title = "Experiment: build tokio GPU compute offload example"
+kind = "experiment"
+status = "done"
+depends = ["tokio-impl.1"]

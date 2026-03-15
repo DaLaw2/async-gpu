@@ -3,37 +3,39 @@
 //! Provides tokio-compatible wrappers around the blocking GPU SDK:
 //! - [`AsyncGpuRuntime`] — kernel launch + synchronize as async operations
 //! - [`AsyncHostcallSession`] — persistent hostcall session with async event stream
+//! - [`GpuTask`] — orchestrates kernel launch + hostcall session as one async unit
 //! - [`HostcallEvent`] — typed events from GPU (print, shutdown)
 //!
 //! # Example
 //!
 //! ```no_run
-//! use gpu_host::async_rt::{AsyncGpuRuntime, AsyncHostcallSession};
+//! use gpu_host::async_rt::{AsyncGpuRuntime, GpuTask};
 //!
 //! #[tokio::main]
 //! async fn main() {
 //!     let rt = AsyncGpuRuntime::new(0).unwrap();
 //!     rt.load_ptx(ptx, "mod", &["kern"]).unwrap();
-//!     let (session, mut events) = AsyncHostcallSession::start(16).unwrap();
+//!
+//!     let mut task = GpuTask::new(&rt, 16).unwrap();
+//!     let func = rt.inner().require_func("mod", "kern").unwrap();
+//!     let cfg = gpu_host::runtime::GpuRuntime::launch_config((1,1,1), (32,1,1), 0);
 //!
 //!     // Launch kernel and await completion
-//!     rt.synchronize().await.unwrap();
+//!     task.launch(func, cfg, (task.session_dev_ptr(),)).await.unwrap();
 //!
 //!     // Consume events asynchronously
-//!     while let Some(event) = events.recv().await {
-//!         match event {
-//!             HostcallEvent::Print(msg) => println!("{}", String::from_utf8_lossy(&msg)),
-//!             HostcallEvent::Shutdown => break,
-//!         }
+//!     while let Some(event) = task.next_event().await {
+//!         println!("{event:?}");
 //!     }
 //!
-//!     session.shutdown().await;
+//!     task.shutdown().await;
 //! }
 //! ```
 
 use std::sync::Arc;
 
 use cudarc::driver::sys::CUdeviceptr;
+use cudarc::driver::{CudaFunction, LaunchAsync, LaunchConfig};
 
 use crate::error::{GpuHostError, Result};
 use crate::hostcall::{HostcallError, HostcallSession};
@@ -177,5 +179,119 @@ impl AsyncHostcallSession {
         })
         .await
         .ok();
+    }
+}
+
+// ================================================================
+// GpuTask — orchestrates kernel launch + hostcall session
+// ================================================================
+
+/// A GPU task that combines kernel launching with hostcall event streaming.
+///
+/// `GpuTask` manages an [`AsyncHostcallSession`] and provides an async
+/// `launch()` method that offloads the blocking kernel launch + synchronize
+/// to the tokio blocking pool. Events from the GPU (print messages, etc.)
+/// are available via [`next_event()`](GpuTask::next_event).
+///
+/// # Example
+///
+/// ```no_run
+/// # use gpu_host::async_rt::{AsyncGpuRuntime, GpuTask};
+/// # async fn example() -> gpu_host::error::Result<()> {
+/// let rt = AsyncGpuRuntime::new(0)?;
+/// let mut task = GpuTask::new(&rt, 16)?;
+///
+/// let func = rt.inner().require_func("module", "kernel")?;
+/// let cfg = gpu_host::runtime::GpuRuntime::launch_config((1,1,1), (32,1,1), 0);
+///
+/// // Launch and await kernel completion (non-blocking for tokio)
+/// task.launch(func, cfg, (task.session_dev_ptr(),)).await?;
+///
+/// // Drain events
+/// while let Some(event) = task.next_event().await {
+///     println!("{event:?}");
+/// }
+///
+/// task.shutdown().await;
+/// # Ok(())
+/// # }
+/// ```
+pub struct GpuTask {
+    rt: Arc<GpuRuntime>,
+    session: AsyncHostcallSession,
+    events_rx: tokio::sync::mpsc::Receiver<HostcallEvent>,
+}
+
+impl GpuTask {
+    /// Create a new GPU task with an embedded hostcall session.
+    ///
+    /// The hostcall listener starts immediately in a background thread.
+    pub fn new(rt: &AsyncGpuRuntime, num_packets: u16) -> std::result::Result<Self, HostcallError> {
+        let (session, events_rx) = AsyncHostcallSession::start(num_packets)?;
+        Ok(Self {
+            rt: rt.inner_arc(),
+            session,
+            events_rx,
+        })
+    }
+
+    /// Launch a kernel and await its completion.
+    ///
+    /// The kernel launch and device synchronization are offloaded to
+    /// [`tokio::task::spawn_blocking`] so other async tasks can progress.
+    ///
+    /// # Safety
+    ///
+    /// Same requirements as [`CudaFunction::launch`] — the caller must
+    /// ensure the kernel arguments are valid and the launch config is
+    /// compatible with the kernel.
+    pub async fn launch<Params: Send + 'static>(
+        &self,
+        func: CudaFunction,
+        config: LaunchConfig,
+        args: Params,
+    ) -> Result<()>
+    where
+        CudaFunction: LaunchAsync<Params>,
+    {
+        let rt = Arc::clone(&self.rt);
+        tokio::task::spawn_blocking(move || {
+            unsafe { func.launch(config, args) }.map_err(GpuHostError::Cudarc)?;
+            rt.synchronize()
+        })
+        .await
+        .map_err(|e| GpuHostError::Verification {
+            test: "gpu_task_launch",
+            detail: format!("spawn_blocking join error: {e}"),
+        })?
+    }
+
+    /// Receive the next event from the GPU.
+    ///
+    /// Returns `None` when the event channel is closed (session shut down).
+    pub async fn next_event(&mut self) -> Option<HostcallEvent> {
+        self.events_rx.recv().await
+    }
+
+    /// Get the hostcall session device pointer for kernel launch arguments.
+    pub fn session_dev_ptr(&self) -> CUdeviceptr {
+        self.session.dev_ptr()
+    }
+
+    /// Get the sideband device pointer for bulk I/O kernel arguments.
+    pub fn sideband_dev_ptr(&self) -> CUdeviceptr {
+        self.session.sideband_dev_ptr()
+    }
+
+    /// Reinitialize packet pool between kernel launches.
+    ///
+    /// Must be called after `launch()` completes and before the next `launch()`.
+    pub fn reinit_packets(&self) {
+        self.session.reinit_packets();
+    }
+
+    /// Shut down the GPU task and its hostcall session.
+    pub async fn shutdown(self) {
+        self.session.shutdown().await;
     }
 }

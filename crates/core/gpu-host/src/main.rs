@@ -185,6 +185,17 @@ fn main() -> Result<()> {
                 tests_scaling::run_compute_benchmark_test(Arc::clone(&dev))?;
                 return Ok(());
             }
+            #[cfg(feature = "async")]
+            "tokio_bridge" | "tokio" => {
+                let tokio_rt = tokio::runtime::Runtime::new().expect("tokio runtime init");
+                tokio_rt
+                    .block_on(tests_scaling::run_tokio_bridge_demo_test())
+                    .map_err(|e| GpuHostError::Verification {
+                        test: "tokio_bridge",
+                        detail: format!("{e}"),
+                    })?;
+                return Ok(());
+            }
             "bench" => {
                 tests_benchmark::run_throughput_benchmark(Arc::clone(&dev))?;
                 tests_benchmark::run_scalability_benchmark(Arc::clone(&dev))?;

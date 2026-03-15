@@ -1543,3 +1543,71 @@ pub(crate) fn run_channel_mpsc_demo_test(dev: Arc<CudaDevice>) -> Result<()> {
     println!("  Channel MPSC demo — PASSED");
     Ok(())
 }
+
+/// Tokio bridge demo: launch kernel via GpuTask, receive events asynchronously.
+///
+/// Uses `hostcall_print_hello` kernel which sends a PRINT hostcall message.
+/// Demonstrates `GpuTask::launch().await` + `GpuTask::next_event().await`.
+#[cfg(feature = "async")]
+pub(crate) async fn run_tokio_bridge_demo_test(
+) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    use gpu_host::async_rt::{AsyncGpuRuntime, GpuTask, HostcallEvent};
+    use gpu_host::memory::MappedBuffer;
+    use gpu_host::runtime::GpuRuntime;
+
+    println!("\n--- Tokio Bridge Demo Test (tokio-impl.1) ---");
+    println!("  Launches hostcall_print_hello via GpuTask async API.");
+
+    let rt = AsyncGpuRuntime::new(0)?;
+    rt.load_ptx(crate::KERNEL_PTX, "kernel", &["hostcall_print_hello"])?;
+
+    let mut task = GpuTask::new(&rt, 4)?;
+
+    let result_buf = MappedBuffer::<u32>::new_zeroed(1)?;
+
+    let func = rt.inner().require_func("kernel", "hostcall_print_hello")?;
+    let cfg = GpuRuntime::launch_config((1, 1, 1), (32, 1, 1), 0);
+
+    println!("  Launching kernel via GpuTask...");
+    let start = std::time::Instant::now();
+
+    // Launch kernel asynchronously (non-blocking for tokio runtime)
+    task.launch(func, cfg, (task.session_dev_ptr(), result_buf.dev_ptr()))
+        .await?;
+
+    let elapsed = start.elapsed();
+    println!("  Kernel completed in {elapsed:?}.");
+
+    // Give listener time to forward remaining events
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    // Collect events
+    let mut messages = Vec::new();
+    loop {
+        match tokio::time::timeout(std::time::Duration::from_millis(50), task.next_event()).await {
+            Ok(Some(HostcallEvent::Print(msg))) => {
+                let s = String::from_utf8_lossy(&msg).to_string();
+                println!("  [GPU event] {s}");
+                messages.push(s);
+            }
+            Ok(Some(HostcallEvent::Shutdown)) => break,
+            Ok(None) => break,
+            Err(_) => break, // timeout = no more events
+        }
+    }
+
+    task.shutdown().await;
+
+    // Verify
+    let result = unsafe { result_buf.read(0) };
+    assert_eq!(result, 1, "kernel reported failure");
+    assert!(
+        messages.iter().any(|m| m.contains("Hello from GPU!")),
+        "expected 'Hello from GPU!' in events, got: {messages:?}"
+    );
+
+    println!("  Tokio bridge demo — PASSED!");
+    println!("    GpuTask::launch().await + next_event().await working end-to-end.");
+    println!("    {} events received asynchronously.", messages.len());
+    Ok(())
+}

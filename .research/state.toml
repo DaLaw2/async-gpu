@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 338     # Monotonic counter, incremented after each completed phase
-completed_tasks = 367
+total_cycles = 339     # Monotonic counter, incremented after each completed phase
+completed_tasks = 368
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "tokio-investigate.2"
-last_summary = "channel-demo.1 + tokio-investigate.1 done. gpu-channels epic COMPLETED (all 4 criteria). Tokio already has optional dep + async_rt.rs with AsyncGpuRuntime/AsyncHostcallSession. Next: tokio-investigate.2 (design bridge architecture)."
+current_task_id = "tokio-impl.1"
+last_summary = "tokio-investigate.2 done: ADR-18 accepted. GpuTask API designed. Existing async_rt.rs covers 2/4 criteria. Next: tokio-impl.1 (implement GpuTask struct), then tokio-demo.1 (example)."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 93
@@ -339,7 +339,7 @@ success_criteria = [
 id = "tokio-investigate"
 epic = "tokio-bridge"
 title = "Investigation: tokio integration architecture"
-status = "active"
+status = "completed"
 goal = "Understand current host architecture and design tokio integration points"
 success_criteria = [
     "Map current GpuRuntime / HostcallSession threading model",
@@ -366,18 +366,53 @@ id = "tokio-investigate.2"
 theme = "tokio-investigate"
 title = "Design: tokio bridge architecture (GpuRuntime + gpu_spawn API)"
 kind = "design"
-status = "pending"
+status = "done"
 depends = ["tokio-investigate.1"]
 
-# --- channel-demo theme ---
+# (done tasks archived at cycle 337: channel-demo.1)
+
+# --- tokio-impl theme ---
+
+[[themes]]
+id = "tokio-impl"
+epic = "tokio-bridge"
+title = "Implement GpuTask API + async kernel launch"
+status = "active"
+goal = "Add GpuTask struct to async_rt.rs that orchestrates launch + hostcall + events"
+success_criteria = [
+    "GpuTask::new() creates session + runtime handle",
+    "GpuTask::launch() launches kernel and awaits completion",
+    "GpuTask::next_event() streams HostcallEvents asynchronously",
+]
 
 [[tasks]]
-id = "channel-demo.1"
-theme = "channel-demo"
-title = "Experiment: demo kernel — producer-consumer pipeline with channels + executor"
+id = "tokio-impl.1"
+theme = "tokio-impl"
+title = "Experiment: implement GpuTask struct in async_rt.rs"
 kind = "experiment"
-status = "done"
-depends = ["channel-oneshot.3", "channel-waker.2"]
+status = "pending"
+depends = ["tokio-investigate.2"]
+
+# --- tokio-demo theme ---
+
+[[themes]]
+id = "tokio-demo"
+epic = "tokio-bridge"
+title = "Demo: tokio server that offloads compute to GPU"
+status = "active"
+goal = "End-to-end example showing tokio + GPU async bridge"
+success_criteria = [
+    "Standalone example using GpuTask API",
+    "Shows concurrent GPU + host async work",
+]
+
+[[tasks]]
+id = "tokio-demo.1"
+theme = "tokio-demo"
+title = "Experiment: build tokio GPU compute offload example"
+kind = "experiment"
+status = "pending"
+depends = ["tokio-impl.1"]
 
 # ============================================================
 # Brainstorms (last 3 only — older brainstorms archived)

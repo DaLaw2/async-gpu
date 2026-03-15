@@ -18,4 +18,4 @@ cudarc = { version = "0.12", features = ["cuda-12060"] }
 gpu-protocol = { path = "../gpu-protocol" }
 safetensors = { version = "0.7", optional = true }
 tiktoken-rs = { version = "0.6", optional = true }
-tokio = { version = "1", features = ["rt", "sync", "macros"], optional = true }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "sync", "macros", "time"], optional = true }

@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 354     # Monotonic counter, incremented after each completed phase
-completed_tasks = 385
+total_cycles = 355     # Monotonic counter, incremented after each completed phase
+completed_tasks = 386
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
-current_mode = "do"
-current_step = "do.execute"
+current_mode = "think"
+current_step = "think.triage"
 current_task_id = ""
-last_summary = "mma-splitk.5 DONE: MMA GEMM 2.18x throughput over f32 FMA, 26ms forward pass (62% below 68ms baseline). 4/5 tensor-core-gemm criteria met. Only f16 weight loading (perf optimization) remains. Need brainstorm to close epic and plan next."
+last_summary = "mma-splitk.3+4+5 ALL DONE. tensor-core-gemm epic: ALL 5 criteria met. MMA 2.18x throughput, zero error, 3/3 prompt match, 26ms latency. f16 truncation proven not an error source. mma-splitk theme complete. Need brainstorm to close epic and start object-detection."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 97
@@ -338,7 +338,7 @@ success_criteria = [
 id = "mma-splitk"
 epic = "tensor-core-gemm"
 title = "Split-K MMA GEMM with correct precision and real speedup"
-status = "active"
+status = "completed"
 goal = "Fix MMA GEMM precision via split-K accumulation + f16 weights, achieve >=2x throughput over f32 FMA"
 success_criteria = [
     "Split-K GEMM kernel passes correctness test at all GPT-2 dimensions vs f32 FMA",
@@ -399,7 +399,7 @@ id = "mma-splitk.3"
 theme = "mma-splitk"
 title = "Experiment: direct f16 weight loading (eliminate f32->f16 truncation)"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["mma-splitk.1"]
 
 [[tasks]]

@@ -165,6 +165,10 @@ fn main() -> Result<()> {
                 tests_benchmark::run_file_io_benchmark(Arc::clone(&dev))?;
                 return Ok(());
             }
+            "executor" => {
+                tests_scaling::run_executor_demo_test(Arc::clone(&dev))?;
+                return Ok(());
+            }
             "bench" => {
                 tests_benchmark::run_throughput_benchmark(Arc::clone(&dev))?;
                 tests_benchmark::run_scalability_benchmark(Arc::clone(&dev))?;
@@ -232,6 +236,9 @@ fn main() -> Result<()> {
 
     // File I/O latency benchmark (bench-suite.3)
     tests_benchmark::run_file_io_benchmark(Arc::clone(&dev))?;
+
+    // Executor demo (executor-impl.4)
+    tests_scaling::run_executor_demo_test(Arc::clone(&dev))?;
 
     // Parallel file grep demo (product.8)
     tests_pipeline::run_parallel_grep_test(Arc::clone(&dev))?;

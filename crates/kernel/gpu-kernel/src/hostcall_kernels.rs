@@ -497,6 +497,170 @@ pub unsafe extern "ptx-kernel" fn hostcall_latency_bench_v2(
 }
 
 // ============================================================
+// Executor demo kernel (executor-impl.4)
+// ============================================================
+
+/// Simple future that writes a value to a result slot and completes immediately.
+struct WriteValueFuture {
+    result_ptr: *mut u32,
+    value: u32,
+    done: bool,
+}
+
+impl core::future::Future for WriteValueFuture {
+    type Output = ();
+
+    fn poll(
+        mut self: core::pin::Pin<&mut Self>,
+        _cx: &mut core::task::Context<'_>,
+    ) -> core::task::Poll<()> {
+        if self.done {
+            return core::task::Poll::Ready(());
+        }
+        unsafe {
+            sys_store_release_u32(self.result_ptr, self.value);
+        }
+        self.done = true;
+        core::task::Poll::Ready(())
+    }
+}
+
+/// Counter future that increments a shared counter and yields once before completing.
+struct CounterFuture {
+    counter_ptr: *mut u32,
+    step: u32,
+}
+
+impl core::future::Future for CounterFuture {
+    type Output = ();
+
+    fn poll(
+        mut self: core::pin::Pin<&mut Self>,
+        _cx: &mut core::task::Context<'_>,
+    ) -> core::task::Poll<()> {
+        if self.step == 0 {
+            // First poll: yield (return Pending)
+            self.step = 1;
+            core::task::Poll::Pending
+        } else {
+            // Second poll: increment counter and complete
+            unsafe {
+                let old = core::ptr::read_volatile(self.counter_ptr);
+                core::ptr::write_volatile(self.counter_ptr, old + 1);
+            }
+            core::task::Poll::Ready(())
+        }
+    }
+}
+
+/// Executor demo kernel: spawn async tasks and run them to completion.
+///
+/// Tests the GpuExecutor with immediate futures (WriteValueFuture) and
+/// yielding futures (CounterFuture).
+///
+/// `executor_ptr` = device pointer to mapped memory for GpuExecutor (must be >= 256KB)
+/// `results` = output array of u32[16]:
+///   [0] = spawned count
+///   [1] = completed count
+///   [2] = tasks_executed from stats
+///   [3] = polls_total from stats
+///   [4..7] = values written by WriteValueFuture tasks (42, 100, 255, 1337)
+///   [8] = counter incremented by CounterFuture tasks (should be 4)
+///   [9] = success flag (1 if all tasks completed)
+///   [10] = phase marker (for debugging: shows how far init/spawn got)
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn executor_demo(executor_ptr: *mut u8, results: *mut u32) {
+    let thread_x = nvptx::_thread_idx_x() as u32;
+
+    // Initialize result buffer (thread 0 only)
+    if thread_x == 0 {
+        let mut i = 0u32;
+        while i < 16 {
+            core::ptr::write_volatile(results.add(i as usize), 0);
+            i += 1;
+        }
+        // Mark phase 1: results zeroed
+        core::ptr::write_volatile(results.add(10), 1);
+    }
+
+    // Sync all lanes before proceeding
+    let mask = activemask();
+    gpu_atomics::syncwarp(mask);
+
+    let executor = &*(executor_ptr as *const gpu_runtime::executor::GpuExecutor);
+
+    // Thread 0 initializes and spawns tasks
+    if thread_x == 0 {
+        executor.init();
+        // Mark phase 2: executor initialized
+        core::ptr::write_volatile(results.add(10), 2);
+
+        // Spawn 4 WriteValueFuture tasks
+        let values: [u32; 4] = [42, 100, 255, 1337];
+        let mut i = 0u32;
+        while i < 4 {
+            let _ = executor.spawn(WriteValueFuture {
+                result_ptr: results.add(4 + i as usize),
+                value: values[i as usize],
+                done: false,
+            });
+            i += 1;
+        }
+        // Mark phase 3: 4 immediate tasks spawned
+        core::ptr::write_volatile(results.add(10), 3);
+
+        // Spawn 4 CounterFuture tasks
+        let mut j = 0u32;
+        while j < 4 {
+            let _ = executor.spawn(CounterFuture {
+                counter_ptr: results.add(8),
+                step: 0,
+            });
+            j += 1;
+        }
+        // Mark phase 4: all 8 tasks spawned
+        core::ptr::write_volatile(results.add(10), 4);
+    }
+
+    gpu_atomics::syncwarp(mask);
+
+    // All lanes enter the executor loop.
+    // Pass mask explicitly — activemask() inside a method can generate
+    // problematic PTX on nvptx64 when inlined.
+    let stats = executor.run(mask);
+
+    gpu_atomics::syncwarp(mask);
+
+    // Mark phase 5: executor finished
+    if thread_x == 0 {
+        core::ptr::write_volatile(results.add(10), 5);
+        core::ptr::write_volatile(results.add(0), executor.spawned_count());
+        core::ptr::write_volatile(results.add(1), executor.completed_count());
+        core::ptr::write_volatile(results.add(2), stats.tasks_executed);
+        core::ptr::write_volatile(results.add(3), stats.polls_total);
+
+        let spawned = core::ptr::read_volatile(results.add(0) as *const u32);
+        let completed = core::ptr::read_volatile(results.add(1) as *const u32);
+        let v0 = core::ptr::read_volatile(results.add(4) as *const u32);
+        let v1 = core::ptr::read_volatile(results.add(5) as *const u32);
+        let v2 = core::ptr::read_volatile(results.add(6) as *const u32);
+        let v3 = core::ptr::read_volatile(results.add(7) as *const u32);
+        let counter = core::ptr::read_volatile(results.add(8) as *const u32);
+
+        if spawned == 8
+            && completed == 8
+            && v0 == 42
+            && v1 == 100
+            && v2 == 255
+            && v3 == 1337
+            && counter == 4
+        {
+            core::ptr::write_volatile(results.add(9), 1);
+        }
+    }
+}
+
+// ============================================================
 // File I/O latency benchmark kernel (bench-suite.3)
 // ============================================================
 

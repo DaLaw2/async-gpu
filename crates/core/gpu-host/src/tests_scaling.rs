@@ -6,7 +6,9 @@ use cudarc::driver::{CudaDevice, CudaSlice, LaunchAsync, LaunchConfig};
 
 use crate::error::{GpuHostError, Result};
 use crate::hostcall;
-use crate::mapped_mem::{alloc_mapped_result_array, free_mapped_mem};
+use crate::mapped_mem::{
+    alloc_mapped_bytes, alloc_mapped_result_array, free_mapped_bytes, free_mapped_mem,
+};
 
 /// Test: 32-thread multi-warp synchronous hostcall scaling (product.3).
 pub(crate) fn run_multi_warp_test(dev: Arc<CudaDevice>) -> Result<()> {
@@ -929,5 +931,124 @@ pub(crate) fn run_slab_concurrent_test(dev: Arc<CudaDevice>) -> Result<()> {
         num_threads * 5
     );
     println!("    Concurrent slab allocator verified under contention");
+    Ok(())
+}
+
+/// Test: GpuExecutor demo — spawn 8 async tasks and run them (executor-impl.4).
+pub(crate) fn run_executor_demo_test(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n--- Executor Demo Test (executor-impl.4) ---");
+    println!("  Spawns 8 async tasks: 4 WriteValueFuture + 4 CounterFuture.");
+
+    // Allocate mapped memory for the GpuExecutor (~136KB)
+    // The executor is big because of 256 TaskSlots × 528 bytes each.
+    let executor_size = 256 * 1024; // 256KB — generous
+    let (exec_host_ptr, exec_dev_ptr) = unsafe { alloc_mapped_bytes(&dev, executor_size)? };
+
+    // Allocate results: 16 u32
+    let (results_host_ptr, results_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 16)? };
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
+    let _ = dev.load_ptx(ptx, "kernel_executor", &["executor_demo"]);
+    let f = dev
+        .get_func("kernel_executor", "executor_demo")
+        .ok_or(GpuHostError::KernelNotFound("executor_demo"))?;
+
+    // Launch with 32 threads (1 warp) — all lanes participate in executor.run()
+    let cfg = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (32, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    // Launch on a separate thread so we can poll phase markers from main thread.
+    // The results are in mapped memory, visible to host even while kernel runs.
+    let dev2 = dev.clone();
+    let sync_done = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let sync_done2 = sync_done.clone();
+    let sync_thread = std::thread::spawn(move || {
+        unsafe {
+            f.launch(cfg, (exec_dev_ptr, results_dev_ptr)).unwrap();
+        }
+        let _ = dev2.synchronize();
+        sync_done2.store(true, std::sync::atomic::Ordering::Release);
+    });
+
+    // Poll phase marker with timeout
+    let timeout = std::time::Duration::from_secs(10);
+    let start = std::time::Instant::now();
+    let mut last_phase = 0u32;
+    loop {
+        let phase = unsafe { std::ptr::read_volatile(results_host_ptr.add(10)) };
+        if phase != last_phase {
+            println!("  phase marker = {phase}");
+            last_phase = phase;
+        }
+        if sync_done.load(std::sync::atomic::Ordering::Acquire) {
+            println!("  kernel completed (phase={phase})");
+            break;
+        }
+        if start.elapsed() > timeout {
+            let spawned = unsafe { std::ptr::read_volatile(results_host_ptr.add(0)) };
+            let completed = unsafe { std::ptr::read_volatile(results_host_ptr.add(1)) };
+            let v0 = unsafe { std::ptr::read_volatile(results_host_ptr.add(4)) };
+            let counter = unsafe { std::ptr::read_volatile(results_host_ptr.add(8)) };
+            println!("  TIMEOUT after {timeout:?}! phase={phase} spawned={spawned} completed={completed} v0={v0} counter={counter}");
+            // Dump executor header bytes for debugging
+            println!("  executor memory dump (first 64 bytes):");
+            for i in 0..8u32 {
+                let val = unsafe {
+                    std::ptr::read_volatile((exec_host_ptr as *const u64).add(i as usize))
+                };
+                println!("    offset {}: 0x{:016x}", i * 8, val);
+            }
+            // Dump all 16 result slots
+            println!("  results dump:");
+            for i in 0..16u32 {
+                let val = unsafe { std::ptr::read_volatile(results_host_ptr.add(i as usize)) };
+                println!("    results[{i}] = {val}");
+            }
+            unsafe {
+                free_mapped_bytes(exec_host_ptr)?;
+                free_mapped_mem(results_host_ptr)?;
+            }
+            return Err(GpuHostError::Timeout {
+                test: "executor_demo",
+                detail: format!("kernel hung at phase {phase}"),
+            });
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    let _ = sync_thread.join();
+
+    // Read results
+    let spawned = unsafe { std::ptr::read_volatile(results_host_ptr.add(0)) };
+    let completed = unsafe { std::ptr::read_volatile(results_host_ptr.add(1)) };
+    let tasks_executed = unsafe { std::ptr::read_volatile(results_host_ptr.add(2)) };
+    let polls_total = unsafe { std::ptr::read_volatile(results_host_ptr.add(3)) };
+    let v0 = unsafe { std::ptr::read_volatile(results_host_ptr.add(4)) };
+    let v1 = unsafe { std::ptr::read_volatile(results_host_ptr.add(5)) };
+    let v2 = unsafe { std::ptr::read_volatile(results_host_ptr.add(6)) };
+    let v3 = unsafe { std::ptr::read_volatile(results_host_ptr.add(7)) };
+    let counter = unsafe { std::ptr::read_volatile(results_host_ptr.add(8)) };
+    let success = unsafe { std::ptr::read_volatile(results_host_ptr.add(9)) };
+
+    println!("  spawned={spawned} completed={completed} tasks_executed={tasks_executed} polls_total={polls_total}");
+    println!("  values=[{v0}, {v1}, {v2}, {v3}]  counter={counter}  success={success}");
+
+    unsafe {
+        free_mapped_bytes(exec_host_ptr)?;
+        free_mapped_mem(results_host_ptr)?;
+    }
+
+    assert_eq!(spawned, 8, "expected 8 tasks spawned");
+    assert_eq!(completed, 8, "expected 8 tasks completed");
+    assert_eq!(v0, 42, "WriteValueFuture[0] expected 42");
+    assert_eq!(v1, 100, "WriteValueFuture[1] expected 100");
+    assert_eq!(v2, 255, "WriteValueFuture[2] expected 255");
+    assert_eq!(v3, 1337, "WriteValueFuture[3] expected 1337");
+    assert_eq!(counter, 4, "CounterFuture counter expected 4");
+    assert_eq!(success, 1, "success flag expected 1");
+
+    println!("  Executor demo — PASSED");
     Ok(())
 }

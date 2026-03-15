@@ -3794,11 +3794,11 @@ pub mod executor {
     #[repr(C)]
     pub struct WorkQueue {
         /// Consumer index (dequeue here). Tagged u64 for ABA prevention.
-        head: UnsafeCell<u64>,
+        pub head: UnsafeCell<u64>,
         /// Producer index (enqueue here). Tagged u64 for ABA prevention.
-        tail: UnsafeCell<u64>,
+        pub tail: UnsafeCell<u64>,
         /// Circular buffer of task slot indices. EMPTY_SENTINEL = unoccupied.
-        buffer: [UnsafeCell<u32>; MAX_TASKS],
+        pub buffer: [UnsafeCell<u32>; MAX_TASKS],
     }
 
     #[allow(clippy::new_without_default)]
@@ -3897,7 +3897,7 @@ pub mod executor {
     // ================================================================
 
     /// Type alias for a type-erased poll function pointer.
-    type PollFn = unsafe fn(*mut u8, &mut Context<'_>) -> Poll<()>;
+    pub type PollFn = unsafe fn(*mut u8, &mut Context<'_>) -> Poll<()>;
 
     /// A fixed-size slot for storing a type-erased future.
     ///
@@ -3906,13 +3906,18 @@ pub mod executor {
     #[repr(C)]
     pub struct TaskSlot {
         /// Slot state: FREE / QUEUED / RUNNING
-        state: UnsafeCell<u32>,
+        pub state: UnsafeCell<u32>,
         /// Type-erased poll function.
-        poll_fn: UnsafeCell<Option<PollFn>>,
+        pub poll_fn: UnsafeCell<Option<PollFn>>,
         /// Size of the stored future in bytes (for debugging).
-        future_size: UnsafeCell<u32>,
-        /// Inline storage for the future.
-        future_bytes: UnsafeCell<[u8; TASK_FUTURE_MAX_SIZE]>,
+        pub future_size: UnsafeCell<u32>,
+        /// Padding to align `future_bytes` to 8 bytes.
+        /// Without this, future_bytes starts at offset 20 (after state=4 + pad=4 +
+        /// poll_fn=8 + future_size=4), which is not 8-byte aligned. Futures containing
+        /// pointers (8 bytes on nvptx64) need 8-byte aligned storage.
+        pub _pad: u32,
+        /// Inline storage for the future (now at offset 24 = 8-byte aligned).
+        pub future_bytes: UnsafeCell<[u8; TASK_FUTURE_MAX_SIZE]>,
     }
 
     #[allow(clippy::new_without_default)]
@@ -3923,6 +3928,7 @@ pub mod executor {
                 state: UnsafeCell::new(SLOT_FREE),
                 poll_fn: UnsafeCell::new(None),
                 future_size: UnsafeCell::new(0),
+                _pad: 0,
                 future_bytes: UnsafeCell::new([0u8; TASK_FUTURE_MAX_SIZE]),
             }
         }
@@ -4067,7 +4073,7 @@ pub mod executor {
         /// Total tasks completed (diagnostic counter).
         tasks_completed: UnsafeCell<u32>,
         /// Task slot arena.
-        slots: [TaskSlot; MAX_TASKS],
+        pub slots: [TaskSlot; MAX_TASKS],
     }
 
     // SAFETY: GpuExecutor is designed for concurrent access across warps/blocks.
@@ -4184,118 +4190,131 @@ pub mod executor {
 
         /// Enter the executor loop (ExitOnEmpty policy).
         ///
-        /// The calling warp dequeues and executes tasks until the queue is empty
-        /// and no more tasks are active. All 32 lanes of the warp must call this.
+        /// Dequeues and polls tasks until the queue is empty. All 32 lanes of
+        /// the calling warp must call this simultaneously.
+        ///
+        /// `mask` must be the warp's active lane mask (from `activemask()`).
+        /// Taking it as a parameter avoids GPU hangs caused by LLVM nvptx
+        /// codegen issues with `activemask()` called inside inlined methods.
         ///
         /// # Safety
         /// - Must be called by all active lanes of a warp simultaneously
-        /// - `self` must point to valid executor memory
+        /// - `self` must point to valid executor memory in global/mapped space
         #[inline(always)]
-        pub unsafe fn run(&self) -> ExecutorStats {
-            let mask = activemask();
+        pub unsafe fn run(&self, mask: u32) -> ExecutorStats {
             let lid = lane_id();
-            let mut stats = ExecutorStats {
-                tasks_executed: 0,
-                polls_total: 0,
-            };
+            let mut tasks_executed: u32 = 0;
+            let mut polls_total: u32 = 0;
 
-            let waker = noop_waker();
+            // Build waker + context. Use ManuallyDrop to avoid drop glue.
+            let waker = core::mem::ManuallyDrop::new(noop_waker());
             let mut cx = Context::from_waker(&waker);
 
+            let mut outer_count: u32 = 0;
             loop {
+                // Safety valve: prevent infinite outer loops
+                outer_count += 1;
+                if outer_count > MAX_TASKS as u32 + 2 {
+                    break;
+                }
+
                 // Lane 0 dequeues, broadcasts to all lanes
                 let mut task_id: u32 = EMPTY_SENTINEL;
                 if lid == 0 {
-                    task_id = self.work_queue.dequeue();
+                    // Inline dequeue: read head/tail, check empty, CAS
+                    let head_ptr = self.work_queue.head.get();
+                    let tail_ptr = self.work_queue.tail.get();
+                    let old_head = sys_load_acquire_u64(head_ptr as *const _);
+                    let old_tail = sys_load_acquire_u64(tail_ptr as *const _);
+                    let head_idx = old_head as u32;
+                    let tail_idx = old_tail as u32;
+                    if head_idx != tail_idx {
+                        let slot = head_idx & (MAX_TASKS as u32 - 1);
+                        let buf_ptr = self.work_queue.buffer[slot as usize].get();
+                        let tid = sys_spin_load_acquire_u32(buf_ptr as *const _);
+                        if tid != EMPTY_SENTINEL {
+                            let new_tag = (old_head >> 32).wrapping_add(1);
+                            let new_head = (new_tag << 32) | (head_idx.wrapping_add(1) as u64);
+                            if sys_cas_u64(head_ptr, old_head, new_head) == old_head {
+                                sys_store_release_u32(buf_ptr, EMPTY_SENTINEL);
+                                task_id = tid;
+                            }
+                        }
+                    }
                 }
                 let task_id = shfl_sync_idx_u32(mask, task_id, 0);
                 syncwarp(mask);
 
                 if task_id == EMPTY_SENTINEL {
-                    // Check shutdown or no more active tasks
-                    let shutdown = core::ptr::read_volatile(self.shutdown.get() as *const u32);
-                    if shutdown != 0 {
-                        break;
-                    }
-                    // ExitOnEmpty: if nothing in queue, exit
                     break;
                 }
 
-                // Mark slot as RUNNING
+                if task_id as usize >= MAX_TASKS {
+                    break;
+                }
+
                 let slot = &self.slots[task_id as usize];
                 if lid == 0 {
                     sys_store_release_u32(slot.state.get(), SLOT_RUNNING);
                 }
                 syncwarp(mask);
 
-                // Get the poll function
                 let poll_fn = core::ptr::read_volatile(slot.poll_fn.get());
-                let poll_fn = match poll_fn {
-                    Some(f) => f,
-                    None => {
-                        // Invalid slot — skip (shouldn't happen)
-                        if lid == 0 {
-                            self.recycle_slot(task_id);
-                        }
-                        syncwarp(mask);
-                        continue;
+                if poll_fn.is_none() {
+                    if lid == 0 {
+                        core::ptr::write_volatile(slot.state.get(), SLOT_FREE);
                     }
-                };
-
+                    syncwarp(mask);
+                    continue;
+                }
+                let poll_fn = poll_fn.unwrap();
                 let future_ptr = (*slot.future_bytes.get()).as_mut_ptr();
 
-                // Spin-poll the task to completion
+                // Inner poll loop — only lane 0 polls
                 let mut polls: u32 = 0;
                 loop {
-                    let result = poll_fn(future_ptr, &mut cx);
-                    stats.polls_total += 1;
+                    let mut is_ready: u32 = 0;
+                    if lid == 0 {
+                        let result = poll_fn(future_ptr, &mut cx);
+                        is_ready = match result {
+                            Poll::Ready(()) => 1,
+                            Poll::Pending => 0,
+                        };
+                    }
+                    let is_ready = shfl_sync_idx_u32(mask, is_ready, 0);
+                    syncwarp(mask);
+                    polls_total += 1;
                     polls += 1;
 
-                    match result {
-                        Poll::Ready(()) => {
-                            // Task complete — recycle (lane 0 only)
-                            if lid == 0 {
-                                self.recycle_slot(task_id);
-                                let old = core::ptr::read_volatile(self.tasks_completed.get());
-                                core::ptr::write_volatile(
-                                    self.tasks_completed.get(),
-                                    old.wrapping_add(1),
-                                );
-                            }
-                            syncwarp(mask);
-                            stats.tasks_executed += 1;
-                            break;
+                    if is_ready != 0 {
+                        if lid == 0 {
+                            core::ptr::write_volatile(slot.state.get(), SLOT_FREE);
+                            let old = core::ptr::read_volatile(self.tasks_completed.get());
+                            core::ptr::write_volatile(
+                                self.tasks_completed.get(),
+                                old.wrapping_add(1),
+                            );
                         }
-                        Poll::Pending => {
-                            if polls >= MAX_POLLS_PER_TASK {
-                                // Task stuck — recycle and move on
-                                if lid == 0 {
-                                    self.recycle_slot(task_id);
-                                }
-                                syncwarp(mask);
-                                break;
-                            }
-                            #[cfg(target_arch = "nvptx64")]
-                            core::arch::asm!("nanosleep.u32 1000;", options(nostack));
-                        }
+                        syncwarp(mask);
+                        tasks_executed += 1;
+                        break;
                     }
+                    if polls >= 1000 {
+                        if lid == 0 {
+                            core::ptr::write_volatile(slot.state.get(), SLOT_FREE);
+                        }
+                        syncwarp(mask);
+                        break;
+                    }
+                    #[cfg(target_arch = "nvptx64")]
+                    core::arch::asm!("nanosleep.u32 1000;", options(nostack));
                 }
             }
 
-            stats
-        }
-
-        /// Recycle a task slot back to the free list.
-        ///
-        /// # Safety
-        /// Must be called by lane 0 only. The task must be complete.
-        #[inline(always)]
-        unsafe fn recycle_slot(&self, task_id: u32) {
-            let slot = &self.slots[task_id as usize];
-            core::ptr::write_volatile(slot.state.get(), SLOT_FREE);
-            core::ptr::write(slot.poll_fn.get(), None);
-            self.free_slots
-                .push(self.slots.as_ptr() as *mut TaskSlot, task_id as u16);
+            ExecutorStats {
+                tasks_executed,
+                polls_total,
+            }
         }
 
         /// Signal shutdown. Warps in `run()` will exit after draining the queue.

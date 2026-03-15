@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 322     # Monotonic counter, incremented after each completed phase
-completed_tasks = 343
+total_cycles = 323     # Monotonic counter, incremented after each completed phase
+completed_tasks = 344
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.execute"
-current_task_id = "executor-impl.4"
-last_summary = "bench-suite.2+3 done: throughput (66K/s 1t, 22K/s 16t), scalability (1-1024t sweep), file I/O (3.4ms round-trip, 296/s). Benchmarks epic 3/4 criteria met. Next: executor-impl.4 demo kernel."
+current_step = "do.route"
+current_task_id = ""
+last_summary = "executor-impl.4 done: GPU executor demo passes — 8 tasks spawned+completed, indirect fn pointer polling works. Fixed 3 bugs: TaskSlot alignment, all-lane polling, activemask codegen hang. gpu-executor epic fully met. Next: brainstorm for remaining epics."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 89
@@ -186,7 +186,8 @@ success_criteria = [
 [[epics]]
 id = "gpu-executor"
 title = "GPU-Side Async Executor — dynamic task spawning on GPU"
-status = "active"
+status = "completed"
+# ALL 4 CRITERIA MET — closed 2026-03-15
 priority = "high"
 success_criteria = [
     "Lock-free MPMC work queue compiles to valid PTX (tagged CAS, no ABA)",
@@ -240,7 +241,7 @@ success_criteria = [
 id = "executor-impl"
 epic = "gpu-executor"
 title = "Implement GPU-side async executor MVP (Phase 1)"
-status = "active"
+status = "completed"
 goal = "Working executor with MPMC queue, TaskSlot arena, spawn() + poll loop"
 success_criteria = [
     "WorkQueue + TaskSlot compile to valid PTX",
@@ -324,7 +325,7 @@ id = "executor-impl.4"
 theme = "executor-impl"
 title = "Experiment: demo kernel with dynamic task spawning"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["executor-impl.3"]
 
 # --- std-sync theme ---

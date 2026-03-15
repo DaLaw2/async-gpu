@@ -74,6 +74,7 @@ pub mod hostcall;
 pub mod mapped_mem;
 pub mod memory;
 pub mod runtime;
+pub mod streams;
 
 #[cfg(feature = "async")]
 pub mod async_rt;

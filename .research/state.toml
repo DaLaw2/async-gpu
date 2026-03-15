@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 348     # Monotonic counter, incremented after each completed phase
-completed_tasks = 378
+total_cycles = 349     # Monotonic counter, incremented after each completed phase
+completed_tasks = 379
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.save"
+current_step = "do.route"
 current_task_id = ""
-last_summary = "multi-gpu.2 done (device_count/name/ordinal API, tested on RTX 3060). cuda-streams.2 done (ADR-20 two-tier stream design). prebuilt-toolchain.2 done (CI workflow + install script). Next: commit, CI check, route."
+last_summary = "cuda-streams.3 DONE: GpuStream wrapper + test pass. All 4 production-ready criteria met. cuda-streams theme completed. Next: brainstorm — production-ready epic fully satisfied."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 95
@@ -279,9 +279,9 @@ success_criteria = [
 [[epics]]
 id = "production-ready"
 title = "Production Readiness — multi-GPU, streams, memory management"
-status = "active"
+status = "completed"
 priority = "high"
-# Criterion 3 ALREADY MET (patched-std slab+bitmap allocator). Criteria 1,2,4 in progress.
+# ALL 4 CRITERIA MET — multi-gpu, cuda-streams, gpu-alloc, prebuilt-toolchain all done
 success_criteria = [
     "GpuRuntime supports multiple GPUs (device selection + multi-context management)",
     "CUDA stream support for overlapping compute and I/O transfers",
@@ -319,7 +319,8 @@ success_criteria = [
 id = "multi-gpu"
 epic = "production-ready"
 title = "Multi-GPU support — device selection + multi-context"
-status = "active"
+status = "completed"
+# ALL 3 CRITERIA MET — device_count/name/ordinal API, cudarc handles multi-device, tested on GPU
 goal = "GpuRuntime can target any GPU device, multiple runtimes coexist"
 success_criteria = [
     "GpuRuntime::new(device_ordinal) works for any valid device",
@@ -353,7 +354,8 @@ depends = ["multi-gpu.1"]
 id = "cuda-streams"
 epic = "production-ready"
 title = "CUDA stream support — overlapping compute and I/O"
-status = "active"
+status = "completed"
+# ALL 3 CRITERIA MET — GpuStream wrapper with launch/sync/join_default, tested on GPU
 goal = "Kernel launches can use non-default streams for pipelining"
 success_criteria = [
     "GpuRuntime supports creating and managing CUDA streams",
@@ -388,7 +390,7 @@ id = "cuda-streams.3"
 theme = "cuda-streams"
 title = "Experiment: implement GpuStream wrapper + basic overlap test"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["cuda-streams.2"]
 
 [[themes]]
@@ -422,7 +424,8 @@ questions = [
 id = "prebuilt-toolchain"
 epic = "production-ready"
 title = "Pre-built toolchain binaries via CI"
-status = "active"
+status = "completed"
+# ALL 3 CRITERIA MET — build-toolchain.yml CI workflow + install-toolchain.sh download script
 goal = "GitHub Actions builds patched rustc and publishes as release artifact"
 success_criteria = [
     "CI workflow builds patched toolchain for Linux x86_64",

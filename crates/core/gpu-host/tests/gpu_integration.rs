@@ -14,9 +14,15 @@ use gpu_host::runtime::GpuRuntime;
 
 /// Shared CUDA device — initialized once, reused across all tests.
 /// Tests must run with `--test-threads=1` to avoid CUDA context conflicts.
+///
+/// Also re-binds the CUDA context to the calling thread, since prior tests
+/// (e.g., stream creation/destruction) may have altered the thread-local context.
 fn shared_device() -> Arc<CudaDevice> {
     static DEVICE: OnceLock<Arc<CudaDevice>> = OnceLock::new();
-    Arc::clone(DEVICE.get_or_init(|| CudaDevice::new(0).expect("CUDA device init failed")))
+    let dev =
+        Arc::clone(DEVICE.get_or_init(|| CudaDevice::new(0).expect("CUDA device init failed")));
+    dev.bind_to_thread().expect("bind CUDA context to thread");
+    dev
 }
 
 /// Basic test: launch `write_thread_idx` kernel and verify thread 0 wrote its index.
@@ -43,7 +49,7 @@ fn test_write_thread_idx() {
     };
 
     unsafe {
-        f.launch(cfg, (result_dev,)).expect("kernel launch");
+        f.launch(cfg, (result_dev, 32u32)).expect("kernel launch");
     }
     dev.synchronize().expect("sync");
 
@@ -206,4 +212,53 @@ fn test_multi_gpu_enumeration() {
         assert!(!name1.is_empty(), "device 1 name should not be empty");
         println!("Device 1: {name1}");
     }
+}
+
+/// Stream test: launch a kernel on a non-default stream via GpuStream wrapper.
+///
+/// Tests the full GpuStream API path: GpuRuntime::create_stream → launch →
+/// synchronize → join_default → verify output.
+#[test]
+fn test_cuda_stream_launch() {
+    let rt = GpuRuntime::new(0).expect("GpuRuntime init");
+    let dev = rt.device();
+
+    // Load the write_thread_idx PTX
+    rt.load_ptx(ptx::KERNEL, "kernel_stream", &["write_thread_idx"])
+        .expect("load PTX");
+    let func = dev
+        .get_func("kernel_stream", "write_thread_idx")
+        .expect("write_thread_idx not found");
+
+    let config = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (32, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    // Allocate mapped memory for the result
+    let (result_ptr, result_dev) =
+        unsafe { alloc_mapped_result_array(dev, 32).expect("mapped alloc") };
+
+    // Create a GpuStream and launch the kernel on it
+    let stream = rt.create_stream().expect("create stream");
+    unsafe {
+        stream
+            .launch(func, config, (result_dev, 32u32))
+            .expect("launch on stream");
+    }
+
+    // Sync the stream, join back to default, then full device sync
+    stream.synchronize().expect("stream sync");
+    stream.join_default().expect("join default");
+    dev.synchronize().expect("device sync");
+
+    // Verify results — each thread should have written its index
+    for i in 0..32 {
+        let val = unsafe { std::ptr::read_volatile(result_ptr.add(i)) };
+        assert_eq!(val, i as u32, "thread {i} should write its index");
+    }
+    println!("GpuStream launch: all 32 threads wrote correct indices");
+
+    unsafe { free_mapped_mem(result_ptr).expect("free mapped mem") };
 }

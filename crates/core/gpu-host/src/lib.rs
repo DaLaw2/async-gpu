@@ -79,6 +79,9 @@ pub mod streams;
 #[cfg(feature = "async")]
 pub mod async_rt;
 
+#[cfg(feature = "nn")]
+pub mod nn;
+
 #[cfg(feature = "gpt2")]
 pub mod model;
 #[cfg(feature = "gpt2")]

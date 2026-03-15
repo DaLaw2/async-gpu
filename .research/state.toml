@@ -4,18 +4,18 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 366     # Monotonic counter, incremented after each completed phase
-completed_tasks = 404
+total_cycles = 384     # Monotonic counter, incremented after each completed phase
+completed_tasks = 422
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.route"
-current_task_id = ""
-last_summary = "Cycle 366: 404 tasks, 22+ epics completed. Doc warnings fixed (0 remaining). All agent-automatable work done. developer-experience 3/4 (criterion 4 = user validation). codebase-health evergreen. Awaiting user for new direction or epic closure."
+current_step = "do.execute"
+current_task_id = "nn-tensor.1"
+last_summary = "Phase 1 complete: GpuTensor (N-dim, SmallVec, all ops), NnError, KernelRegistry (23 ML kernels, auto-config), Module trait, Sequential container, Gpt2Config. Examples reorganized: hostcall/ (8 old) + std/ (new). 18 tasks done. Next: nn-ops (stateless op wrappers)."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 99
+brainstorm_seq = 100
 review_seq = 5
 
 # Brainstorm trigger control (event-driven, no fixed interval)
@@ -332,11 +332,124 @@ success_criteria = [
     "New user onboarding time from clone to first kernel run < 15 minutes (with CUDA installed)",
 ]
 
+[[epics]]
+id = "ml-framework"
+title = "Mini ML Framework — reusable compute API + inference examples"
+status = "active"
+priority = "high"
+success_criteria = [
+    "Unified GpuTensor type with shape, strides, device memory — usable across all ops",
+    "gpu_host::nn module with composable ops: Linear, Conv2d, BatchNorm, LayerNorm, activations (SiLU, GELU, Sigmoid, Softmax)",
+    "Host-side kernel launch abstracted — user never writes grid/block size or function names",
+    "GPT-2 inference as standalone example (examples/gpt2-inference/) using nn API",
+    "YOLOv8-nano inference as standalone example (examples/yolo-detect/) using nn API",
+    "examples/ split into hostcall/ (old raw API) and std/ (new patched-std + nn API)",
+]
+
 # ============================================================
 # Themes (active/parked only — completed themes archived in archive/)
 # ============================================================
 
 # (completed themes archived at cycle 365: mma-splitk, yolo-inference, codebase-update, dx-xtask, dx-editor, dx-setup)
+
+[[themes]]
+id = "nn-tensor"
+epic = "ml-framework"
+title = "GpuTensor Foundation — N-dimensional tensor with shape, strides, device memory"
+status = "active"
+goal = "Unified GpuTensor type replacing old {data, c, h, w} struct"
+success_criteria = [
+    "GpuTensor with SmallVec shape/strides, Arc<CudaDevice>, CudaSlice<f32>",
+    "from_host(), to_host(), zeros(), reshape(), transpose(), concat(), split(), clone_tensor()",
+    "NnError type with ShapeMismatch, DimOutOfRange, KernelNotFound, Cuda variants",
+    "Unit tests for shape arithmetic, reshape validation, upload/download roundtrip",
+]
+
+[[themes]]
+id = "nn-registry"
+epic = "ml-framework"
+title = "Kernel Registry & Auto-Launch — abstract kernel loading and launch config"
+status = "active"
+goal = "No user code ever writes LaunchConfig, get_func(), or PTX function names"
+success_criteria = [
+    "KernelRegistry struct loads all ML kernels from PTX source",
+    "Auto-config helpers: config_1d(), config_gemm(), config_layernorm()",
+    "Convenience launch methods hiding unsafe kernel launch",
+    "All 87+ kernels accessible through registry",
+]
+
+[[themes]]
+id = "nn-ops"
+epic = "ml-framework"
+title = "Stateless Operations — functional API wrapping all GPU kernels"
+status = "active"
+goal = "Every kernel wrapped as stateless function taking/returning GpuTensor"
+success_criteria = [
+    "matmul(), conv2d(), layer_norm(), batch_norm(), batch_norm_silu()",
+    "gelu(), silu(), sigmoid(), relu() activations",
+    "max_pool2d(), upsample_nearest_2x(), embedding_lookup()",
+    "scaled_dot_product_attention(), bias_add(), elementwise_add()",
+    "concat_channels(), split_channels()",
+    "Integration tests with CPU reference values",
+]
+
+[[themes]]
+id = "nn-layers"
+epic = "ml-framework"
+title = "Composable Modules — Module trait with stateful layers owning weights"
+status = "active"
+goal = "PyTorch-like layers: Linear, Conv2d, LayerNorm, BatchNorm2d, Embedding, MHA"
+success_criteria = [
+    "Module trait with forward(&self, &GpuTensor) -> Result<GpuTensor>",
+    "Linear, Conv2d, LayerNorm, BatchNorm2d, Embedding, MultiHeadAttention layers",
+    "Activation layers: GELU, SiLU, Sigmoid, ReLU (zero-param Module wrappers)",
+    "MaxPool2d, Sequential container",
+    "Integration tests matching CPU/PyTorch reference",
+]
+
+[[themes]]
+id = "nn-gpt2"
+epic = "ml-framework"
+title = "GPT-2 Model — standalone inference example using nn API"
+status = "active"
+goal = "Gpt2Model struct + examples/gpt2_inference.rs with no raw kernel launches"
+success_criteria = [
+    "Gpt2Config, TransformerBlock, Gpt2Model structs",
+    "from_weights() loads safetensors and constructs layers",
+    "Greedy generation loop with KV cache support",
+    "Standalone example binary generating coherent text",
+    "Output matches existing tests_inference.rs results",
+]
+
+[[themes]]
+id = "nn-yolo"
+epic = "ml-framework"
+title = "YOLOv8-nano Model — standalone detection example using nn API"
+status = "active"
+goal = "YoloV8Nano struct + examples/yolov8_detect.rs with no raw kernel launches"
+success_criteria = [
+    "ConvBnSilu, C2f, SPPF composite layers",
+    "YoloV8Nano backbone (layers 0-9) + neck (layers 10-21)",
+    "DetectHead with DFL + NMS",
+    "from_weights() loads safetensors and constructs full model",
+    "Standalone example binary producing correct detections",
+    "Output matches existing yolo_backbone.rs results",
+]
+
+[[themes]]
+id = "nn-migrate"
+epic = "ml-framework"
+title = "Legacy Code Migration — rewrite old test code + reorganize examples"
+status = "active"
+goal = "Remove hardcoded runner code, all tests use nn API, examples split into hostcall/ and std/"
+success_criteria = [
+    "tests_inference.rs rewritten with nn API",
+    "tests_cnn.rs rewritten with nn ops",
+    "Old YoloRunner + GpuTensor{c,h,w} removed from yolo_backbone.rs",
+    "examples/ reorganized: hostcall/ (old raw API examples) + std/ (new patched-std examples)",
+    "New nn API examples (gpt2, yolo) use patched-std (println!, std::fs::File, etc.)",
+    "lib.rs exports pub mod nn with feature gate",
+]
 
 [[themes]]
 id = "warp-batch-io"
@@ -362,6 +475,484 @@ success_criteria = [
 # (done tasks archived at cycle 342: tokio-investigate.1-2, tokio-impl.1, tokio-demo.1)
 # (done tasks archived at cycle 349: multi-gpu.1-2, cuda-streams.1-3, gpu-alloc.1, prebuilt-toolchain.1-2)
 # (done tasks archived at cycle 365: mma-splitk.1-5, yolo-inference.1-8, codebase-update.1-3, dx-xtask.1-3, dx-editor.1-2, dx-setup.1-2)
+
+# --- nn-tensor tasks ---
+
+[[tasks]]
+id = "nn-tensor.1"
+theme = "nn-tensor"
+title = "Define GpuTensor struct with SmallVec shape/strides, Arc<CudaDevice>"
+kind = "experiment"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "nn-tensor.2"
+theme = "nn-tensor"
+title = "Implement from_host(), to_host(), zeros(), numel(), ndim(), shape()"
+kind = "experiment"
+status = "done"
+depends = ["nn-tensor.1"]
+
+[[tasks]]
+id = "nn-tensor.3"
+theme = "nn-tensor"
+title = "Implement reshape() — validates numel match, recomputes strides"
+kind = "experiment"
+status = "done"
+depends = ["nn-tensor.2"]
+
+[[tasks]]
+id = "nn-tensor.4"
+theme = "nn-tensor"
+title = "Implement transpose() — swaps dims and strides, copies if non-contiguous"
+kind = "experiment"
+status = "done"
+depends = ["nn-tensor.2"]
+
+[[tasks]]
+id = "nn-tensor.5"
+theme = "nn-tensor"
+title = "Implement concat() and split() along arbitrary dimension"
+kind = "experiment"
+status = "done"
+depends = ["nn-tensor.2"]
+
+[[tasks]]
+id = "nn-tensor.6"
+theme = "nn-tensor"
+title = "Implement clone_tensor() — device-to-device copy"
+kind = "experiment"
+status = "done"
+depends = ["nn-tensor.2"]
+
+[[tasks]]
+id = "nn-tensor.7"
+theme = "nn-tensor"
+title = "Add NnError type (thiserror) with ShapeMismatch, DimOutOfRange, KernelNotFound, Cuda"
+kind = "experiment"
+status = "done"
+depends = ["nn-tensor.1"]
+
+[[tasks]]
+id = "nn-tensor.8"
+theme = "nn-tensor"
+title = "Unit tests: shape arithmetic, reshape validation, upload/download roundtrip"
+kind = "experiment"
+status = "done"
+depends = ["nn-tensor.6"]
+
+# --- nn-registry tasks ---
+
+[[tasks]]
+id = "nn-registry.1"
+theme = "nn-registry"
+title = "Define KernelRegistry struct, new() loads all ML kernels from PTX"
+kind = "experiment"
+status = "done"
+depends = ["nn-tensor.7"]
+
+[[tasks]]
+id = "nn-registry.2"
+theme = "nn-registry"
+title = "Implement config_1d(), config_gemm(), config_layernorm() auto-config helpers"
+kind = "experiment"
+status = "done"
+depends = ["nn-registry.1"]
+
+[[tasks]]
+id = "nn-registry.3"
+theme = "nn-registry"
+title = "Build kernel name catalog — enumerate all 87+ PTX entry points with launch configs"
+kind = "investigation"
+status = "done"
+depends = ["nn-registry.1"]
+
+[[tasks]]
+id = "nn-registry.4"
+theme = "nn-registry"
+title = "Add launch_1d() and launch_gemm() convenience methods hiding unsafe launch"
+kind = "experiment"
+status = "done"
+depends = ["nn-registry.2"]
+
+# --- nn-ops tasks ---
+
+[[tasks]]
+id = "nn-ops.1"
+theme = "nn-ops"
+title = "matmul(a, b) -> GpuTensor wrapping gemm_f32 kernel"
+kind = "experiment"
+status = "pending"
+depends = ["nn-registry.4", "nn-tensor.4"]
+
+[[tasks]]
+id = "nn-ops.2"
+theme = "nn-ops"
+title = "conv2d(input, weight, stride, padding) -> GpuTensor wrapping im2col+gemm"
+kind = "experiment"
+status = "pending"
+depends = ["nn-ops.1"]
+
+[[tasks]]
+id = "nn-ops.3"
+theme = "nn-ops"
+title = "layer_norm(input, gamma, beta, eps) -> GpuTensor"
+kind = "experiment"
+status = "pending"
+depends = ["nn-registry.4"]
+
+[[tasks]]
+id = "nn-ops.4"
+theme = "nn-ops"
+title = "batch_norm(input, gamma, beta, mean, var, eps) -> GpuTensor"
+kind = "experiment"
+status = "pending"
+depends = ["nn-registry.4"]
+
+[[tasks]]
+id = "nn-ops.5"
+theme = "nn-ops"
+title = "batch_norm_silu(input, gamma, beta, mean, var, eps) -> GpuTensor (fused)"
+kind = "experiment"
+status = "pending"
+depends = ["nn-registry.4"]
+
+[[tasks]]
+id = "nn-ops.6"
+theme = "nn-ops"
+title = "Activations: gelu(), silu(), sigmoid(), relu()"
+kind = "experiment"
+status = "pending"
+depends = ["nn-registry.4"]
+
+[[tasks]]
+id = "nn-ops.7"
+theme = "nn-ops"
+title = "max_pool2d(input, kernel_size, stride, padding) -> GpuTensor"
+kind = "experiment"
+status = "pending"
+depends = ["nn-registry.4"]
+
+[[tasks]]
+id = "nn-ops.8"
+theme = "nn-ops"
+title = "upsample_nearest_2x(input) -> GpuTensor"
+kind = "experiment"
+status = "pending"
+depends = ["nn-registry.4"]
+
+[[tasks]]
+id = "nn-ops.9"
+theme = "nn-ops"
+title = "scaled_dot_product_attention(q, k, v) -> GpuTensor wrapping flash_attention"
+kind = "experiment"
+status = "pending"
+depends = ["nn-ops.1"]
+
+[[tasks]]
+id = "nn-ops.10"
+theme = "nn-ops"
+title = "embedding_lookup(indices, weight) -> GpuTensor"
+kind = "experiment"
+status = "pending"
+depends = ["nn-registry.4"]
+
+[[tasks]]
+id = "nn-ops.11"
+theme = "nn-ops"
+title = "bias_add(input, bias) and elementwise_add(a, b) -> GpuTensor"
+kind = "experiment"
+status = "pending"
+depends = ["nn-registry.4"]
+
+[[tasks]]
+id = "nn-ops.12"
+theme = "nn-ops"
+title = "concat_channels(a, b) and split_channels(input, sizes)"
+kind = "experiment"
+status = "pending"
+depends = ["nn-registry.4"]
+
+[[tasks]]
+id = "nn-ops.13"
+theme = "nn-ops"
+title = "Integration tests: each op tested with CPU reference values"
+kind = "experiment"
+status = "pending"
+depends = ["nn-ops.1", "nn-ops.2", "nn-ops.3", "nn-ops.4", "nn-ops.5", "nn-ops.6", "nn-ops.7", "nn-ops.8", "nn-ops.9", "nn-ops.10", "nn-ops.11", "nn-ops.12"]
+
+# --- nn-layers tasks ---
+
+[[tasks]]
+id = "nn-layers.1"
+theme = "nn-layers"
+title = "Define Module trait with forward(&self, &GpuTensor) -> Result<GpuTensor>"
+kind = "experiment"
+status = "done"
+depends = ["nn-tensor.1"]
+
+[[tasks]]
+id = "nn-layers.2"
+theme = "nn-layers"
+title = "Linear layer: weight upload, GEMM-based forward, optional bias"
+kind = "experiment"
+status = "pending"
+depends = ["nn-ops.1"]
+
+[[tasks]]
+id = "nn-layers.3"
+theme = "nn-layers"
+title = "Conv2d layer: weight reshaping to column-major, im2col+GEMM forward"
+kind = "experiment"
+status = "pending"
+depends = ["nn-ops.2"]
+
+[[tasks]]
+id = "nn-layers.4"
+theme = "nn-layers"
+title = "LayerNorm layer"
+kind = "experiment"
+status = "pending"
+depends = ["nn-ops.3"]
+
+[[tasks]]
+id = "nn-layers.5"
+theme = "nn-layers"
+title = "BatchNorm2d layer with optional fused SiLU"
+kind = "experiment"
+status = "pending"
+depends = ["nn-ops.4", "nn-ops.5"]
+
+[[tasks]]
+id = "nn-layers.6"
+theme = "nn-layers"
+title = "Embedding layer"
+kind = "experiment"
+status = "pending"
+depends = ["nn-ops.10"]
+
+[[tasks]]
+id = "nn-layers.7"
+theme = "nn-layers"
+title = "MultiHeadAttention layer: QKV projection, split heads, attention, concat, output projection"
+kind = "experiment"
+status = "pending"
+depends = ["nn-ops.9", "nn-layers.2"]
+
+[[tasks]]
+id = "nn-layers.8"
+theme = "nn-layers"
+title = "Activation layers: GELU, SiLU, Sigmoid, ReLU (zero-param Module wrappers)"
+kind = "experiment"
+status = "pending"
+depends = ["nn-ops.6"]
+
+[[tasks]]
+id = "nn-layers.9"
+theme = "nn-layers"
+title = "MaxPool2d layer"
+kind = "experiment"
+status = "pending"
+depends = ["nn-ops.7"]
+
+[[tasks]]
+id = "nn-layers.10"
+theme = "nn-layers"
+title = "Sequential container: chains multiple Modules in order"
+kind = "experiment"
+status = "done"
+depends = ["nn-layers.1"]
+
+[[tasks]]
+id = "nn-layers.11"
+theme = "nn-layers"
+title = "Integration tests: Linear forward matches CPU, Conv2d matches PyTorch reference"
+kind = "experiment"
+status = "pending"
+depends = ["nn-layers.2", "nn-layers.3"]
+
+# --- nn-gpt2 tasks ---
+
+[[tasks]]
+id = "nn-gpt2.1"
+theme = "nn-gpt2"
+title = "Gpt2Config struct with standard configs (small/medium/large)"
+kind = "experiment"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "nn-gpt2.2"
+theme = "nn-gpt2"
+title = "TransformerBlock — LN → MHA → residual → LN → FFN → residual"
+kind = "experiment"
+status = "pending"
+depends = ["nn-layers.4", "nn-layers.7", "nn-layers.2"]
+
+[[tasks]]
+id = "nn-gpt2.3"
+theme = "nn-gpt2"
+title = "Gpt2Model — embedding + position embed + N blocks + final LN + lm_head"
+kind = "experiment"
+status = "pending"
+depends = ["nn-gpt2.2", "nn-layers.6"]
+
+[[tasks]]
+id = "nn-gpt2.4"
+theme = "nn-gpt2"
+title = "Gpt2Model::from_weights() — load safetensors, construct layers"
+kind = "experiment"
+status = "pending"
+depends = ["nn-gpt2.3"]
+
+[[tasks]]
+id = "nn-gpt2.5"
+theme = "nn-gpt2"
+title = "Greedy generation loop with KV cache support"
+kind = "experiment"
+status = "pending"
+depends = ["nn-gpt2.3"]
+
+[[tasks]]
+id = "nn-gpt2.6"
+theme = "nn-gpt2"
+title = "examples/gpt2_inference.rs standalone binary"
+kind = "experiment"
+status = "pending"
+depends = ["nn-gpt2.5"]
+
+[[tasks]]
+id = "nn-gpt2.7"
+theme = "nn-gpt2"
+title = "Validate output matches existing tests_inference.rs results"
+kind = "experiment"
+status = "pending"
+depends = ["nn-gpt2.6"]
+
+# --- nn-yolo tasks ---
+
+[[tasks]]
+id = "nn-yolo.1"
+theme = "nn-yolo"
+title = "ConvBnSilu composite layer (Conv2d + BatchNorm2d with fuse_silu=true)"
+kind = "experiment"
+status = "pending"
+depends = ["nn-layers.3", "nn-layers.5"]
+
+[[tasks]]
+id = "nn-yolo.2"
+theme = "nn-yolo"
+title = "C2f block (YOLOv8 bottleneck with channel split + concat)"
+kind = "experiment"
+status = "pending"
+depends = ["nn-yolo.1"]
+
+[[tasks]]
+id = "nn-yolo.3"
+theme = "nn-yolo"
+title = "SPPF module (Spatial Pyramid Pooling Fast with MaxPool cascade)"
+kind = "experiment"
+status = "pending"
+depends = ["nn-layers.9", "nn-yolo.1"]
+
+[[tasks]]
+id = "nn-yolo.4"
+theme = "nn-yolo"
+title = "YoloV8Nano backbone: layers 0-9 (stem + downsampling + C2f blocks)"
+kind = "experiment"
+status = "pending"
+depends = ["nn-yolo.1", "nn-yolo.2", "nn-yolo.3"]
+
+[[tasks]]
+id = "nn-yolo.5"
+theme = "nn-yolo"
+title = "YoloV8Nano neck: layers 10-21 (FPN + PAN with upsample + concat)"
+kind = "experiment"
+status = "pending"
+depends = ["nn-yolo.4"]
+
+[[tasks]]
+id = "nn-yolo.6"
+theme = "nn-yolo"
+title = "DetectHead — regression + classification heads + DFL + NMS"
+kind = "experiment"
+status = "pending"
+depends = ["nn-yolo.5", "nn-layers.2"]
+
+[[tasks]]
+id = "nn-yolo.7"
+theme = "nn-yolo"
+title = "YoloV8Nano::from_weights() — load safetensors, construct full model"
+kind = "experiment"
+status = "pending"
+depends = ["nn-yolo.6"]
+
+[[tasks]]
+id = "nn-yolo.8"
+theme = "nn-yolo"
+title = "examples/yolov8_detect.rs standalone binary"
+kind = "experiment"
+status = "pending"
+depends = ["nn-yolo.7"]
+
+[[tasks]]
+id = "nn-yolo.9"
+theme = "nn-yolo"
+title = "Validate output matches existing yolo_backbone.rs results"
+kind = "experiment"
+status = "pending"
+depends = ["nn-yolo.8"]
+
+# --- nn-migrate tasks ---
+
+[[tasks]]
+id = "nn-migrate.1"
+theme = "nn-migrate"
+title = "Rewrite tests_inference.rs to use nn API"
+kind = "experiment"
+status = "pending"
+depends = ["nn-gpt2.3"]
+
+[[tasks]]
+id = "nn-migrate.2"
+theme = "nn-migrate"
+title = "Rewrite tests_cnn.rs to use nn ops API"
+kind = "experiment"
+status = "pending"
+depends = ["nn-ops.13"]
+
+[[tasks]]
+id = "nn-migrate.3"
+theme = "nn-migrate"
+title = "Deprecate/remove old YoloRunner + GpuTensor{c,h,w} from yolo_backbone.rs"
+kind = "experiment"
+status = "pending"
+depends = ["nn-yolo.9"]
+
+[[tasks]]
+id = "nn-migrate.4"
+theme = "nn-migrate"
+title = "Reorganize examples/: move existing to hostcall/, new nn API examples go in std/"
+kind = "experiment"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "nn-migrate.5"
+theme = "nn-migrate"
+title = "Update lib.rs exports: pub mod nn with feature gate"
+kind = "experiment"
+status = "done"
+depends = ["nn-layers.1"]
+
+[[tasks]]
+id = "nn-migrate.6"
+theme = "nn-migrate"
+title = "Apply patched-std (println!, File I/O) in std/ examples"
+kind = "experiment"
+status = "pending"
+depends = ["nn-migrate.1", "nn-migrate.2"]
 
 # --- warp-batch-io tasks ---
 
@@ -408,6 +999,18 @@ depends = ["warp-batch-io.3"]
 # ============================================================
 
 [[brainstorms]]
+seq = 100
+at_cycle = 366
+trigger = "User created ml-framework epic — refactor scattered compute primitives into reusable nn API"
+level = "standard"
+new_tasks_spawned = ["nn-tensor.1", "nn-tensor.2", "nn-tensor.3", "nn-tensor.4", "nn-tensor.5", "nn-tensor.6", "nn-tensor.7", "nn-tensor.8", "nn-registry.1", "nn-registry.2", "nn-registry.3", "nn-registry.4", "nn-ops.1", "nn-ops.2", "nn-ops.3", "nn-ops.4", "nn-ops.5", "nn-ops.6", "nn-ops.7", "nn-ops.8", "nn-ops.9", "nn-ops.10", "nn-ops.11", "nn-ops.12", "nn-ops.13", "nn-layers.1", "nn-layers.2", "nn-layers.3", "nn-layers.4", "nn-layers.5", "nn-layers.6", "nn-layers.7", "nn-layers.8", "nn-layers.9", "nn-layers.10", "nn-layers.11", "nn-gpt2.1", "nn-gpt2.2", "nn-gpt2.3", "nn-gpt2.4", "nn-gpt2.5", "nn-gpt2.6", "nn-gpt2.7", "nn-yolo.1", "nn-yolo.2", "nn-yolo.3", "nn-yolo.4", "nn-yolo.5", "nn-yolo.6", "nn-yolo.7", "nn-yolo.8", "nn-yolo.9", "nn-migrate.1", "nn-migrate.2", "nn-migrate.3", "nn-migrate.4", "nn-migrate.5"]
+new_themes_spawned = ["nn-tensor", "nn-registry", "nn-ops", "nn-layers", "nn-gpt2", "nn-yolo", "nn-migrate"]
+new_epics_spawned = ["ml-framework"]
+themes_parked = []
+themes_completed = []
+key_insight = "87+ GPU kernels scattered in test code need refactoring into reusable nn API. Architecture: GpuTensor (N-dim SmallVec), KernelRegistry (auto launch config), stateless ops, Module trait layers, then GPT-2 + YOLOv8 as standalone examples. 7 themes, 57 tasks, 5 phases."
+
+[[brainstorms]]
 seq = 99
 at_cycle = 364
 trigger = "object-detection + tensor-core-gemm epics completed, only low-priority epics remain"
@@ -418,18 +1021,6 @@ new_epics_spawned = []
 themes_parked = []
 themes_completed = ["yolo-inference", "mma-splitk"]
 key_insight = "Project is feature-complete (21+ epics, 394 tasks). Remaining work is DX + codebase-health: fix stale README (MMA works, YOLO added), cargo xtask for unified build, rust-analyzer config, setup scripts. No new epics needed."
-
-[[brainstorms]]
-seq = 97
-at_cycle = 351
-trigger = "User created tensor-core-gemm epic (highest priority) — need to plan themes and tasks"
-level = "standard"
-new_tasks_spawned = ["mma-splitk.1", "mma-splitk.2", "mma-splitk.3", "mma-splitk.4", "mma-splitk.5"]
-new_themes_spawned = ["mma-splitk"]
-new_epics_spawned = []
-themes_parked = ["warp-batch-io"]
-themes_completed = []
-key_insight = "Previous MMA failures were due to naive sequential K accumulation (192 tiles for K=3072). Fix: split-K (chunk K into 256-element blocks, independent f32 accumulators, then reduce) + direct f16 weights (skip f32->f16 truncation) + optional Kahan compensated summation. f16 MMA is best variant (1.8x speedup, 10-bit mantissa, K=16 tiles)."
 
 [[brainstorms]]
 seq = 98
@@ -443,6 +1034,6 @@ themes_parked = []
 themes_completed = ["mma-splitk"]
 key_insight = "tensor-core-gemm ALL criteria met (2.18x throughput, zero error, 26ms latency, 3/3 prompts). Object-detection next: YOLOv8-nano has 60 layers but only 6 unique ops. Key insight: im2col + existing MMA GEMM reuses proven 2.18x speedup for Conv2D. 8 tasks: investigation → parallel kernel dev → backbone → head → demo."
 
-# (brainstorms 89-96 archived at cycle 342/349/356/365)
+# (brainstorms 89-97 archived at cycle 342/349/356/365/367)
 
 

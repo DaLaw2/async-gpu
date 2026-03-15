@@ -106,6 +106,7 @@ dependencies = [
  "cudarc",
  "gpu-protocol",
  "safetensors",
+ "smallvec",
  "tiktoken-rs",
  "tokio",
 ]

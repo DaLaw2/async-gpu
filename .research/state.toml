@@ -4,14 +4,14 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 307     # Monotonic counter, incremented after each completed phase
-completed_tasks = 327
+total_cycles = 308     # Monotonic counter, incremented after each completed phase
+completed_tasks = 328
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "tla-model.2"
+current_task_id = "tla-model.3"
 last_summary = "bs87 deep: formal-verification epic created. TLA+ model of CAS protocol is highest-value work. Also: build-stabilize + validation-prep themes for codebase-health."
 
 # Sequence counters for unique file naming across iterations
@@ -256,7 +256,7 @@ id = "tla-model.2"
 theme = "tla-model"
 title = "Experiment: write TLA+ spec for packet lifecycle FSM"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["tla-model.1"]
 
 [[tasks]]

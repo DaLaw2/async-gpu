@@ -10,12 +10,12 @@ status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.route"
-current_task_id = ""
-last_summary = "cuda-streams.3 DONE: GpuStream wrapper + test pass. All 4 production-ready criteria met. cuda-streams theme completed. Next: brainstorm — production-ready epic fully satisfied."
+current_step = "do.execute"
+current_task_id = "warp-batch-io.1"
+last_summary = "BS96: project is feature-complete (19 epics, 379 tasks). Next direction: (1) unpark warp-batch-io, (2) ecosystem-launch epic, (3) developer-experience epic. Starting warp-batch-io first."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 95
+brainstorm_seq = 96
 review_seq = 5
 
 # Brainstorm trigger control (event-driven, no fixed interval)
@@ -289,6 +289,30 @@ success_criteria = [
     "Pre-built toolchain binaries via CI (reduce first-time setup to < 10 min)",
 ]
 
+[[epics]]
+id = "ecosystem-launch"
+title = "Ecosystem Launch — crates.io publish, docs site, public visibility"
+status = "active"
+priority = "high"
+success_criteria = [
+    "gpu-host published to crates.io at version 0.1.0 with documented public API",
+    "gpu-protocol published to crates.io (required as dependency)",
+    "Documentation site (mdBook) with architecture overview + getting started guide + example walkthroughs",
+    "Technical blog post suitable for r/rust, HN, or Rust forum — explaining the approach",
+]
+
+[[epics]]
+id = "developer-experience"
+title = "Developer Experience — cargo xtask, rust-analyzer, onboarding"
+status = "active"
+priority = "medium"
+success_criteria = [
+    "cargo xtask gpu-build compiles host + GPU kernel crates, runs PTX post-processing",
+    "rust-analyzer provides completions and type checking for GPU kernel crates",
+    "Setup script (Linux + Windows) downloads pre-built toolchain and configures environment",
+    "New user onboarding time from clone to first kernel run < 15 minutes (with CUDA installed)",
+]
+
 # ============================================================
 # Themes (active/parked only — completed themes archived in archive/)
 # ============================================================
@@ -297,167 +321,80 @@ success_criteria = [
 id = "warp-batch-io"
 epic = "async-std"
 title = "Warp-batched hostcall — 32 lanes share 1 packet"
-status = "parked"
+status = "active"
 goal = "Lane 0 submits hostcall, result broadcast via shfl.sync to all lanes"
 success_criteria = [
     "GpuOpenFuture with lane-0-submits pattern",
     "Full pipeline with 32 active lanes sharing hostcall",
+    "Benchmark: >=10x throughput improvement on uniform I/O vs per-lane",
 ]
-# PARKED: depends on executor + std decisions settling first
+# UNPARKED at cycle 349 — executor + std settled, ready to implement
 
 # (completed themes archived at cycle 342: channel-mpsc, channel-waker, channel-demo, tokio-investigate, tokio-impl, tokio-demo)
+# (completed themes archived at cycle 349: multi-gpu, cuda-streams, gpu-alloc, prebuilt-toolchain)
 
 # ============================================================
 # Tasks (pending/active only — done tasks archived in archive/)
 # ============================================================
 
 # (done tasks archived at cycle 342: tokio-investigate.1, tokio-investigate.2, tokio-impl.1, tokio-demo.1)
+# (done tasks archived at cycle 349: multi-gpu.1-2, cuda-streams.1-3, gpu-alloc.1, prebuilt-toolchain.1-2)
 
-# --- production-ready themes ---
-
-[[themes]]
-id = "multi-gpu"
-epic = "production-ready"
-title = "Multi-GPU support — device selection + multi-context"
-status = "completed"
-# ALL 3 CRITERIA MET — device_count/name/ordinal API, cudarc handles multi-device, tested on GPU
-goal = "GpuRuntime can target any GPU device, multiple runtimes coexist"
-success_criteria = [
-    "GpuRuntime::new(device_ordinal) works for any valid device",
-    "Multiple GpuRuntime instances can coexist (one per device)",
-    "Device enumeration API (list available GPUs)",
-]
+# --- warp-batch-io tasks ---
 
 [[tasks]]
-id = "multi-gpu.1"
-theme = "multi-gpu"
-title = "Investigation: current GpuRuntime device handling and cudarc multi-device support"
+id = "warp-batch-io.1"
+theme = "warp-batch-io"
+title = "Investigation: review ADR-10 design + current hostcall Future patterns"
 kind = "investigation"
-status = "done"
+status = "pending"
 depends = []
 questions = [
-    "Does GpuRuntime::new(n) already work for n > 0?",
-    "Can two CudaDevice instances coexist for different ordinals?",
-    "What are the CUDA context implications of multi-device?",
-    "Does cudarc handle primary context vs explicit context?",
+    "What does the ADR-10 warp-batching design specify?",
+    "How do current GpuOpenFuture/GpuReadFuture/etc submit hostcall packets?",
+    "Where is the lane-0 election and shfl.sync broadcast inserted?",
+    "What changes are needed in gpu-runtime Future types vs gpu-protocol?",
 ]
 
 [[tasks]]
-id = "multi-gpu.2"
-theme = "multi-gpu"
-title = "Experiment: implement multi-GPU device enumeration + validation"
+id = "warp-batch-io.2"
+theme = "warp-batch-io"
+title = "Experiment: implement lane-0-submits pattern in GpuOpenFuture"
 kind = "experiment"
-status = "done"
-depends = ["multi-gpu.1"]
-
-[[themes]]
-id = "cuda-streams"
-epic = "production-ready"
-title = "CUDA stream support — overlapping compute and I/O"
-status = "completed"
-# ALL 3 CRITERIA MET — GpuStream wrapper with launch/sync/join_default, tested on GPU
-goal = "Kernel launches can use non-default streams for pipelining"
-success_criteria = [
-    "GpuRuntime supports creating and managing CUDA streams",
-    "Kernel launch can target a specific stream",
-    "Host can synchronize per-stream (not just global device sync)",
-]
+status = "pending"
+depends = ["warp-batch-io.1"]
 
 [[tasks]]
-id = "cuda-streams.1"
-theme = "cuda-streams"
-title = "Investigation: cudarc stream API and async launch patterns"
-kind = "investigation"
-status = "done"
-depends = []
-questions = [
-    "How does cudarc expose CUDA streams?",
-    "Can LaunchAsync::launch target a specific stream?",
-    "How does stream synchronization differ from device synchronization?",
-    "What's the interaction between streams and hostcall listener?",
-]
-
-[[tasks]]
-id = "cuda-streams.2"
-theme = "cuda-streams"
-title = "Design: stream-aware launch wrapper + per-stream sync API"
-kind = "design"
-status = "done"
-depends = ["cuda-streams.1"]
-
-[[tasks]]
-id = "cuda-streams.3"
-theme = "cuda-streams"
-title = "Experiment: implement GpuStream wrapper + basic overlap test"
+id = "warp-batch-io.3"
+theme = "warp-batch-io"
+title = "Experiment: full 32-lane pipeline with shared hostcall packets"
 kind = "experiment"
-status = "done"
-depends = ["cuda-streams.2"]
-
-[[themes]]
-id = "gpu-alloc"
-epic = "production-ready"
-title = "GPU memory pool — slab allocator with deallocation"
-status = "completed"
-goal = "Replace bump-only allocator with slab allocator that supports free()"
-# ALL 3 CRITERIA ALREADY MET — patched-std has slab+bitmap allocator with deallocation, tested with 32 concurrent threads
-success_criteria = [
-    "GPU allocator supports deallocation (free returns memory to pool)",
-    "No fragmentation under typical patterns (alloc/free/realloc)",
-    "Existing Vec, String, Box work with new allocator",
-]
+status = "pending"
+depends = ["warp-batch-io.2"]
 
 [[tasks]]
-id = "gpu-alloc.1"
-theme = "gpu-alloc"
-title = "Investigation: current GPU allocator design and slab allocator options"
-kind = "investigation"
-status = "done"
-depends = []
-questions = [
-    "What allocator does the GPU currently use (bump/linear)?",
-    "What's the interface — global_allocator trait vs custom?",
-    "What slab allocator designs work on GPU (no OS, no TLS)?",
-    "Can we use a buddy allocator or power-of-2 free list?",
-]
-
-[[themes]]
-id = "prebuilt-toolchain"
-epic = "production-ready"
-title = "Pre-built toolchain binaries via CI"
-status = "completed"
-# ALL 3 CRITERIA MET — build-toolchain.yml CI workflow + install-toolchain.sh download script
-goal = "GitHub Actions builds patched rustc and publishes as release artifact"
-success_criteria = [
-    "CI workflow builds patched toolchain for Linux x86_64",
-    "Download script fetches and installs pre-built toolchain",
-    "First-time setup reduced from 2-3 hours to < 10 minutes",
-]
-
-[[tasks]]
-id = "prebuilt-toolchain.2"
-theme = "prebuilt-toolchain"
-title = "Experiment: create CI workflow + download script for pre-built toolchain"
+id = "warp-batch-io.4"
+theme = "warp-batch-io"
+title = "Experiment: benchmark per-lane vs batched hostcall throughput"
 kind = "experiment"
-status = "done"
-depends = ["prebuilt-toolchain.1"]
-
-[[tasks]]
-id = "prebuilt-toolchain.1"
-theme = "prebuilt-toolchain"
-title = "Investigation: CI workflow for building + publishing patched rustc"
-kind = "investigation"
-status = "done"
-depends = []
-questions = [
-    "What CI resources are needed to build rustc (RAM, disk, time)?",
-    "How to package the sysroot for distribution (tar.gz, .rustup component)?",
-    "What GitHub Actions runners have enough resources?",
-    "How to handle nightly version pinning in distributed builds?",
-]
+status = "pending"
+depends = ["warp-batch-io.3"]
 
 # ============================================================
 # Brainstorms (last 3 only — older brainstorms archived)
 # ============================================================
+
+[[brainstorms]]
+seq = 96
+at_cycle = 349
+trigger = "production-ready epic fully completed, no active high-priority epics — post-completion direction assessment"
+level = "deep"
+new_tasks_spawned = ["warp-batch-io.1", "warp-batch-io.2", "warp-batch-io.3", "warp-batch-io.4"]
+new_themes_spawned = []
+new_epics_spawned = ["ecosystem-launch", "developer-experience"]
+themes_parked = []
+themes_completed = []
+key_insight = "19 epics / 379 tasks complete. Project is technically feature-complete (v0.3 prototype). The highest-ROI next steps are ecosystem-facing: (1) unpark warp-batch-io to close the known I/O efficiency gap, (2) crates.io publish + docs site (ecosystem-launch epic) for external adoption, (3) cargo xtask + rust-analyzer setup (developer-experience epic) to reduce onboarding friction. Technical features have diminishing returns; discovery and ergonomics are the real blockers to adoption."
 
 [[brainstorms]]
 seq = 95
@@ -483,30 +420,6 @@ themes_parked = []
 themes_completed = []
 key_insight = "All 16 high-priority epics complete. New production-ready epic: multi-GPU, CUDA streams, GPU memory pool, pre-built toolchain. These are the remaining blockers for real-world deployment."
 
-[[brainstorms]]
-seq = 93
-at_cycle = 335
-trigger = "all high-priority epics completed, only codebase-health (evergreen) active"
-level = "standard"
-new_tasks_spawned = []
-new_themes_spawned = []
-new_epics_spawned = ["tokio-bridge"]
-themes_parked = []
-themes_completed = []
-key_insight = "Unpark gpu-channels (4 tasks, designs exist). New tokio-bridge epic for highest ecosystem impact. Multi-GPU deferred as optional stretch goal."
-
-[[brainstorms]]
-seq = 92
-at_cycle = 328
-trigger = "user pivot: demos are all I/O, need compute. Expose internal compute functions + build compelling demo."
-level = "quick"
-new_tasks_spawned = ["compute-audit.1", "compute-audit.2", "compute-extract.1", "compute-extract.2", "compute-extract.3", "demo-pipeline.1", "demo-pipeline.2", "demo-pipeline.3"]
-new_themes_spawned = ["compute-audit", "compute-extract", "demo-pipeline"]
-new_epics_spawned = ["compute-utils", "compute-demo"]
-themes_parked = ["channel-mpsc", "channel-waker", "channel-demo"]
-themes_completed = []
-key_insight = "User pivot: all demos are I/O, no compute. We have GEMM, transformer ops, reductions buried in kernel code but not exposed. Two new epics: extract compute utils as public API, build compelling compute demo."
-
-# (brainstorms 89-91 archived at cycle 342)
+# (brainstorms 89-93 archived at cycle 342/349)
 
 

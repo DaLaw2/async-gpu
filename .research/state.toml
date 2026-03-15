@@ -10,12 +10,12 @@ status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.route"
+current_step = "do.select"
 current_task_id = ""
-last_summary = "tokio-bridge epic COMPLETED (all 4 criteria). GpuTask API + tokio-offload example working. Both active epics (gpu-channels, tokio-bridge) closed. Only codebase-health (evergreen) remains active. Need brainstorm for next direction."
+last_summary = "bs94 done. New production-ready epic: multi-GPU, CUDA streams, GPU alloc, pre-built toolchain. 5 new tasks across 4 themes. Next: select + execute ready investigation tasks (all 4 have no deps)."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 93
+brainstorm_seq = 94
 review_seq = 5
 
 # Brainstorm trigger control (event-driven, no fixed interval)
@@ -276,6 +276,18 @@ success_criteria = [
     "Demo: tokio server that offloads compute to GPU via async bridge",
 ]
 
+[[epics]]
+id = "production-ready"
+title = "Production Readiness — multi-GPU, streams, memory management"
+status = "active"
+priority = "high"
+success_criteria = [
+    "GpuRuntime supports multiple GPUs (device selection + multi-context management)",
+    "CUDA stream support for overlapping compute and I/O transfers",
+    "GPU memory pool with deallocation (slab or buddy allocator replaces bump-only)",
+    "Pre-built toolchain binaries via CI (reduce first-time setup to < 10 min)",
+]
+
 # ============================================================
 # Themes (active/parked only — completed themes archived in archive/)
 # ============================================================
@@ -415,9 +427,135 @@ kind = "experiment"
 status = "done"
 depends = ["tokio-impl.1"]
 
+# --- production-ready themes ---
+
+[[themes]]
+id = "multi-gpu"
+epic = "production-ready"
+title = "Multi-GPU support — device selection + multi-context"
+status = "active"
+goal = "GpuRuntime can target any GPU device, multiple runtimes coexist"
+success_criteria = [
+    "GpuRuntime::new(device_ordinal) works for any valid device",
+    "Multiple GpuRuntime instances can coexist (one per device)",
+    "Device enumeration API (list available GPUs)",
+]
+
+[[tasks]]
+id = "multi-gpu.1"
+theme = "multi-gpu"
+title = "Investigation: current GpuRuntime device handling and cudarc multi-device support"
+kind = "investigation"
+status = "pending"
+depends = []
+questions = [
+    "Does GpuRuntime::new(n) already work for n > 0?",
+    "Can two CudaDevice instances coexist for different ordinals?",
+    "What are the CUDA context implications of multi-device?",
+    "Does cudarc handle primary context vs explicit context?",
+]
+
+[[tasks]]
+id = "multi-gpu.2"
+theme = "multi-gpu"
+title = "Experiment: implement multi-GPU device enumeration + validation"
+kind = "experiment"
+status = "pending"
+depends = ["multi-gpu.1"]
+
+[[themes]]
+id = "cuda-streams"
+epic = "production-ready"
+title = "CUDA stream support — overlapping compute and I/O"
+status = "active"
+goal = "Kernel launches can use non-default streams for pipelining"
+success_criteria = [
+    "GpuRuntime supports creating and managing CUDA streams",
+    "Kernel launch can target a specific stream",
+    "Host can synchronize per-stream (not just global device sync)",
+]
+
+[[tasks]]
+id = "cuda-streams.1"
+theme = "cuda-streams"
+title = "Investigation: cudarc stream API and async launch patterns"
+kind = "investigation"
+status = "pending"
+depends = []
+questions = [
+    "How does cudarc expose CUDA streams?",
+    "Can LaunchAsync::launch target a specific stream?",
+    "How does stream synchronization differ from device synchronization?",
+    "What's the interaction between streams and hostcall listener?",
+]
+
+[[themes]]
+id = "gpu-alloc"
+epic = "production-ready"
+title = "GPU memory pool — slab allocator with deallocation"
+status = "active"
+goal = "Replace bump-only allocator with slab allocator that supports free()"
+success_criteria = [
+    "GPU allocator supports deallocation (free returns memory to pool)",
+    "No fragmentation under typical patterns (alloc/free/realloc)",
+    "Existing Vec, String, Box work with new allocator",
+]
+
+[[tasks]]
+id = "gpu-alloc.1"
+theme = "gpu-alloc"
+title = "Investigation: current GPU allocator design and slab allocator options"
+kind = "investigation"
+status = "pending"
+depends = []
+questions = [
+    "What allocator does the GPU currently use (bump/linear)?",
+    "What's the interface — global_allocator trait vs custom?",
+    "What slab allocator designs work on GPU (no OS, no TLS)?",
+    "Can we use a buddy allocator or power-of-2 free list?",
+]
+
+[[themes]]
+id = "prebuilt-toolchain"
+epic = "production-ready"
+title = "Pre-built toolchain binaries via CI"
+status = "active"
+goal = "GitHub Actions builds patched rustc and publishes as release artifact"
+success_criteria = [
+    "CI workflow builds patched toolchain for Linux x86_64",
+    "Download script fetches and installs pre-built toolchain",
+    "First-time setup reduced from 2-3 hours to < 10 minutes",
+]
+
+[[tasks]]
+id = "prebuilt-toolchain.1"
+theme = "prebuilt-toolchain"
+title = "Investigation: CI workflow for building + publishing patched rustc"
+kind = "investigation"
+status = "pending"
+depends = []
+questions = [
+    "What CI resources are needed to build rustc (RAM, disk, time)?",
+    "How to package the sysroot for distribution (tar.gz, .rustup component)?",
+    "What GitHub Actions runners have enough resources?",
+    "How to handle nightly version pinning in distributed builds?",
+]
+
 # ============================================================
 # Brainstorms (last 3 only — older brainstorms archived)
 # ============================================================
+
+[[brainstorms]]
+seq = 94
+at_cycle = 341
+trigger = "gpu-channels + tokio-bridge both completed, no active high-priority epics"
+level = "standard"
+new_tasks_spawned = ["multi-gpu.1", "multi-gpu.2", "cuda-streams.1", "gpu-alloc.1", "prebuilt-toolchain.1"]
+new_themes_spawned = ["multi-gpu", "cuda-streams", "gpu-alloc", "prebuilt-toolchain"]
+new_epics_spawned = ["production-ready"]
+themes_parked = []
+themes_completed = []
+key_insight = "All 16 high-priority epics complete. New production-ready epic: multi-GPU, CUDA streams, GPU memory pool, pre-built toolchain. These are the remaining blockers for real-world deployment."
 
 [[brainstorms]]
 seq = 93

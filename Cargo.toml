@@ -3,7 +3,6 @@ members = [
     "crates/core/gpu-host",
     "crates/core/gpu-protocol",
     "crates/macro/warp-macro",
-    "xtask",
 ]
 resolver = "2"
 exclude = ["patched-rustc", "rustc-src"]

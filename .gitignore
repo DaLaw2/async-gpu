@@ -10,6 +10,8 @@ examples/*/target/
 .DS_Store
 Thumbs.db
 *.ptx
+*.pt
+*.safetensors
 patched-std/
 patched-rustc/
 rustc-src/

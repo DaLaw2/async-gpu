@@ -1375,3 +1375,71 @@ title = "Experiment: add //! module docs to gpu-host lib.rs and hostcall.rs"
 kind = "experiment"
 status = "done"
 depends = []
+
+# --- Archived at cycle 311 ---
+
+# --- tla-model theme ---
+
+[[tasks]]
+id = "tla-model.1"
+theme = "tla-model"
+title = "Investigation: learn TLA+ basics, identify protocol aspects to model"
+kind = "investigation"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "tla-model.2"
+theme = "tla-model"
+title = "Experiment: write TLA+ spec for packet lifecycle FSM"
+kind = "experiment"
+status = "done"
+depends = ["tla-model.1"]
+
+[[tasks]]
+id = "tla-model.3"
+theme = "tla-model"
+title = "Experiment: add multi-agent contention model, verify safety + liveness"
+kind = "experiment"
+status = "done"
+depends = ["tla-model.2"]
+
+# --- build-stabilize theme ---
+
+[[tasks]]
+id = "build-stabilize.1"
+theme = "build-stabilize"
+title = "Experiment: finalize build-toolchain scripts (.ps1/.bat/.sh state)"
+kind = "experiment"
+status = "done"
+depends = []
+
+# --- validation-prep theme ---
+
+[[tasks]]
+id = "validation-prep.1"
+theme = "validation-prep"
+title = "Experiment: write VALIDATION.md with first-run checklist and smoke test"
+kind = "experiment"
+status = "done"
+depends = []
+
+# --- readme-tla theme ---
+
+[[tasks]]
+id = "readme-tla.1"
+theme = "readme-tla"
+title = "Experiment: add formal verification section to README.md"
+kind = "experiment"
+status = "done"
+depends = []
+
+# --- executor-design theme ---
+
+[[tasks]]
+id = "executor-design.1"
+theme = "executor-design"
+title = "Design: GPU-side async executor with work-stealing"
+kind = "design"
+status = "done"
+depends = []

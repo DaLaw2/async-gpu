@@ -4,18 +4,18 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 311     # Monotonic counter, incremented after each completed phase
-completed_tasks = 331
+total_cycles = 315     # Monotonic counter, incremented after each completed phase
+completed_tasks = 335
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = ""
-last_summary = "bs88 quick: readme-tla theme (add TLA+ section to README), executor-design theme (design doc for GPU-side task spawning). formal-verification epic closed."
+current_task_id = "executor-impl.1"
+last_summary = "bs89 quick: user directed 4 new epics — gpu-executor, extended-std, public-api (upgraded), benchmarks. 4 themes, 12 tasks spawned."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 88
+brainstorm_seq = 89
 review_seq = 5
 
 # Brainstorm trigger control (event-driven, no fixed interval)
@@ -147,9 +147,8 @@ success_criteria = [
 [[epics]]
 id = "public-api"
 title = "Public API — Host SDK + Reusable GPU Kernel Library"
-type = "evergreen"  # Ongoing quality epic — work on when no other tasks are ready
 status = "active"
-priority = "low"
+priority = "high"
 success_criteria = [
     "gpu-host is a library crate with documented public API (GpuRuntime, HostcallBuffer, HostcallSession)",
     "A standalone example program uses gpu-host as a dependency to run a GPU kernel",
@@ -184,6 +183,42 @@ success_criteria = [
     "Findings documented with any discovered edge cases or protocol improvements",
 ]
 
+[[epics]]
+id = "gpu-executor"
+title = "GPU-Side Async Executor — dynamic task spawning on GPU"
+status = "active"
+priority = "high"
+success_criteria = [
+    "Lock-free MPMC work queue compiles to valid PTX (tagged CAS, no ABA)",
+    "TaskSlot arena with type-erased poll_fn — spawn() enqueues, executor polls",
+    "Executor loop: warp dequeues task, lane 0 polls, result broadcast via shfl.sync",
+    "Demo kernel: spawn 4+ async tasks dynamically, all complete correctly",
+]
+
+[[epics]]
+id = "extended-std"
+title = "Extended std on GPU — sync primitives + collections via hostcall"
+status = "active"
+priority = "high"
+success_criteria = [
+    "GPU Mutex<T> via atomic CAS — lock/unlock/try_lock work correctly across warps",
+    "GPU-side HashMap or BTreeMap usable with hostcall-backed allocator",
+    "At least 2 new std types beyond current (File, Vec, String, Box, stdin)",
+    "gpu-libc stubs for new primitives (pthread_mutex_* or custom)",
+]
+
+[[epics]]
+id = "benchmarks"
+title = "Benchmarks — hostcall latency, throughput, scalability measurements"
+status = "active"
+priority = "high"
+success_criteria = [
+    "Hostcall throughput benchmark: sustained calls/sec with 1, 32, 1024 threads",
+    "File I/O benchmark: read/write latency and throughput (inline vs sideband)",
+    "Scalability chart data: latency vs thread count (1 to 1024)",
+    "Results documented with analysis and comparison baseline",
+]
+
 # ============================================================
 # Themes (active/parked only — completed themes archived in archive/)
 # ============================================================
@@ -201,133 +236,203 @@ success_criteria = [
 # PARKED: depends on executor + std decisions settling first
 
 [[themes]]
-id = "tla-model"
-epic = "formal-verification"
-title = "TLA+ model of hostcall CAS protocol"
-status = "completed"
-goal = "Formal verification of packet lifecycle FSM with multi-agent contention"
+id = "executor-impl"
+epic = "gpu-executor"
+title = "Implement GPU-side async executor MVP (Phase 1)"
+status = "active"
+goal = "Working executor with MPMC queue, TaskSlot arena, spawn() + poll loop"
 success_criteria = [
-    "TLA+ spec compiles and model-checks successfully",
-    "Safety + liveness invariants verified for 2+ GPU agents and 1 host",
+    "WorkQueue + TaskSlot compile to valid PTX",
+    "spawn() enqueues tasks, executor loop polls them to completion",
+    "Demo kernel spawns 4+ tasks and all complete",
 ]
 
 [[themes]]
-id = "build-stabilize"
-epic = "codebase-health"
-title = "Stabilize build toolchain scripts"
-status = "completed"
-goal = "Clean up in-flux build scripts, ensure consistent state"
+id = "std-sync"
+epic = "extended-std"
+title = "GPU sync primitives + collections"
+status = "active"
+goal = "Mutex<T>, HashMap on GPU via atomics + hostcall allocator"
 success_criteria = [
-    "build-toolchain scripts finalized for both Linux and Windows",
-    "No untracked/modified build scripts in git status",
+    "GPU Mutex<T> with lock/unlock/try_lock",
+    "GPU HashMap usable in kernel code",
 ]
 
 [[themes]]
-id = "validation-prep"
-epic = "codebase-health"
-title = "First-run validation checklist for GPU testing"
-status = "completed"
-goal = "Enable someone with GPU hardware to validate the system"
-success_criteria = [
-    "VALIDATION.md with hardware/driver/toolchain requirements and smoke test steps",
-]
-
-[[themes]]
-id = "readme-tla"
-epic = "codebase-health"
-title = "Add TLA+ formal verification section to README"
-status = "completed"
-goal = "README documents formal verification results"
-success_criteria = ["README has formal verification section with TLC results"]
-
-[[themes]]
-id = "executor-design"
+id = "api-ergonomics"
 epic = "public-api"
-title = "Design doc: GPU-side async task spawning executor"
-status = "completed"
-goal = "Architecture document for on-GPU work-stealing executor"
-success_criteria = ["DESIGN-executor.md with executor architecture, work queue, scheduling policy"]
+title = "Polish public API — builder pattern, session management, error context"
+status = "active"
+goal = "Reduce boilerplate, improve error messages, simplify kernel launch"
+success_criteria = [
+    "HostcallBuffer builder pattern",
+    "High-level launch helper hiding thread::scope",
+    "Improved error types with context",
+]
+
+[[themes]]
+id = "bench-suite"
+epic = "benchmarks"
+title = "Comprehensive benchmark suite"
+status = "active"
+goal = "Measure hostcall latency, throughput, scalability, file I/O performance"
+success_criteria = [
+    "Throughput benchmark with configurable thread counts",
+    "File I/O benchmark (inline vs sideband)",
+    "Results documented with analysis",
+]
 
 # ============================================================
 # Tasks (pending/active only — done tasks archived in archive/)
 # ============================================================
 
-# --- tla-model theme ---
+# --- executor-impl theme ---
 
 [[tasks]]
-id = "tla-model.1"
-theme = "tla-model"
-title = "Investigation: learn TLA+ basics, identify protocol aspects to model"
+id = "executor-impl.1"
+theme = "executor-impl"
+title = "Investigation: verify indirect fn pointers work on nvptx64 PTX"
 kind = "investigation"
 status = "done"
 depends = []
 questions = [
-    "What TLA+ constructs map to CAS operations?",
-    "How to model GPU memory ordering in TLA+?",
-    "Which protocol aspects are most critical to verify?",
-    "What is the minimal model that covers the packet lifecycle?",
+    "Does LLVM nvptx backend support indirect function calls (call via register)?",
+    "What PTX instructions are generated for fn pointer calls?",
+    "Are there known issues with type-erased poll_fn on GPU?",
 ]
 
 [[tasks]]
-id = "tla-model.2"
-theme = "tla-model"
-title = "Experiment: write TLA+ spec for packet lifecycle FSM"
+id = "executor-impl.2"
+theme = "executor-impl"
+title = "Experiment: implement WorkQueue + TaskSlot arena"
 kind = "experiment"
-status = "done"
-depends = ["tla-model.1"]
+status = "pending"
+depends = ["executor-impl.1"]
 
 [[tasks]]
-id = "tla-model.3"
-theme = "tla-model"
-title = "Experiment: add multi-agent contention model, verify safety + liveness"
+id = "executor-impl.3"
+theme = "executor-impl"
+title = "Experiment: implement executor loop + spawn() API"
 kind = "experiment"
-status = "done"
-depends = ["tla-model.2"]
-
-# --- build-stabilize theme ---
+status = "pending"
+depends = ["executor-impl.2"]
 
 [[tasks]]
-id = "build-stabilize.1"
-theme = "build-stabilize"
-title = "Experiment: finalize build-toolchain scripts (.ps1/.bat/.sh state)"
+id = "executor-impl.4"
+theme = "executor-impl"
+title = "Experiment: demo kernel with dynamic task spawning"
 kind = "experiment"
-status = "done"
-# Already clean — .ps1 removed in commit 22d216c, .bat committed, scripts dir clean
-depends = []
+status = "pending"
+depends = ["executor-impl.3"]
 
-# --- validation-prep theme ---
+# --- std-sync theme ---
 
 [[tasks]]
-id = "validation-prep.1"
-theme = "validation-prep"
-title = "Experiment: write VALIDATION.md with first-run checklist and smoke test"
-kind = "experiment"
+id = "std-sync.1"
+theme = "std-sync"
+title = "Investigation: GPU sync primitive feasibility (Mutex, RwLock, Barrier)"
+kind = "investigation"
 status = "done"
 depends = []
-
-# --- readme-tla theme ---
+questions = [
+    "Can GPU atomics implement Mutex correctly across warps/blocks?",
+    "What are the deadlock risks with warp-level lock acquisition?",
+    "Should Mutex use spin-lock or hostcall-based sleep?",
+]
 
 [[tasks]]
-id = "readme-tla.1"
-theme = "readme-tla"
-title = "Experiment: add formal verification section to README.md"
+id = "std-sync.2"
+theme = "std-sync"
+title = "Experiment: implement GPU Mutex<T> via atomic CAS"
 kind = "experiment"
-status = "done"
-depends = []
-
-# --- executor-design theme ---
+status = "pending"
+depends = ["std-sync.1"]
 
 [[tasks]]
-id = "executor-design.1"
-theme = "executor-design"
-title = "Design: GPU-side async executor with work-stealing"
-kind = "design"
+id = "std-sync.3"
+theme = "std-sync"
+title = "Experiment: implement GPU-side HashMap with bump allocator"
+kind = "experiment"
+status = "pending"
+depends = ["std-sync.1"]
+
+# --- api-ergonomics theme ---
+
+[[tasks]]
+id = "api-ergonomics.1"
+theme = "api-ergonomics"
+title = "Investigation: audit API pain points from all 7 examples"
+kind = "investigation"
 status = "done"
 depends = []
+questions = [
+    "What boilerplate is repeated across examples?",
+    "What error handling patterns are clunky?",
+    "What would a minimal 'hello world' look like with ideal API?",
+]
+
+[[tasks]]
+id = "api-ergonomics.2"
+theme = "api-ergonomics"
+title = "Experiment: builder pattern for HostcallBuffer + session management"
+kind = "experiment"
+status = "pending"
+depends = ["api-ergonomics.1"]
+
+[[tasks]]
+id = "api-ergonomics.3"
+theme = "api-ergonomics"
+title = "Experiment: high-level GpuKernel launch helper (hide thread::scope)"
+kind = "experiment"
+status = "pending"
+depends = ["api-ergonomics.1"]
+
+# --- bench-suite theme ---
+
+[[tasks]]
+id = "bench-suite.1"
+theme = "bench-suite"
+title = "Investigation: design benchmark suite (metrics, methodology, baselines)"
+kind = "investigation"
+status = "done"
+depends = []
+questions = [
+    "What metrics matter most? (latency percentiles, throughput, scalability)",
+    "How to measure hostcall overhead accurately (GPU-side timestamps)?",
+    "What baselines to compare against (raw CUDA, cuFile, etc.)?",
+]
+
+[[tasks]]
+id = "bench-suite.2"
+theme = "bench-suite"
+title = "Experiment: hostcall throughput + scalability benchmark"
+kind = "experiment"
+status = "pending"
+depends = ["bench-suite.1"]
+
+[[tasks]]
+id = "bench-suite.3"
+theme = "bench-suite"
+title = "Experiment: file I/O latency + throughput benchmark"
+kind = "experiment"
+status = "pending"
+depends = ["bench-suite.1"]
 
 # ============================================================
 # Brainstorms (last 3 only — older brainstorms archived)
 # ============================================================
+
+[[brainstorms]]
+seq = 89
+at_cycle = 311
+trigger = "user directed 4 new development areas: gpu-executor, extended-std, public-api, benchmarks"
+level = "quick"
+new_tasks_spawned = ["executor-impl.1", "executor-impl.2", "executor-impl.3", "executor-impl.4", "std-sync.1", "std-sync.2", "std-sync.3", "api-ergonomics.1", "api-ergonomics.2", "api-ergonomics.3", "bench-suite.1", "bench-suite.2", "bench-suite.3"]
+new_themes_spawned = ["executor-impl", "std-sync", "api-ergonomics", "bench-suite"]
+new_epics_spawned = ["gpu-executor", "extended-std", "benchmarks"]
+themes_parked = []
+themes_completed = []
+key_insight = "User directed 4 areas: GPU executor impl (design exists), extended std (sync+collections), public API polish, benchmarks. 3 new epics + public-api upgraded to high priority. 13 tasks across 4 themes."
 
 [[brainstorms]]
 seq = 88
@@ -351,16 +456,5 @@ new_epics_spawned = ["formal-verification"]
 themes_parked = []
 themes_completed = []
 key_insight = "Project needs depth, not breadth. TLA+ formal verification of CAS protocol is highest-value work without GPU. Plugin system and multi-GPU are premature. Build stabilization and validation prep bridge the gap to hardware testing."
-
-[[brainstorms]]
-seq = 86
-at_cycle = 299
-trigger = "all bs85 tasks completed — standard brainstorm for next direction"
-level = "standard"
-new_tasks_spawned = ["safety-audit.1", "safety-audit.2", "api-docs.1"]
-new_themes_spawned = ["safety-audit", "api-docs"]
-themes_parked = []
-themes_completed = ["blog-update", "changelog-update"]
-key_insight = "Project at natural plateau. Safety audit is highest-value remaining work (202 unsafe, only 10 with SAFETY). Updated public-api epic criteria to match actual API names."
 
 

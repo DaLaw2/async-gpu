@@ -459,3 +459,40 @@ success_criteria = [
     "gpu-host/src/lib.rs has //! module doc with usage pattern overview",
     "gpu-host/src/hostcall.rs has //! module doc with protocol overview",
 ]
+
+# --- Archived at cycle 311 ---
+
+[[themes]]
+id = "tla-model"
+epic = "formal-verification"
+title = "TLA+ model of hostcall CAS protocol"
+status = "completed"
+goal = "Formal verification of packet lifecycle FSM with multi-agent contention"
+
+[[themes]]
+id = "build-stabilize"
+epic = "codebase-health"
+title = "Stabilize build toolchain scripts"
+status = "completed"
+goal = "Clean up in-flux build scripts, ensure consistent state"
+
+[[themes]]
+id = "validation-prep"
+epic = "codebase-health"
+title = "First-run validation checklist for GPU testing"
+status = "completed"
+goal = "Enable someone with GPU hardware to validate the system"
+
+[[themes]]
+id = "readme-tla"
+epic = "codebase-health"
+title = "Add TLA+ formal verification section to README"
+status = "completed"
+goal = "README documents formal verification results"
+
+[[themes]]
+id = "executor-design"
+epic = "public-api"
+title = "Design doc: GPU-side async task spawning executor"
+status = "completed"
+goal = "Architecture document for on-GPU work-stealing executor"

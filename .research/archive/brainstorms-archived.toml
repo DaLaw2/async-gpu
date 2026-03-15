@@ -203,3 +203,16 @@ new_themes_spawned = ["ci-hygiene", "build-scripts", "example-docs"]
 themes_parked = []
 themes_completed = ["ci-update", "blog-draft"]
 key_insight = "Project graduated to polish phase. 8 concrete gaps found: CI holes, missing run scripts, warp-cooperative cleanup, build script dirt, no per-example READMEs. No new epic needed."
+
+# --- Archived at cycle 311 ---
+
+[[brainstorms]]
+seq = 86
+at_cycle = 299
+trigger = "all bs85 tasks completed — standard brainstorm for next direction"
+level = "standard"
+new_tasks_spawned = ["safety-audit.1", "safety-audit.2", "api-docs.1"]
+new_themes_spawned = ["safety-audit", "api-docs"]
+themes_parked = []
+themes_completed = ["blog-update", "changelog-update"]
+key_insight = "Project at natural plateau. Safety audit is highest-value remaining work (202 unsafe, only 10 with SAFETY). Updated public-api epic criteria to match actual API names."

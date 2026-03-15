@@ -237,3 +237,12 @@ Record important technical decisions here as they emerge from research.
 - **Rationale**: (1) Converting the listener to a tokio task would add scheduling jitter to latency-sensitive doorbell polling, and `spawn_blocking` would just pin a thread anyway. The hybrid design (std::thread + tokio channel) is correct. (2) `GpuTask` provides the ergonomic `gpu_spawn()`-like API users expect without requiring changes to the hostcall core. (3) The existing `AsyncGpuRuntime` and `AsyncHostcallSession` already handle 2/4 tokio-bridge epic criteria.
 - **Alternatives**: (a) Full tokio-native listener with `tokio::time::sleep` — rejected, adds latency. (b) CUDA events/interrupts instead of polling — possible future optimization, but doorbell polling works well. (c) Single monolithic `gpu_spawn()` function — rejected in favor of `GpuTask` struct for more flexibility (reuse across launches).
 - **Sources**: tokio-investigate.1-c337, tokio-investigate.2-c338
+
+### ADR-20: Two-tier CUDA stream model — compute streams vs hostcall default stream
+- **Date**: 2026-03-15
+- **Status**: accepted
+- **Context**: Production workloads need overlapping GPU compute for pipelining. cudarc 0.12.1 has `CudaStream`, `launch_on_stream()`, and `fork_default_stream()`. But the hostcall safety model requires device-level sync (`cuCtxSynchronize`) before packet reset.
+- **Decision**: (1) Add `GpuStream` wrapper in `streams.rs` for pure compute kernels — wraps `fork_default_stream()` + `launch_on_stream()`. (2) Hostcall kernels stay on default stream via `GpuTask` — device-level sync + `reinit_packets()` between launches. (3) `AsyncGpuStream` for tokio integration via `spawn_blocking`. (4) Two tiers never mix: compute streams don't touch hostcall buffers.
+- **Rationale**: Separating compute streams from hostcall kernels preserves the device-idle safety invariant without restricting compute overlap. cudarc already provides the full stream API (`launch_on_stream`, `wait_for`, `fork_default_stream`). Forward-compatible with per-stream hostcall buffers if needed later.
+- **Alternatives**: (a) Per-stream hostcall buffers — correct but complex (multiple listener threads, buffer routing). Deferred. (b) Single stream for everything — simple but loses overlap benefit. (c) Full device sync after every launch — defeats purpose of streams.
+- **Sources**: cuda-streams.1-c342, cuda-streams.2-c345

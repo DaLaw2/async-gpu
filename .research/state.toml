@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 345     # Monotonic counter, incremented after each completed phase
-completed_tasks = 375
+total_cycles = 348     # Monotonic counter, incremented after each completed phase
+completed_tasks = 378
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.select"
+current_step = "do.save"
 current_task_id = ""
-last_summary = "BS95 quick: gpu-alloc already done (slab allocator exists). Spawned cuda-streams.2 (design) + prebuilt-toolchain.2 (experiment). multi-gpu.2 ready. Next: execute multi-gpu.2 + cuda-streams.2 + prebuilt-toolchain.2."
+last_summary = "multi-gpu.2 done (device_count/name/ordinal API, tested on RTX 3060). cuda-streams.2 done (ADR-20 two-tier stream design). prebuilt-toolchain.2 done (CI workflow + install script). Next: commit, CI check, route."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 95
@@ -346,7 +346,7 @@ id = "multi-gpu.2"
 theme = "multi-gpu"
 title = "Experiment: implement multi-GPU device enumeration + validation"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["multi-gpu.1"]
 
 [[themes]]
@@ -380,8 +380,16 @@ id = "cuda-streams.2"
 theme = "cuda-streams"
 title = "Design: stream-aware launch wrapper + per-stream sync API"
 kind = "design"
-status = "pending"
+status = "done"
 depends = ["cuda-streams.1"]
+
+[[tasks]]
+id = "cuda-streams.3"
+theme = "cuda-streams"
+title = "Experiment: implement GpuStream wrapper + basic overlap test"
+kind = "experiment"
+status = "pending"
+depends = ["cuda-streams.2"]
 
 [[themes]]
 id = "gpu-alloc"
@@ -427,7 +435,7 @@ id = "prebuilt-toolchain.2"
 theme = "prebuilt-toolchain"
 title = "Experiment: create CI workflow + download script for pre-built toolchain"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["prebuilt-toolchain.1"]
 
 [[tasks]]

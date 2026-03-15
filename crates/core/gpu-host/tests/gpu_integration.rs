@@ -10,6 +10,7 @@ use std::sync::{Arc, OnceLock};
 use cudarc::driver::{CudaDevice, LaunchAsync, LaunchConfig};
 use gpu_host::mapped_mem::{alloc_mapped_result_array, free_mapped_mem};
 use gpu_host::ptx;
+use gpu_host::runtime::GpuRuntime;
 
 /// Shared CUDA device — initialized once, reused across all tests.
 /// Tests must run with `--test-threads=1` to avoid CUDA context conflicts.
@@ -179,4 +180,30 @@ fn test_buffered_print() {
         "expected 12+ messages, got {}",
         msgs.len()
     );
+}
+
+/// Multi-GPU enumeration test: verify device_count, device_name, device_ordinal.
+///
+/// If multiple GPUs are available, creates a second GpuRuntime on device 1.
+#[test]
+fn test_multi_gpu_enumeration() {
+    let count = GpuRuntime::device_count().expect("device_count");
+    assert!(count >= 1, "expected at least 1 CUDA device, got {count}");
+    println!("CUDA device count: {count}");
+
+    let rt0 = GpuRuntime::new(0).expect("GpuRuntime device 0");
+    assert_eq!(rt0.device_ordinal(), 0);
+
+    let name0 = rt0.device_name().expect("device_name(0)");
+    assert!(!name0.is_empty(), "device name should not be empty");
+    println!("Device 0: {name0}");
+
+    if count >= 2 {
+        let rt1 = GpuRuntime::new(1).expect("GpuRuntime device 1");
+        assert_eq!(rt1.device_ordinal(), 1);
+
+        let name1 = rt1.device_name().expect("device_name(1)");
+        assert!(!name1.is_empty(), "device 1 name should not be empty");
+        println!("Device 1: {name1}");
+    }
 }

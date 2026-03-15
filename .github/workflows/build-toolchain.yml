@@ -1,0 +1,158 @@
+name: Build Patched Toolchain
+
+# Build the patched Rust toolchain with warp-cooperative async/await support
+# and publish it as a GitHub Release artifact.
+#
+# NOTE: ubuntu-latest has only ~14GB SSD. We aggressively free disk space to
+# reach ~30GB. If this is still insufficient, switch to a larger runner
+# (e.g., ubuntu-latest-16-cores or a self-hosted runner with 50GB+ disk).
+
+on:
+  workflow_dispatch:
+    inputs:
+      from_scratch:
+        description: "Force a clean rebuild (--from-scratch)"
+        required: false
+        default: "false"
+        type: boolean
+  push:
+    branches: [main]
+    paths:
+      - "std-patches/**"
+      - "rustc-patches/**"
+      - "scripts/build-toolchain.sh"
+      - "scripts/apply-rustc-patches.sh"
+      - "scripts/apply-std-patches.sh"
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build toolchain (Linux x86_64)
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Free disk space ───────────────────────────────────────
+      # Reclaim ~25-30GB by removing pre-installed software we don't need.
+      - name: Free disk space
+        run: |
+          echo "=== Disk usage BEFORE cleanup ==="
+          df -h /
+
+          # Remove large pre-installed toolchains and SDKs
+          sudo rm -rf /usr/share/dotnet          # ~6GB
+          sudo rm -rf /usr/local/lib/android     # ~10GB
+          sudo rm -rf /opt/ghc                   # ~2GB
+          sudo rm -rf /usr/local/share/boost     # ~1GB
+          sudo rm -rf /usr/share/swift           # ~1.5GB
+          sudo rm -rf /opt/hostedtoolcache       # ~5GB
+          sudo rm -rf /usr/local/.ghcup          # ~1GB
+          sudo rm -rf /usr/local/graalvm         # ~1GB
+          sudo rm -rf /usr/local/share/chromium  # ~0.5GB
+
+          # Remove Docker images
+          sudo docker image prune --all --force 2>/dev/null || true
+
+          # Clean apt cache
+          sudo apt-get clean
+          sudo rm -rf /var/lib/apt/lists/*
+
+          echo "=== Disk usage AFTER cleanup ==="
+          df -h /
+
+      # ── Prerequisites ────────────────────────────────────────
+      - name: Install build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build python3 python3-pip \
+            build-essential curl git pkg-config libssl-dev
+
+      # ── Read nightly version ──────────────────────────────────
+      - name: Read nightly version from rust-toolchain.toml
+        id: toolchain
+        run: |
+          CHANNEL=$(grep '^channel' rust-toolchain.toml | sed 's/.*= *"\(.*\)"/\1/')
+          echo "channel=$CHANNEL" >> "$GITHUB_OUTPUT"
+          echo "Nightly channel: $CHANNEL"
+
+          # Extract just the date portion for the release tag
+          NIGHTLY_DATE=$(echo "$CHANNEL" | sed 's/nightly-//')
+          echo "date=$NIGHTLY_DATE" >> "$GITHUB_OUTPUT"
+          echo "Nightly date: $NIGHTLY_DATE"
+
+      # ── Install base Rust (needed for HOST_TRIPLE detection) ──
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
+          components: rust-src
+
+      # ── Build the patched toolchain ───────────────────────────
+      - name: Build patched toolchain
+        run: |
+          EXTRA_ARGS=""
+          if [ "${{ inputs.from_scratch }}" = "true" ]; then
+            EXTRA_ARGS="--from-scratch"
+          fi
+          bash scripts/build-toolchain.sh $EXTRA_ARGS
+        env:
+          # Reduce memory pressure from parallel codegen
+          CARGO_BUILD_JOBS: 2
+
+      # ── Package the sysroot ───────────────────────────────────
+      - name: Package sysroot as tar.gz
+        id: package
+        run: |
+          SYSROOT=$(bash scripts/build-toolchain.sh --print-sysroot)
+          echo "sysroot=$SYSROOT" >> "$GITHUB_OUTPUT"
+
+          ARCHIVE_NAME="async-gpu-toolchain-x86_64-unknown-linux-gnu-${{ steps.toolchain.outputs.channel }}.tar.gz"
+          echo "archive=$ARCHIVE_NAME" >> "$GITHUB_OUTPUT"
+
+          echo "Packaging sysroot: $SYSROOT"
+          echo "Archive: $ARCHIVE_NAME"
+
+          # Create archive from the sysroot directory
+          tar -czf "$ARCHIVE_NAME" -C "$(dirname "$SYSROOT")" "$(basename "$SYSROOT")"
+          ls -lh "$ARCHIVE_NAME"
+
+      # ── Create GitHub Release ─────────────────────────────────
+      - name: Create or update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: toolchain-${{ steps.toolchain.outputs.channel }}
+          name: "Patched Toolchain (${{ steps.toolchain.outputs.channel }})"
+          body: |
+            Pre-built patched Rust toolchain for async_gpu.
+
+            **Nightly base:** `${{ steps.toolchain.outputs.channel }}`
+            **Target triple:** `x86_64-unknown-linux-gnu` + `nvptx64-nvidia-cuda`
+
+            ## Install
+
+            ```bash
+            bash <(curl -sL https://raw.githubusercontent.com/DaLaw2/async-gpu/main/scripts/install-toolchain.sh)
+            ```
+
+            Or download manually and extract to `~/.rustup/toolchains/async-gpu/`.
+          files: ${{ steps.package.outputs.archive }}
+          draft: false
+          prerelease: false
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── Upload as workflow artifact (backup) ──────────────────
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: async-gpu-toolchain
+          path: ${{ steps.package.outputs.archive }}
+          retention-days: 30

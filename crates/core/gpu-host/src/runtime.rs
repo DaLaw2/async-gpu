@@ -12,13 +12,35 @@ use crate::error::{GpuHostError, Result};
 /// allocation, kernel launching, and data transfer.
 pub struct GpuRuntime {
     dev: Arc<CudaDevice>,
+    ordinal: usize,
 }
 
 impl GpuRuntime {
     /// Initialize a CUDA device by ordinal (0 = first GPU).
     pub fn new(device_ordinal: usize) -> Result<Self> {
         let dev = CudaDevice::new(device_ordinal).map_err(GpuHostError::CudaInit)?;
-        Ok(Self { dev })
+        Ok(Self {
+            dev,
+            ordinal: device_ordinal,
+        })
+    }
+
+    /// Return the number of available CUDA devices.
+    pub fn device_count() -> Result<usize> {
+        let count = CudaDevice::count().map_err(GpuHostError::Cudarc)?;
+        Ok(count as usize)
+    }
+
+    /// Return the device ordinal this runtime is bound to.
+    pub fn device_ordinal(&self) -> usize {
+        self.ordinal
+    }
+
+    /// Return the human-readable name of this device (e.g. "NVIDIA GeForce RTX 4090").
+    pub fn device_name(&self) -> Result<String> {
+        let cu_dev = cudarc::driver::result::device::get(self.ordinal as i32)
+            .map_err(GpuHostError::Cudarc)?;
+        cudarc::driver::result::device::get_name(cu_dev).map_err(GpuHostError::Cudarc)
     }
 
     /// Get the underlying `CudaDevice` for advanced operations.

@@ -2,7 +2,7 @@
 **Cycle**: 342 | **Theme**: cuda-streams | **Kind**: investigation | **Status**: done
 
 ## Summary
-cudarc 0.12.1 has CudaStream support but LaunchAsync does NOT accept a stream parameter — kernels always target the default stream. The project uses zero CUDA streams currently. Adding stream support requires lower-level driver API calls or cudarc upgrade. The hostcall safety model depends on device-level sync, which complicates per-stream synchronization.
+cudarc 0.12.1 has full CudaStream support including `launch_on_stream()` for targeting specific streams and `dev.wait_for(&stream)` for per-stream sync. The project uses zero CUDA streams currently. The hostcall safety model depends on device-level sync, which complicates per-stream synchronization for hostcall-using kernels, but pure compute kernels can use streams immediately.
 
 ## Findings
 
@@ -11,8 +11,8 @@ A: cudarc 0.12.1 has a `CudaStream` type for multi-stream operations, with `Cuda
 **Confidence**: high
 
 ### Q: Can LaunchAsync::launch target a specific stream?
-A: **NO.** The current cudarc 0.12.1 `LaunchAsync::launch()` has no stream parameter — it always uses the default stream. Targeting specific streams would require using lower-level cudarc driver APIs (raw `cuLaunchKernel` with stream param) or upgrading cudarc to a newer version.
-**Confidence**: high
+A: **YES!** cudarc 0.12.1 has `LaunchAsync::launch_on_stream(&CudaStream, config, params)` — a separate method that launches on a specific stream. The default `launch()` uses the device's default stream. Streams are created via `CudaDevice::fork_default_stream()`. Also `dev.wait_for(&stream)` for per-stream sync. Full example in `cudarc/examples/04-streams.rs`.
+**Confidence**: high (verified in cudarc source)
 
 ### Q: How does stream synchronization differ from device synchronization?
 A: Device sync (`dev.synchronize()`) waits for ALL pending GPU work across all streams. Stream sync (`stream.synchronize()`) waits only for work on that specific stream. async_gpu uses device sync everywhere, which is safer but prevents overlapping operations.
@@ -24,8 +24,9 @@ A: The hostcall listener requires **device-level idle** before resetting packets
 
 ## Unexpected Discoveries
 - Zero CUDA stream usage in the entire project — all "stream" references are TCP streams or tokio channels
-- The hostcall packet reinit safety model is the real blocker for stream adoption, not cudarc API limitations
-- Even with stream support, overlapping kernels would conflict on shared hostcall buffers unless each stream gets its own buffer
+- **CORRECTION**: cudarc DOES have `launch_on_stream()` — initial investigation missed this. Full stream API exists.
+- The hostcall packet reinit safety model is the real blocker for stream adoption for hostcall-using kernels
+- Pure compute kernels can use streams immediately with no architectural changes
 
 ## Open Questions
 - Can we decouple hostcall packet reset from device sync? (e.g., per-stream packet pools)

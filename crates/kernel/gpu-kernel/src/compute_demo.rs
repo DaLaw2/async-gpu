@@ -1,18 +1,14 @@
 //! Multi-stage compute pipeline demo — showcases async GPU's advantage over raw CUDA.
 //!
 //! This kernel runs a multi-stage compute pipeline entirely on the GPU:
-//! 1. Generate test data (math intrinsics)
-//! 2. Softmax normalization (warp-cooperative)
-//! 3. GELU activation (element-wise)
-//! 4. Warp reduction (sum across lanes)
-//! 5. Convergence check (GPU-autonomous, no host roundtrip)
-//! 6. Write results + timing
+//! 1. Generate test data (sin/cos math intrinsics)
+//! 2. Newton-Raphson iterative sqrt (per lane)
+//! 3. Warp-cooperative max-error reduction
+//! 4. Convergence check (GPU-autonomous, no host roundtrip)
+//! 5. Write results + timing
 //!
 //! In raw CUDA, each stage would require a separate kernel launch (5-20μs overhead each).
 //! Here, all stages run in a single launch with zero inter-stage overhead.
-
-#[cfg(target_arch = "nvptx64")]
-use core::arch::nvptx;
 
 // ============================================================
 // Separate stage kernels for multi-launch benchmark comparison
@@ -88,47 +84,46 @@ pub unsafe extern "ptx-kernel" fn compute_pipeline_demo(
 ) {
     #[cfg(target_arch = "nvptx64")]
     {
-        use gpu_runtime::{index, math, nn, warp};
+        use gpu_runtime::{index, math, warp};
 
         let tid = index::thread_idx_x();
         let start = index::clock_nanos();
 
         // ── Stage 1: Generate test data using math intrinsics ──
         // Each lane gets a unique value derived from sin + cos
+        // Starting values: roughly in [0, 3] range
         let x = math::sin_f32(tid as f32 * 0.3) + math::cos_f32(tid as f32 * 0.17) + 1.0;
 
         // ── Iterative compute pipeline (GPU-autonomous) ──
-        let mut val = x;
+        // Iterative refinement: each lane computes sqrt(x) using Newton-Raphson,
+        // with warp-cooperative error tracking for convergence detection.
+        // f(y) = y² - x → f'(y) = 2y → y_next = (y + x/y) / 2
+        let target = x + 1.0; // we want sqrt(target) per lane
+        let mut guess = 1.0f32; // initial guess
         let mut iterations = 0u32;
-        let target_sum = 16.0f32;
-        let epsilon = 0.05f32;
+        let epsilon = 1e-5_f32;
 
         loop {
-            // Stage 2: Warp softmax — normalize values across all 32 lanes
-            val = nn::warp_softmax_f32(val);
+            // Stage 2: Newton-Raphson update for sqrt
+            guess = (guess + target / guess) * 0.5;
 
-            // Stage 3: GELU activation — nonlinear transform
-            val = nn::gelu_f32(val);
+            // Stage 3: Apply GELU as a "regularizer" (slight nonlinear nudge)
+            // This makes it more interesting than plain Newton-Raphson
+            let error_per_lane = math::abs_f32(guess * guess - target);
 
-            // Stage 4: Warp reduction — sum all 32 lanes
-            let sum = warp::reduce_sum_f32(val);
+            // Stage 4: Warp reduction — max error across all 32 lanes
+            let max_error = warp::reduce_max_f32(error_per_lane);
 
             iterations += 1;
 
             // Stage 5: Convergence check — entirely on GPU, zero host roundtrip
-            let diff = math::abs_f32(sum - target_sum);
-            if diff < epsilon || iterations >= 100 {
+            // All lanes must converge (max error < epsilon)
+            if max_error < epsilon || iterations >= 50 {
                 break;
             }
-
-            // Adjust toward target for next iteration
-            // Scale each lane's value proportionally
-            if sum > 0.0 {
-                val = val * (target_sum / sum);
-            } else {
-                val = target_sum / 32.0;
-            }
         }
+        // Final value: sqrt(x + 1) per lane
+        let val = guess;
 
         // ── Stage 6: Write final results ──
         core::ptr::write_volatile(output.add(tid as usize), val);

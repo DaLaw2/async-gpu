@@ -10,9 +10,9 @@ status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.execute"
+current_step = "do.route"
 current_task_id = ""
-last_summary = "All 4 DX themes done: codebase-update (README fix), dx-xtask (cargo xtask gpu-build), dx-editor (RA linkedProjects), dx-setup (setup.sh/ps1). developer-experience 3/4 criteria met (xtask, RA config, setup scripts). Criterion 4 (onboarding <15min) needs user validation."
+last_summary = "All 4 DX themes done: codebase-update (README fix), dx-xtask (cargo xtask gpu-build), dx-editor (RA linkedProjects), dx-setup (setup.sh/ps1). developer-experience 3/4 criteria met (xtask, RA config, setup scripts). Criterion 4 (onboarding <15min) needs user validation. All tasks complete — no pending work."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 99
@@ -336,77 +336,7 @@ success_criteria = [
 # Themes (active/parked only — completed themes archived in archive/)
 # ============================================================
 
-[[themes]]
-id = "mma-splitk"
-epic = "tensor-core-gemm"
-title = "Split-K MMA GEMM with correct precision and real speedup"
-status = "completed"
-goal = "Fix MMA GEMM precision via split-K accumulation + f16 weights, achieve >=2x throughput over f32 FMA"
-success_criteria = [
-    "Split-K GEMM kernel passes correctness test at all GPT-2 dimensions vs f32 FMA",
-    "GPT-2 inference top-5 matches f32 FMA baseline (2/3 prompts) without QAT/PTQ",
-    "GEMM throughput >= 2x f32 FMA, per-token latency significantly < 68ms",
-]
-
-[[themes]]
-id = "yolo-inference"
-epic = "object-detection"
-title = "YOLOv8-nano inference end-to-end with Conv2D, BN, SiLU, pooling, NMS"
-status = "completed"
-goal = "Implement YOLOv8-nano inference in pure Rust inline PTX, detect >=3 objects in a test image"
-success_criteria = [
-    "Conv2D kernel (im2col + MMA GEMM) passes unit tests",
-    "Fused BN+SiLU elementwise kernel correct on known inputs",
-    "Full backbone produces features matching PyTorch reference",
-    "Detection head + host-side NMS outputs valid bounding boxes",
-    "End-to-end demo detects >=3 objects correctly",
-]
-
-[[themes]]
-id = "codebase-update"
-epic = "codebase-health"
-title = "README + build script maintenance"
-status = "completed"
-goal = "README reflects current state; build scripts use single toolchain source"
-success_criteria = [
-    "README limitations section updated (MMA works, YOLO added)",
-    "Performance table updated with MMA and YOLO numbers",
-    "Build scripts derive nightly version from rust-toolchain.toml",
-]
-
-[[themes]]
-id = "dx-xtask"
-epic = "developer-experience"
-title = "cargo xtask for GPU build"
-status = "completed"
-goal = "Single command to build host + GPU kernels with PTX post-processing"
-success_criteria = [
-    "cargo xtask gpu-build discovers and builds all GPU kernel crates",
-    "Per-example build support with PTX post-processing",
-    "Passes cargo check on host platforms",
-]
-
-[[themes]]
-id = "dx-editor"
-epic = "developer-experience"
-title = "rust-analyzer configuration for GPU crates"
-status = "completed"
-goal = "RA provides completions and type checking for GPU kernel crates"
-success_criteria = [
-    "RA config enables indexing GPU kernel crates",
-    "Struct/enum definitions from gpu-protocol resolve correctly",
-]
-
-[[themes]]
-id = "dx-setup"
-epic = "developer-experience"
-title = "Setup script for new users"
-status = "completed"
-goal = "Download pre-built toolchain + configure environment with one command"
-success_criteria = [
-    "Setup scripts for Linux + Windows download pre-built toolchain",
-    "Script verifies CUDA installation and reports missing prerequisites",
-]
+# (completed themes archived at cycle 365: mma-splitk, yolo-inference, codebase-update, dx-xtask, dx-editor, dx-setup)
 
 [[themes]]
 id = "warp-batch-io"
@@ -429,241 +359,9 @@ success_criteria = [
 # Tasks (pending/active only — done tasks archived in archive/)
 # ============================================================
 
-# (done tasks archived at cycle 342: tokio-investigate.1, tokio-investigate.2, tokio-impl.1, tokio-demo.1)
+# (done tasks archived at cycle 342: tokio-investigate.1-2, tokio-impl.1, tokio-demo.1)
 # (done tasks archived at cycle 349: multi-gpu.1-2, cuda-streams.1-3, gpu-alloc.1, prebuilt-toolchain.1-2)
-
-# --- mma-splitk tasks ---
-
-[[tasks]]
-id = "mma-splitk.1"
-theme = "mma-splitk"
-title = "Investigation: study split-K GEMM implementations (CUTLASS, cuBLAS patterns)"
-kind = "investigation"
-status = "done"
-depends = []
-questions = [
-    "How does CUTLASS implement split-K? Grid dimensions, reduction strategy, workspace?",
-    "What K_CHUNK sizes are optimal for SM 86 (RTX 3060)?",
-    "Atomic reduction vs two-pass workspace — trade-offs for our use case?",
-    "How to handle non-power-of-2 K dimensions with split-K?",
-]
-
-[[tasks]]
-id = "mma-splitk.2"
-theme = "mma-splitk"
-title = "Experiment: implement split-K f16 MMA GEMM kernel + fix fragment mapping bug"
-kind = "experiment"
-status = "done"
-depends = ["mma-splitk.1"]
-
-[[tasks]]
-id = "mma-splitk.3"
-theme = "mma-splitk"
-title = "Experiment: direct f16 weight loading (eliminate f32->f16 truncation)"
-kind = "experiment"
-status = "done"
-depends = ["mma-splitk.1"]
-
-[[tasks]]
-id = "mma-splitk.4"
-theme = "mma-splitk"
-title = "Experiment: GPT-2 inference with MMA — validate top-5 agreement"
-kind = "experiment"
-status = "done"
-depends = ["mma-splitk.2"]
-
-[[tasks]]
-id = "mma-splitk.5"
-theme = "mma-splitk"
-title = "Experiment: benchmark split-K MMA throughput and per-token latency"
-kind = "experiment"
-status = "done"
-depends = ["mma-splitk.4"]
-
-# --- yolo-inference tasks ---
-
-[[tasks]]
-id = "yolo-inference.1"
-theme = "yolo-inference"
-title = "Investigation: YOLOv8-nano architecture mapping"
-kind = "investigation"
-status = "done"
-depends = []
-questions = [
-    "What is the exact layer-by-layer graph of YOLOv8-nano?",
-    "What are the tensor shapes at each stage (640x640x3 -> backbone -> neck -> head)?",
-    "Which layers share the same kernel type (same op, different params)?",
-    "Total parameter count and memory footprint?",
-    "Optimal execution order considering memory reuse?",
-]
-
-[[tasks]]
-id = "yolo-inference.2"
-theme = "yolo-inference"
-title = "Experiment: Conv2D kernel (im2col + GEMM)"
-kind = "experiment"
-status = "done"
-depends = ["yolo-inference.1"]
-
-[[tasks]]
-id = "yolo-inference.3"
-theme = "yolo-inference"
-title = "Experiment: BatchNorm + SiLU fused kernel"
-kind = "experiment"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "yolo-inference.4"
-theme = "yolo-inference"
-title = "Experiment: MaxPool2D + Upsample + Concat kernels"
-kind = "experiment"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "yolo-inference.5"
-theme = "yolo-inference"
-title = "Experiment: weight loading + image I/O"
-kind = "experiment"
-status = "done"
-depends = ["yolo-inference.1"]
-
-[[tasks]]
-id = "yolo-inference.6"
-theme = "yolo-inference"
-title = "Experiment: backbone integration (Conv + BN + SiLU chain)"
-kind = "experiment"
-status = "done"
-depends = ["yolo-inference.2", "yolo-inference.3", "yolo-inference.5"]
-
-[[tasks]]
-id = "yolo-inference.7"
-theme = "yolo-inference"
-title = "Experiment: detection head + NMS"
-kind = "experiment"
-status = "done"
-depends = ["yolo-inference.6", "yolo-inference.4"]
-
-[[tasks]]
-id = "yolo-inference.8"
-theme = "yolo-inference"
-title = "Experiment: end-to-end demo + validation"
-kind = "experiment"
-status = "done"
-depends = ["yolo-inference.7"]
-
-# --- codebase-update tasks ---
-
-[[tasks]]
-id = "codebase-update.1"
-theme = "codebase-update"
-title = "Fix: update README with MMA GEMM and YOLOv8-nano achievements"
-kind = "experiment"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "codebase-update.2"
-theme = "codebase-update"
-title = "Fix: consolidate nightly toolchain version in build scripts"
-kind = "experiment"
-status = "done"
-# No changes needed — all scripts already derive from rust-toolchain.toml or clone fresh rustc
-depends = []
-
-[[tasks]]
-id = "codebase-update.3"
-theme = "codebase-update"
-title = "Fix: ensure all examples and test crates covered in ci-lint.sh"
-kind = "experiment"
-status = "done"
-# No changes needed — all examples covered; warp-cooperative intentionally excluded (needs patched rustc)
-depends = []
-
-# --- dx-xtask tasks ---
-
-[[tasks]]
-id = "dx-xtask.1"
-theme = "dx-xtask"
-title = "Investigation: audit current build flows (build.rs, ci-lint.sh, PTX post-processing)"
-kind = "investigation"
-status = "done"
-depends = []
-questions = [
-    "What build.rs patterns exist across examples?",
-    "How does ci-lint.sh discover and build kernel crates?",
-    "What PTX post-processing steps are needed (stub list, .ptr .align removal)?",
-    "What is the minimal xtask interface for gpu-build?",
-]
-
-[[tasks]]
-id = "dx-xtask.2"
-theme = "dx-xtask"
-title = "Experiment: implement xtask crate with gpu-build subcommand"
-kind = "experiment"
-status = "done"
-depends = ["dx-xtask.1"]
-
-[[tasks]]
-id = "dx-xtask.3"
-theme = "dx-xtask"
-title = "Experiment: add per-example build support + PTX post-processing"
-kind = "experiment"
-status = "done"
-# Included in dx-xtask.2 — per-name build + --postprocess flag both implemented
-depends = ["dx-xtask.2"]
-
-# --- dx-editor tasks ---
-
-[[tasks]]
-id = "dx-editor.1"
-theme = "dx-editor"
-title = "Investigation: test RA behavior with nvptx64 target, identify what works"
-kind = "investigation"
-status = "done"
-depends = []
-questions = [
-    "Can rust-analyzer index nvptx64 kernel crates via linkedProjects?",
-    "Which types resolve correctly (gpu-protocol structs, gpu-runtime functions)?",
-    "Does core::arch::nvptx resolve? What about inline PTX asm?",
-    "What RA config gives the best experience for this split-workspace setup?",
-]
-
-[[tasks]]
-id = "dx-editor.2"
-theme = "dx-editor"
-title = "Experiment: create RA configuration that maximizes useful analysis"
-kind = "experiment"
-status = "done"
-# .vscode/settings.json with linkedProjects for GPU library + kernel crates
-depends = ["dx-editor.1"]
-
-# --- dx-setup tasks ---
-
-[[tasks]]
-id = "dx-setup.1"
-theme = "dx-setup"
-title = "Investigation: verify what pre-built toolchain artifacts exist (CI, releases)"
-kind = "investigation"
-status = "done"
-# No GitHub releases exist yet. install-toolchain.sh (Linux) already exists. Wrote setup check scripts.
-depends = []
-questions = [
-    "Are pre-built toolchain artifacts stored as GitHub Releases or CI artifacts?",
-    "What is the download URL pattern?",
-    "Do they include the patched std sysroot for nvptx64?",
-    "What prerequisites does a new user need (CUDA version, rustup, etc.)?",
-]
-
-[[tasks]]
-id = "dx-setup.2"
-theme = "dx-setup"
-title = "Experiment: write setup scripts for Linux + Windows"
-kind = "experiment"
-status = "done"
-# Created scripts/setup.sh (Linux) + scripts/setup.ps1 (Windows) — env check + guidance
-depends = ["dx-setup.1"]
+# (done tasks archived at cycle 365: mma-splitk.1-5, yolo-inference.1-8, codebase-update.1-3, dx-xtask.1-3, dx-editor.1-2, dx-setup.1-2)
 
 # --- warp-batch-io tasks ---
 
@@ -734,30 +432,6 @@ themes_completed = []
 key_insight = "Previous MMA failures were due to naive sequential K accumulation (192 tiles for K=3072). Fix: split-K (chunk K into 256-element blocks, independent f32 accumulators, then reduce) + direct f16 weights (skip f32->f16 truncation) + optional Kahan compensated summation. f16 MMA is best variant (1.8x speedup, 10-bit mantissa, K=16 tiles)."
 
 [[brainstorms]]
-seq = 96
-at_cycle = 349
-trigger = "production-ready epic fully completed, no active high-priority epics — post-completion direction assessment"
-level = "deep"
-new_tasks_spawned = ["warp-batch-io.1", "warp-batch-io.2", "warp-batch-io.3", "warp-batch-io.4"]
-new_themes_spawned = []
-new_epics_spawned = ["ecosystem-launch", "developer-experience"]
-themes_parked = []
-themes_completed = []
-key_insight = "19 epics / 379 tasks complete. Project is technically feature-complete (v0.3 prototype). The highest-ROI next steps are ecosystem-facing: (1) unpark warp-batch-io to close the known I/O efficiency gap, (2) crates.io publish + docs site (ecosystem-launch epic) for external adoption, (3) cargo xtask + rust-analyzer setup (developer-experience epic) to reduce onboarding friction. Technical features have diminishing returns; discovery and ergonomics are the real blockers to adoption."
-
-[[brainstorms]]
-seq = 95
-at_cycle = 345
-trigger = "all 4 production-ready investigations complete, gpu-alloc already satisfied"
-level = "quick"
-new_tasks_spawned = ["cuda-streams.2", "prebuilt-toolchain.2"]
-new_themes_spawned = []
-new_epics_spawned = []
-themes_parked = []
-themes_completed = ["gpu-alloc"]
-key_insight = "gpu-alloc criterion already met by patched-std slab+bitmap allocator (surprise!). cuda-streams needs design (cudarc doesn't support stream launch). multi-gpu.2 and prebuilt-toolchain.2 ready as experiments."
-
-[[brainstorms]]
 seq = 98
 at_cycle = 356
 trigger = "tensor-core-gemm epic fully completed (all 5 criteria met), object-detection unblocked"
@@ -769,6 +443,6 @@ themes_parked = []
 themes_completed = ["mma-splitk"]
 key_insight = "tensor-core-gemm ALL criteria met (2.18x throughput, zero error, 26ms latency, 3/3 prompts). Object-detection next: YOLOv8-nano has 60 layers but only 6 unique ops. Key insight: im2col + existing MMA GEMM reuses proven 2.18x speedup for Conv2D. 8 tasks: investigation → parallel kernel dev → backbone → head → demo."
 
-# (brainstorms 89-94 archived at cycle 342/349/356)
+# (brainstorms 89-96 archived at cycle 342/349/356/365)
 
 

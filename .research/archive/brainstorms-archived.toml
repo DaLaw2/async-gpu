@@ -291,3 +291,19 @@ new_epics_spawned = ["compute-utils", "compute-demo"]
 themes_parked = ["channel-mpsc", "channel-waker", "channel-demo"]
 themes_completed = []
 key_insight = "User pivot: all demos are I/O, no compute. We have GEMM, transformer ops, reductions buried in kernel code but not exposed. Two new epics: extract compute utils as public API, build compelling compute demo."
+
+# --- Archived at cycle 365 ---
+
+[[brainstorms]]
+seq = 95
+at_cycle = 345
+trigger = "all 4 production-ready investigations complete, gpu-alloc already satisfied"
+level = "quick"
+key_insight = "gpu-alloc criterion already met by patched-std slab+bitmap allocator."
+
+[[brainstorms]]
+seq = 96
+at_cycle = 349
+trigger = "production-ready epic fully completed, no active high-priority epics"
+level = "deep"
+key_insight = "Project is technically feature-complete (v0.3 prototype). Highest-ROI next steps: warp-batch-io, ecosystem-launch, developer-experience."

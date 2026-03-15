@@ -1869,3 +1869,201 @@ title = "Experiment: create CI workflow + download script for pre-built toolchai
 kind = "experiment"
 status = "done"
 depends = ["prebuilt-toolchain.1"]
+
+# --- Archived at cycle 365 ---
+
+# --- mma-splitk (tensor-core-gemm) ---
+
+[[tasks]]
+id = "mma-splitk.1"
+theme = "mma-splitk"
+title = "Investigation: study split-K GEMM implementations (CUTLASS, cuBLAS patterns)"
+kind = "investigation"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "mma-splitk.2"
+theme = "mma-splitk"
+title = "Experiment: implement split-K f16 MMA GEMM kernel + fix fragment mapping bug"
+kind = "experiment"
+status = "done"
+depends = ["mma-splitk.1"]
+
+[[tasks]]
+id = "mma-splitk.3"
+theme = "mma-splitk"
+title = "Experiment: direct f16 weight loading (eliminate f32->f16 truncation)"
+kind = "experiment"
+status = "done"
+depends = ["mma-splitk.1"]
+
+[[tasks]]
+id = "mma-splitk.4"
+theme = "mma-splitk"
+title = "Experiment: GPT-2 inference with MMA — validate top-5 agreement"
+kind = "experiment"
+status = "done"
+depends = ["mma-splitk.2"]
+
+[[tasks]]
+id = "mma-splitk.5"
+theme = "mma-splitk"
+title = "Experiment: benchmark split-K MMA throughput and per-token latency"
+kind = "experiment"
+status = "done"
+depends = ["mma-splitk.4"]
+
+# --- yolo-inference (object-detection) ---
+
+[[tasks]]
+id = "yolo-inference.1"
+theme = "yolo-inference"
+title = "Investigation: YOLOv8-nano architecture mapping"
+kind = "investigation"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "yolo-inference.2"
+theme = "yolo-inference"
+title = "Experiment: Conv2D kernel (im2col + GEMM)"
+kind = "experiment"
+status = "done"
+depends = ["yolo-inference.1"]
+
+[[tasks]]
+id = "yolo-inference.3"
+theme = "yolo-inference"
+title = "Experiment: BatchNorm + SiLU fused kernel"
+kind = "experiment"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "yolo-inference.4"
+theme = "yolo-inference"
+title = "Experiment: MaxPool2D + Upsample + Concat kernels"
+kind = "experiment"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "yolo-inference.5"
+theme = "yolo-inference"
+title = "Experiment: weight loading + image I/O"
+kind = "experiment"
+status = "done"
+depends = ["yolo-inference.1"]
+
+[[tasks]]
+id = "yolo-inference.6"
+theme = "yolo-inference"
+title = "Experiment: backbone integration (Conv + BN + SiLU chain)"
+kind = "experiment"
+status = "done"
+depends = ["yolo-inference.2", "yolo-inference.3", "yolo-inference.5"]
+
+[[tasks]]
+id = "yolo-inference.7"
+theme = "yolo-inference"
+title = "Experiment: detection head + NMS"
+kind = "experiment"
+status = "done"
+depends = ["yolo-inference.6", "yolo-inference.4"]
+
+[[tasks]]
+id = "yolo-inference.8"
+theme = "yolo-inference"
+title = "Experiment: end-to-end demo + validation"
+kind = "experiment"
+status = "done"
+depends = ["yolo-inference.7"]
+
+# --- codebase-update (codebase-health) ---
+
+[[tasks]]
+id = "codebase-update.1"
+theme = "codebase-update"
+title = "Fix: update README with MMA GEMM and YOLOv8-nano achievements"
+kind = "experiment"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "codebase-update.2"
+theme = "codebase-update"
+title = "Fix: consolidate nightly toolchain version in build scripts"
+kind = "experiment"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "codebase-update.3"
+theme = "codebase-update"
+title = "Fix: ensure all examples and test crates covered in ci-lint.sh"
+kind = "experiment"
+status = "done"
+depends = []
+
+# --- dx-xtask (developer-experience) ---
+
+[[tasks]]
+id = "dx-xtask.1"
+theme = "dx-xtask"
+title = "Investigation: audit current build flows (build.rs, ci-lint.sh, PTX post-processing)"
+kind = "investigation"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "dx-xtask.2"
+theme = "dx-xtask"
+title = "Experiment: implement xtask crate with gpu-build subcommand"
+kind = "experiment"
+status = "done"
+depends = ["dx-xtask.1"]
+
+[[tasks]]
+id = "dx-xtask.3"
+theme = "dx-xtask"
+title = "Experiment: add per-example build support + PTX post-processing"
+kind = "experiment"
+status = "done"
+depends = ["dx-xtask.2"]
+
+# --- dx-editor (developer-experience) ---
+
+[[tasks]]
+id = "dx-editor.1"
+theme = "dx-editor"
+title = "Investigation: test RA behavior with nvptx64 target, identify what works"
+kind = "investigation"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "dx-editor.2"
+theme = "dx-editor"
+title = "Experiment: create RA configuration that maximizes useful analysis"
+kind = "experiment"
+status = "done"
+depends = ["dx-editor.1"]
+
+# --- dx-setup (developer-experience) ---
+
+[[tasks]]
+id = "dx-setup.1"
+theme = "dx-setup"
+title = "Investigation: verify what pre-built toolchain artifacts exist (CI, releases)"
+kind = "investigation"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "dx-setup.2"
+theme = "dx-setup"
+title = "Experiment: write setup scripts for Linux + Windows"
+kind = "experiment"
+status = "done"
+depends = ["dx-setup.1"]

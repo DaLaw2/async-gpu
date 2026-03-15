@@ -684,3 +684,41 @@ success_criteria = [
     "Download script fetches and installs pre-built toolchain",
     "First-time setup reduced from 2-3 hours to < 10 minutes",
 ]
+
+# --- Archived at cycle 365 ---
+
+[[themes]]
+id = "mma-splitk"
+epic = "tensor-core-gemm"
+title = "Split-K MMA GEMM with correct precision and real speedup"
+status = "completed"
+
+[[themes]]
+id = "yolo-inference"
+epic = "object-detection"
+title = "YOLOv8-nano inference end-to-end with Conv2D, BN, SiLU, pooling, NMS"
+status = "completed"
+
+[[themes]]
+id = "codebase-update"
+epic = "codebase-health"
+title = "README + build script maintenance"
+status = "completed"
+
+[[themes]]
+id = "dx-xtask"
+epic = "developer-experience"
+title = "cargo xtask for GPU build"
+status = "completed"
+
+[[themes]]
+id = "dx-editor"
+epic = "developer-experience"
+title = "rust-analyzer configuration for GPU crates"
+status = "completed"
+
+[[themes]]
+id = "dx-setup"
+epic = "developer-experience"
+title = "Setup script for new users"
+status = "completed"

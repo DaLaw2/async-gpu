@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 318     # Monotonic counter, incremented after each completed phase
-completed_tasks = 340
+total_cycles = 319     # Monotonic counter, incremented after each completed phase
+completed_tasks = 341
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
 current_task_id = "executor-impl.4"
-last_summary = "std-sync.2 done (Mutex<T>), executor-impl.2+3 done (WorkQueue, TaskSlot, GpuExecutor with spawn()+run()). api-ergonomics.3 in progress. Next: executor-impl.4 demo kernel, std-sync.3 HashMap."
+last_summary = "std-sync.2+3 done (Mutex + HashMap), executor-impl.2+3 done (GpuExecutor), api-ergonomics.3 done (all examples updated). Next: executor-impl.4 demo, bench-suite.2+3."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 89
@@ -354,7 +354,7 @@ id = "std-sync.3"
 theme = "std-sync"
 title = "Experiment: implement GPU-side HashMap with bump allocator"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["std-sync.1"]
 
 # --- api-ergonomics theme ---

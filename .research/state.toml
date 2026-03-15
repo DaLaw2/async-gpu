@@ -4,18 +4,18 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 309     # Monotonic counter, incremented after each completed phase
-completed_tasks = 329
+total_cycles = 311     # Monotonic counter, incremented after each completed phase
+completed_tasks = 331
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
-current_mode = "think"
-current_step = "think.triage"
+current_mode = "do"
+current_step = "do.execute"
 current_task_id = ""
-last_summary = "formal-verification epic complete: TLA+ safety (367M states) + liveness (337K states) both pass. CAS protocol formally verified. No bugs found."
+last_summary = "bs88 quick: readme-tla theme (add TLA+ section to README), executor-design theme (design doc for GPU-side task spawning). formal-verification epic closed."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 87
+brainstorm_seq = 88
 review_seq = 5
 
 # Brainstorm trigger control (event-driven, no fixed interval)
@@ -232,6 +232,22 @@ success_criteria = [
     "VALIDATION.md with hardware/driver/toolchain requirements and smoke test steps",
 ]
 
+[[themes]]
+id = "readme-tla"
+epic = "codebase-health"
+title = "Add TLA+ formal verification section to README"
+status = "completed"
+goal = "README documents formal verification results"
+success_criteria = ["README has formal verification section with TLC results"]
+
+[[themes]]
+id = "executor-design"
+epic = "public-api"
+title = "Design doc: GPU-side async task spawning executor"
+status = "completed"
+goal = "Architecture document for on-GPU work-stealing executor"
+success_criteria = ["DESIGN-executor.md with executor architecture, work queue, scheduling policy"]
+
 # ============================================================
 # Tasks (pending/active only — done tasks archived in archive/)
 # ============================================================
@@ -289,9 +305,40 @@ kind = "experiment"
 status = "done"
 depends = []
 
+# --- readme-tla theme ---
+
+[[tasks]]
+id = "readme-tla.1"
+theme = "readme-tla"
+title = "Experiment: add formal verification section to README.md"
+kind = "experiment"
+status = "done"
+depends = []
+
+# --- executor-design theme ---
+
+[[tasks]]
+id = "executor-design.1"
+theme = "executor-design"
+title = "Design: GPU-side async executor with work-stealing"
+kind = "design"
+status = "done"
+depends = []
+
 # ============================================================
 # Brainstorms (last 3 only — older brainstorms archived)
 # ============================================================
+
+[[brainstorms]]
+seq = 88
+at_cycle = 309
+trigger = "formal-verification epic completed, all bs87 tasks done"
+level = "quick"
+new_tasks_spawned = ["readme-tla.1", "executor-design.1"]
+new_themes_spawned = ["readme-tla", "executor-design"]
+themes_parked = []
+themes_completed = ["tla-model", "build-stabilize", "validation-prep"]
+key_insight = "formal-verification done (12th epic completed). README needs TLA+ section. GPU-side executor design doc is highest-value architectural work remaining."
 
 [[brainstorms]]
 seq = 87
@@ -315,16 +362,5 @@ new_themes_spawned = ["safety-audit", "api-docs"]
 themes_parked = []
 themes_completed = ["blog-update", "changelog-update"]
 key_insight = "Project at natural plateau. Safety audit is highest-value remaining work (202 unsafe, only 10 with SAFETY). Updated public-api epic criteria to match actual API names."
-
-[[brainstorms]]
-seq = 85
-at_cycle = 296
-trigger = "network-io epic completed — quick brainstorm for next work"
-level = "quick"
-new_tasks_spawned = ["blog-update.1", "changelog-update.1"]
-new_themes_spawned = ["blog-update", "changelog-update"]
-themes_parked = []
-themes_completed = ["net-protocol", "net-host", "net-gpu", "net-demo"]
-key_insight = "network-io epic done. All 11 epics satisfied. Remaining: blog post update, CHANGELOG v0.2.0, safety audit (deferred — large effort)."
 
 

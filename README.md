@@ -286,6 +286,21 @@ GPU-host communication uses a ROCm-inspired two-stack design over CUDA mapped me
 
 All 32 lanes always agree on the current state — warp convergence is maintained by construction.
 
+## Formal Verification (TLA+)
+
+The lock-free CAS hostcall protocol has been formally verified using [TLA+](https://lamport.azurewebsites.net/tla/tla.html). The spec lives in the [`formal/`](formal/) directory.
+
+**Safety** — 367 million states explored with no violations:
+- No double-ownership of packets (two actors never hold the same slot)
+- No lost packets (every packet is always reachable from a stack or in use)
+- No ABA corruption (epoch tags prevent stale CAS from corrupting the free stack)
+
+**Liveness** — 337K states under fairness constraints:
+- Every GPU request eventually receives a host response
+- Every packet eventually returns to the free pool for reuse
+
+The verification confirms that the ABA prevention mechanism via epoch tags is essential — removing it produces counterexamples within seconds. See `formal/` for the full TLA+ specification and model-checking configuration.
+
 ## Crate Map
 
 ```

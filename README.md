@@ -84,7 +84,7 @@ cargo run --manifest-path examples/vector-math/host/Cargo.toml
 | `cifar-train` | CIFAR-10 tiny CNN training with loss convergence | Stock nightly |
 | `gpt2-lora` | GPT-2 LoRA evaluation on WikiText-2 (ppl=74.7) | Stock nightly |
 | `mnist-cnn` | MNIST CNN training (96.4% accuracy, 1.47x GPU speedup) | Stock nightly |
-| `resnet-cifar` | ResNet-18 CIFAR-10 inference (8.1M params, 15.7ms/image) | Stock nightly |
+| `resnet-cifar` | ResNet-18 inference + Mini-ResNet training (8.1M params) | Stock nightly |
 
 </details>
 

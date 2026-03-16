@@ -542,6 +542,7 @@ pub(crate) fn conv2d_backward_dispatch(
 ///
 /// **dWeight** = d_output_2d [C_out, spatial] × im2col(input) [spatial, K] → [C_out, K]
 /// **dInput** = col2im(weight_2d.T [K, C_out] × d_output_2d [C_out, spatial]) → [C_in, H, W]
+#[allow(clippy::too_many_arguments)]
 fn conv2d_backward_gpu(
     d_output: &GpuTensor,
     input: &GpuTensor,

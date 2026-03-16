@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 442     # Monotonic counter, incremented after each completed phase
-completed_tasks = 546
+total_cycles = 446     # Monotonic counter, incremented after each completed phase
+completed_tasks = 549
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "cb-batched.1"
-last_summary = "cb-kernels DONE: GPU conv2d backward (im2col+matmul+col2im) replaces CPU. 53 tests pass. Next: batched conv2d backward."
+current_task_id = "gl-schema.2"
+last_summary = "conv-backward 4/6 done: GPU conv2d backward 2.62x speedup. MNIST CNN 96.4%. gl-schema.1 investigation complete. Starting gl-schema.2 (ModelDef implementation)."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 106
@@ -1345,7 +1345,7 @@ depends = ["cb-kernels.1", "cb-kernels.2"]
 id = "cb-batched"
 epic = "conv-backward-training"
 title = "Batched conv2d backward — process full batch in one launch"
-status = "active"
+status = "completed"
 goal = "Eliminate per-sample backward overhead"
 success_criteria = [
     "Batched dWeight: accumulate weight gradient across N samples in one kernel",
@@ -1366,7 +1366,8 @@ id = "cb-batched.2"
 theme = "cb-batched"
 title = "Benchmark MNIST CNN with GPU batched backward vs CPU backward"
 kind = "experiment"
-status = "pending"
+status = "done"
+# GPU 41.3s/ep vs CPU 107.5s/ep = 2.62x (was 1.47x with CPU backward)
 depends = ["cb-batched.1"]
 
 # ============================================================
@@ -1390,7 +1391,7 @@ id = "gl-schema.1"
 theme = "gl-schema"
 title = "Investigate current weight loading patterns across GPT-2, YOLO, ResNet"
 kind = "investigation"
-status = "pending"
+status = "done"
 depends = []
 
 [[tasks]]

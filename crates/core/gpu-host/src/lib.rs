@@ -85,6 +85,8 @@ pub mod nn;
 #[cfg(feature = "gpt2")]
 pub mod model;
 #[cfg(feature = "gpt2")]
+pub mod model_generic;
+#[cfg(feature = "gpt2")]
 pub mod model_yolo;
 #[cfg(feature = "gpt2")]
 pub mod tokenizer;

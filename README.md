@@ -278,14 +278,31 @@ formal/              TLA+ specification and model-checking config
 
 RTX 3060, SM 86:
 
+**Inference** (RTX 3060, SM 86):
+
 | Metric | Value |
 |--------|-------|
-| Hostcall round-trip (1 thread) | ~42-101 us, 10-15K calls/s |
-| Hostcall round-trip (32 threads) | ~1.1 ms, 20-23K calls/s |
-| GPT-2 per-token f32 FMA (with KV cache) | ~68ms/token (2.07x faster) |
+| GPT-2 per-token f32 FMA (KV cache) | ~68ms/token |
 | GPT-2 per-token f16 MMA (Tensor Core) | ~26ms/token (2.18x over f32 FMA) |
-| YOLOv8-nano inference | 7 detections on 640x640 input |
+| GPT-2 nn API (KV cache) | ~760ms/token |
+| YOLOv8-nano inference | 374ms, 34 detections on 640x640 |
 | Compute pipeline speedup | 1.91x vs multi-launch |
+
+**Training** (GPU matmul + autograd tape):
+
+| Example | CPU | GPU | Speedup | Accuracy |
+|---------|-----|-----|---------|----------|
+| MNIST MLP (60K, 5 epochs) | 43.9s (8.8s/ep) | 12.6s (2.5s/ep) | **3.5x** | 91.2% |
+| CIFAR-10 CNN (2K, 10 epochs) | 6.6s (0.7s/ep) | 17.6s (1.8s/ep) | 0.4x | 21%/13% |
+
+MNIST shows clear GPU advantage for matmul-heavy workloads. CIFAR-10 CNN is slower on GPU due to per-sample H2D/D2H overhead for small 32×32 images — GPU shines with larger matrices (768+ dimensions).
+
+**Hostcall**:
+
+| Metric | Value |
+|--------|-------|
+| Round-trip (1 thread) | ~42-101 us, 10-15K calls/s |
+| Round-trip (32 threads) | ~1.1 ms, 20-23K calls/s |
 
 ## Limitations
 

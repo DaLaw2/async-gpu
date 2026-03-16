@@ -9,13 +9,13 @@ completed_tasks = 560
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
-current_mode = "think"
-current_step = "think.triage"
-current_task_id = ""
-last_summary = "generic-loader epic COMPLETED (all 6 criteria). gl-yolo.1: YOLOv8 migrated to model_generic. tq-resnet.1: 32.1% full conv. gl-resnet.2: 91.3% pretrained. training-quality + generic-loader epics done. Next: brainstorm — only conv-backward-training (5/6) + codebase-health active."
+current_mode = "do"
+current_step = "do.execute"
+current_task_id = "rag-embed.1"
+last_summary = "bs107: GPU-Autonomous RAG chosen as next epic. Builds on async model + GPT-2. Also recommended: autograd-v4 (fix backward correctness), kernel fusion, persistent kernels."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 106
+brainstorm_seq = 107
 review_seq = 5
 
 # Brainstorm trigger control (event-driven, no fixed interval)
@@ -477,3 +477,112 @@ new_epics_spawned = ["ml-framework"]
 themes_parked = []
 themes_completed = []
 key_insight = "87+ GPU kernels scattered in test code need refactoring into reusable nn API. Architecture: GpuTensor (N-dim SmallVec), KernelRegistry (auto launch config), stateless ops, Module trait layers, then GPT-2 + YOLOv8 as standalone examples. 7 themes, 57 tasks, 5 phases."
+
+# ============================================================
+# GPU-Autonomous RAG Epic
+# ============================================================
+
+[[epics]]
+id = "gpu-rag"
+title = "GPU-Autonomous RAG — retrieval + generation in a single kernel launch"
+status = "active"
+priority = "high"
+success_criteria = [
+    "Vector store: embed + store >= 1000 text chunks in GPU memory via hostcall",
+    "Single kernel launch: query → embedding → cosine similarity search → top-K retrieval → GPT-2 generation → output",
+    "Demonstrates >= 3 hostcall round-trips within one kernel execution (query in, context fetch, result out)",
+    "Latency < 2x sum of individual components (embedding + search + generation)",
+    "Standalone example in examples/std/gpu-rag/",
+]
+
+# --- gpu-rag themes ---
+
+[[themes]]
+id = "rag-embed"
+epic = "gpu-rag"
+title = "Vector embedding + similarity search on GPU"
+status = "active"
+goal = "GPU-side cosine similarity search over embedded document store"
+success_criteria = [
+    "GPU cosine similarity kernel: compute similarity between query and N stored vectors",
+    "Top-K selection: find K most similar vectors from N candidates",
+    "Vector store API: load pre-embedded chunks into GPU memory",
+]
+
+[[themes]]
+id = "rag-pipeline"
+epic = "gpu-rag"
+title = "Autonomous RAG pipeline in a single kernel"
+status = "active"
+goal = "Single kernel launch orchestrates query → embed → search → generate → output"
+success_criteria = [
+    "Persistent kernel receives query via hostcall, runs full RAG pipeline",
+    "GPT-2 generation conditioned on retrieved context",
+    "End-to-end demo with meaningful output",
+]
+
+# --- gpu-rag tasks ---
+
+[[tasks]]
+id = "rag-embed.1"
+theme = "rag-embed"
+title = "Investigation: how to embed text chunks for GPU vector search"
+kind = "investigation"
+status = "active"
+depends = []
+
+[[tasks]]
+id = "rag-embed.2"
+theme = "rag-embed"
+title = "GPU cosine similarity kernel + top-K selection"
+kind = "experiment"
+status = "pending"
+depends = ["rag-embed.1"]
+
+[[tasks]]
+id = "rag-embed.3"
+theme = "rag-embed"
+title = "Vector store: load pre-embedded chunks, benchmark search latency"
+kind = "experiment"
+status = "pending"
+depends = ["rag-embed.2"]
+
+[[tasks]]
+id = "rag-pipeline.1"
+theme = "rag-pipeline"
+title = "Investigation: how to orchestrate RAG in a single kernel with hostcall"
+kind = "investigation"
+status = "active"
+depends = []
+
+[[tasks]]
+id = "rag-pipeline.2"
+theme = "rag-pipeline"
+title = "Implement autonomous RAG kernel: query → search → GPT-2 generate → output"
+kind = "experiment"
+status = "pending"
+depends = ["rag-embed.3", "rag-pipeline.1"]
+
+[[tasks]]
+id = "rag-pipeline.3"
+theme = "rag-pipeline"
+title = "Standalone gpu-rag example with 1000+ embedded chunks"
+kind = "experiment"
+status = "pending"
+depends = ["rag-pipeline.2"]
+
+# ============================================================
+# Brainstorm 107
+# ============================================================
+
+[[brainstorms]]
+seq = 107
+at_cycle = 458
+trigger = "All high-priority epics completed, only codebase-health active"
+level = "standard"
+new_tasks_spawned = ["rag-embed.1", "rag-embed.2", "rag-embed.3", "rag-pipeline.1", "rag-pipeline.2", "rag-pipeline.3"]
+new_themes_spawned = ["rag-embed", "rag-pipeline"]
+new_epics_spawned = ["gpu-rag"]
+themes_parked = []
+themes_completed = []
+key_insight = "GPU-Autonomous RAG is the killer app for the async model — combines hostcall I/O + real GPU compute (embedding, search, generation) in a single persistent kernel. Also identified: autograd-v4 (fix backward correctness), kernel fusion, persistent kernels as future epics."

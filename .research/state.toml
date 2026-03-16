@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 454     # Monotonic counter, incremented after each completed phase
-completed_tasks = 556
+total_cycles = 455     # Monotonic counter, incremented after each completed phase
+completed_tasks = 557
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.select"
-current_task_id = ""
-last_summary = "tq-lora.1 DONE: real LoRA A/B, ppl 128→16.3, acc 41.9%. MNIST CNN 2.62x GPU. Generic loader + GPT-2 migration. Next: tq-resnet.1 (mini-ResNet full conv training), gl-resnet.1 (pretrained weights)."
+current_step = "do.execute"
+current_task_id = "gl-resnet.1"
+last_summary = "tq-resnet.1 DONE: Mini-ResNet full conv training 32.1% CIFAR-10 (all 7 conv layers via GPU backward). training-quality epic completed. gl-resnet.1 active: PyTorch training + from_safetensors loader implemented. Next: verify ResNet-18 pretrained inference."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 106
@@ -1287,7 +1287,8 @@ success_criteria = [
 [[epics]]
 id = "training-quality"
 title = "Training Quality — real LoRA, better Mini-ResNet, proper training loops"
-status = "active"
+status = "completed"
+# ALL 6 CRITERIA MET — LoRA A/B real training (ppl 16.3), ResNet 32.1%, MNIST CNN 2.62x GPU
 priority = "high"
 depends_on = "conv-backward-training"
 success_criteria = [
@@ -1428,7 +1429,7 @@ id = "gl-resnet.1"
 theme = "gl-resnet"
 title = "Export PyTorch ResNet-18 CIFAR-10 pretrained weights to safetensors"
 kind = "experiment"
-status = "pending"
+status = "active"
 depends = ["gl-schema.2"]
 
 [[tasks]]
@@ -1468,7 +1469,7 @@ depends = []
 id = "tq-resnet"
 epic = "training-quality"
 title = "Mini-ResNet full conv training"
-status = "active"
+status = "completed"
 goal = "Train all conv layers with GPU backward, show meaningful accuracy"
 success_criteria = [
     "Mini-ResNet trains ALL conv layers using GPU conv2d_backward",
@@ -1481,5 +1482,6 @@ id = "tq-resnet.1"
 theme = "tq-resnet"
 title = "Mini-ResNet full conv training with GPU backward on CIFAR-10"
 kind = "experiment"
-status = "pending"
+status = "done"
+# 32.1% test accuracy, loss 2.292→1.798, all 6 conv + 1×1 shortcut trained via GPU backward
 depends = []

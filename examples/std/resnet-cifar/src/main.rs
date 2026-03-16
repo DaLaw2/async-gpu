@@ -1,8 +1,8 @@
-//! ResNet-18 inference + Mini-ResNet training on CIFAR-10.
+//! ResNet-18 inference + Mini-ResNet full conv training on CIFAR-10.
 //!
 //! Demonstrates:
 //! - ResNet-18 forward pass (8 BasicBlocks, 8.1M params, 15.7ms/image)
-//! - Mini-ResNet training (6 conv layers with residual connections)
+//! - Mini-ResNet full conv training (all layers via GPU conv2d_backward)
 //!
 //! Usage:
 //!   cargo run --release              # inference only
@@ -77,11 +77,11 @@ fn inference() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Mini-ResNet training on CIFAR-10 subset.
+/// Mini-ResNet full training on CIFAR-10 subset.
 ///
-/// Architecture: conv1(3→32) → BN → ReLU → BB1(32→32) → BB2(32→64,stride=2) → GAP → FC(64→10)
+/// Architecture: conv1(3→32) → ReLU → BB1(32→32) → BB2(32→64) → GAP → FC(64→10)
 /// BB = BasicBlock: conv → relu → conv → residual add → relu
-/// Training: per-sample GPU conv2d forward, CPU conv backward, GPU matmul for FC.
+/// Training: per-sample GPU conv2d forward + GPU conv2d_backward for ALL conv layers.
 fn train() -> Result<(), Box<dyn std::error::Error>> {
     let dev = cudarc::driver::CudaDevice::new(0)?;
     let registry = Arc::new(gpu_host::nn::KernelRegistry::new(
@@ -106,7 +106,6 @@ fn train() -> Result<(), Box<dyn std::error::Error>> {
         let lbls: Vec<u8> = (0..n).map(|i| (i % 10) as u8).collect();
         (imgs, lbls)
     };
-    // Use subset for speed
     let n_train = train_imgs.len().min(2000);
 
     let (test_imgs, test_lbls) = if cifar_dir.join("test_batch.bin").exists() {
@@ -126,12 +125,11 @@ fn train() -> Result<(), Box<dyn std::error::Error>> {
     let n_test = test_imgs.len().min(1000);
 
     println!(
-        "--- Mini-ResNet CIFAR-10 Training ---\n\
-         Architecture: Conv(3→32) → ReLU → BB(32) → BB(32→64,s2) → GAP → FC(64→10)\n\
-         Train: {n_train}, Test: {n_test}"
+        "--- Mini-ResNet CIFAR-10 Full Conv Training ---\n\
+         Architecture: Conv(3→32) → ReLU → BB(32) → BB(32→64) → GAP → FC(64→10)\n\
+         Train: {n_train}, Test: {n_test} (full GPU conv backward)"
     );
 
-    // Weights: conv1(3→32,3×3) + BB1(2 convs 32→32) + BB2(2 convs 32→64 + shortcut 32→64) + FC(64→10)
     let (c1, c2) = (32, 64);
     let nc = 10;
 
@@ -146,18 +144,19 @@ fn train() -> Result<(), Box<dyn std::error::Error>> {
             .collect()
     };
 
-    let w_conv1 = he_init(3 * 9, c1 * 3 * 3 * 3, 12345); // [32,3,3,3]
-    let w_bb1_a = he_init(c1 * 9, c1 * c1 * 3 * 3, 23456); // [32,32,3,3]
-    let w_bb1_b = he_init(c1 * 9, c1 * c1 * 3 * 3, 34567); // [32,32,3,3]
-    let w_bb2_a = he_init(c1 * 9, c2 * c1 * 3 * 3, 45678); // [64,32,3,3]
-    let w_bb2_b = he_init(c2 * 9, c2 * c2 * 3 * 3, 56789); // [64,64,3,3]
-    let w_bb2_sc = he_init(c1, c2 * c1 * 1 * 1, 67890); // [64,32,1,1] shortcut
+    let mut w_conv1 = he_init(3 * 9, c1 * 3 * 3 * 3, 12345); // [32,3,3,3]
+    let mut w_bb1_a = he_init(c1 * 9, c1 * c1 * 3 * 3, 23456); // [32,32,3,3]
+    let mut w_bb1_b = he_init(c1 * 9, c1 * c1 * 3 * 3, 34567); // [32,32,3,3]
+    let mut w_bb2_a = he_init(c1 * 9, c2 * c1 * 3 * 3, 45678); // [64,32,3,3]
+    let mut w_bb2_b = he_init(c2 * 9, c2 * c2 * 3 * 3, 56789); // [64,64,3,3]
+    let mut w_bb2_sc = he_init(c1, c2 * c1 * 1 * 1, 67890); // [64,32,1,1] shortcut
     let mut w_fc: Vec<f32> = he_init(c2, nc * c2, 78901); // [10,64]
     let mut b_fc = vec![0.0f32; nc];
 
-    let lr = 0.01f32;
+    let lr = 0.3f32;
     let bs = 16;
-    let epochs = 5;
+    let epochs = 20;
+    let hw = 32 * 32;
     let ts = Instant::now();
 
     for epoch in 0..epochs {
@@ -171,73 +170,80 @@ fn train() -> Result<(), Box<dyn std::error::Error>> {
             let labels: Vec<usize> =
                 (0..bs).map(|i| train_lbls[start + i] as usize).collect();
 
-            // Forward pass per sample
             let mut features = vec![0.0f32; bs * c2]; // [bs, 64] after GAP
 
-            // Store activations for backward
-            let mut saved_conv1 = Vec::with_capacity(bs);
-            let mut saved_bb1a = Vec::with_capacity(bs);
-            let mut saved_bb1b = Vec::with_capacity(bs);
-            let mut saved_bb2a = Vec::with_capacity(bs);
-            let mut saved_bb2b = Vec::with_capacity(bs);
+            // Saved activations for backward (per sample)
+            let mut saved_imgs = Vec::with_capacity(bs);
+            let mut saved_c1_pre = Vec::with_capacity(bs); // pre-relu conv1 output
+            let mut saved_c1_relu = Vec::with_capacity(bs);
+            let mut saved_bb1a_pre = Vec::with_capacity(bs);
+            let mut saved_bb1a_relu = Vec::with_capacity(bs);
+            let mut saved_bb1b_pre = Vec::with_capacity(bs); // pre-residual
             let mut saved_after_bb1 = Vec::with_capacity(bs);
+            let mut saved_bb2a_pre = Vec::with_capacity(bs);
+            let mut saved_bb2a_relu = Vec::with_capacity(bs);
+            let mut saved_bb2b_pre = Vec::with_capacity(bs);
+            let mut saved_sc = Vec::with_capacity(bs);
+            let mut saved_after_bb2_pre = Vec::with_capacity(bs); // pre-relu residual sum
 
             for i in 0..bs {
                 let img = &train_imgs[start + i];
+                saved_imgs.push(img.clone());
+
                 // conv1: [3,32,32] → [32,32,32]
                 let c1_out = gpu_conv2d(img, &w_conv1, 3, 32, 32, c1, 3, 1, &dev, &registry)?;
                 let c1_relu: Vec<f32> = c1_out.iter().map(|&v| v.max(0.0)).collect();
-                saved_conv1.push(c1_out);
+                saved_c1_pre.push(c1_out);
+                saved_c1_relu.push(c1_relu.clone());
 
-                // BB1: conv→relu→conv → +identity → relu
+                // BB1: conv_a → relu → conv_b → + identity → relu
                 let bb1a = gpu_conv2d(&c1_relu, &w_bb1_a, c1, 32, 32, c1, 3, 1, &dev, &registry)?;
                 let bb1a_relu: Vec<f32> = bb1a.iter().map(|&v| v.max(0.0)).collect();
-                saved_bb1a.push(bb1a);
+                saved_bb1a_pre.push(bb1a);
+                saved_bb1a_relu.push(bb1a_relu.clone());
 
                 let bb1b = gpu_conv2d(&bb1a_relu, &w_bb1_b, c1, 32, 32, c1, 3, 1, &dev, &registry)?;
-                saved_bb1b.push(bb1b.clone());
-                // Residual add + relu
-                let after_bb1: Vec<f32> = bb1b
+                // Residual: bb1b + c1_relu
+                let bb1_sum: Vec<f32> = bb1b
                     .iter()
                     .zip(c1_relu.iter())
-                    .map(|(&a, &b)| (a + b).max(0.0))
+                    .map(|(&a, &b)| a + b)
                     .collect();
+                saved_bb1b_pre.push(bb1b);
+                let after_bb1: Vec<f32> = bb1_sum.iter().map(|&v| v.max(0.0)).collect();
                 saved_after_bb1.push(after_bb1.clone());
 
-                // BB2 with stride=2: conv(32→64,s=2)→relu→conv(64→64)→ +shortcut(32→64,1×1,s=2) →relu
+                // BB2: conv_a(32→64) → relu → conv_b(64→64) → + shortcut(32→64,1×1) → relu
                 let bb2a = gpu_conv2d(&after_bb1, &w_bb2_a, c1, 32, 32, c2, 3, 1, &dev, &registry)?;
-                // Actually with stride=2 we need different dims. Let me use avgpool instead.
-                // Simplification: use conv stride=1 then avgpool for downsampling
                 let bb2a_relu: Vec<f32> = bb2a.iter().map(|&v| v.max(0.0)).collect();
-                saved_bb2a.push(bb2a);
+                saved_bb2a_pre.push(bb2a);
+                saved_bb2a_relu.push(bb2a_relu.clone());
 
                 let bb2b = gpu_conv2d(
                     &bb2a_relu, &w_bb2_b, c2, 32, 32, c2, 3, 1, &dev, &registry,
                 )?;
-                saved_bb2b.push(bb2b.clone());
-
-                // Shortcut: 1×1 conv + avgpool (for channel expansion)
-                // Simplification: just use the first 32 channels of bb2b output
-                // and add zeros for remaining channels (identity shortcut won't work
-                // when channels differ). Use 1×1 conv shortcut.
-                let sc = cpu_conv2d_1x1(&after_bb1, &w_bb2_sc, c1, 32, 32, c2);
-
-                // Residual add + relu
-                let after_bb2: Vec<f32> = bb2b
+                // Shortcut: 1×1 conv for channel expansion
+                let sc = gpu_conv2d(&after_bb1, &w_bb2_sc, c1, 32, 32, c2, 1, 0, &dev, &registry)?;
+                // Residual: bb2b + sc
+                let bb2_sum: Vec<f32> = bb2b
                     .iter()
                     .zip(sc.iter())
-                    .map(|(&a, &b)| (a + b).max(0.0))
+                    .map(|(&a, &b)| a + b)
                     .collect();
+                saved_bb2b_pre.push(bb2b);
+                saved_sc.push(sc);
+                saved_after_bb2_pre.push(bb2_sum.clone());
+                let after_bb2: Vec<f32> = bb2_sum.iter().map(|&v| v.max(0.0)).collect();
 
                 // Global average pool: [64,32,32] → [64]
                 for ch in 0..c2 {
                     let sum: f32 =
-                        after_bb2[ch * 32 * 32..(ch + 1) * 32 * 32].iter().sum();
-                    features[i * c2 + ch] = sum / (32.0 * 32.0);
+                        after_bb2[ch * hw..(ch + 1) * hw].iter().sum();
+                    features[i * c2 + ch] = sum / hw as f32;
                 }
             }
 
-            // FC forward + loss (on GPU via matmul)
+            // FC forward + loss
             let mut logits = vec![0.0f32; bs * nc];
             for b in 0..bs {
                 for o in 0..nc {
@@ -280,7 +286,6 @@ fn train() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
             }
-            // Update FC
             for o in 0..nc {
                 for j in 0..c2 {
                     let mut grad = 0.0f32;
@@ -294,14 +299,182 @@ fn train() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
 
-            // Skip conv backward for speed (only train FC layer = linear probing)
-            // Full conv backward would require ~6x more computation per batch.
+            // ===== Full conv backward through all layers =====
+            let mut dw_conv1_acc = vec![0.0f32; w_conv1.len()];
+            let mut dw_bb1a_acc = vec![0.0f32; w_bb1_a.len()];
+            let mut dw_bb1b_acc = vec![0.0f32; w_bb1_b.len()];
+            let mut dw_bb2a_acc = vec![0.0f32; w_bb2_a.len()];
+            let mut dw_bb2b_acc = vec![0.0f32; w_bb2_b.len()];
+            let mut dw_bb2sc_acc = vec![0.0f32; w_bb2_sc.len()];
+
+            for i in 0..bs {
+                // d_features → d_gap → d_after_bb2
+                // GAP backward: d_after_bb2[ch, h, w] = d_feat[ch] / (h*w)
+                let mut d_after_bb2 = vec![0.0f32; c2 * hw];
+                for ch in 0..c2 {
+                    let g = d_features[i * c2 + ch] / hw as f32;
+                    for p in 0..hw {
+                        d_after_bb2[ch * hw + p] = g;
+                    }
+                }
+
+                // ReLU mask on bb2 residual sum
+                let d_bb2_sum: Vec<f32> = d_after_bb2
+                    .iter()
+                    .zip(saved_after_bb2_pre[i].iter())
+                    .map(|(&d, &pre)| if pre > 0.0 { d } else { 0.0 })
+                    .collect();
+
+                // Residual split: d_bb2b = d_bb2_sum, d_sc = d_bb2_sum
+                // conv2d_backward for bb2b: input=bb2a_relu, weight=w_bb2_b
+                let d_bb2b_t = GpuTensor::from_host(&d_bb2_sum, &[c2, 32, 32], &dev)?;
+                let bb2a_relu_t =
+                    GpuTensor::from_host(&saved_bb2a_relu[i], &[c2, 32, 32], &dev)?;
+                let w_bb2b_t = GpuTensor::from_host(&w_bb2_b, &[c2, c2, 3, 3], &dev)?;
+                let (d_bb2a_relu, dw_bb2b) =
+                    gpu_host::nn::ops::conv2d_backward(&d_bb2b_t, &bb2a_relu_t, &w_bb2b_t, 1, 1, &registry)?;
+                let dw_bb2b_h = dw_bb2b.to_host()?;
+                for k in 0..dw_bb2b_acc.len() {
+                    dw_bb2b_acc[k] += dw_bb2b_h[k];
+                }
+
+                // ReLU mask on bb2a
+                let d_bb2a_relu_h = d_bb2a_relu.to_host()?;
+                let d_bb2a: Vec<f32> = d_bb2a_relu_h
+                    .iter()
+                    .zip(saved_bb2a_pre[i].iter())
+                    .map(|(&d, &pre)| if pre > 0.0 { d } else { 0.0 })
+                    .collect();
+
+                // conv2d_backward for bb2a: input=after_bb1, weight=w_bb2_a
+                let d_bb2a_t = GpuTensor::from_host(&d_bb2a, &[c2, 32, 32], &dev)?;
+                let after_bb1_t =
+                    GpuTensor::from_host(&saved_after_bb1[i], &[c1, 32, 32], &dev)?;
+                let w_bb2a_t = GpuTensor::from_host(&w_bb2_a, &[c2, c1, 3, 3], &dev)?;
+                let (d_after_bb1_from_bb2, dw_bb2a) =
+                    gpu_host::nn::ops::conv2d_backward(&d_bb2a_t, &after_bb1_t, &w_bb2a_t, 1, 1, &registry)?;
+                let dw_bb2a_h = dw_bb2a.to_host()?;
+                for k in 0..dw_bb2a_acc.len() {
+                    dw_bb2a_acc[k] += dw_bb2a_h[k];
+                }
+
+                // Shortcut backward: 1×1 conv, input=after_bb1, weight=w_bb2_sc
+                let d_sc_t = GpuTensor::from_host(&d_bb2_sum, &[c2, 32, 32], &dev)?;
+                let w_sc_t = GpuTensor::from_host(&w_bb2_sc, &[c2, c1, 1, 1], &dev)?;
+                let (d_after_bb1_from_sc, dw_sc) =
+                    gpu_host::nn::ops::conv2d_backward(&d_sc_t, &after_bb1_t, &w_sc_t, 1, 0, &registry)?;
+                let dw_sc_h = dw_sc.to_host()?;
+                for k in 0..dw_bb2sc_acc.len() {
+                    dw_bb2sc_acc[k] += dw_sc_h[k];
+                }
+
+                // Sum gradients from both paths into after_bb1
+                let d_abb1_bb2 = d_after_bb1_from_bb2.to_host()?;
+                let d_abb1_sc = d_after_bb1_from_sc.to_host()?;
+                let d_after_bb1: Vec<f32> = d_abb1_bb2
+                    .iter()
+                    .zip(d_abb1_sc.iter())
+                    .map(|(&a, &b)| a + b)
+                    .collect();
+
+                // ReLU mask on bb1 residual sum (after_bb1 = relu(bb1b + c1_relu))
+                // saved_bb1b_pre[i] + saved_c1_relu[i] is the pre-relu sum
+                let bb1_sum: Vec<f32> = saved_bb1b_pre[i]
+                    .iter()
+                    .zip(saved_c1_relu[i].iter())
+                    .map(|(&a, &b)| a + b)
+                    .collect();
+                let d_bb1_sum: Vec<f32> = d_after_bb1
+                    .iter()
+                    .zip(bb1_sum.iter())
+                    .map(|(&d, &pre)| if pre > 0.0 { d } else { 0.0 })
+                    .collect();
+
+                // Residual split: d_bb1b = d_bb1_sum, d_c1_relu_from_res = d_bb1_sum
+
+                // conv2d_backward for bb1b: input=bb1a_relu, weight=w_bb1_b
+                let d_bb1b_t = GpuTensor::from_host(&d_bb1_sum, &[c1, 32, 32], &dev)?;
+                let bb1a_relu_t =
+                    GpuTensor::from_host(&saved_bb1a_relu[i], &[c1, 32, 32], &dev)?;
+                let w_bb1b_t = GpuTensor::from_host(&w_bb1_b, &[c1, c1, 3, 3], &dev)?;
+                let (d_bb1a_relu, dw_bb1b) =
+                    gpu_host::nn::ops::conv2d_backward(&d_bb1b_t, &bb1a_relu_t, &w_bb1b_t, 1, 1, &registry)?;
+                let dw_bb1b_h = dw_bb1b.to_host()?;
+                for k in 0..dw_bb1b_acc.len() {
+                    dw_bb1b_acc[k] += dw_bb1b_h[k];
+                }
+
+                // ReLU mask on bb1a
+                let d_bb1a_relu_h = d_bb1a_relu.to_host()?;
+                let d_bb1a: Vec<f32> = d_bb1a_relu_h
+                    .iter()
+                    .zip(saved_bb1a_pre[i].iter())
+                    .map(|(&d, &pre)| if pre > 0.0 { d } else { 0.0 })
+                    .collect();
+
+                // conv2d_backward for bb1a: input=c1_relu, weight=w_bb1_a
+                let d_bb1a_t = GpuTensor::from_host(&d_bb1a, &[c1, 32, 32], &dev)?;
+                let c1_relu_t =
+                    GpuTensor::from_host(&saved_c1_relu[i], &[c1, 32, 32], &dev)?;
+                let w_bb1a_t = GpuTensor::from_host(&w_bb1_a, &[c1, c1, 3, 3], &dev)?;
+                let (d_c1_relu_from_bb1, dw_bb1a) =
+                    gpu_host::nn::ops::conv2d_backward(&d_bb1a_t, &c1_relu_t, &w_bb1a_t, 1, 1, &registry)?;
+                let dw_bb1a_h = dw_bb1a.to_host()?;
+                for k in 0..dw_bb1a_acc.len() {
+                    dw_bb1a_acc[k] += dw_bb1a_h[k];
+                }
+
+                // Sum gradients to c1_relu: from bb1a backward + from residual skip
+                let d_c1r_bb1 = d_c1_relu_from_bb1.to_host()?;
+                let d_c1_relu: Vec<f32> = d_c1r_bb1
+                    .iter()
+                    .zip(d_bb1_sum.iter())
+                    .map(|(&a, &b)| a + b)
+                    .collect();
+
+                // ReLU mask on conv1
+                let d_c1: Vec<f32> = d_c1_relu
+                    .iter()
+                    .zip(saved_c1_pre[i].iter())
+                    .map(|(&d, &pre)| if pre > 0.0 { d } else { 0.0 })
+                    .collect();
+
+                // conv2d_backward for conv1: input=img, weight=w_conv1
+                let d_c1_t = GpuTensor::from_host(&d_c1, &[c1, 32, 32], &dev)?;
+                let img_t = GpuTensor::from_host(&saved_imgs[i], &[3, 32, 32], &dev)?;
+                let w_c1_t = GpuTensor::from_host(&w_conv1, &[c1, 3, 3, 3], &dev)?;
+                let (_d_img, dw_c1) =
+                    gpu_host::nn::ops::conv2d_backward(&d_c1_t, &img_t, &w_c1_t, 1, 1, &registry)?;
+                let dw_c1_h = dw_c1.to_host()?;
+                for k in 0..dw_conv1_acc.len() {
+                    dw_conv1_acc[k] += dw_c1_h[k];
+                }
+            }
+
+            // Update all conv weights
+            for k in 0..w_conv1.len() {
+                w_conv1[k] -= lr * dw_conv1_acc[k];
+            }
+            for k in 0..w_bb1_a.len() {
+                w_bb1_a[k] -= lr * dw_bb1a_acc[k];
+            }
+            for k in 0..w_bb1_b.len() {
+                w_bb1_b[k] -= lr * dw_bb1b_acc[k];
+            }
+            for k in 0..w_bb2_a.len() {
+                w_bb2_a[k] -= lr * dw_bb2a_acc[k];
+            }
+            for k in 0..w_bb2_b.len() {
+                w_bb2_b[k] -= lr * dw_bb2b_acc[k];
+            }
+            for k in 0..w_bb2_sc.len() {
+                w_bb2_sc[k] -= lr * dw_bb2sc_acc[k];
+            }
         }
 
         let avg_loss = total_loss / (nb * bs) as f64;
         let train_acc = correct as f64 / (nb * bs) as f64 * 100.0;
 
-        // Test accuracy (FC-only inference)
         let test_correct = eval_mini_resnet(
             &test_imgs[..n_test],
             &test_lbls[..n_test],
@@ -330,8 +503,7 @@ fn train() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     println!("\nTotal: {:.1}s", ts.elapsed().as_secs_f64());
-    println!("Note: FC-only training (linear probing on random features).");
-    println!("Full conv training would require batched backward + longer runtime.");
+    println!("Full conv training: all 6 conv layers + 1×1 shortcut trained via GPU backward.");
     Ok(())
 }
 
@@ -350,20 +522,6 @@ fn gpu_conv2d(
     let ig = GpuTensor::from_host(input, &[c_in, h, w], dev)?;
     let wg = GpuTensor::from_host(weight, &[c_out, c_in, k, k], dev)?;
     Ok(gpu_host::nn::ops::conv2d(&ig, &wg, None, 1, pad, reg)?.to_host()?)
-}
-
-fn cpu_conv2d_1x1(input: &[f32], weight: &[f32], c_in: usize, h: usize, w: usize, c_out: usize) -> Vec<f32> {
-    let hw = h * w;
-    let mut out = vec![0.0f32; c_out * hw];
-    for co in 0..c_out {
-        for ci in 0..c_in {
-            let wv = weight[co * c_in + ci];
-            for p in 0..hw {
-                out[co * hw + p] += input[ci * hw + p] * wv;
-            }
-        }
-    }
-    out
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -401,7 +559,7 @@ fn eval_mini_resnet(
         let bb2a = gpu_conv2d(&after_bb1, w_bb2_a, c1, 32, 32, c2, 3, 1, dev, reg)?;
         let bb2a_r: Vec<f32> = bb2a.iter().map(|&v| v.max(0.0)).collect();
         let bb2b = gpu_conv2d(&bb2a_r, w_bb2_b, c2, 32, 32, c2, 3, 1, dev, reg)?;
-        let sc = cpu_conv2d_1x1(&after_bb1, w_bb2_sc, c1, 32, 32, c2);
+        let sc = gpu_conv2d(&after_bb1, w_bb2_sc, c1, 32, 32, c2, 1, 0, dev, reg)?;
         let after_bb2: Vec<f32> = bb2b
             .iter()
             .zip(sc.iter())

@@ -301,6 +301,98 @@ impl ResNet18Weights {
             fc_b: vec![0.0; num_classes],
         }
     }
+
+    /// Load weights from a SafeTensors file.
+    ///
+    /// Expected key naming convention (matches PyTorch ResNet-18 CIFAR variant):
+    /// - `conv1.weight`, `bn1.weight`, `bn1.bias`, `bn1.running_mean`, `bn1.running_var`
+    /// - `layer{1-4}.{0-1}.conv{1-2}.weight`, `layer{1-4}.{0-1}.bn{1-2}.*`
+    /// - `layer{1-4}.{0-1}.shortcut.conv.weight`, `layer{1-4}.{0-1}.shortcut.bn.*`
+    /// - `fc.weight`, `fc.bias`
+    pub fn from_safetensors(
+        path: impl AsRef<std::path::Path>,
+        num_classes: usize,
+    ) -> std::result::Result<Self, crate::model::ModelError> {
+        let raw = crate::model_generic::load_safetensors_raw(path)?;
+
+        let get = |key: &str| -> std::result::Result<Vec<f32>, crate::model::ModelError> {
+            raw.get(key)
+                .map(|t| t.data.clone())
+                .ok_or_else(|| crate::model::ModelError::MissingTensor(key.to_string()))
+        };
+
+        let load_block =
+            |layer: usize,
+             block: usize,
+             has_shortcut: bool|
+             -> std::result::Result<BasicBlockWeights, crate::model::ModelError> {
+                let p = format!("layer{layer}.{block}");
+                Ok(BasicBlockWeights {
+                    conv1_w: get(&format!("{p}.conv1.weight"))?,
+                    bn1_gamma: get(&format!("{p}.bn1.weight"))?,
+                    bn1_beta: get(&format!("{p}.bn1.bias"))?,
+                    bn1_mean: get(&format!("{p}.bn1.running_mean"))?,
+                    bn1_var: get(&format!("{p}.bn1.running_var"))?,
+                    conv2_w: get(&format!("{p}.conv2.weight"))?,
+                    bn2_gamma: get(&format!("{p}.bn2.weight"))?,
+                    bn2_beta: get(&format!("{p}.bn2.bias"))?,
+                    bn2_mean: get(&format!("{p}.bn2.running_mean"))?,
+                    bn2_var: get(&format!("{p}.bn2.running_var"))?,
+                    shortcut_conv_w: if has_shortcut {
+                        Some(get(&format!("{p}.shortcut.conv.weight"))?)
+                    } else {
+                        None
+                    },
+                    shortcut_bn_gamma: if has_shortcut {
+                        Some(get(&format!("{p}.shortcut.bn.weight"))?)
+                    } else {
+                        None
+                    },
+                    shortcut_bn_beta: if has_shortcut {
+                        Some(get(&format!("{p}.shortcut.bn.bias"))?)
+                    } else {
+                        None
+                    },
+                    shortcut_bn_mean: if has_shortcut {
+                        Some(get(&format!("{p}.shortcut.bn.running_mean"))?)
+                    } else {
+                        None
+                    },
+                    shortcut_bn_var: if has_shortcut {
+                        Some(get(&format!("{p}.shortcut.bn.running_var"))?)
+                    } else {
+                        None
+                    },
+                })
+            };
+
+        let _ = num_classes; // FC size inferred from weight shape
+        Ok(Self {
+            conv1_w: get("conv1.weight")?,
+            bn1_gamma: get("bn1.weight")?,
+            bn1_beta: get("bn1.bias")?,
+            bn1_mean: get("bn1.running_mean")?,
+            bn1_var: get("bn1.running_var")?,
+            layer1: vec![
+                load_block(1, 0, false)?, // 64→64, no shortcut
+                load_block(1, 1, false)?, // 64→64, no shortcut
+            ],
+            layer2: vec![
+                load_block(2, 0, true)?,  // 64→128, stride=2, shortcut
+                load_block(2, 1, false)?, // 128→128, no shortcut
+            ],
+            layer3: vec![
+                load_block(3, 0, true)?,  // 128→256, stride=2, shortcut
+                load_block(3, 1, false)?, // 256→256, no shortcut
+            ],
+            layer4: vec![
+                load_block(4, 0, true)?,  // 256→512, stride=2, shortcut
+                load_block(4, 1, false)?, // 512→512, no shortcut
+            ],
+            fc_w: get("fc.weight")?,
+            fc_b: get("fc.bias")?,
+        })
+    }
 }
 
 impl ResNet18 {

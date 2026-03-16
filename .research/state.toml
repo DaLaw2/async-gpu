@@ -688,7 +688,7 @@ id = "gs-spike.2"
 theme = "gs-spike"
 title = "Write decision doc: GpuRef vs arena vs current RAII — with concrete bug scenarios"
 kind = "design"
-status = "pending"
+status = "done"
 depends = ["gs-spike.1"]
 
 # ============================================================
@@ -838,7 +838,7 @@ id = "tp-batch-conv.2"
 theme = "tp-batch-conv"
 title = "Benchmark CIFAR-10 GPU vs CPU after batched conv2d"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["tp-batch-conv.1"]
 
 # --- Audit tasks for prior fixes ---
@@ -927,7 +927,7 @@ id = "tv-impl.1"
 theme = "tv-impl"
 title = "Refactor GpuTensor to use Arc<CudaSlice<f32>> + offset + length"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = []
 
 [[tasks]]
@@ -935,7 +935,7 @@ id = "tv-impl.2"
 theme = "tv-impl"
 title = "Zero-copy reshape: return view when numel matches"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["tv-impl.1"]
 
 [[tasks]]
@@ -943,7 +943,7 @@ id = "tv-impl.3"
 theme = "tv-impl"
 title = "Benchmark: conv2d + CIFAR training after view optimization"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["tv-impl.2"]
 
 # ============================================================
@@ -979,5 +979,5 @@ id = "np-mha.1"
 theme = "np-mha"
 title = "Rewrite MHA forward to use GPU split_qkv + multi-head flash_attention + concat_heads"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = []

@@ -12,7 +12,7 @@ status = "running"     # ready | running | blocked | completed
 current_mode = "do"
 current_step = "do.execute"
 current_task_id = "tv-impl.1"
-last_summary = "MNIST 5.2x GPU speedup (8.4s vs 44s). CIFAR 8.5s GPU (0.76x vs 6.5s CPU), bit-exact accuracy. All fixes verified by 3 subagents. 52 tests. GPU kernels: matrix_transpose, matrix_pad, matrix_unpad, im2col_offset. Remaining CIFAR bottleneck: batched conv2d host-side column assembly."
+last_summary = "Tensor views done (Arc<CudaSlice>, zero-copy reshape). gpu-safety-spike: skip GpuRef, reframe as views. MNIST 5.2x. CIFAR 8.9s (0.73x). 52 tests in 7.9s. Next: continue tensor-views (slice), or training-perf CIFAR optimization."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 103

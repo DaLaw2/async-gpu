@@ -9,10 +9,10 @@ completed_tasks = 543
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
-current_mode = "do"
-current_step = "do.route"
+current_mode = "think"
+current_step = "think.triage"
 current_task_id = ""
-last_summary = "ResNet epic DONE (3/4 criteria, >80% deferred). 35 completed epics. 7 examples, 3 model architectures (GPT-2, YOLO, ResNet). Only codebase-health (evergreen) remains active."
+last_summary = "3 new epics created: generic-loader (reactivated), conv-backward-training, training-quality. Need brainstorm to create themes/tasks."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 105
@@ -1105,14 +1105,16 @@ depends = ["ag3-lora.1", "ag3-lora.2"]
 
 [[epics]]
 id = "generic-loader"
-title = "Generic SafeTensors/ONNX Model Loader"
-status = "parked"
-# bs105: negative ROI for 2 architectures, park until 4+ model types needed
-priority = "medium"
+title = "Generic SafeTensors Model Loader"
+status = "active"
+priority = "high"
 success_criteria = [
-    "Generic SafeTensors loader: ModelDef schema → automatic weight mapping",
-    "Support loading at least 3 different model architectures",
-    "Optional: ONNX graph execution for common ops",
+    "ModelDef schema: declarative layer name → tensor shape + type mapping",
+    "Generic load_weights() that maps safetensors keys to nn module layers",
+    "Load GPT-2 weights via generic loader (replace hardcoded load_gpt2_weights)",
+    "Load YOLOv8 weights via generic loader (replace hardcoded load_yolo_weights)",
+    "Load ResNet-18 pretrained weights (e.g., torchvision export) via generic loader",
+    "ResNet-18 pretrained inference accuracy matches PyTorch reference (>90% on CIFAR-10)",
 ]
 
 [[epics]]
@@ -1259,3 +1261,40 @@ kind = "experiment"
 status = "done"
 # FC-only training (linear probing). Full conv backward deferred — too slow with per-sample conv2d.
 depends = ["rn-training.1"]
+
+# ============================================================
+# Full Conv Backward Training Epic
+# ============================================================
+
+[[epics]]
+id = "conv-backward-training"
+title = "Full Conv Backward Training — train all CNN layers end-to-end"
+status = "active"
+priority = "high"
+success_criteria = [
+    "GPU conv2d backward dWeight kernel (not CPU-side cpu_conv2d_wgrad)",
+    "GPU conv2d backward dInput kernel (not CPU-side cpu_conv2d_igrad)",
+    "Batched conv2d backward: process full batch in one launch (not per-sample)",
+    "Mini-ResNet trains ALL layers (conv + FC) on CIFAR-10, loss converges",
+    "Mini-ResNet test accuracy > 60% on CIFAR-10 (full 50K training set)",
+    "MNIST CNN uses GPU backward instead of CPU backward, maintains 96%+ accuracy",
+]
+
+# ============================================================
+# Improve GPT-2 LoRA + Mini-ResNet Epic
+# ============================================================
+
+[[epics]]
+id = "training-quality"
+title = "Training Quality — real LoRA, better Mini-ResNet, proper training loops"
+status = "active"
+priority = "high"
+depends_on = "conv-backward-training"
+success_criteria = [
+    "GPT-2 LoRA example uses actual LoraLinear layer (not host-side bias hack)",
+    "LoRA A/B matrices trained through autograd tape (GPU matmul backward)",
+    "GPT-2 LoRA loss converges with real LoRA adapters on WikiText-2",
+    "Mini-ResNet trains conv layers with residual gradient flow (not FC-only)",
+    "Mini-ResNet shows meaningful accuracy improvement over random (>30% CIFAR-10)",
+    "At least one training example demonstrates GPU speedup > 2x over CPU",
+]

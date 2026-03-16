@@ -73,8 +73,7 @@ impl MultiHeadAttention {
         let qkv = self.qkv_proj.forward(input)?;
 
         // 2. Split QKV on GPU: [seq, 3*n_embd] → Q,K,V each [n_heads, seq, d_head]
-        let (q, k, v) =
-            ops::split_qkv(&qkv, seq_len, self.n_heads, self.d_head, &self.registry)?;
+        let (q, k, v) = ops::split_qkv(&qkv, seq_len, self.n_heads, self.d_head, &self.registry)?;
 
         // 3. Flash attention — all heads in one launch
         //    grid=(n_heads, n_q_tiles, 1), zero host round-trips
@@ -90,8 +89,13 @@ impl MultiHeadAttention {
         )?;
 
         // 4. Concat heads on GPU: [n_heads, seq, d_head] → [seq, n_embd]
-        let concat =
-            ops::concat_heads(&attn_out, seq_len, self.n_heads, self.d_head, &self.registry)?;
+        let concat = ops::concat_heads(
+            &attn_out,
+            seq_len,
+            self.n_heads,
+            self.d_head,
+            &self.registry,
+        )?;
 
         // 5. Output projection: [seq, n_embd] → [seq, n_embd]
         self.out_proj.forward(&concat)

@@ -250,7 +250,7 @@ impl Module for C2f {
         let mut all_branches: Vec<Vec<f32>> = vec![branch_0_data, prev_data.clone()];
 
         // Bottlenecks
-        for (_i, (bn_cv1, bn_cv2)) in self.bottlenecks.iter().enumerate() {
+        for (bn_cv1, bn_cv2) in &self.bottlenecks {
             let prev_tensor = GpuTensor::from_host(&prev_data, &[half_c, h, w], dev)?;
             let bn1_out = bn_cv1.forward(&prev_tensor)?;
             let bn2_out = bn_cv2.forward(&bn1_out)?;

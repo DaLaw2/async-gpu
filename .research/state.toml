@@ -11,8 +11,8 @@ status = "running"     # ready | running | blocked | completed
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "tp-batch-conv.1"
-last_summary = "All bugs fixed: conv2d GEMM, C2f concat, YOLO normalization, CIFAR conv weight upload. 50 tests pass. MNIST 3.5x GPU speedup. CIFAR GPU acc matches CPU (29%/23%) but 0.5x speed. Batched conv2d implemented but has accuracy regression — need to debug rearrangement in conv2d_batched. training-perf epic active."
+current_task_id = "tp-audit.1"
+last_summary = "Opening audit tasks: subagents to review all prior fixes from root. conv2d, C2f, YOLO, CIFAR training — verify each fix is complete and correct."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 103
@@ -2116,3 +2116,50 @@ title = "Benchmark CIFAR-10 GPU vs CPU after batched conv2d"
 kind = "experiment"
 status = "pending"
 depends = ["tp-batch-conv.1"]
+
+# --- Audit tasks for prior fixes ---
+
+[[themes]]
+id = "tp-audit"
+epic = "training-perf"
+title = "Audit all prior fixes — verify correctness from root"
+status = "active"
+goal = "Each prior fix verified end-to-end by subagent, gaps identified and fixed"
+success_criteria = [
+    "conv2d produces identical output to CPU reference for all test cases",
+    "YOLO nn model matches raw tests_cnn.rs detection results",
+    "CIFAR GPU training accuracy matches CPU training accuracy",
+    "All 50+ tests pass with zero regressions",
+]
+
+[[tasks]]
+id = "tp-audit.1"
+theme = "tp-audit"
+title = "Subagent audit: conv2d correctness — verify all dimensions match CPU"
+kind = "investigation"
+status = "active"
+depends = []
+
+[[tasks]]
+id = "tp-audit.2"
+theme = "tp-audit"
+title = "Subagent audit: YOLO nn model vs raw yolo_backbone — compare detections"
+kind = "investigation"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "tp-audit.3"
+theme = "tp-audit"
+title = "Subagent audit: CIFAR GPU training — trace gradient flow end-to-end"
+kind = "investigation"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "tp-audit.4"
+theme = "tp-audit"
+title = "Fix all issues found by audit subagents"
+kind = "experiment"
+status = "pending"
+depends = ["tp-audit.1", "tp-audit.2", "tp-audit.3"]

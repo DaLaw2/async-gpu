@@ -85,23 +85,32 @@ pub fn conv2d(
     }
     dev.synchronize().map_err(NnError::Cuda)?;
 
-    // 2. GEMM via nn::ops::matmul (handles all padding correctly)
-    // im2col outputs [spatial, K] row-major (spatial = h_out*w_out, K = c_in*kh*kw)
-    // We need: Output[C_out, spatial] = Weight[C_out, K] × Col[K, spatial]
-    // So transpose the im2col output from [spatial, K] to [K, spatial]
-    let w_host = weight.to_host()?;
-    let col_raw = dev.dtoh_sync_copy(&col_dev)?;
-
-    // Transpose col from [spatial, K] to [K, spatial]
-    let mut col_t = vec![0.0f32; col_h * col_w];
-    for s in 0..col_w {
-        for k in 0..col_h {
-            col_t[k * col_w + s] = col_raw[s * col_h + k];
-        }
+    // 2. Transpose im2col output on GPU: [spatial, K] → [K, spatial]
+    let mut col_transposed = dev.alloc_zeros::<f32>(col_h * col_w)?;
+    let f_transpose = registry.get("matrix_transpose")?;
+    let transpose_total = (col_w * col_h) as u32;
+    let transpose_cfg = KernelRegistry::config_1d(transpose_total);
+    unsafe {
+        f_transpose
+            .launch(
+                transpose_cfg,
+                (
+                    &col_dev,
+                    &mut col_transposed,
+                    col_w as u32, // rows of im2col output (spatial)
+                    col_h as u32, // cols of im2col output (K)
+                    &status_dev,
+                ),
+            )
+            .map_err(NnError::Cuda)?;
     }
+    dev.synchronize().map_err(NnError::Cuda)?;
 
+    // 3. GEMM: W[c_out, K] × Col_T[K, spatial] → [c_out, spatial]
+    // Weight needs reshape from [c_out, c_in, kh, kw] to [c_out, K] — same flat data
+    let w_host = weight.to_host()?;
     let w_tensor = GpuTensor::from_host(&w_host, &[c_out, col_h], dev)?;
-    let col_tensor = GpuTensor::from_host(&col_t, &[col_h, col_w], dev)?;
+    let col_tensor = GpuTensor::from_data(col_transposed, &[col_h, col_w], Arc::clone(&dev));
     let gemm_out = super::matmul(&w_tensor, &col_tensor, registry)?;
 
     // 3. Result is [C_out, col_w] = [C_out, h_out * w_out] — already in CHW layout

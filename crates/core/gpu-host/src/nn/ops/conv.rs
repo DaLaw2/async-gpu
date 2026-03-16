@@ -181,8 +181,11 @@ fn conv2d_batched(
     let dev = registry.device();
     let input_host = input.to_host()?;
 
-    // im2col per sample, collect columns
-    let mut all_cols_t = vec![0.0f32; batch * col_h * col_w];
+    // im2col per sample, collect columns into [K, batch*col_w] layout.
+    // Target layout: all_cols_t[k * big_col_w + b * col_w + s] for batch b,
+    // K-row k, spatial position s.
+    let big_col_w = batch * col_w;
+    let mut all_cols_t = vec![0.0f32; col_h * big_col_w];
     let status_dev = dev.htod_sync_copy(&[0u32])?;
 
     for b in 0..batch {
@@ -216,18 +219,17 @@ fn conv2d_batched(
         }
         dev.synchronize().map_err(NnError::Cuda)?;
 
-        // Transpose from [spatial, K] to [K, spatial]
+        // Transpose from [spatial, K] to [K, spatial] and place into
+        // the correct batch-column slice of the big matrix.
         let col_raw = dev.dtoh_sync_copy(&col_dev)?;
-        let offset = b * col_h * col_w;
         for s in 0..col_w {
             for k in 0..col_h {
-                all_cols_t[offset + k * col_w + s] = col_raw[s * col_h + k];
+                all_cols_t[k * big_col_w + b * col_w + s] = col_raw[s * col_h + k];
             }
         }
     }
 
     // ONE big matmul: W[c_out, K] × BigCol[K, batch*spatial]
-    let big_col_w = batch * col_w;
     let w_host = weight.to_host()?;
     let w_tensor = GpuTensor::from_host(&w_host, &[c_out, col_h], dev)?;
     let big_col = GpuTensor::from_host(&all_cols_t, &[col_h, big_col_w], dev)?;
@@ -236,15 +238,13 @@ fn conv2d_batched(
     // Result [c_out, batch*spatial] → [batch, c_out, h_out, w_out]
     let mut result = gemm_out.to_host()?;
 
-    // Add bias
+    // Add bias — result is [c_out, big_col_w] row-major
     if let Some(bias_tensor) = bias {
         let bias_host = bias_tensor.to_host()?;
-        for b in 0..batch {
-            for ch in 0..c_out {
-                let b_val = bias_host[ch];
-                for i in 0..col_w {
-                    result[b * c_out * col_w + ch * col_w + i] += b_val;
-                }
+        for ch in 0..c_out {
+            let b_val = bias_host[ch];
+            for j in 0..big_col_w {
+                result[ch * big_col_w + j] += b_val;
             }
         }
     }

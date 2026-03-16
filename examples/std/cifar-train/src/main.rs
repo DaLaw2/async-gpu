@@ -86,7 +86,14 @@ fn run_gpu() -> Result<(), Box<dyn std::error::Error>> {
                 feat.set_tensor_id(fid);
                 pool.insert(fid, feat.clone_tensor().unwrap());
 
-                let mut fw = GpuTensor::from_host(&fc_w, &[flat, nc], &dev).unwrap();
+                // fc_w is stored as [nc, flat] row-major; matmul needs [flat, nc]
+                let mut fc_w_t = vec![0.0f32; flat * nc];
+                for o in 0..nc {
+                    for j in 0..flat {
+                        fc_w_t[j * nc + o] = fc_w[o * flat + j];
+                    }
+                }
+                let mut fw = GpuTensor::from_host(&fc_w_t, &[flat, nc], &dev).unwrap();
                 let fwid = autograd::alloc_tensor_id().unwrap();
                 fw.set_tensor_id(fwid);
                 fw.set_requires_grad(true);
@@ -156,10 +163,14 @@ fn run_gpu() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
 
-            // FC weight update
+            // FC weight update — dW is [flat, nc], fc_w is [nc, flat], transpose back
             if let Some(dfw) = grads.get(&autograd::TensorId(1)) {
                 let dh = dfw.to_host()?;
-                for i in 0..fc_w.len() { fc_w[i] -= lr * dh[i]; }
+                for o in 0..nc {
+                    for j in 0..flat {
+                        fc_w[o * flat + j] -= lr * dh[j * nc + o];
+                    }
+                }
             }
             for b in 0..bs { for o in 0..nc { fc_b[o] -= lr * d_logits[b * nc + o]; } }
 
@@ -180,10 +191,9 @@ fn run_gpu() -> Result<(), Box<dyn std::error::Error>> {
                 cw_gpu = GpuTensor::from_host(&conv_w, &[c_out, c_in, kh, kw], &dev)?;
             }
 
-            total_loss /= bs as f64;
         }
 
-        let avg_loss = total_loss / nb as f64;
+        let avg_loss = total_loss / (nb * bs) as f64;
         let train_acc = correct as f64 / (nb * bs) as f64 * 100.0;
         let test_c = eval_gpu(&test_imgs, &test_labels, &conv_w, &fc_w, &fc_b, &dev, &registry);
         let test_acc = test_c as f64 / test_imgs.len() as f64 * 100.0;
@@ -240,9 +250,9 @@ fn run_cpu() -> Result<(), Box<dyn std::error::Error>> {
                 for k in 0..dcw.len() { dcw[k]+=dwc[k]; }
             }
             for k in 0..fw.len() { fw[k]-=lr*dfw[k]; } for o in 0..nc { fb[o]-=lr*dfb[o]; }
-            for k in 0..cw.len() { cw[k]-=lr*dcw[k]; } tl2/=bs as f64;
+            for k in 0..cw.len() { cw[k]-=lr*dcw[k]; }
         }
-        let al=tl2/nb as f64; let ta=correct as f64/(nb*bs) as f64*100.0;
+        let al=tl2/(nb*bs) as f64; let ta=correct as f64/(nb*bs) as f64*100.0;
         let tc=eval_cpu(&vi,&vl,&cw,&fw,&fb); let va=tc as f64/vi.len() as f64*100.0;
         println!("Epoch {}/{}: loss={al:.4}, train={ta:.1}%, test={va:.1}%, time={:.1}s", epoch+1, epochs, es.elapsed().as_secs_f64());
     }
@@ -293,7 +303,10 @@ fn eval_gpu(imgs: &[Vec<f32>], lbls: &[u8], cw: &[f32], fw: &[f32], fb: &[f32],
     }
     // ONE batched matmul for all test images
     let fg = GpuTensor::from_host(&all_pooled, &[imgs.len(), flat], dev).unwrap();
-    let wg = GpuTensor::from_host(fw, &[flat, nc], dev).unwrap();
+    // Transpose fc_w from [nc, flat] to [flat, nc] for GPU matmul
+    let mut fw_t = vec![0.0f32; flat * nc];
+    for o in 0..nc { for j in 0..flat { fw_t[j * nc + o] = fw[o * flat + j]; } }
+    let wg = GpuTensor::from_host(&fw_t, &[flat, nc], dev).unwrap();
     let mut lg = gpu_host::nn::ops::matmul(&fg, &wg, reg).unwrap();
     let bg = GpuTensor::from_host(fb, &[nc], dev).unwrap();
     gpu_host::nn::ops::bias_add(&mut lg, &bg, reg).unwrap();

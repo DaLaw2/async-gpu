@@ -106,9 +106,52 @@ pub fn backward(
                 let d_out_clone = d_out.clone_tensor()?;
                 accumulate_grad(&mut grads, entry.inputs[0], d_out_clone, registry)?;
             }
-            // Placeholders for remaining ops
-            OpKind::Embedding | OpKind::CrossEntropy => {
-                // TODO
+            OpKind::Conv2d => {
+                let d_out_clone = d_out.clone_tensor()?;
+                let input_id = entry.saved[0];
+                let weight_id = entry.saved[1];
+                if let super::OpMeta::Conv2d {
+                    c_in,
+                    c_out,
+                    h,
+                    w,
+                    kh,
+                    kw,
+                    stride,
+                    padding,
+                } = &entry.meta
+                {
+                    let saved_input = pool.get(input_id).ok_or_else(|| NnError::ShapeMismatch {
+                        expected: "saved conv2d input".to_string(),
+                        actual: format!("TensorId({}) not found", input_id.0),
+                    })?;
+                    let saved_weight =
+                        pool.get(weight_id).ok_or_else(|| NnError::ShapeMismatch {
+                            expected: "saved conv2d weight".to_string(),
+                            actual: format!("TensorId({}) not found", weight_id.0),
+                        })?;
+                    let d_input = conv2d_backward_cpu(
+                        &d_out_clone,
+                        saved_input,
+                        saved_weight,
+                        *c_in,
+                        *c_out,
+                        *h,
+                        *w,
+                        *kh,
+                        *kw,
+                        *stride,
+                        *padding,
+                        registry,
+                    )?;
+                    accumulate_grad(&mut grads, entry.inputs[0], d_input, registry)?;
+                }
+            }
+            OpKind::BatchNorm | OpKind::MaxPool2d | OpKind::UpsampleNearest => {
+                // TODO: implement in later tasks
+            }
+            OpKind::CrossEntropy | OpKind::Embedding => {
+                // TODO: implement when needed
             }
         }
     }
@@ -195,6 +238,59 @@ fn layer_norm_backward_cpu(
     }
 
     GpuTensor::from_host(&dx, &[rows, d], dev)
+}
+
+/// CPU-side Conv2d backward: dInput only (weight gradient not yet needed for v2 demo).
+///
+/// dInput[c_in, h, w] = sum over c_out of conv2d_transpose(dOutput, weight)
+#[allow(clippy::too_many_arguments)]
+fn conv2d_backward_cpu(
+    d_output: &GpuTensor,
+    _input: &GpuTensor,
+    weight: &GpuTensor,
+    c_in: usize,
+    c_out: usize,
+    h: usize,
+    w: usize,
+    kh: usize,
+    kw: usize,
+    stride: usize,
+    padding: usize,
+    registry: &Arc<KernelRegistry>,
+) -> Result<GpuTensor> {
+    let dev = registry.device();
+    let h_out = (h + 2 * padding - kh) / stride + 1;
+    let w_out = (w + 2 * padding - kw) / stride + 1;
+
+    let d_out_host = d_output.to_host()?;
+    let w_host = weight.to_host()?;
+
+    // dInput = transposed convolution of dOutput with weight
+    let mut d_input = vec![0.0f32; c_in * h * w];
+
+    for co in 0..c_out {
+        for oh in 0..h_out {
+            for ow in 0..w_out {
+                let d_val = d_out_host[co * h_out * w_out + oh * w_out + ow];
+                for ci in 0..c_in {
+                    for fh in 0..kh {
+                        for fw in 0..kw {
+                            let ih = (oh * stride + fh) as isize - padding as isize;
+                            let iw = (ow * stride + fw) as isize - padding as isize;
+                            if ih >= 0 && ih < h as isize && iw >= 0 && iw < w as isize {
+                                let w_val =
+                                    w_host[co * (c_in * kh * kw) + ci * (kh * kw) + fh * kw + fw];
+                                d_input[ci * h * w + ih as usize * w + iw as usize] +=
+                                    d_val * w_val;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    GpuTensor::from_host(&d_input, &[c_in, h, w], dev)
 }
 
 /// Launch an element-wise activation backward kernel.

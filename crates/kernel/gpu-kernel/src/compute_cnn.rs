@@ -429,3 +429,82 @@ pub unsafe extern "ptx-kernel" fn bias_add_chw(
         *status = 0;
     }
 }
+
+// ============================================================
+// col2im kernel — reverse of im2col for Conv2d backward
+// ============================================================
+
+/// col2im: scatter-add from column matrix back to spatial input tensor.
+///
+/// col: `[h_out*w_out, c_in*kh*kw]`, output: `[c_in, h, w]` (accumulates via addition).
+/// grid_dim = (ceil(total/256), 1, 1), block_dim = (256, 1, 1).
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn col2im(
+    col: *const f32,
+    output: *mut f32,
+    c_in: u32,
+    h: u32,
+    w: u32,
+    kh: u32,
+    kw: u32,
+    stride: u32,
+    pad: u32,
+    h_out: u32,
+    w_out: u32,
+    status: *mut u32,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let block_x = nvptx::_block_idx_x() as u32;
+        let global_id = block_x * 256 + tid;
+
+        let total_cols = h_out * w_out;
+        let col_width = c_in * kh * kw;
+        let total = total_cols * col_width;
+
+        if global_id < total {
+            let out_row = global_id / col_width;
+            let out_col = global_id % col_width;
+
+            let oh = out_row / w_out;
+            let ow = out_row % w_out;
+
+            let c = out_col / (kh * kw);
+            let kk = out_col % (kh * kw);
+            let fh = kk / kw;
+            let fw = kk % kw;
+
+            let ih = oh * stride + fh;
+            let iw = ow * stride + fw;
+
+            if ih >= pad && ih < h + pad && iw >= pad && iw < w + pad {
+                let real_h = ih - pad;
+                let real_w = iw - pad;
+                let val = *col.add((out_row * col_width + out_col) as usize);
+                let dst = output.add((c * h * w + real_h * w + real_w) as usize);
+                // Atomic add for scatter — multiple column positions map to same input pixel
+                core::arch::asm!(
+                    "atom.global.add.f32 {tmp}, [{addr}], {val};",
+                    tmp = out(reg32) _,
+                    addr = in(reg64) dst,
+                    val = in(reg32) val,
+                );
+            }
+        }
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (col, output, c_in, h, w, kh, kw, stride, pad, h_out, w_out);
+    }
+
+    if tid == 0 {
+        let _prev: u32;
+        core::arch::asm!(
+            "atom.global.add.u32 {prev}, [{addr}], 1;",
+            prev = out(reg32) _prev,
+            addr = in(reg64) status,
+        );
+    }
+}

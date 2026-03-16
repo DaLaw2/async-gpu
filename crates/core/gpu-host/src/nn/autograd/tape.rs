@@ -29,6 +29,14 @@ pub enum OpKind {
     CrossEntropy,
     /// Mean squared error loss
     MseLoss,
+    /// 2D convolution (im2col + GEMM)
+    Conv2d,
+    /// Batch normalization
+    BatchNorm,
+    /// Max pooling 2D
+    MaxPool2d,
+    /// Nearest-neighbor upsampling
+    UpsampleNearest,
 }
 
 /// Operation-specific metadata for backward computation.
@@ -47,6 +55,17 @@ pub enum OpMeta {
     Embedding { vocab_size: usize },
     /// Loss reduction mode.
     Loss { reduction: Reduction },
+    /// Conv2d parameters.
+    Conv2d {
+        c_in: usize,
+        c_out: usize,
+        h: usize,
+        w: usize,
+        kh: usize,
+        kw: usize,
+        stride: usize,
+        padding: usize,
+    },
 }
 
 /// Loss reduction mode.

@@ -942,6 +942,80 @@ mod tests {
         );
     }
 
+    /// Test Conv2d gradient via finite differences (autograd-v2).
+    #[test]
+    fn test_conv2d_gradient_check() {
+        use crate::nn::autograd;
+        let registry = gpu_registry();
+        let dev = registry.device();
+
+        let c_in = 1;
+        let c_out = 1;
+        let h = 5;
+        let w = 5;
+        let kh = 3;
+        let kw = 3;
+        let stride = 1;
+        let padding = 1;
+
+        let weight = vec![1.0 / 9.0f32; c_out * c_in * kh * kw];
+        let x_data: Vec<f32> = (0..c_in * h * w).map(|i| i as f32 * 0.1).collect();
+
+        // CPU reference forward
+        let cpu_fwd = |x: &[f32]| -> f64 {
+            let out = cpu_conv2d_f64(x, &weight, None, c_in, h, w, c_out, kh, kw, stride, padding);
+            out.iter().map(|&v| v as f64).sum()
+        };
+
+        // Numerical gradient
+        let f0 = cpu_fwd(&x_data);
+        let eps = 1e-3f32;
+        let mut numerical = vec![0.0f32; c_in * h * w];
+        for i in 0..numerical.len() {
+            let mut x_plus = x_data.clone();
+            x_plus[i] += eps;
+            numerical[i] = ((cpu_fwd(&x_plus) - f0) / eps as f64) as f32;
+        }
+
+        // Autograd gradient
+        let tape = autograd::Tape::new();
+        let mut pool = autograd::TensorPool::new();
+
+        let (loss_id, tape) = autograd::with_tape(tape, || {
+            let mut x_gpu = GpuTensor::from_host(&x_data, &[c_in, h, w], dev).unwrap();
+            x_gpu.set_requires_grad(true);
+            let x_id = autograd::alloc_tensor_id().unwrap();
+            x_gpu.set_tensor_id(x_id);
+            pool.insert(x_id, x_gpu.clone_tensor().unwrap());
+
+            let mut w_gpu = GpuTensor::from_host(&weight, &[c_out, c_in, kh, kw], dev).unwrap();
+            let w_id = autograd::alloc_tensor_id().unwrap();
+            w_gpu.set_tensor_id(w_id);
+            pool.insert(w_id, w_gpu.clone_tensor().unwrap());
+
+            let out =
+                crate::nn::ops::conv2d(&x_gpu, &w_gpu, None, stride, padding, &registry).unwrap();
+            let out_id = out.tensor_id().unwrap();
+            pool.insert(out_id, out);
+            out_id
+        });
+
+        let grads = autograd::backward::backward(&tape, &pool, loss_id, &registry).unwrap();
+        let x_id = autograd::TensorId(0);
+        let dx = grads.get(&x_id).expect("gradient for conv2d input");
+        let dx_host = dx.to_host().unwrap();
+
+        assert_close(
+            &dx_host,
+            &numerical,
+            Tolerance {
+                rtol: 0.05,
+                atol: 1e-3,
+            },
+            "Conv2d gradient check",
+        );
+    }
+
     /// End-to-end training demo: 2-layer MLP learns XOR.
     ///
     /// CPU backprop proving the training loop structure. GPU autograd is used

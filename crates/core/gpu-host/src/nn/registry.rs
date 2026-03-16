@@ -58,6 +58,8 @@ const ML_KERNELS: &[&str] = &[
     // GEMM (compute_gemm.rs)
     "gemm_f32",
     "full_gemm_splitk",
+    // Conv backward
+    "col2im",
     // Backward kernels (autograd)
     "gelu_backward",
     "silu_backward",

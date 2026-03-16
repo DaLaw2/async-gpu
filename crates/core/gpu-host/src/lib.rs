@@ -148,7 +148,8 @@ pub fn model_dir(start: Option<&str>) -> std::path::PathBuf {
         let cargo_toml = dir.join("Cargo.toml");
         if cargo_toml.exists() {
             if let Ok(contents) = std::fs::read_to_string(&cargo_toml) {
-                if contents.contains("[workspace]") {
+                // Look for the root workspace (has `members`), not standalone workspace stubs
+                if contents.contains("[workspace]") && contents.contains("members") {
                     return dir.join("models");
                 }
             }

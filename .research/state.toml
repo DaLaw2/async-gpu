@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 410     # Monotonic counter, incremented after each completed phase
-completed_tasks = 470
+total_cycles = 411     # Monotonic counter, incremented after each completed phase
+completed_tasks = 472
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "ve-run-gpt2.1"
-last_summary = "Fixed flash_attention launch config (shared mem + grid). GPT-2 runs but produces garbage. 6 nn layer tests pass. YOLO tasks blocked (no model). Next: debug GPT-2 nn API numerical accuracy."
+current_task_id = "ve-existing-tests.1"
+last_summary = "GPT-2 nn API FIXED: embedding grid bug + LM head weight layout. Coherent text on all 3 prompts, cached=non-cached MATCH. 15 nn tests pass. YOLO blocked (no model)."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 102
@@ -1094,7 +1094,7 @@ success_criteria = [
 id = "ve-run-gpt2"
 epic = "verify-examples"
 title = "Run GPT-2 inference end-to-end and verify output"
-status = "active"
+status = "completed"
 goal = "GPT-2 example produces correct, coherent text matching known-good output"
 success_criteria = [
     "gpt2-inference example runs without crash",
@@ -1175,7 +1175,7 @@ id = "ve-run-gpt2.1"
 theme = "ve-run-gpt2"
 title = "Run gpt2-inference example, capture output"
 kind = "experiment"
-status = "active"
+status = "done"
 depends = ["ve-model-paths.3"]
 
 [[tasks]]
@@ -1183,7 +1183,7 @@ id = "ve-run-gpt2.2"
 theme = "ve-run-gpt2"
 title = "Compare cached vs non-cached generation output"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["ve-run-gpt2.1"]
 
 # --- ve-run-yolo tasks ---

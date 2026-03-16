@@ -12,7 +12,7 @@ status = "running"     # ready | running | blocked | completed
 current_mode = "do"
 current_step = "do.execute"
 current_task_id = "ag3-lora.1"
-last_summary = "GPT-2 79ms/tok (9.6x from 760ms). LoRA layer + GPT-2 ppl eval. CrossEntropy bwd, GPU SGD, conv2d dWeight all done. 52 tests. 5 nn examples."
+last_summary = "GPT-2 79ms/tok. nn-perf+training-perf+tensor-views CLOSED (32 epics done). LoRA layer built. ag3-foundation done. Next: integrate LoRA into GPT-2 model for actual training."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 104

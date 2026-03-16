@@ -134,14 +134,25 @@ pub fn matmul(a: &GpuTensor, b: &GpuTensor, registry: &Arc<KernelRegistry>) -> R
     }
     dev.synchronize().map_err(NnError::Cuda)?;
 
-    // === Extract unpadded [m, n] from [m_pad, n_pad] on host ===
-    let d_host = dev.dtoh_sync_copy(&d_dev)?;
-    let mut result = vec![0.0f32; m * n];
-    for r in 0..m {
-        result[r * n..r * n + n].copy_from_slice(&d_host[r * n_pad..r * n_pad + n]);
-    }
+    // === Extract unpadded [m, n] from [m_pad, n_pad] on GPU ===
+    let output_dev = if m == m_pad && n == n_pad {
+        d_dev
+    } else {
+        let mut buf = dev.alloc_zeros::<f32>(m * n)?;
+        let f_unpad = registry.get("matrix_unpad")?;
+        let total_out = (m * n) as u32;
+        let cfg_out = KernelRegistry::config_1d(total_out);
+        unsafe {
+            f_unpad.launch(
+                cfg_out,
+                (&d_dev, &mut buf, m as u32, n as u32, n_pad as u32, &status),
+            )?;
+        }
+        dev.synchronize().map_err(NnError::Cuda)?;
+        buf
+    };
 
-    let mut output = GpuTensor::from_host(&result, &[m, n], dev)?;
+    let mut output = GpuTensor::from_data(output_dev, &[m, n], Arc::clone(dev));
 
     // Record on autograd tape
     if a.requires_grad() || b.requires_grad() {

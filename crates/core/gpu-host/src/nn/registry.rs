@@ -61,6 +61,7 @@ const ML_KERNELS: &[&str] = &[
     // Matrix utilities
     "matrix_transpose",
     "matrix_pad",
+    "matrix_unpad",
     // Conv backward
     "col2im",
     // Backward kernels (autograd)

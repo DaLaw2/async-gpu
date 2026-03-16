@@ -1419,3 +1419,45 @@ pub unsafe extern "ptx-kernel" fn matrix_pad(
         );
     }
 }
+
+/// Extract unpadded submatrix from a padded matrix on GPU.
+///
+/// Copies [rows, cols] from [rows_padded, cols_padded] (skipping padding).
+/// grid_dim = (ceil(rows * cols / 256), 1, 1)
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn matrix_unpad(
+    input: *const f32,
+    output: *mut f32,
+    rows: u32,
+    cols: u32,
+    cols_padded: u32,
+    status: *mut u32,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let block_x = nvptx::_block_idx_x() as u32;
+        let global_id = block_x * 256 + tid;
+        let total = rows * cols;
+
+        if global_id < total {
+            let r = global_id / cols;
+            let c = global_id % cols;
+            *output.add(global_id as usize) = *input.add((r * cols_padded + c) as usize);
+        }
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (input, output, rows, cols, cols_padded);
+    }
+
+    if tid == 0 {
+        let _prev: u32;
+        core::arch::asm!(
+            "atom.global.add.u32 {prev}, [{addr}], 1;",
+            prev = out(reg32) _prev,
+            addr = in(reg64) status,
+        );
+    }
+}

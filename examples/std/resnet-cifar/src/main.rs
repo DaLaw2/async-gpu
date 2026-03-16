@@ -5,8 +5,9 @@
 //! - Mini-ResNet full conv training (all layers via GPU conv2d_backward)
 //!
 //! Usage:
-//!   cargo run --release              # inference only
-//!   cargo run --release -- --train   # train mini-resnet on CIFAR-10 subset
+//!   cargo run --release                    # inference with random weights
+//!   cargo run --release -- --pretrained    # pretrained ResNet-18 on CIFAR-10 test set
+//!   cargo run --release -- --train         # train mini-resnet on CIFAR-10 subset
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -16,7 +17,15 @@ use gpu_host::nn::tensor::GpuTensor;
 
 fn main() {
     let do_train = std::env::args().any(|a| a == "--train");
-    if let Err(e) = if do_train { train() } else { inference() } {
+    let do_pretrained = std::env::args().any(|a| a == "--pretrained");
+    let result = if do_train {
+        train()
+    } else if do_pretrained {
+        pretrained_inference()
+    } else {
+        inference()
+    };
+    if let Err(e) = result {
         eprintln!("Error: {e}");
         std::process::exit(1);
     }
@@ -75,6 +84,105 @@ fn inference() -> Result<(), Box<dyn std::error::Error>> {
     println!("Speed: {elapsed:.2}s, {:.1}ms/image", elapsed / n as f64 * 1000.0);
     println!("PASSED (forward valid, no NaN)");
     Ok(())
+}
+
+/// Pretrained ResNet-18 inference on CIFAR-10 test set.
+///
+/// Loads weights from models/resnet18_cifar10.safetensors (trained in PyTorch),
+/// applies ImageNet-style normalization, runs inference on test batch.
+fn pretrained_inference() -> Result<(), Box<dyn std::error::Error>> {
+    let dev = cudarc::driver::CudaDevice::new(0)?;
+    let registry = Arc::new(gpu_host::nn::KernelRegistry::new(
+        Arc::clone(&dev),
+        gpu_host::ptx::KERNEL,
+    )?);
+
+    let model_path =
+        gpu_host::model_dir(Some(env!("CARGO_MANIFEST_DIR"))).join("resnet18_cifar10.safetensors");
+    if !model_path.exists() {
+        return Err(format!(
+            "Pretrained weights not found at {}. Run: uv run scripts/train_resnet_cifar10.py",
+            model_path.display()
+        )
+        .into());
+    }
+
+    println!("--- ResNet-18 Pretrained CIFAR-10 Inference ---");
+    let t0 = Instant::now();
+    let weights = ResNet18Weights::from_safetensors(&model_path, 10)?;
+    let model = ResNet18::from_weights(&weights, 10, &registry)?;
+    println!("Model loaded: {:.1}ms", t0.elapsed().as_secs_f64() * 1000.0);
+
+    // Load CIFAR-10 test data
+    let cifar_dir = gpu_host::model_dir(Some(env!("CARGO_MANIFEST_DIR"))).join("cifar10");
+    let (test_imgs, test_lbls) = if cifar_dir.join("test_batch.bin").exists() {
+        load_cifar_batch(&cifar_dir.join("test_batch.bin"))?
+    } else {
+        return Err("CIFAR-10 test data not found. Run: bash scripts/download-cifar10.sh".into());
+    };
+
+    // CIFAR-10 normalization (matching PyTorch training)
+    let mean = [0.4914f32, 0.4822, 0.4465];
+    let std_dev = [0.2471f32, 0.2435, 0.2616];
+
+    let n = test_imgs.len().min(10000);
+    println!("Testing on {n} images...");
+
+    // Warmup
+    let norm_img = normalize_cifar(&test_imgs[0], &mean, &std_dev);
+    let warmup = GpuTensor::from_host(&norm_img, &[3, 32, 32], &dev)?;
+    let _ = model.forward(&warmup)?;
+
+    let t1 = Instant::now();
+    let mut correct = 0;
+    for i in 0..n {
+        let norm_img = normalize_cifar(&test_imgs[i], &mean, &std_dev);
+        let input = GpuTensor::from_host(&norm_img, &[3, 32, 32], &dev)?;
+        let logits = model.forward(&input)?.to_host()?;
+        let pred = logits
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+            .map(|(i, _)| i)
+            .unwrap();
+        if pred == test_lbls[i] as usize {
+            correct += 1;
+        }
+        if (i + 1) % 1000 == 0 {
+            let acc = correct as f64 / (i + 1) as f64 * 100.0;
+            println!(
+                "  {}/{n}: {correct} correct ({acc:.1}%)",
+                i + 1
+            );
+        }
+    }
+    let elapsed = t1.elapsed().as_secs_f64();
+    let accuracy = correct as f64 / n as f64 * 100.0;
+    println!(
+        "\nAccuracy: {correct}/{n} ({accuracy:.1}%)",
+    );
+    println!(
+        "Speed: {elapsed:.2}s, {:.1}ms/image",
+        elapsed / n as f64 * 1000.0
+    );
+    if accuracy >= 90.0 {
+        println!("PASSED (accuracy >= 90%)");
+    } else {
+        println!("BELOW TARGET (accuracy < 90%, need more training epochs)");
+    }
+    Ok(())
+}
+
+/// Normalize CIFAR-10 image: (pixel/255 - mean) / std, channel-first layout.
+fn normalize_cifar(img: &[f32], mean: &[f32; 3], std_dev: &[f32; 3]) -> Vec<f32> {
+    let hw = 32 * 32;
+    let mut out = vec![0.0f32; 3 * hw];
+    for c in 0..3 {
+        for p in 0..hw {
+            out[c * hw + p] = (img[c * hw + p] - mean[c]) / std_dev[c];
+        }
+    }
+    out
 }
 
 /// Mini-ResNet full training on CIFAR-10 subset.

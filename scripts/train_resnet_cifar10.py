@@ -130,20 +130,22 @@ def main():
 
     data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models", "cifar10_torch")
     trainset = torchvision.datasets.CIFAR10(root=data_dir, train=True, download=True, transform=transform_train)
-    trainloader = torch.utils.data.DataLoader(trainset, batch_size=128, shuffle=True, num_workers=2)
+    trainloader = torch.utils.data.DataLoader(trainset, batch_size=128, shuffle=True, num_workers=0)
     testset = torchvision.datasets.CIFAR10(root=data_dir, train=False, download=True, transform=transform_test)
-    testloader = torch.utils.data.DataLoader(testset, batch_size=256, shuffle=False, num_workers=2)
+    testloader = torch.utils.data.DataLoader(testset, batch_size=256, shuffle=False, num_workers=0)
 
     # Model
     model = ResNet18CIFAR(num_classes=10).to(device)
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.SGD(model.parameters(), lr=0.1, momentum=0.9, weight_decay=5e-4)
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=50)
+    n_epochs = 15
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=n_epochs)
 
-    print(f"Training ResNet-18 CIFAR-10 variant for 50 epochs...")
+    print(f"Training ResNet-18 CIFAR-10 variant for {n_epochs} epochs...")
 
     best_acc = 0.0
-    for epoch in range(50):
+    best_state = None
+    for epoch in range(n_epochs):
         # Train
         model.train()
         total_loss = 0.0
@@ -177,14 +179,18 @@ def main():
         train_acc = 100.0 * correct / total
         test_acc = 100.0 * test_correct / test_total
         avg_loss = total_loss / total
-        print(f"Epoch {epoch+1:2d}/50: loss={avg_loss:.3f}, train={train_acc:.1f}%, test={test_acc:.1f}%, lr={scheduler.get_last_lr()[0]:.4f}")
+        print(f"Epoch {epoch+1:2d}/{n_epochs}: loss={avg_loss:.3f}, train={train_acc:.1f}%, test={test_acc:.1f}%, lr={scheduler.get_last_lr()[0]:.4f}")
 
         if test_acc > best_acc:
             best_acc = test_acc
+            # Save best model
+            best_state = {k: v.clone() for k, v in model.state_dict().items()}
 
     print(f"\nBest test accuracy: {best_acc:.1f}%")
 
-    # Export
+    # Export best model
+    if best_state is not None:
+        model.load_state_dict(best_state)
     model.eval()
     out_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models")
     os.makedirs(out_dir, exist_ok=True)

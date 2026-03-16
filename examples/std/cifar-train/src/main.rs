@@ -62,13 +62,21 @@ fn run_gpu() -> Result<(), Box<dyn std::error::Error>> {
             let start = bi * bs;
             let batch_labels: Vec<usize> = (0..bs).map(|i| train_labels[start + i] as usize).collect();
 
-            // === Conv2d forward (per-sample GPU) ===
+            // === BATCHED Conv2d forward ===
+            let mut batch_imgs = vec![0.0f32; bs * c_in * h * w];
+            for i in 0..bs {
+                batch_imgs[i * c_in * h * w..(i + 1) * c_in * h * w]
+                    .copy_from_slice(&train_imgs[start + i]);
+            }
+            let batch_gpu = GpuTensor::from_host(&batch_imgs, &[bs, c_in, h, w], &dev)?;
+            let conv_out_batch = gpu_host::nn::ops::conv2d(&batch_gpu, &cw_gpu, None, 1, 1, &registry)?;
+            let conv_all = conv_out_batch.to_host()?;
+
+            let chw = c_out * h * w;
             let mut all_conv_host = Vec::with_capacity(bs);
             let mut all_pooled = vec![0.0f32; bs * flat];
             for i in 0..bs {
-                let img_gpu = GpuTensor::from_host(&train_imgs[start + i], &[c_in, h, w], &dev)?;
-                let conv_out = gpu_host::nn::ops::conv2d(&img_gpu, &cw_gpu, None, 1, 1, &registry)?;
-                let conv_h = conv_out.to_host()?;
+                let conv_h = conv_all[i * chw..(i + 1) * chw].to_vec();
                 let relu: Vec<f32> = conv_h.iter().map(|&v| v.max(0.0)).collect();
                 let pooled = cpu_avg_pool(&relu, c_out, h, w, ps);
                 all_pooled[i * flat..(i + 1) * flat].copy_from_slice(&pooled);

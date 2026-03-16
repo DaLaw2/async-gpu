@@ -19,6 +19,7 @@
 //! # }
 //! ```
 
+pub mod backward;
 mod pool;
 mod tape;
 

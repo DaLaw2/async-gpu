@@ -217,15 +217,105 @@ pub fn backward(
                 }
             }
             OpKind::MaxPool2d => {
-                // MaxPool2d backward: route gradient through max indices
-                // For v2, passthrough (each output gradient goes to the max position)
-                let d_out_clone = d_out.clone_tensor()?;
-                accumulate_grad(&mut grads, entry.inputs[0], d_out_clone, registry)?;
+                // MaxPool2d backward: route gradients through max indices
+                // Recompute forward to find indices, then scatter gradients
+                if let OpMeta::MaxPool2d {
+                    channels,
+                    h,
+                    w,
+                    kernel_size,
+                    stride,
+                    padding,
+                } = entry.meta
+                {
+                    let input_id = entry.saved[0];
+                    if let Some(input_t) = pool.get(input_id) {
+                        let input_host = input_t.to_host()?;
+                        let d_host = d_out.to_host()?;
+                        let h_out = (h + 2 * padding - kernel_size) / stride + 1;
+                        let w_out = (w + 2 * padding - kernel_size) / stride + 1;
+
+                        let mut d_input = vec![0.0f32; channels * h * w];
+                        for ch in 0..channels {
+                            for oh in 0..h_out {
+                                for ow in 0..w_out {
+                                    // Find max index in the pooling window
+                                    let mut max_val = f32::NEG_INFINITY;
+                                    let mut max_ih = 0usize;
+                                    let mut max_iw = 0usize;
+                                    for kh in 0..kernel_size {
+                                        for kw in 0..kernel_size {
+                                            let ih = oh * stride + kh;
+                                            let iw = ow * stride + kw;
+                                            let ih_pad = ih as isize - padding as isize;
+                                            let iw_pad = iw as isize - padding as isize;
+                                            if ih_pad >= 0
+                                                && (ih_pad as usize) < h
+                                                && iw_pad >= 0
+                                                && (iw_pad as usize) < w
+                                            {
+                                                let val = input_host[ch * h * w
+                                                    + ih_pad as usize * w
+                                                    + iw_pad as usize];
+                                                if val > max_val {
+                                                    max_val = val;
+                                                    max_ih = ih_pad as usize;
+                                                    max_iw = iw_pad as usize;
+                                                }
+                                            }
+                                        }
+                                    }
+                                    // Route gradient to max position
+                                    d_input[ch * h * w + max_ih * w + max_iw] +=
+                                        d_host[ch * h_out * w_out + oh * w_out + ow];
+                                }
+                            }
+                        }
+                        let dev = registry.device();
+                        let di = GpuTensor::from_host(&d_input, &[channels, h, w], dev)?;
+                        accumulate_grad(&mut grads, entry.inputs[0], di, registry)?;
+                    } else {
+                        let d_out_clone = d_out.clone_tensor()?;
+                        accumulate_grad(&mut grads, entry.inputs[0], d_out_clone, registry)?;
+                    }
+                } else {
+                    let d_out_clone = d_out.clone_tensor()?;
+                    accumulate_grad(&mut grads, entry.inputs[0], d_out_clone, registry)?;
+                }
             }
             OpKind::UpsampleNearest => {
-                // Upsample 2x backward: accumulate 4 output grads into each input element
-                let d_out_clone = d_out.clone_tensor()?;
-                accumulate_grad(&mut grads, entry.inputs[0], d_out_clone, registry)?;
+                // Upsample 2x backward: each input element receives sum of 4 output elements
+                // d_input[c, y, x] = sum of d_out[c, 2y, 2x], d_out[c, 2y, 2x+1],
+                //                           d_out[c, 2y+1, 2x], d_out[c, 2y+1, 2x+1]
+                let d_host = d_out.to_host()?;
+                let shape = d_out.shape();
+                if shape.len() == 3 {
+                    let (c, h_out, w_out) = (shape[0], shape[1], shape[2]);
+                    let (h_in, w_in) = (h_out / 2, w_out / 2);
+                    let mut d_input = vec![0.0f32; c * h_in * w_in];
+                    for ch in 0..c {
+                        for y in 0..h_in {
+                            for x in 0..w_in {
+                                let mut sum = 0.0f32;
+                                for dy in 0..2 {
+                                    for dx in 0..2 {
+                                        let oy = y * 2 + dy;
+                                        let ox = x * 2 + dx;
+                                        sum += d_host[ch * h_out * w_out + oy * w_out + ox];
+                                    }
+                                }
+                                d_input[ch * h_in * w_in + y * w_in + x] = sum;
+                            }
+                        }
+                    }
+                    let dev = registry.device();
+                    let di = GpuTensor::from_host(&d_input, &[c, h_in, w_in], dev)?;
+                    accumulate_grad(&mut grads, entry.inputs[0], di, registry)?;
+                } else {
+                    // Fallback: passthrough for unexpected shapes
+                    let d_out_clone = d_out.clone_tensor()?;
+                    accumulate_grad(&mut grads, entry.inputs[0], d_out_clone, registry)?;
+                }
             }
             OpKind::CrossEntropy => {
                 // d_logits = softmax(logits) - one_hot(targets), scaled by d_out

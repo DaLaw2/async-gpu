@@ -73,6 +73,15 @@ pub enum OpMeta {
         inv_std: Vec<f32>,
         x_norm: Vec<f32>,
     },
+    /// MaxPool2d parameters for backward.
+    MaxPool2d {
+        channels: usize,
+        h: usize,
+        w: usize,
+        kernel_size: usize,
+        stride: usize,
+        padding: usize,
+    },
     /// Conv2d parameters.
     Conv2d {
         c_in: usize,

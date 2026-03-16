@@ -12,7 +12,7 @@ status = "running"     # ready | running | blocked | completed
 current_mode = "do"
 current_step = "do.execute"
 current_task_id = "ag-norm-bwd.1"
-last_summary = "ag-tape + ag-elemwise-bwd + ag-gemm-bwd ALL COMPLETE. Linear gradient matches finite diff. 38 tests pass, 506 tasks. Next: ag-norm-bwd (LayerNorm backward)."
+last_summary = "ag-tape + ag-elemwise-bwd + ag-gemm-bwd COMPLETE (15 tasks). 38 nn tests pass, 506 tasks. Next: ag-norm-bwd.1 investigation then PTX kernel, then ag-optim + ag-loss + ag-demo."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 102
@@ -1461,7 +1461,7 @@ success_criteria = [
 id = "ag-norm-bwd"
 epic = "autograd-v1"
 title = "LayerNorm backward kernel"
-status = "pending"
+status = "active"
 goal = "layer_norm_backward fused reduction kernel"
 success_criteria = [
     "dX, dγ, dβ computed correctly in fused kernel",
@@ -1642,7 +1642,7 @@ id = "ag-norm-bwd.1"
 theme = "ag-norm-bwd"
 title = "Design layer_norm_backward algorithm (Jacobian decomposition)"
 kind = "investigation"
-status = "pending"
+status = "active"
 depends = []
 
 [[tasks]]

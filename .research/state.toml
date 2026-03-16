@@ -12,7 +12,7 @@ status = "running"     # ready | running | blocked | completed
 current_mode = "do"
 current_step = "do.execute"
 current_task_id = "tp-batch-conv.1"
-last_summary = "AUDIT COMPLETE: 3 subagents found+fixed FC weight layout bug, batched conv2d column bug, loss averaging bug. GPU=CPU bit-exact accuracy. 52 tests. CIFAR batched conv works. Next: GPU transpose kernel to eliminate matmul H2D/D2H bottleneck."
+last_summary = "GPU-side transpose/pad/unpad kernels added. MNIST 5.2x speedup (8.4s vs 44s CPU). CIFAR 8.8s (0.74x vs CPU 6.5s). bias_add_chw param bug fixed. 52 tests. Next: eliminate batched conv2d input download (use GPU pointer offset for per-sample im2col)."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 103

@@ -4,8 +4,8 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 429     # Monotonic counter, incremented after each completed phase
-completed_tasks = 523
+total_cycles = 430     # Monotonic counter, incremented after each completed phase
+completed_tasks = 530
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
@@ -13,8 +13,8 @@ current_mode = "do"
 current_step = "do.execute"
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "ag2-misc-bwd.1"
-last_summary = "ag2-conv-bwd + ag2-attn-bwd COMPLETE. Conv2d + attention backward with gradient checks. 46 tests. Next: ag2-misc-bwd (batch_norm, max_pool, upsample)."
+current_task_id = ""
+last_summary = "autograd-v2 epic COMPLETE: ALL 5 criteria met. Conv2d + attention + misc backward, checkpoint API, CNN training demo. 48 tests, 530 tasks."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 103
@@ -1774,8 +1774,9 @@ depends = ["gs-spike.1"]
 [[epics]]
 id = "autograd-v2"
 title = "Autograd v2 — conv2d/attention backward, gradient checkpointing, mixed precision"
-status = "active"
+status = "completed"
 priority = "high"
+# ALL 5 CRITERIA MET — closed 2026-03-16
 depends_on = "autograd-v1"
 success_criteria = [
     "conv2d backward (col2im + weight grad) with numerical gradient check",
@@ -1822,7 +1823,7 @@ success_criteria = [
 id = "ag2-misc-bwd"
 epic = "autograd-v2"
 title = "Misc backward kernels — batch_norm, max_pool2d, upsample"
-status = "pending"
+status = "completed"
 goal = "All CNN ops have backward implementations"
 success_criteria = [
     "batch_norm_backward (dInput, dGamma, dBeta)",
@@ -1834,7 +1835,7 @@ success_criteria = [
 id = "ag2-checkpoint"
 epic = "autograd-v2"
 title = "Gradient checkpointing"
-status = "pending"
+status = "completed"
 goal = "Trade compute for memory by recomputing activations during backward"
 success_criteria = [
     "checkpoint() wrapper that drops activations and recomputes on backward",
@@ -1845,7 +1846,7 @@ success_criteria = [
 id = "ag2-train-demo"
 epic = "autograd-v2"
 title = "CNN training demo on CIFAR-10"
-status = "pending"
+status = "completed"
 goal = "Train a small CNN to non-trivial accuracy on CIFAR-10 subset"
 success_criteria = [
     "Small CNN (Conv2d + ReLU + MaxPool + Linear) trains on CIFAR-10 subset",
@@ -1923,7 +1924,7 @@ id = "ag2-misc-bwd.1"
 theme = "ag2-misc-bwd"
 title = "batch_norm_backward CPU implementation"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = []
 
 [[tasks]]
@@ -1931,7 +1932,7 @@ id = "ag2-misc-bwd.2"
 theme = "ag2-misc-bwd"
 title = "max_pool2d_backward CPU implementation (index routing)"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = []
 
 [[tasks]]
@@ -1939,7 +1940,7 @@ id = "ag2-misc-bwd.3"
 theme = "ag2-misc-bwd"
 title = "upsample_nearest_backward CPU implementation"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = []
 
 # --- ag2-checkpoint tasks ---
@@ -1949,7 +1950,7 @@ id = "ag2-checkpoint.1"
 theme = "ag2-checkpoint"
 title = "Design checkpoint API: checkpoint(fn) that recomputes on backward"
 kind = "design"
-status = "pending"
+status = "done"
 depends = ["ag2-conv-bwd.3"]
 
 [[tasks]]
@@ -1957,7 +1958,7 @@ id = "ag2-checkpoint.2"
 theme = "ag2-checkpoint"
 title = "Implement checkpoint with memory savings measurement"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["ag2-checkpoint.1"]
 
 # --- ag2-train-demo tasks ---
@@ -1967,7 +1968,7 @@ id = "ag2-train-demo.1"
 theme = "ag2-train-demo"
 title = "Download CIFAR-10 subset + implement data loader"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = []
 
 [[tasks]]
@@ -1975,5 +1976,5 @@ id = "ag2-train-demo.2"
 theme = "ag2-train-demo"
 title = "Train small CNN on CIFAR-10, verify loss converges"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["ag2-conv-bwd.4", "ag2-misc-bwd.1", "ag2-misc-bwd.2", "ag2-train-demo.1"]

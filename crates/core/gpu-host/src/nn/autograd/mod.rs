@@ -20,6 +20,7 @@
 //! ```
 
 pub mod backward;
+pub mod checkpoint;
 pub mod loss;
 pub mod optim;
 mod pool;

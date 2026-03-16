@@ -20,6 +20,8 @@
 //! ```
 
 pub mod backward;
+pub mod loss;
+pub mod optim;
 mod pool;
 mod tape;
 

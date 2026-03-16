@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 425     # Monotonic counter, incremented after each completed phase
-completed_tasks = 509
+total_cycles = 426     # Monotonic counter, incremented after each completed phase
+completed_tasks = 515
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "ag-optim.1"
-last_summary = "ag-norm-bwd COMPLETE. LayerNorm backward + gradient check pass. 39 nn tests. Next: ag-optim (SGD+Adam) + ag-loss (cross_entropy+MSE) + ag-demo."
+current_task_id = "ag-demo.1"
+last_summary = "ag-optim + ag-loss COMPLETE. SGD/Adam + cross_entropy/MSE all implemented + tested. Only ag-demo.1 remains for autograd-v1 epic. 43+ nn tests."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 102
@@ -1472,7 +1472,7 @@ success_criteria = [
 id = "ag-optim"
 epic = "autograd-v1"
 title = "Optimizers — SGD + Adam"
-status = "pending"
+status = "completed"
 goal = "GPU-side parameter update with momentum/variance state"
 success_criteria = [
     "SGD with optional momentum",
@@ -1484,7 +1484,7 @@ success_criteria = [
 id = "ag-loss"
 epic = "autograd-v1"
 title = "Loss functions — cross_entropy + MSE"
-status = "pending"
+status = "completed"
 goal = "Loss forward + backward with tape integration"
 success_criteria = [
     "cross_entropy_loss: log_softmax + nll_loss fused",
@@ -1667,7 +1667,7 @@ id = "ag-optim.1"
 theme = "ag-optim"
 title = "Design Optimizer trait + SGD implementation"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["ag-tape.6"]
 
 [[tasks]]
@@ -1675,7 +1675,7 @@ id = "ag-optim.2"
 theme = "ag-optim"
 title = "Implement Adam optimizer with m,v state tensors"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["ag-optim.1"]
 
 [[tasks]]
@@ -1683,7 +1683,7 @@ id = "ag-optim.3"
 theme = "ag-optim"
 title = "sgd_step and adam_step fused PTX kernels"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["ag-optim.2"]
 
 # ag-loss
@@ -1692,7 +1692,7 @@ id = "ag-loss.1"
 theme = "ag-loss"
 title = "cross_entropy_loss forward + backward (log_softmax + nll)"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["ag-tape.6"]
 
 [[tasks]]
@@ -1700,7 +1700,7 @@ id = "ag-loss.2"
 theme = "ag-loss"
 title = "mse_loss forward + backward"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["ag-tape.6"]
 
 [[tasks]]
@@ -1708,7 +1708,7 @@ id = "ag-loss.3"
 theme = "ag-loss"
 title = "Numerical gradient check for both losses"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["ag-loss.1", "ag-loss.2", "ti-cpu-ref.1"]
 
 # ag-demo

@@ -350,4 +350,94 @@ mod tests {
         // Position 0 attends only to itself → output should be v[0..d]
         assert_close(&out[0..d], &v[0..d], Tolerance::f32_strict(), "pos0 = v[0]");
     }
+
+    // ============================================================
+    // GPU vs CPU validation tests (require CUDA device)
+    // ============================================================
+
+    use crate::nn::registry::KernelRegistry;
+    use crate::nn::tensor::GpuTensor;
+    use std::sync::Arc;
+
+    fn gpu_registry() -> Arc<KernelRegistry> {
+        let dev = cudarc::driver::CudaDevice::new(0).expect("CUDA device");
+        Arc::new(KernelRegistry::new(Arc::clone(&dev), crate::ptx::KERNEL).expect("PTX load"))
+    }
+
+    #[test]
+    fn test_gpu_vs_cpu_matmul() {
+        let registry = gpu_registry();
+        let dev = registry.device();
+
+        let m = 8;
+        let k = 32;
+        let n = 16;
+        let a: Vec<f32> = (0..m * k)
+            .map(|i| ((i % 97) as f32 - 48.0) * 0.01)
+            .collect();
+        let b: Vec<f32> = (0..k * n)
+            .map(|i| ((i % 73) as f32 - 36.0) * 0.01)
+            .collect();
+
+        let expected = cpu_matmul_f64(&a, &b, m, k, n);
+
+        let a_gpu = GpuTensor::from_host(&a, &[m, k], dev).unwrap();
+        let b_gpu = GpuTensor::from_host(&b, &[k, n], dev).unwrap();
+        let c_gpu = crate::nn::ops::matmul(&a_gpu, &b_gpu, &registry).unwrap();
+        let actual = c_gpu.to_host().unwrap();
+
+        assert_close(&actual, &expected, Tolerance::f32_loose(), "GPU matmul");
+    }
+
+    #[test]
+    fn test_gpu_vs_cpu_layer_norm() {
+        let registry = gpu_registry();
+        let dev = registry.device();
+
+        let rows = 4;
+        let d = 64;
+        let eps = 1e-5;
+        let input: Vec<f32> = (0..rows * d)
+            .map(|i| ((i % 131) as f32 - 65.0) * 0.01)
+            .collect();
+        let gamma: Vec<f32> = (0..d).map(|i| 1.0 + (i as f32) * 0.001).collect();
+        let beta: Vec<f32> = (0..d).map(|i| (i as f32) * 0.001).collect();
+
+        let expected = cpu_layer_norm_f64(&input, &gamma, &beta, rows, d, eps);
+
+        let input_gpu = GpuTensor::from_host(&input, &[rows, d], dev).unwrap();
+        let gamma_gpu = GpuTensor::from_host(&gamma, &[d], dev).unwrap();
+        let beta_gpu = GpuTensor::from_host(&beta, &[d], dev).unwrap();
+        let out_gpu =
+            crate::nn::ops::layer_norm(&input_gpu, &gamma_gpu, &beta_gpu, eps, &registry).unwrap();
+        let actual = out_gpu.to_host().unwrap();
+
+        assert_close(&actual, &expected, Tolerance::f32_loose(), "GPU layer_norm");
+    }
+
+    #[test]
+    fn test_gpu_vs_cpu_gelu() {
+        let registry = gpu_registry();
+        let dev = registry.device();
+
+        let n = 256;
+        let input: Vec<f32> = (0..n).map(|i| ((i as f32) - 128.0) * 0.05).collect();
+
+        // CPU GELU reference: 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
+        let expected: Vec<f32> = input
+            .iter()
+            .map(|&x| {
+                let x64 = x as f64;
+                let inner =
+                    (2.0_f64 / std::f64::consts::PI).sqrt() * (x64 + 0.044715 * x64 * x64 * x64);
+                (0.5 * x64 * (1.0 + inner.tanh())) as f32
+            })
+            .collect();
+
+        let input_gpu = GpuTensor::from_host(&input, &[n], dev).unwrap();
+        let out_gpu = crate::nn::ops::gelu(&input_gpu, &registry).unwrap();
+        let actual = out_gpu.to_host().unwrap();
+
+        assert_close(&actual, &expected, Tolerance::f32_strict(), "GPU gelu");
+    }
 }

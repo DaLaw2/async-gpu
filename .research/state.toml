@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 414     # Monotonic counter, incremented after each completed phase
-completed_tasks = 483
+total_cycles = 415     # Monotonic counter, incremented after each completed phase
+completed_tasks = 484
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "ti-harness.1"
-last_summary = "verify-examples epic COMPLETE. Starting testing-infra: ti-harness.1 + ti-cpu-ref.1-4 batch."
+current_task_id = "ti-golden.1"
+last_summary = "testing-infra: ti-harness (2/2), ti-cpu-ref (5/5) DONE. 25 nn tests pass. Next: golden file infra (ti-golden.1-4)."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 102
@@ -1398,7 +1398,7 @@ id = "ti-cpu-ref.5"
 theme = "ti-cpu-ref"
 title = "Per-op validation tests: GPU output vs CPU f64 reference for all 13 ops"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["ti-cpu-ref.1", "ti-cpu-ref.2", "ti-cpu-ref.3", "ti-cpu-ref.4", "ti-harness.2"]
 
 # ============================================================

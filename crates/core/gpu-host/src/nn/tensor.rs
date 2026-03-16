@@ -52,6 +52,9 @@ pub struct GpuTensor {
     strides: SmallVec<[usize; 4]>,
     /// Device reference for memory operations.
     device: Arc<CudaDevice>,
+    /// Whether this tensor requires gradient computation.
+    /// When true, operations involving this tensor are recorded on the autograd tape.
+    requires_grad: bool,
 }
 
 impl GpuTensor {
@@ -66,6 +69,7 @@ impl GpuTensor {
             shape: SmallVec::from_slice(shape),
             strides,
             device,
+            requires_grad: false,
         }
     }
 
@@ -88,6 +92,7 @@ impl GpuTensor {
             shape: SmallVec::from_slice(shape),
             strides,
             device: Arc::clone(device),
+            requires_grad: false,
         })
     }
 
@@ -107,6 +112,7 @@ impl GpuTensor {
             shape: SmallVec::from_slice(shape),
             strides,
             device: Arc::clone(device),
+            requires_grad: false,
         })
     }
 
@@ -133,6 +139,16 @@ impl GpuTensor {
     /// Whether the tensor is C-contiguous (row-major, no gaps).
     pub fn is_contiguous(&self) -> bool {
         self.strides == compute_strides(&self.shape)
+    }
+
+    /// Whether this tensor requires gradient computation.
+    pub fn requires_grad(&self) -> bool {
+        self.requires_grad
+    }
+
+    /// Set whether this tensor requires gradient computation.
+    pub fn set_requires_grad(&mut self, val: bool) {
+        self.requires_grad = val;
     }
 
     /// Reference to the underlying device memory slice.
@@ -185,6 +201,7 @@ impl GpuTensor {
             shape: SmallVec::from_slice(new_shape),
             strides: compute_strides(new_shape),
             device: Arc::clone(&self.device),
+            requires_grad: false,
         })
     }
 
@@ -241,6 +258,7 @@ impl GpuTensor {
             shape: self.shape.clone(),
             strides: self.strides.clone(),
             device: Arc::clone(&self.device),
+            requires_grad: false,
         })
     }
 

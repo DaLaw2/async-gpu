@@ -80,6 +80,8 @@ cargo run --manifest-path examples/vector-math/host/Cargo.toml
 | **NN API examples** (`examples/std/`) | | |
 | `gpt2-inference` | GPT-2 Small text generation using `nn` module | Stock nightly |
 | `yolo-detect` | YOLOv8-nano object detection using `nn` module | Stock nightly |
+| `mnist-train` | MNIST MLP training (91.2% accuracy in 5 epochs) | Stock nightly |
+| `cifar-train` | CIFAR-10 tiny CNN training with loss convergence | Stock nightly |
 
 </details>
 
@@ -268,7 +270,7 @@ rustc-patches/       Custom MIR pass patches for rustc
 scripts/             Build/CI automation, model download (download-models.sh, export_yolo.py)
 examples/
   hostcall/          8 raw-API examples (hello-gpu, async-pipeline, vector-math, etc.)
-  std/               2 nn-API examples (gpt2-inference, yolo-detect)
+  std/               4 nn-API examples (gpt2-inference, yolo-detect, mnist-train, cifar-train)
 formal/              TLA+ specification and model-checking config
 ```
 

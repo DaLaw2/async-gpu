@@ -11,8 +11,8 @@ status = "running"     # ready | running | blocked | completed
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "ve-nn-unit-tests.1"
-last_summary = "ve-model-paths theme DONE (3/3 tasks). model_dir() helper created, all 19+ refs updated. GPT-2 model downloaded. Next: nn unit tests + GPT-2 run."
+current_task_id = "ve-run-gpt2.1"
+last_summary = "ve-model-paths DONE, ve-nn-unit-tests DONE (5 tests pass). Conv2d GEMM bug + MHA crash discovered. GPT-2 binary running for ve-run-gpt2.1 + ve-existing-tests.1."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 102
@@ -1129,7 +1129,7 @@ success_criteria = [
 id = "ve-nn-unit-tests"
 epic = "verify-examples"
 title = "Add nn layer numerical correctness tests"
-status = "active"
+status = "completed"
 goal = "Each key layer has a test comparing GPU output to CPU reference"
 success_criteria = [
     "Linear forward test: known weights → CPU matmul matches GPU output",
@@ -1175,7 +1175,7 @@ id = "ve-run-gpt2.1"
 theme = "ve-run-gpt2"
 title = "Run gpt2-inference example, capture output"
 kind = "experiment"
-status = "pending"
+status = "active"
 depends = ["ve-model-paths.3"]
 
 [[tasks]]
@@ -1193,8 +1193,9 @@ id = "ve-run-yolo.1"
 theme = "ve-run-yolo"
 title = "Prepare test image (PPM format) and run yolo-detect example"
 kind = "experiment"
-status = "pending"
+status = "blocked"
 depends = ["ve-model-paths.3"]
+blocked_reason = "Needs yolov8n.safetensors + bus.ppm — requires ultralytics Python package"
 
 [[tasks]]
 id = "ve-run-yolo.2"
@@ -1211,7 +1212,7 @@ id = "ve-existing-tests.1"
 theme = "ve-existing-tests"
 title = "Run tests_inference.rs test suite and fix failures"
 kind = "experiment"
-status = "pending"
+status = "active"
 depends = ["ve-model-paths.3"]
 
 [[tasks]]
@@ -1219,8 +1220,9 @@ id = "ve-existing-tests.2"
 theme = "ve-existing-tests"
 title = "Run tests_cnn.rs test suite and fix failures"
 kind = "experiment"
-status = "pending"
+status = "blocked"
 depends = ["ve-model-paths.3"]
+blocked_reason = "Needs yolov8n.safetensors — requires ultralytics Python package to export"
 
 # --- ve-nn-unit-tests tasks ---
 

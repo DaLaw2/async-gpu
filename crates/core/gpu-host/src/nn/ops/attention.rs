@@ -42,7 +42,14 @@ pub fn scaled_dot_product_attention(
     let status_dev = dev.htod_sync_copy(&[0u32])?;
 
     let func = registry.get("flash_attention")?;
-    let config = KernelRegistry::config_attention(seq_len as u32);
+    // flash_attention kernel: grid = (1, n_q_tiles, 1), block = (32, 1, 1)
+    // One warp per query tile. Single head (MHA splits externally).
+    let n_q_tiles = seq_len.div_ceil(32) as u32;
+    let config = cudarc::driver::LaunchConfig {
+        grid_dim: (1, n_q_tiles, 1),
+        block_dim: (32, 1, 1),
+        shared_mem_bytes: 2 * 32 * d_head as u32 * 4, // K tile + V tile
+    };
     let causal_mask: u32 = if causal { 1 } else { 0 };
     unsafe {
         func.launch(
@@ -90,7 +97,14 @@ pub fn scaled_dot_product_attention_kv(
     let status_dev = dev.htod_sync_copy(&[0u32])?;
 
     let func = registry.get("flash_attention_kv")?;
-    let config = KernelRegistry::config_attention(q_len as u32);
+    // flash_attention_kv: grid = (1, n_q_tiles, 1), block = (32, 1, 1)
+    // Single head (MHA splits externally).
+    let n_q_tiles = q_len.div_ceil(32) as u32;
+    let config = cudarc::driver::LaunchConfig {
+        grid_dim: (1, n_q_tiles, 1),
+        block_dim: (32, 1, 1),
+        shared_mem_bytes: 2 * 32 * d_head as u32 * 4,
+    };
     let causal_mask: u32 = if causal { 1 } else { 0 };
     unsafe {
         func.launch(

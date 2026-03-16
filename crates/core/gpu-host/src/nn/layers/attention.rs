@@ -247,9 +247,48 @@ mod tests {
         assert_eq!(mha.d_head(), 16);
     }
 
-    // NOTE: MHA forward_causal crashes with CUDA_ERROR_ILLEGAL_ADDRESS in unit tests,
-    // even with GPT-2 dims (768, 12 heads). The attention kernel works in the full
-    // GPT-2 inference pipeline but fails in isolation. Investigation needed — likely
-    // a padding or memory alignment issue in the flash_attention kernel when called
-    // without the full pipeline context.
+    /// Test MHA forward pass with GPT-2 dimensions.
+    #[test]
+    fn test_mha_forward_gpt2_dims() {
+        let registry = test_registry();
+        let dev = registry.device();
+
+        let n_embd = 768;
+        let n_heads = 12;
+        let seq_len = 4;
+
+        let qkv_weight: Vec<f32> = (0..3 * n_embd * n_embd)
+            .map(|i| ((i % 97) as f32 - 48.0) * 0.0001)
+            .collect();
+        let qkv_bias = vec![0.0f32; 3 * n_embd];
+        let out_weight: Vec<f32> = (0..n_embd * n_embd)
+            .map(|i| ((i % 73) as f32 - 36.0) * 0.0001)
+            .collect();
+        let out_bias = vec![0.0f32; n_embd];
+
+        let mha = MultiHeadAttention::new(
+            &qkv_weight,
+            &qkv_bias,
+            &out_weight,
+            &out_bias,
+            n_embd,
+            n_heads,
+            &registry,
+        )
+        .unwrap();
+
+        let input: Vec<f32> = (0..seq_len * n_embd)
+            .map(|i| ((i as f32) - 1536.0) * 0.001)
+            .collect();
+        let input_tensor = GpuTensor::from_host(&input, &[seq_len, n_embd], dev).unwrap();
+
+        let output = mha.forward_causal(&input_tensor).unwrap();
+        assert_eq!(output.shape(), &[seq_len, n_embd]);
+
+        let result = output.to_host().unwrap();
+        assert!(
+            result.iter().all(|x| x.is_finite()),
+            "output contains NaN or Inf"
+        );
+    }
 }

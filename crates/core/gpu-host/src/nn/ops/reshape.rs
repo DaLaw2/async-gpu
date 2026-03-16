@@ -191,7 +191,8 @@ pub fn embedding_lookup(
     let status_dev = dev.htod_sync_copy(&[0u32])?;
 
     let func = registry.get("embedding_lookup")?;
-    let config = KernelRegistry::config_embedding(seq_len as u32);
+    let total_elements = (seq_len * d_model) as u32;
+    let config = KernelRegistry::config_embedding(total_elements);
     unsafe {
         func.launch(
             config,

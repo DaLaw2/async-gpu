@@ -173,9 +173,15 @@ mod tests {
         let in_f = 768;
         let out_f = 768;
 
-        let weight: Vec<f32> = (0..out_f * in_f).map(|i| ((i % 97) as f32 - 48.0) * 0.0001).collect();
-        let bias: Vec<f32> = (0..out_f).map(|i| ((i % 53) as f32 - 26.0) * 0.001).collect();
-        let input: Vec<f32> = (0..batch * in_f).map(|i| ((i % 131) as f32 - 65.0) * 0.01).collect();
+        let weight: Vec<f32> = (0..out_f * in_f)
+            .map(|i| ((i % 97) as f32 - 48.0) * 0.0001)
+            .collect();
+        let bias: Vec<f32> = (0..out_f)
+            .map(|i| ((i % 53) as f32 - 26.0) * 0.001)
+            .collect();
+        let input: Vec<f32> = (0..batch * in_f)
+            .map(|i| ((i % 131) as f32 - 65.0) * 0.01)
+            .collect();
 
         let expected = cpu_linear(&input, &weight, Some(&bias), batch, in_f, out_f);
 
@@ -186,11 +192,16 @@ mod tests {
 
         assert_eq!(output_tensor.shape(), &[batch, out_f]);
 
-        let max_err: f32 = expected.iter().zip(gpu_result.iter())
+        let max_err: f32 = expected
+            .iter()
+            .zip(gpu_result.iter())
             .map(|(e, g)| (e - g).abs())
             .fold(0.0f32, f32::max);
         eprintln!("GPT-2 dims Linear max error: {max_err}");
-        assert!(max_err < 0.1, "max absolute error {max_err} exceeds 0.1 for GPT-2 dims");
+        assert!(
+            max_err < 0.1,
+            "max absolute error {max_err} exceeds 0.1 for GPT-2 dims"
+        );
     }
 
     #[test]

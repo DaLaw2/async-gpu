@@ -140,10 +140,11 @@ impl KernelRegistry {
 
     /// Embedding lookup launch config.
     ///
-    /// One block per token. Block = (256, 1, 1).
-    pub fn config_embedding(seq_len: u32) -> LaunchConfig {
+    /// 1D grid over total output elements (seq_len * d_model).
+    /// Block = (256, 1, 1), grid = (ceil(total/256), 1, 1).
+    pub fn config_embedding(total_elements: u32) -> LaunchConfig {
         LaunchConfig {
-            grid_dim: (seq_len, 1, 1),
+            grid_dim: (total_elements.div_ceil(256), 1, 1),
             block_dim: (256, 1, 1),
             shared_mem_bytes: 0,
         }

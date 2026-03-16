@@ -70,7 +70,19 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         "Once upon a time",
     ];
 
-    // 6. Generate text for each prompt
+    // 6. Diagnostic: single forward pass on first prompt
+    {
+        let tokens = tokenizer.encode(prompts[0]);
+        let dev_tokens = dev.htod_sync_copy(&tokens)?;
+        eprintln!(
+            "\n[diag] Running diagnostic forward on {:?} ({} tokens)",
+            prompts[0],
+            tokens.len()
+        );
+        let _logits = model.forward_diagnostic(&dev_tokens, tokens.len())?;
+    }
+
+    // 7. Generate text for each prompt
     let max_new_tokens = 50;
     for prompt in &prompts {
         let tokens = tokenizer.encode(prompt);

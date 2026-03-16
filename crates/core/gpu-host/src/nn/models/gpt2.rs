@@ -307,9 +307,15 @@ impl Gpt2Model {
             registry,
         )?;
 
-        // LM head — GPT-2 ties lm_head to wte (transpose: [vocab, embd] → [embd, vocab])
-        let lm_head_w = transpose_2d(&weights.wte, config.vocab_size, config.n_embd);
-        let lm_head = Linear::new(&lm_head_w, None, config.n_embd, config.vocab_size, registry)?;
+        // LM head — GPT-2 ties lm_head to wte.
+        // wte is [vocab_size, n_embd] which matches Linear's expected [out_features, in_features].
+        let lm_head = Linear::new(
+            &weights.wte,
+            None,
+            config.n_embd,
+            config.vocab_size,
+            registry,
+        )?;
 
         Ok(Self::new(
             embedding, blocks, ln_f, lm_head, config, registry,
@@ -337,6 +343,83 @@ impl Gpt2Model {
 
         // 4. LM head (tied weights or separate linear)
         self.lm_head.forward(&hidden)
+    }
+
+    /// Diagnostic forward pass: prints intermediate values for debugging.
+    ///
+    /// Same as [`forward`] but dumps first/last position values after each stage.
+    pub fn forward_diagnostic(
+        &self,
+        token_ids: &cudarc::driver::CudaSlice<u32>,
+        seq_len: usize,
+    ) -> Result<GpuTensor> {
+        let n = self.config.n_embd;
+
+        // 1. Embedding
+        let mut hidden = self.embedding.forward_tokens(token_ids, seq_len)?;
+        let h = hidden.to_host()?;
+        let last = seq_len - 1;
+        eprintln!(
+            "[diag] Embedding pos0 first4: [{:.6}, {:.6}, {:.6}, {:.6}]",
+            h[0], h[1], h[2], h[3]
+        );
+        eprintln!(
+            "[diag] Embedding pos{last} first4: [{:.6}, {:.6}, {:.6}, {:.6}]",
+            h[last * n],
+            h[last * n + 1],
+            h[last * n + 2],
+            h[last * n + 3]
+        );
+
+        // 2. Transformer blocks
+        for (i, block) in self.blocks.iter().enumerate() {
+            hidden = block.forward(&hidden)?;
+            if i == 0 || i == 11 {
+                let h = hidden.to_host()?;
+                eprintln!(
+                    "[diag] Layer {i} pos{last} first4: [{:.6}, {:.6}, {:.6}, {:.6}]",
+                    h[last * n],
+                    h[last * n + 1],
+                    h[last * n + 2],
+                    h[last * n + 3]
+                );
+                // Check for NaN/Inf
+                let nan_count = h.iter().filter(|x| !x.is_finite()).count();
+                if nan_count > 0 {
+                    eprintln!("[diag] WARNING: Layer {i} has {nan_count} NaN/Inf values!");
+                }
+            }
+        }
+
+        // 3. Final LN
+        hidden = self.ln_f.forward(&hidden)?;
+        let h = hidden.to_host()?;
+        eprintln!(
+            "[diag] Final LN pos{last} first4: [{:.6}, {:.6}, {:.6}, {:.6}]",
+            h[last * n],
+            h[last * n + 1],
+            h[last * n + 2],
+            h[last * n + 3]
+        );
+
+        // 4. LM head
+        let logits = self.lm_head.forward(&hidden)?;
+        let l = logits.to_host()?;
+        let vocab = self.config.vocab_size;
+        // Top-5 tokens at last position
+        let last_logits = &l[last * vocab..(last + 1) * vocab];
+        let mut indexed: Vec<(usize, f32)> = last_logits
+            .iter()
+            .enumerate()
+            .map(|(i, &v)| (i, v))
+            .collect();
+        indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        eprintln!("[diag] Top-5 tokens at pos{last}:");
+        for (tok, score) in indexed.iter().take(5) {
+            eprintln!("  token {tok}: {score:.4}");
+        }
+
+        Ok(logits)
     }
 
     /// Greedy generation: generate `max_new_tokens` tokens from a prompt.

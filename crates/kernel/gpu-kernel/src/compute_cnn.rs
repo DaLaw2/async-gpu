@@ -508,3 +508,70 @@ pub unsafe extern "ptx-kernel" fn col2im(
         );
     }
 }
+
+/// im2col with input base offset — for batched conv2d.
+///
+/// Same as `im2col` but reads input from `input + base_offset` instead of `input`.
+/// This allows processing one sample from a batched `[N, C, H, W]` tensor.
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn im2col_offset(
+    input: *const f32,
+    output: *mut f32,
+    base_offset: u32,
+    c_in: u32,
+    h: u32,
+    w: u32,
+    kh: u32,
+    kw: u32,
+    stride: u32,
+    pad: u32,
+    h_out: u32,
+    w_out: u32,
+    status: *mut u32,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let block_x = nvptx::_block_idx_x() as u32;
+        let global_id = block_x * 256 + tid;
+
+        let total_cols = h_out * w_out;
+        let col_width = c_in * kh * kw;
+        let total = total_cols * col_width;
+
+        if global_id < total {
+            let out_row = global_id / col_width;
+            let out_col = global_id % col_width;
+
+            let oh = out_row / w_out;
+            let ow = out_row % w_out;
+
+            let c = out_col / (kh * kw);
+            let kk = out_col % (kh * kw);
+            let fh = kk / kw;
+            let fw = kk % kw;
+
+            let ih = oh * stride + fh;
+            let iw = ow * stride + fw;
+
+            let val = if ih >= pad && ih < h + pad && iw >= pad && iw < w + pad {
+                let real_h = ih - pad;
+                let real_w = iw - pad;
+                *input.add((base_offset + c * h * w + real_h * w + real_w) as usize)
+            } else {
+                0.0f32
+            };
+
+            *output.add((out_row * col_width + out_col) as usize) = val;
+        }
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (input, output, base_offset, c_in, h, w, kh, kw, stride, pad, h_out, w_out);
+    }
+
+    if tid == 0 {
+        *status = 0;
+    }
+}

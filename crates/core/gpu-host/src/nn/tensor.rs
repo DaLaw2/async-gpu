@@ -43,8 +43,8 @@ use super::error::{NnError, Result};
 /// # }
 /// ```
 pub struct GpuTensor {
-    /// Device memory (f32). Owned — dropped when tensor is dropped.
-    data: CudaSlice<f32>,
+    /// Device memory (f32). Arc-shared for zero-copy views (reshape).
+    data: Arc<CudaSlice<f32>>,
     /// Shape dimensions, e.g. `[batch, channels, height, width]`.
     /// SmallVec avoids heap allocation for <= 4 dims.
     shape: SmallVec<[usize; 4]>,
@@ -67,7 +67,7 @@ impl GpuTensor {
     pub fn from_data(data: CudaSlice<f32>, shape: &[usize], device: Arc<CudaDevice>) -> Self {
         let strides = compute_strides(shape);
         Self {
-            data,
+            data: Arc::new(data),
             shape: SmallVec::from_slice(shape),
             strides,
             device,
@@ -91,7 +91,7 @@ impl GpuTensor {
         let slice = device.htod_sync_copy(data)?;
         let strides = compute_strides(shape);
         Ok(Self {
-            data: slice,
+            data: Arc::new(slice),
             shape: SmallVec::from_slice(shape),
             strides,
             device: Arc::clone(device),
@@ -102,7 +102,7 @@ impl GpuTensor {
 
     /// Download tensor data to host.
     pub fn to_host(&self) -> Result<Vec<f32>> {
-        let host = self.device.dtoh_sync_copy(&self.data)?;
+        let host = self.device.dtoh_sync_copy(&*self.data)?;
         Ok(host)
     }
 
@@ -112,7 +112,7 @@ impl GpuTensor {
         let slice = device.alloc_zeros::<f32>(numel)?;
         let strides = compute_strides(shape);
         Ok(Self {
-            data: slice,
+            data: Arc::new(slice),
             shape: SmallVec::from_slice(shape),
             strides,
             device: Arc::clone(device),
@@ -168,12 +168,14 @@ impl GpuTensor {
 
     /// Reference to the underlying device memory slice.
     pub fn data(&self) -> &CudaSlice<f32> {
-        &self.data
+        &*self.data
     }
 
     /// Mutable reference to the underlying device memory slice.
+    ///
+    /// If the memory is shared (view), this triggers a copy-on-write clone.
     pub fn data_mut(&mut self) -> &mut CudaSlice<f32> {
-        &mut self.data
+        Arc::make_mut(&mut self.data)
     }
 
     /// Reference to the CUDA device.
@@ -208,11 +210,9 @@ impl GpuTensor {
                 actual: format!("numel={new_numel} from shape {new_shape:?}"),
             });
         }
-        // Copy data to new allocation with new shape
-        let mut new_data = self.device.alloc_zeros::<f32>(new_numel)?;
-        self.device.dtod_copy(&self.data, &mut new_data)?;
+        // Zero-copy view: share the same device memory, just change shape/strides
         Ok(Self {
-            data: new_data,
+            data: Arc::clone(&self.data),
             shape: SmallVec::from_slice(new_shape),
             strides: compute_strides(new_shape),
             device: Arc::clone(&self.device),
@@ -270,9 +270,9 @@ impl GpuTensor {
     pub fn clone_tensor(&self) -> Result<Self> {
         let numel = self.numel();
         let mut new_data = self.device.alloc_zeros::<f32>(numel)?;
-        self.device.dtod_copy(&self.data, &mut new_data)?;
+        self.device.dtod_copy(&*self.data, &mut new_data)?;
         Ok(Self {
-            data: new_data,
+            data: Arc::new(new_data),
             shape: self.shape.clone(),
             strides: self.strides.clone(),
             device: Arc::clone(&self.device),

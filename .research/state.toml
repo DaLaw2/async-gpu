@@ -11,7 +11,7 @@ status = "running"     # ready | running | blocked | completed
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "tp-batch-conv.1"
+current_task_id = "tv-impl.1"
 last_summary = "MNIST 5.2x GPU speedup (8.4s vs 44s). CIFAR 8.5s GPU (0.76x vs 6.5s CPU), bit-exact accuracy. All fixes verified by 3 subagents. 52 tests. GPU kernels: matrix_transpose, matrix_pad, matrix_unpad, im2col_offset. Remaining CIFAR bottleneck: batched conv2d host-side column assembly."
 
 # Sequence counters for unique file naming across iterations
@@ -892,3 +892,56 @@ title = "Fix all issues found by audit subagents"
 kind = "experiment"
 status = "done"
 depends = ["tp-audit.1", "tp-audit.2", "tp-audit.3"]
+
+# ============================================================
+# tensor-views Epic (from gpu-safety-spike recommendation)
+# ============================================================
+
+[[epics]]
+id = "tensor-views"
+title = "Tensor Views — zero-copy reshape/slice for GPU tensors"
+status = "active"
+priority = "high"
+success_criteria = [
+    "GpuTensor reshape returns a view (no memcpy) when shapes are compatible",
+    "GpuTensor slice returns a view into sub-region",
+    "Arc<CudaSlice<f32>> for shared ownership between views and source",
+    "conv2d reshape overhead eliminated (measured speedup)",
+]
+
+[[themes]]
+id = "tv-impl"
+epic = "tensor-views"
+title = "Implement tensor views with shared ownership"
+status = "active"
+goal = "Zero-copy reshape and slice via Arc-based shared device memory"
+success_criteria = [
+    "GpuTensor uses Arc<CudaSlice<f32>> instead of CudaSlice<f32>",
+    "reshape() returns view with same Arc (O(1) instead of O(n))",
+    "is_contiguous() and materialize() for view validity",
+    "All 52 existing tests pass after refactor",
+]
+
+[[tasks]]
+id = "tv-impl.1"
+theme = "tv-impl"
+title = "Refactor GpuTensor to use Arc<CudaSlice<f32>> + offset + length"
+kind = "experiment"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "tv-impl.2"
+theme = "tv-impl"
+title = "Zero-copy reshape: return view when numel matches"
+kind = "experiment"
+status = "pending"
+depends = ["tv-impl.1"]
+
+[[tasks]]
+id = "tv-impl.3"
+theme = "tv-impl"
+title = "Benchmark: conv2d + CIFAR training after view optimization"
+kind = "experiment"
+status = "pending"
+depends = ["tv-impl.2"]

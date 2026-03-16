@@ -28,6 +28,7 @@
 //! ```
 
 pub mod autograd;
+pub mod cpu_ref;
 pub mod error;
 pub mod layers;
 pub mod models;

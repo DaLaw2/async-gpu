@@ -109,7 +109,7 @@ pub fn conv2d(
     // 3. GEMM: W[c_out, K] × Col_T[K, spatial] → [c_out, spatial]
     // Weight [c_out, c_in, kh, kw] has same flat data as [c_out, K] — just reshape on GPU
     let w_reshaped = weight.reshape(&[c_out, col_h])?;
-    let col_tensor = GpuTensor::from_data(col_transposed, &[col_h, col_w], Arc::clone(&dev));
+    let col_tensor = GpuTensor::from_data(col_transposed, &[col_h, col_w], Arc::clone(dev));
     let gemm_out = super::matmul(&w_reshaped, &col_tensor, registry)?;
 
     // 3. Result is [C_out, col_w] = [C_out, h_out * w_out] — reshape to [C_out, H_out, W_out]

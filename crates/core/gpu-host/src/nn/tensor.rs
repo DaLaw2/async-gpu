@@ -168,7 +168,7 @@ impl GpuTensor {
 
     /// Reference to the underlying device memory slice.
     pub fn data(&self) -> &CudaSlice<f32> {
-        &*self.data
+        &self.data
     }
 
     /// Mutable reference to the underlying device memory slice.

@@ -78,7 +78,6 @@ pub fn bias_add_chw(
     registry: &Arc<KernelRegistry>,
 ) -> Result<GpuTensor> {
     let n = input.numel();
-    let c = input.shape()[0];
     let hw: usize = input.shape()[1..].iter().product();
 
     let dev = registry.device();

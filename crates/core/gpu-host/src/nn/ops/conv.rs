@@ -293,3 +293,31 @@ fn conv2d_batched(
 
     Ok(output)
 }
+
+/// Conv2d backward pass on GPU: computes dInput and dWeight.
+///
+/// Uses im2col + matmul for dWeight, matmul + col2im for dInput.
+/// Supports both single-sample [C,H,W] and batched [N,C,H,W] inputs.
+///
+/// Returns `(d_input, d_weight)` with same shapes as `input` and `weight`.
+pub fn conv2d_backward(
+    d_output: &GpuTensor,
+    input: &GpuTensor,
+    weight: &GpuTensor,
+    stride: usize,
+    padding: usize,
+    registry: &Arc<KernelRegistry>,
+) -> Result<(GpuTensor, GpuTensor)> {
+    let (c_in, h, w) = if input.ndim() == 4 {
+        (input.shape()[1], input.shape()[2], input.shape()[3])
+    } else {
+        (input.shape()[0], input.shape()[1], input.shape()[2])
+    };
+    let c_out = weight.shape()[0];
+    let kh = weight.shape()[2];
+    let kw = weight.shape()[3];
+
+    crate::nn::autograd::backward::conv2d_backward_dispatch(
+        d_output, input, weight, c_in, c_out, h, w, kh, kw, stride, padding, registry,
+    )
+}

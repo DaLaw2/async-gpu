@@ -20,7 +20,7 @@ pub use attention::{
     concat_heads, multi_head_flash_attention, scaled_dot_product_attention,
     scaled_dot_product_attention_kv, split_qkv,
 };
-pub use conv::conv2d;
+pub use conv::{conv2d, conv2d_backward};
 pub use gemm::{matmul, matmul_prepadded_b};
 pub use norm::{batch_norm, batch_norm_silu, layer_norm};
 pub use pool::max_pool2d;

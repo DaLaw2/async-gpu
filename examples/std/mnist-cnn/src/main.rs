@@ -198,21 +198,37 @@ fn run(use_cpu: bool) -> Result<(), Box<dyn std::error::Error>> {
                     let dr2: Vec<f32> = du2.iter().zip(all_conv2_pre[i].iter())
                         .map(|(&d, &c)| if c > 0.0 { d } else { 0.0 }).collect();
 
-                    // Conv2 weight gradient
-                    let dw2 = cpu_conv2d_wgrad(&all_p1[i], &dr2, c1_out, 14, 14, c2_out, 3, 3, 1, 1);
-                    for k in 0..dcw2.len() { dcw2[k] += dw2[k]; }
+                    if use_cpu {
+                        // CPU conv backward
+                        let dw2 = cpu_conv2d_wgrad(&all_p1[i], &dr2, c1_out, 14, 14, c2_out, 3, 3, 1, 1);
+                        for k in 0..dcw2.len() { dcw2[k] += dw2[k]; }
+                        let dp1 = cpu_conv2d_igrad(&dr2, &cw2, c1_out, 14, 14, c2_out, 3, 3, 1, 1);
+                        let du1 = cpu_avg_unpool(&dp1, c1_out, 28, 28, 2);
+                        let dr1: Vec<f32> = du1.iter().zip(all_conv1_pre[i].iter())
+                            .map(|(&d, &c)| if c > 0.0 { d } else { 0.0 }).collect();
+                        let dw1 = cpu_conv2d_wgrad(img, &dr1, 1, 28, 28, c1_out, 3, 3, 1, 1);
+                        for k in 0..dcw1.len() { dcw1[k] += dw1[k]; }
+                    } else {
+                        // GPU conv backward
+                        let dr2_t = GpuTensor::from_host(&dr2, &[c2_out, 14, 14], &dev)?;
+                        let p1_t = GpuTensor::from_host(&all_p1[i], &[c1_out, 14, 14], &dev)?;
+                        let w2_t = GpuTensor::from_host(&cw2, &[c2_out, c1_out, 3, 3], &dev)?;
+                        let (dp1_t, dw2_t) = gpu_host::nn::ops::conv2d_backward(&dr2_t, &p1_t, &w2_t, 1, 1, &registry)?;
+                        let dw2h = dw2_t.to_host()?;
+                        for k in 0..dcw2.len() { dcw2[k] += dw2h[k]; }
 
-                    // Conv2 input gradient → d_pool1
-                    let dp1 = cpu_conv2d_igrad(&dr2, &cw2, c1_out, 14, 14, c2_out, 3, 3, 1, 1);
+                        let dp1 = dp1_t.to_host()?;
+                        let du1 = cpu_avg_unpool(&dp1, c1_out, 28, 28, 2);
+                        let dr1: Vec<f32> = du1.iter().zip(all_conv1_pre[i].iter())
+                            .map(|(&d, &c)| if c > 0.0 { d } else { 0.0 }).collect();
 
-                    // d_pool1 → unpool → relu mask → d_conv1_out
-                    let du1 = cpu_avg_unpool(&dp1, c1_out, 28, 28, 2);
-                    let dr1: Vec<f32> = du1.iter().zip(all_conv1_pre[i].iter())
-                        .map(|(&d, &c)| if c > 0.0 { d } else { 0.0 }).collect();
-
-                    // Conv1 weight gradient
-                    let dw1 = cpu_conv2d_wgrad(img, &dr1, 1, 28, 28, c1_out, 3, 3, 1, 1);
-                    for k in 0..dcw1.len() { dcw1[k] += dw1[k]; }
+                        let dr1_t = GpuTensor::from_host(&dr1, &[c1_out, 28, 28], &dev)?;
+                        let img_t = GpuTensor::from_host(img, &[1, 28, 28], &dev)?;
+                        let w1_t = GpuTensor::from_host(&cw1, &[c1_out, 1, 3, 3], &dev)?;
+                        let (_di1, dw1_t) = gpu_host::nn::ops::conv2d_backward(&dr1_t, &img_t, &w1_t, 1, 1, &registry)?;
+                        let dw1h = dw1_t.to_host()?;
+                        for k in 0..dcw1.len() { dcw1[k] += dw1h[k]; }
+                    }
                 }
                 for k in 0..cw2.len() { cw2[k] -= lr * dcw2[k]; }
                 for k in 0..cw1.len() { cw1[k] -= lr * dcw1[k]; }

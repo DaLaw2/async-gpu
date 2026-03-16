@@ -1358,7 +1358,7 @@ id = "cb-batched.1"
 theme = "cb-batched"
 title = "Extend conv2d backward to accept batched [N,C,H,W] input"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["cb-kernels.3"]
 
 [[tasks]]

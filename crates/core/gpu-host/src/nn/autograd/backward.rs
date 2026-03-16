@@ -462,7 +462,7 @@ fn attention_backward_cpu(
 /// dInput[c_in, h, w] = sum over c_out of conv2d_transpose(dOutput, weight)
 #[allow(clippy::too_many_arguments)]
 /// GPU conv2d backward — dispatches to single-sample or batched.
-fn conv2d_backward_dispatch(
+pub(crate) fn conv2d_backward_dispatch(
     d_output: &GpuTensor,
     input: &GpuTensor,
     weight: &GpuTensor,

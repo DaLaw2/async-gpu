@@ -296,10 +296,10 @@ RTX 3060, SM 86:
 | Example | CPU | GPU | Speedup | Accuracy |
 |---------|-----|-----|---------|----------|
 | MNIST MLP (60K, 5 epochs) | 44.0s (8.8s/ep) | 7.8s (1.6s/ep) | **5.6x** | 91.2% |
-| MNIST CNN (60K, 5 epochs) | 541.1s (107.5s/ep) | 368.8s (73.4s/ep) | **1.47x** | 96.4% |
+| MNIST CNN (60K, 5 epochs) | 541.3s (107.5s/ep) | 206.7s (41.3s/ep) | **2.62x** | 96.4% |
 | CIFAR-10 CNN (2K, 10 epochs) | 6.5s (0.7s/ep) | 7.2s (0.7s/ep) | 0.90x | 27.2%/21.0% |
 
-MNIST MLP shows clear GPU advantage for matmul-heavy workloads (batch=64, 784×128 GPU GEMM). MNIST CNN trains both conv layers with full backward chain (96.4% accuracy). CIFAR-10 GPU produces **identical** loss/accuracy curves to CPU. All use `--cpu` for comparison.
+MNIST MLP shows clear GPU advantage for matmul-heavy workloads (batch=64, 784×128 GPU GEMM). MNIST CNN uses full GPU conv2d backward (im2col + matmul + col2im) — 2.62x over CPU. CIFAR-10 GPU produces **identical** loss/accuracy curves to CPU. All use `--cpu` for comparison.
 
 **Hostcall**:
 

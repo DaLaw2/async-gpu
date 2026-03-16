@@ -246,10 +246,11 @@ impl Module for C2f {
         let branch_0_data: Vec<f32> = cv1_host[..half_c * hw].to_vec();
         let mut prev_data: Vec<f32> = cv1_host[half_c * hw..].to_vec();
 
-        let mut all_branches: Vec<Vec<f32>> = vec![branch_0_data];
+        // C2f concat: [first_half, second_half, bn0_out, bn1_out, ...]
+        let mut all_branches: Vec<Vec<f32>> = vec![branch_0_data, prev_data.clone()];
 
         // Bottlenecks
-        for (bn_cv1, bn_cv2) in &self.bottlenecks {
+        for (_i, (bn_cv1, bn_cv2)) in self.bottlenecks.iter().enumerate() {
             let prev_tensor = GpuTensor::from_host(&prev_data, &[half_c, h, w], dev)?;
             let bn1_out = bn_cv1.forward(&prev_tensor)?;
             let bn2_out = bn_cv2.forward(&bn1_out)?;
@@ -776,7 +777,8 @@ mod tests {
         let img = crate::model_yolo::load_ppm(&image_path).expect("load ppm");
         let (letterboxed, _scale, _pad_x, _pad_y) =
             img.letterbox(crate::model_yolo::YOLO_INPUT_SIZE);
-        let input: Vec<f32> = letterboxed.data.iter().map(|&v| v as f32 / 255.0).collect();
+        // letterboxed.data is already normalized to [0, 1] by from_rgb_hwc
+        let input: Vec<f32> = letterboxed.data.clone();
 
         let detections = model.detect(&input, 0.25, 0.45).expect("detect");
         let n_det = detections.len();

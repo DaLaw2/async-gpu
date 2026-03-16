@@ -619,3 +619,103 @@ fn transpose_2d(data: &[f32], rows: usize, cols: usize) -> Vec<f32> {
     }
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::nn::test_utils::{GoldenEntry, Tolerance};
+    use std::sync::Arc;
+
+    /// Capture or verify GPT-2 golden outputs for 3 prompts.
+    ///
+    /// On first run: captures top-5 logits to golden files.
+    /// On subsequent runs: verifies output matches golden files (regression).
+    #[test]
+    fn test_gpt2_golden_regression() {
+        let model_path =
+            crate::model_dir(Some(env!("CARGO_MANIFEST_DIR"))).join("model.safetensors");
+        if !model_path.exists() {
+            println!("SKIP: GPT-2 model not found at {}", model_path.display());
+            return;
+        }
+
+        let dev = cudarc::driver::CudaDevice::new(0).expect("CUDA");
+        let registry = Arc::new(
+            crate::nn::KernelRegistry::new(Arc::clone(&dev), crate::ptx::KERNEL).expect("PTX"),
+        );
+        let weights = crate::model::load_gpt2_weights(&model_path).expect("weights");
+        let config = Gpt2Config::small();
+        let vocab = config.vocab_size;
+        let model = Gpt2Model::from_weights(&weights, config, &registry).expect("model");
+
+        let tokenizer = crate::tokenizer::Gpt2Tokenizer::new().expect("tokenizer");
+
+        let prompts = [
+            "The capital of France is",
+            "In a world where AI",
+            "Once upon a time",
+        ];
+        let golden_dir = crate::nn::test_utils::golden_dir();
+        std::fs::create_dir_all(&golden_dir).ok();
+
+        for (i, prompt) in prompts.iter().enumerate() {
+            let tokens = tokenizer.encode(prompt);
+            let token_ids = dev.htod_sync_copy(&tokens).expect("upload tokens");
+            let logits = model.forward(&token_ids, tokens.len()).expect("forward");
+            let logits_host = logits.to_host().expect("download");
+
+            let last_pos = tokens.len() - 1;
+            let last_logits = &logits_host[last_pos * vocab..(last_pos + 1) * vocab];
+
+            // Extract top-5 token IDs and their logit values
+            let mut indexed: Vec<(usize, f32)> = last_logits
+                .iter()
+                .enumerate()
+                .map(|(j, &v)| (j, v))
+                .collect();
+            indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+            let top5_ids: Vec<f32> = indexed[..5].iter().map(|(id, _)| *id as f32).collect();
+            let top5_vals: Vec<f32> = indexed[..5].iter().map(|(_, v)| *v).collect();
+
+            let golden_path = golden_dir.join(format!("gpt2_prompt{i}_top5.golden"));
+
+            if golden_path.exists() {
+                // Regression: verify against golden
+                let golden = GoldenEntry::load(&golden_path).expect("load golden");
+                // Compare top-5 token IDs (must match exactly)
+                let actual_ids = &top5_ids;
+                assert_eq!(
+                    actual_ids,
+                    &golden.data[..5],
+                    "Prompt {i} top-5 token IDs changed"
+                );
+                // Compare top-5 logit values (with tolerance)
+                crate::nn::test_utils::assert_close(
+                    &top5_vals,
+                    &golden.data[5..],
+                    golden.tolerance,
+                    &format!("gpt2_prompt{i}_logits"),
+                );
+                println!("REGRESSION OK: prompt {i} matches golden");
+            } else {
+                // First run: capture golden
+                let mut data = top5_ids.clone();
+                data.extend_from_slice(&top5_vals);
+                let entry = GoldenEntry {
+                    label: format!("gpt2_prompt{i}_top5 ({prompt})"),
+                    shape: vec![2, 5], // [ids, values]
+                    data,
+                    tolerance: Tolerance::f32_loose(),
+                };
+                entry.save(&golden_path).expect("save golden");
+                println!(
+                    "CAPTURED: prompt {i} top-5: {:?}",
+                    indexed[..5]
+                        .iter()
+                        .map(|(id, v)| format!("{id}:{v:.2}"))
+                        .collect::<Vec<_>>()
+                );
+            }
+        }
+    }
+}

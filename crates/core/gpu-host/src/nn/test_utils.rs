@@ -285,6 +285,105 @@ pub fn cpu_attention_f64(q: &[f32], k: &[f32], v: &[f32], seq: usize, d: usize) 
     out
 }
 
+// ============================================================
+// Golden file infrastructure
+// ============================================================
+
+/// A golden file entry: named f32 array with metadata.
+///
+/// Golden files are stored as simple text files with the format:
+/// ```text
+/// # Golden: <label>
+/// # Shape: <dim0>,<dim1>,...
+/// # Tolerance: <rtol>,<atol>
+/// <f32 value per line>
+/// ```
+pub struct GoldenEntry {
+    /// Human-readable label (e.g., "gpt2_logits_prompt0_pos4_top5").
+    pub label: String,
+    /// Shape dimensions.
+    pub shape: Vec<usize>,
+    /// Expected values.
+    pub data: Vec<f32>,
+    /// Tolerance for comparison.
+    pub tolerance: Tolerance,
+}
+
+impl GoldenEntry {
+    /// Save golden data to a text file.
+    pub fn save(&self, path: &std::path::Path) -> std::io::Result<()> {
+        use std::io::Write;
+        let mut f = std::fs::File::create(path)?;
+        writeln!(f, "# Golden: {}", self.label)?;
+        let shape_str: Vec<String> = self.shape.iter().map(|s| s.to_string()).collect();
+        writeln!(f, "# Shape: {}", shape_str.join(","))?;
+        writeln!(
+            f,
+            "# Tolerance: {:.e},{:.e}",
+            self.tolerance.rtol, self.tolerance.atol
+        )?;
+        for v in &self.data {
+            writeln!(f, "{v:.8e}")?;
+        }
+        Ok(())
+    }
+
+    /// Load golden data from a text file.
+    pub fn load(path: &std::path::Path) -> std::io::Result<Self> {
+        let content = std::fs::read_to_string(path)?;
+        let mut label = String::new();
+        let mut shape = Vec::new();
+        let mut tolerance = Tolerance::f32_loose();
+        let mut data = Vec::new();
+
+        for line in content.lines() {
+            let line = line.trim();
+            if let Some(rest) = line.strip_prefix("# Golden: ") {
+                label = rest.to_string();
+            } else if let Some(rest) = line.strip_prefix("# Shape: ") {
+                shape = rest
+                    .split(',')
+                    .filter_map(|s| s.trim().parse().ok())
+                    .collect();
+            } else if let Some(rest) = line.strip_prefix("# Tolerance: ") {
+                let parts: Vec<&str> = rest.split(',').collect();
+                if parts.len() == 2 {
+                    tolerance = Tolerance {
+                        rtol: parts[0].trim().parse().unwrap_or(1e-3),
+                        atol: parts[1].trim().parse().unwrap_or(1e-3),
+                    };
+                }
+            } else if !line.is_empty() && !line.starts_with('#') {
+                if let Ok(v) = line.parse::<f32>() {
+                    data.push(v);
+                }
+            }
+        }
+
+        Ok(Self {
+            label,
+            shape,
+            data,
+            tolerance,
+        })
+    }
+
+    /// Compare actual data against this golden entry.
+    pub fn assert_matches(&self, actual: &[f32]) {
+        assert_close(actual, &self.data, self.tolerance, &self.label);
+    }
+}
+
+/// Returns the path to the golden files directory (repo_root/.research/golden/).
+pub fn golden_dir() -> std::path::PathBuf {
+    let root = crate::model_dir(Some(env!("CARGO_MANIFEST_DIR")));
+    // model_dir returns repo_root/models, we want repo_root/.research/golden
+    root.parent()
+        .unwrap_or(std::path::Path::new("."))
+        .join(".research")
+        .join("golden")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

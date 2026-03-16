@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 415     # Monotonic counter, incremented after each completed phase
-completed_tasks = 484
+total_cycles = 416     # Monotonic counter, incremented after each completed phase
+completed_tasks = 488
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "ti-golden.1"
-last_summary = "testing-infra: ti-harness (2/2), ti-cpu-ref (5/5) DONE. 25 nn tests pass. Next: golden file infra (ti-golden.1-4)."
+current_task_id = ""
+last_summary = "testing-infra epic COMPLETE: all 5 criteria met. 27 nn tests pass (incl golden regression). Next: autograd-v1 epic."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 102
@@ -1264,8 +1264,9 @@ depends = ["ve-nn-unit-tests.1"]
 [[epics]]
 id = "testing-infra"
 title = "Testing Infrastructure — golden-file tests, numerical accuracy harness, CPU references"
-status = "active"
+status = "completed"
 priority = "high"
+# ALL 5 CRITERIA MET — closed 2026-03-16
 depends_on = "verify-examples"
 success_criteria = [
     "Numerical comparison harness: assert_close(), max_abs_error(), mse() with configurable tolerance",
@@ -1292,7 +1293,7 @@ success_criteria = [
 id = "ti-golden"
 epic = "testing-infra"
 title = "Golden-file infrastructure"
-status = "pending"
+status = "completed"
 goal = "JSON golden files for ops and model outputs, committed to repo"
 success_criteria = [
     "Golden file JSON schema (input, output, params, tolerance)",
@@ -1334,7 +1335,7 @@ id = "ti-golden.1"
 theme = "ti-golden"
 title = "Design golden file JSON schema + implement load/save/compare functions"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["ti-harness.1"]
 
 [[tasks]]
@@ -1342,7 +1343,7 @@ id = "ti-golden.2"
 theme = "ti-golden"
 title = "Capture golden outputs from verified GPT-2 run (logits top-5 for 3 prompts)"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["ti-golden.1", "ve-run-gpt2.1"]
 
 [[tasks]]
@@ -1350,7 +1351,7 @@ id = "ti-golden.3"
 theme = "ti-golden"
 title = "Capture golden outputs from verified YOLO run (detections for test image)"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["ti-golden.1", "ve-run-yolo.1"]
 
 [[tasks]]
@@ -1358,7 +1359,7 @@ id = "ti-golden.4"
 theme = "ti-golden"
 title = "Golden regression tests: assert current output matches golden files"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["ti-golden.2", "ti-golden.3"]
 
 [[tasks]]

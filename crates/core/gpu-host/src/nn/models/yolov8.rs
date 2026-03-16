@@ -743,3 +743,90 @@ fn model_err(e: crate::model::ModelError) -> NnError {
         name: Box::leak(format!("weight loading: {e}").into_boxed_str()),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::nn::test_utils::{GoldenEntry, Tolerance};
+    use std::sync::Arc;
+
+    /// Capture or verify YOLO golden detections.
+    #[test]
+    fn test_yolo_golden_regression() {
+        let models = crate::model_dir(Some(env!("CARGO_MANIFEST_DIR")));
+        let weights_path = models.join("yolov8n.safetensors");
+        let image_path = models.join("bus.ppm");
+
+        if !weights_path.exists() || !image_path.exists() {
+            println!(
+                "SKIP: YOLO files not found ({}, {})",
+                weights_path.display(),
+                image_path.display()
+            );
+            return;
+        }
+
+        let dev = cudarc::driver::CudaDevice::new(0).expect("CUDA");
+        let registry = Arc::new(
+            crate::nn::KernelRegistry::new(Arc::clone(&dev), crate::ptx::KERNEL).expect("PTX"),
+        );
+        let weights = crate::model_yolo::load_yolo_weights(&weights_path).expect("weights");
+        let model = super::YoloV8Nano::from_weights(&weights, &registry).expect("model");
+
+        // Load and preprocess image (letterbox to 640×640, normalize to [0,1])
+        let img = crate::model_yolo::load_ppm(&image_path).expect("load ppm");
+        let (letterboxed, _scale, _pad_x, _pad_y) =
+            img.letterbox(crate::model_yolo::YOLO_INPUT_SIZE);
+        let input: Vec<f32> = letterboxed.data.iter().map(|&v| v as f32 / 255.0).collect();
+
+        let detections = model.detect(&input, 0.25, 0.45).expect("detect");
+        let n_det = detections.len();
+
+        // Golden: save/check detection count + top-5 class IDs
+        let golden_dir = crate::nn::test_utils::golden_dir();
+        std::fs::create_dir_all(&golden_dir).ok();
+        let golden_path = golden_dir.join("yolo_bus_detections.golden");
+
+        let top_n = n_det.min(5);
+        let mut golden_data: Vec<f32> = vec![n_det as f32];
+        for d in detections.iter().take(top_n) {
+            golden_data.push(d.class_id as f32);
+            golden_data.push(d.confidence);
+        }
+
+        if golden_path.exists() {
+            let golden = GoldenEntry::load(&golden_path).expect("load golden");
+            // Check detection count is within ±2
+            let expected_count = golden.data[0] as usize;
+            assert!(
+                (n_det as isize - expected_count as isize).unsigned_abs() <= 2,
+                "Detection count changed: expected ~{expected_count}, got {n_det}"
+            );
+            // Check top-5 class IDs match
+            for i in 0..top_n.min((golden.data.len() - 1) / 2) {
+                let expected_class = golden.data[1 + i * 2] as usize;
+                let actual_class = detections[i].class_id;
+                assert_eq!(
+                    actual_class, expected_class,
+                    "Detection {i} class changed: expected {expected_class}, got {actual_class}"
+                );
+            }
+            println!("REGRESSION OK: YOLO {n_det} detections match golden");
+        } else {
+            let entry = GoldenEntry {
+                label: format!("yolo_bus_{n_det}_detections"),
+                shape: vec![1 + top_n * 2],
+                data: golden_data,
+                tolerance: Tolerance::f32_loose(),
+            };
+            entry.save(&golden_path).expect("save golden");
+            println!("CAPTURED: YOLO {n_det} detections, top-5 classes:");
+            for (i, d) in detections.iter().take(top_n).enumerate() {
+                println!(
+                    "  [{i}] class={} conf={:.1}%",
+                    d.class_id,
+                    d.confidence * 100.0
+                );
+            }
+        }
+    }
+}

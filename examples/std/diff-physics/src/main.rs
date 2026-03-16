@@ -17,10 +17,176 @@ use cudarc::driver::LaunchAsync;
 
 fn main() {
     let bench = std::env::args().any(|a| a == "--bench");
-    if let Err(e) = if bench { benchmark() } else { optimize_demo() } {
+    let bench_persist = std::env::args().any(|a| a == "--bench-persistent");
+    let result = if bench_persist {
+        bench_persistent_kernel()
+    } else if bench {
+        benchmark()
+    } else {
+        optimize_demo()
+    };
+    if let Err(e) = result {
         eprintln!("Error: {e}");
         std::process::exit(1);
     }
+}
+
+// --- Persistent Kernel Benchmark ---
+
+fn bench_persistent_kernel() -> Result<(), Box<dyn std::error::Error>> {
+    use cudarc::driver::sys::lib as cuda_lib;
+
+    let dev = cudarc::driver::CudaDevice::new(0)?;
+    let registry = Arc::new(gpu_host::nn::KernelRegistry::new(
+        Arc::clone(&dev),
+        gpu_host::ptx::KERNEL,
+    )?);
+
+    println!("=== Persistent Kernel Dispatch Latency Benchmark ===\n");
+
+    // Allocate mapped work queue (16 slots × 64 bytes)
+    let n_slots = 16u32;
+    let queue_size = n_slots as usize * 64;
+    let (queue_host, queue_dev) = unsafe {
+        gpu_host::mapped_mem::alloc_mapped_bytes(&dev, queue_size)?
+    };
+
+    // Allocate mapped result counter
+    let (count_host, count_dev) = unsafe {
+        gpu_host::mapped_mem::alloc_mapped_bytes(&dev, 4)?
+    };
+
+    // Status buffer for kernel
+    let status_dev = dev.alloc_zeros::<u32>(1)?;
+
+    // Launch persistent kernel in background (async)
+    let func = registry.get("persistent_worker")?;
+    let config = cudarc::driver::LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (1, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    // Launch kernel (non-blocking) — kernel will poll for work
+    unsafe {
+        func.launch(
+            config,
+            (queue_dev, n_slots, count_dev, &status_dev),
+        )?;
+    }
+
+    // Give kernel time to start polling
+    std::thread::sleep(std::time::Duration::from_millis(10));
+
+    // --- Benchmark: push N work items and measure latency ---
+    let n_items = 200;
+    let t0 = Instant::now();
+
+    for i in 0..n_items {
+        let slot = (i % n_slots as usize) * 64;
+
+        // Wait for slot to be FREE
+        loop {
+            let status = unsafe {
+                std::sync::atomic::AtomicU32::from_ptr(queue_host.add(slot) as *mut u32)
+                    .load(std::sync::atomic::Ordering::Acquire)
+            };
+            if status == 0 || status == 2 {
+                break; // FREE or DONE
+            }
+            std::hint::spin_loop();
+        }
+
+        // Write work item: fn_id=1 (ADD), args=[i as f32, 1.0]
+        unsafe {
+            let item = queue_host.add(slot);
+            *(item.add(4) as *mut u32) = 1; // fn_id = ADD
+            *(item.add(8) as *mut u32) = 2; // n_args = 2
+            *(item.add(12) as *mut f32) = i as f32; // arg[0]
+            *(item.add(16) as *mut f32) = 1.0; // arg[1]
+
+            // Set READY (release-store)
+            std::sync::atomic::AtomicU32::from_ptr(item as *mut u32)
+                .store(1, std::sync::atomic::Ordering::Release);
+        }
+
+        // Wait for DONE
+        loop {
+            let status = unsafe {
+                std::sync::atomic::AtomicU32::from_ptr(queue_host.add(slot) as *mut u32)
+                    .load(std::sync::atomic::Ordering::Acquire)
+            };
+            if status == 2 {
+                break; // DONE
+            }
+            std::hint::spin_loop();
+        }
+
+        // Read result
+        let result = unsafe { *(queue_host.add(slot + 44) as *const f32) };
+        let expected = i as f32 + 1.0;
+        if (result - expected).abs() > 0.001 && i < 5 {
+            println!("  Item {i}: result={result}, expected={expected}");
+        }
+
+        // Reset to FREE
+        unsafe {
+            std::sync::atomic::AtomicU32::from_ptr(queue_host.add(slot) as *mut u32)
+                .store(0, std::sync::atomic::Ordering::Release);
+        }
+    }
+
+    let persistent_ms = t0.elapsed().as_secs_f64() * 1000.0;
+    let persistent_us = persistent_ms * 1000.0 / n_items as f64;
+
+    // Send SHUTDOWN
+    unsafe {
+        std::sync::atomic::AtomicU32::from_ptr(queue_host as *mut u32)
+            .store(3, std::sync::atomic::Ordering::Release);
+    }
+    dev.synchronize()?;
+
+    let items_processed = unsafe { *(count_host as *const u32) };
+
+    println!("Persistent kernel: {n_items} items in {persistent_ms:.1}ms ({persistent_us:.1}µs/item)");
+    println!("Items processed by kernel: {items_processed}");
+
+    // --- Baseline: kernel re-launch for each item ---
+    // Measure launch + sync overhead with euler_step kernel (simplest available)
+    let t1 = Instant::now();
+    let dummy_pos = dev.alloc_zeros::<f32>(2)?;
+    let dummy_vel = dev.alloc_zeros::<f32>(2)?;
+    let dummy_f = dev.alloc_zeros::<f32>(2)?;
+    let dummy_m = dev.htod_copy(vec![1.0f32])?;
+    for _ in 0..n_items {
+        let func_euler = registry.get("euler_step")?;
+        let cfg = cudarc::driver::LaunchConfig {
+            grid_dim: (1, 1, 1),
+            block_dim: (1, 1, 1),
+            shared_mem_bytes: 0,
+        };
+        let s = dev.alloc_zeros::<u32>(1)?;
+        unsafe {
+            func_euler.launch(cfg, (&dummy_pos, &dummy_vel, &dummy_f, &dummy_m, 1u32, 0.01f32, 0.0f32, &s))?;
+        }
+        dev.synchronize()?;
+    }
+    let relaunch_ms = t1.elapsed().as_secs_f64() * 1000.0;
+    let relaunch_us = relaunch_ms * 1000.0 / n_items as f64;
+
+    println!("Kernel re-launch: {n_items} items in {relaunch_ms:.1}ms ({relaunch_us:.1}µs/item)");
+    println!(
+        "\nSpeedup: {:.1}x ({persistent_us:.1}µs vs {relaunch_us:.1}µs per dispatch)",
+        relaunch_us / persistent_us
+    );
+
+    // Cleanup
+    unsafe {
+        gpu_host::mapped_mem::free_mapped_bytes(queue_host)?;
+        gpu_host::mapped_mem::free_mapped_bytes(count_host)?;
+    }
+
+    Ok(())
 }
 
 // --- Constants ---

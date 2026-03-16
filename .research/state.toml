@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 450     # Monotonic counter, incremented after each completed phase
-completed_tasks = 553
+total_cycles = 454     # Monotonic counter, incremented after each completed phase
+completed_tasks = 556
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.execute"
-current_task_id = "tq-lora.1"
-last_summary = "gl-schema complete + GPT-2 regression OK. ResNet-18 pretrained weights exported (ImageNet). gl-resnet needs architecture adaptation. Starting tq-lora.1 (real LoRA training)."
+current_step = "do.select"
+current_task_id = ""
+last_summary = "tq-lora.1 DONE: real LoRA A/B, ppl 128→16.3, acc 41.9%. MNIST CNN 2.62x GPU. Generic loader + GPT-2 migration. Next: tq-resnet.1 (mini-ResNet full conv training), gl-resnet.1 (pretrained weights)."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 106
@@ -1460,7 +1460,8 @@ id = "tq-lora.1"
 theme = "tq-lora"
 title = "Rewrite gpt2-lora example to use LoraLinear + autograd tape"
 kind = "experiment"
-status = "pending"
+status = "done"
+# Real LoRA A/B matrices, loss 4.85→2.79, ppl 128→16.3, acc 41.9%
 depends = []
 
 [[themes]]

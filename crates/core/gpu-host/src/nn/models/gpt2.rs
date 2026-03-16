@@ -434,6 +434,11 @@ impl Gpt2Model {
         self.ln_f.forward(&hidden)
     }
 
+    /// Access the embedding table (wte, wpe) for tasks like vector search.
+    pub fn embedding_table(&self) -> (&GpuTensor, &GpuTensor) {
+        (&self.embedding.wte, &self.embedding.wpe)
+    }
+
     /// Diagnostic forward pass: prints intermediate values for debugging.
     ///
     /// Same as [`forward`] but dumps first/last position values after each stage.

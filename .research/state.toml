@@ -4,14 +4,14 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 458     # Monotonic counter, incremented after each completed phase
-completed_tasks = 560
+total_cycles = 460     # Monotonic counter, incremented after each completed phase
+completed_tasks = 563
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "rag-embed.1"
+current_task_id = "rag-embed.2"
 last_summary = "bs107: GPU-Autonomous RAG chosen as next epic. Builds on async model + GPT-2. Also recommended: autograd-v4 (fix backward correctness), kernel fusion, persistent kernels."
 
 # Sequence counters for unique file naming across iterations
@@ -528,7 +528,8 @@ id = "rag-embed.1"
 theme = "rag-embed"
 title = "Investigation: how to embed text chunks for GPU vector search"
 kind = "investigation"
-status = "active"
+status = "done"
+# Use wte averaging for fast embeddings, matmul for cosine similarity
 depends = []
 
 [[tasks]]
@@ -536,7 +537,8 @@ id = "rag-embed.2"
 theme = "rag-embed"
 title = "GPU cosine similarity kernel + top-K selection"
 kind = "experiment"
-status = "pending"
+status = "done"
+# wte averaging + matmul cosine sim + CPU top-K. 0.2ms search over 30 chunks.
 depends = ["rag-embed.1"]
 
 [[tasks]]
@@ -552,7 +554,8 @@ id = "rag-pipeline.1"
 theme = "rag-pipeline"
 title = "Investigation: how to orchestrate RAG in a single kernel with hostcall"
 kind = "investigation"
-status = "active"
+status = "done"
+# Sync hostcall: query in → GPU embed/search/generate → result out. 2 hostcall round-trips.
 depends = []
 
 [[tasks]]

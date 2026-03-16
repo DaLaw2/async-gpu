@@ -246,3 +246,12 @@ Record important technical decisions here as they emerge from research.
 - **Rationale**: Separating compute streams from hostcall kernels preserves the device-idle safety invariant without restricting compute overlap. cudarc already provides the full stream API (`launch_on_stream`, `wait_for`, `fork_default_stream`). Forward-compatible with per-stream hostcall buffers if needed later.
 - **Alternatives**: (a) Per-stream hostcall buffers — correct but complex (multiple listener threads, buffer routing). Deferred. (b) Single stream for everything — simple but loses overlap benefit. (c) Full device sync after every launch — defeats purpose of streams.
 - **Sources**: cuda-streams.1-c342, cuda-streams.2-c345
+
+### ADR-21: Autograd tape design — TensorId pool + append-only tape + enum dispatch
+- **Date**: 2026-03-16
+- **Status**: accepted
+- **Context**: Need backward pass for training. Must work with existing GpuTensor (CudaSlice<f32>) without changing the fundamental tensor type.
+- **Decision**: (1) TensorId(u32) for graph node identity — avoids reference/borrow issues. (2) TensorPool holds TensorId → GpuTensor mapping. (3) Append-only Tape records TapeEntry per op. (4) OpKind enum with compile-time known ops — no dyn dispatch. (5) backward() traverses tape in reverse (reverse topo order). (6) Saved tensors for backward stored by ID.
+- **Rationale**: TensorId pool is the standard autograd approach (PyTorch internals use similar). Append-only tape is naturally topologically sorted. Enum dispatch avoids Box<dyn> overhead and is easy to extend. Recording toggle enables zero-overhead inference.
+- **Alternatives**: (a) Graph-based (define-by-run) like PyTorch — more flexible but complex. Tape is simpler for v1. (b) Trait-based backward with dyn dispatch — more extensible but slower. (c) Source-to-source transformation — too complex for v1.
+- **Sources**: ag-tape.1-c416

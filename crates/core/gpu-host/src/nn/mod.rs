@@ -27,6 +27,7 @@
 //! gpu-host = { path = "...", features = ["nn"] }
 //! ```
 
+pub mod autograd;
 pub mod error;
 pub mod layers;
 pub mod models;

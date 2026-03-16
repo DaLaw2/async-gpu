@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 448     # Monotonic counter, incremented after each completed phase
-completed_tasks = 551
+total_cycles = 450     # Monotonic counter, incremented after each completed phase
+completed_tasks = 553
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "gl-schema.3"
-last_summary = "gl-schema.2 DONE: generic SafeTensors loader with ModelDef schema, GPT-2 weight map. MNIST CNN 2.62x GPU speedup. Next: gl-schema.3 (migrate GPT-2 to generic loader)."
+current_task_id = "tq-lora.1"
+last_summary = "gl-schema complete + GPT-2 regression OK. ResNet-18 pretrained weights exported (ImageNet). gl-resnet needs architecture adaptation. Starting tq-lora.1 (real LoRA training)."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 106
@@ -1378,7 +1378,7 @@ depends = ["cb-batched.1"]
 id = "gl-schema"
 epic = "generic-loader"
 title = "ModelDef schema + generic SafeTensors loading"
-status = "active"
+status = "completed"
 goal = "Declarative weight mapping that works across model architectures"
 success_criteria = [
     "ModelDef struct: maps safetensors key patterns to nn layer constructors",
@@ -1407,7 +1407,8 @@ id = "gl-schema.3"
 theme = "gl-schema"
 title = "Migrate GPT-2 to generic loader, verify regression"
 kind = "experiment"
-status = "pending"
+status = "done"
+# from_generic_weights produces bit-identical logits (max_err=0)
 depends = ["gl-schema.2"]
 
 [[themes]]
@@ -1437,3 +1438,47 @@ title = "Load pretrained ResNet-18 via generic loader, verify >90% accuracy"
 kind = "experiment"
 status = "pending"
 depends = ["gl-resnet.1"]
+
+# ============================================================
+# training-quality themes/tasks
+# ============================================================
+
+[[themes]]
+id = "tq-lora"
+epic = "training-quality"
+title = "Real GPT-2 LoRA training with autograd"
+status = "active"
+goal = "Replace host-side bias hack with actual LoraLinear + autograd training"
+success_criteria = [
+    "GPT-2 LoRA example uses LoraLinear layer (not host-side bias)",
+    "LoRA A/B trained through autograd tape",
+    "Loss converges on WikiText-2",
+]
+
+[[tasks]]
+id = "tq-lora.1"
+theme = "tq-lora"
+title = "Rewrite gpt2-lora example to use LoraLinear + autograd tape"
+kind = "experiment"
+status = "pending"
+depends = []
+
+[[themes]]
+id = "tq-resnet"
+epic = "training-quality"
+title = "Mini-ResNet full conv training"
+status = "active"
+goal = "Train all conv layers with GPU backward, show meaningful accuracy"
+success_criteria = [
+    "Mini-ResNet trains ALL conv layers using GPU conv2d_backward",
+    "Test accuracy > 30% on CIFAR-10 subset",
+    "Loss monotonically decreases",
+]
+
+[[tasks]]
+id = "tq-resnet.1"
+theme = "tq-resnet"
+title = "Mini-ResNet full conv training with GPU backward on CIFAR-10"
+kind = "experiment"
+status = "pending"
+depends = []

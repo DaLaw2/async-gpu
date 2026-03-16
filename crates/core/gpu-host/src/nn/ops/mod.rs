@@ -16,7 +16,10 @@ pub mod reshape;
 pub mod upsample;
 
 pub use activation::{gelu, relu, sigmoid, silu};
-pub use attention::{scaled_dot_product_attention, scaled_dot_product_attention_kv};
+pub use attention::{
+    concat_heads, multi_head_flash_attention, scaled_dot_product_attention,
+    scaled_dot_product_attention_kv, split_qkv,
+};
 pub use conv::conv2d;
 pub use gemm::matmul;
 pub use norm::{batch_norm, batch_norm_silu, layer_norm};

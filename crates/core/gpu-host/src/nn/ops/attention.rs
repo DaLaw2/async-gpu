@@ -100,6 +100,142 @@ pub fn scaled_dot_product_attention(
     Ok(output)
 }
 
+/// Split QKV from `[seq, 3*d_model]` into Q, K, V as `[n_heads, seq, d_head]` on GPU.
+///
+/// Uses the `split_qkv` kernel — zero host transfers.
+pub fn split_qkv(
+    qkv: &GpuTensor,
+    seq_len: usize,
+    n_heads: usize,
+    d_head: usize,
+    registry: &Arc<KernelRegistry>,
+) -> Result<(GpuTensor, GpuTensor, GpuTensor)> {
+    let dev = registry.device();
+    let head_total = n_heads * seq_len * d_head;
+
+    let mut q = GpuTensor::zeros(&[n_heads * seq_len, d_head], dev)?;
+    let mut k = GpuTensor::zeros(&[n_heads * seq_len, d_head], dev)?;
+    let mut v = GpuTensor::zeros(&[n_heads * seq_len, d_head], dev)?;
+
+    let func = registry.get("split_qkv")?;
+    let config = cudarc::driver::LaunchConfig {
+        grid_dim: ((head_total as u32).div_ceil(256), 1, 1),
+        block_dim: (256, 1, 1),
+        shared_mem_bytes: 0,
+    };
+    unsafe {
+        func.launch(
+            config,
+            (
+                qkv.data(),
+                q.data_mut(),
+                k.data_mut(),
+                v.data_mut(),
+                seq_len as u32,
+                n_heads as u32,
+                d_head as u32,
+            ),
+        )
+        .map_err(NnError::Cuda)?;
+    }
+    dev.synchronize().map_err(NnError::Cuda)?;
+
+    Ok((q, k, v))
+}
+
+/// Multi-head flash attention — all heads in one kernel launch.
+///
+/// Q, K, V: `[n_heads * seq_len, d_head]` (head-major layout from split_qkv).
+/// Output: `[n_heads * seq_len, d_head]`.
+///
+/// Uses `flash_attention` with grid=(n_heads, n_q_tiles, 1).
+pub fn multi_head_flash_attention(
+    q: &GpuTensor,
+    k: &GpuTensor,
+    v: &GpuTensor,
+    seq_len: usize,
+    n_heads: usize,
+    d_head: usize,
+    causal: bool,
+    registry: &Arc<KernelRegistry>,
+) -> Result<GpuTensor> {
+    let dev = registry.device();
+    let total = n_heads * seq_len * d_head;
+    let mut output = GpuTensor::zeros(&[n_heads * seq_len, d_head], dev)?;
+
+    let status_dev = dev.htod_sync_copy(&[0u32]).map_err(NnError::Cuda)?;
+
+    let func = registry.get("flash_attention")?;
+    let n_q_tiles = seq_len.div_ceil(32) as u32;
+    let config = cudarc::driver::LaunchConfig {
+        grid_dim: (n_heads as u32, n_q_tiles, 1),
+        block_dim: (32, 1, 1),
+        shared_mem_bytes: 2 * 32 * d_head as u32 * 4,
+    };
+    let causal_mask: u32 = if causal { 1 } else { 0 };
+    unsafe {
+        func.launch(
+            config,
+            (
+                q.data(),
+                k.data(),
+                v.data(),
+                output.data_mut(),
+                seq_len as u32,
+                d_head as u32,
+                causal_mask,
+                &status_dev,
+            ),
+        )
+        .map_err(NnError::Cuda)?;
+    }
+    dev.synchronize().map_err(NnError::Cuda)?;
+
+    // Reshape output metadata (data unchanged)
+    let _ = total; // suppress unused warning
+    Ok(output)
+}
+
+/// Concat attention heads from `[n_heads, seq, d_head]` → `[seq, n_heads * d_head]` on GPU.
+///
+/// Uses the `concat_heads` kernel — zero host transfers.
+pub fn concat_heads(
+    attn_out: &GpuTensor,
+    seq_len: usize,
+    n_heads: usize,
+    d_head: usize,
+    registry: &Arc<KernelRegistry>,
+) -> Result<GpuTensor> {
+    let dev = registry.device();
+    let d_model = n_heads * d_head;
+    let total = seq_len * d_model;
+
+    let mut output = GpuTensor::zeros(&[seq_len, d_model], dev)?;
+
+    let func = registry.get("concat_heads")?;
+    let config = cudarc::driver::LaunchConfig {
+        grid_dim: ((total as u32).div_ceil(256), 1, 1),
+        block_dim: (256, 1, 1),
+        shared_mem_bytes: 0,
+    };
+    unsafe {
+        func.launch(
+            config,
+            (
+                attn_out.data(),
+                output.data_mut(),
+                seq_len as u32,
+                n_heads as u32,
+                d_head as u32,
+            ),
+        )
+        .map_err(NnError::Cuda)?;
+    }
+    dev.synchronize().map_err(NnError::Cuda)?;
+
+    Ok(output)
+}
+
 /// Scaled dot-product attention with separate KV cache lengths.
 ///
 /// Q: `[q_len, d_head]`, K: `[kv_len, d_head]`, V: `[kv_len, d_head]`

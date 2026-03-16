@@ -63,62 +63,37 @@ impl MultiHeadAttention {
     /// Forward pass with causal attention.
     ///
     /// Input: `[seq_len, n_embd]` → output: `[seq_len, n_embd]`.
+    ///
+    /// Uses GPU-native kernels (split_qkv, flash_attention, concat_heads) —
+    /// zero host transfers between QKV projection and output projection.
     pub fn forward_causal(&self, input: &GpuTensor) -> Result<GpuTensor> {
         let seq_len = input.shape()[0];
 
         // 1. QKV projection: [seq, n_embd] → [seq, 3*n_embd]
         let qkv = self.qkv_proj.forward(input)?;
 
-        // 2. Split into Q, K, V and reshape for multi-head
-        let qkv_host = qkv.to_host()?;
-        let n_embd = self.n_heads * self.d_head;
-        let dev = self.registry.device();
+        // 2. Split QKV on GPU: [seq, 3*n_embd] → Q,K,V each [n_heads, seq, d_head]
+        let (q, k, v) =
+            ops::split_qkv(&qkv, seq_len, self.n_heads, self.d_head, &self.registry)?;
 
-        // For each head, run attention separately
-        let mut head_outputs = vec![0.0f32; seq_len * n_embd];
+        // 3. Flash attention — all heads in one launch
+        //    grid=(n_heads, n_q_tiles, 1), zero host round-trips
+        let attn_out = ops::multi_head_flash_attention(
+            &q,
+            &k,
+            &v,
+            seq_len,
+            self.n_heads,
+            self.d_head,
+            true, // causal
+            &self.registry,
+        )?;
 
-        for h in 0..self.n_heads {
-            // Extract Q, K, V for this head
-            let mut q_head = vec![0.0f32; seq_len * self.d_head];
-            let mut k_head = vec![0.0f32; seq_len * self.d_head];
-            let mut v_head = vec![0.0f32; seq_len * self.d_head];
+        // 4. Concat heads on GPU: [n_heads, seq, d_head] → [seq, n_embd]
+        let concat =
+            ops::concat_heads(&attn_out, seq_len, self.n_heads, self.d_head, &self.registry)?;
 
-            for s in 0..seq_len {
-                for d in 0..self.d_head {
-                    let qkv_idx = s * (3 * n_embd);
-                    q_head[s * self.d_head + d] = qkv_host[qkv_idx + h * self.d_head + d];
-                    k_head[s * self.d_head + d] = qkv_host[qkv_idx + n_embd + h * self.d_head + d];
-                    v_head[s * self.d_head + d] =
-                        qkv_host[qkv_idx + 2 * n_embd + h * self.d_head + d];
-                }
-            }
-
-            let q_tensor = GpuTensor::from_host(&q_head, &[seq_len, self.d_head], dev)?;
-            let k_tensor = GpuTensor::from_host(&k_head, &[seq_len, self.d_head], dev)?;
-            let v_tensor = GpuTensor::from_host(&v_head, &[seq_len, self.d_head], dev)?;
-
-            // 3. Attention per head
-            let attn_out = ops::scaled_dot_product_attention(
-                &q_tensor,
-                &k_tensor,
-                &v_tensor,
-                true, // causal
-                &self.registry,
-            )?;
-
-            // Collect head output
-            let head_host = attn_out.to_host()?;
-            for s in 0..seq_len {
-                for d in 0..self.d_head {
-                    head_outputs[s * n_embd + h * self.d_head + d] = head_host[s * self.d_head + d];
-                }
-            }
-        }
-
-        // 4. Concat heads (already done by interleaving above)
-        let concat = GpuTensor::from_host(&head_outputs, &[seq_len, n_embd], dev)?;
-
-        // 5. Output projection
+        // 5. Output projection: [seq, n_embd] → [seq, n_embd]
         self.out_proj.forward(&concat)
     }
 

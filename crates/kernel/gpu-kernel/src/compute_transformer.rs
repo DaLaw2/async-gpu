@@ -1324,3 +1324,98 @@ pub unsafe extern "ptx-kernel" fn bias_add_backward(
         );
     }
 }
+
+// ============================================================
+// Matrix transpose kernel — for matmul B column-major conversion
+// ============================================================
+
+/// Transpose a row-major matrix to column-major (or vice versa).
+///
+/// input [rows, cols] row-major → output [cols, rows] row-major
+/// (equivalently: output[col * rows + row] = input[row * cols + col])
+///
+/// grid_dim = (ceil(total/256), 1, 1), block_dim = (256, 1, 1)
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn matrix_transpose(
+    input: *const f32,
+    output: *mut f32,
+    rows: u32,
+    cols: u32,
+    status: *mut u32,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let block_x = nvptx::_block_idx_x() as u32;
+        let global_id = block_x * 256 + tid;
+        let total = rows * cols;
+
+        if global_id < total {
+            let row = global_id / cols;
+            let col = global_id % cols;
+            let val = *input.add(global_id as usize);
+            *output.add((col * rows + row) as usize) = val;
+        }
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (input, output, rows, cols);
+    }
+
+    if tid == 0 {
+        let _prev: u32;
+        core::arch::asm!(
+            "atom.global.add.u32 {prev}, [{addr}], 1;",
+            prev = out(reg32) _prev,
+            addr = in(reg64) status,
+        );
+    }
+}
+
+/// Zero-pad and copy: copy [rows, cols] into [rows_padded, cols_padded] with zeros.
+///
+/// grid_dim = (ceil(rows_padded * cols_padded / 256), 1, 1)
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn matrix_pad(
+    input: *const f32,
+    output: *mut f32,
+    rows: u32,
+    cols: u32,
+    rows_padded: u32,
+    cols_padded: u32,
+    status: *mut u32,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let block_x = nvptx::_block_idx_x() as u32;
+        let global_id = block_x * 256 + tid;
+        let total_padded = rows_padded * cols_padded;
+
+        if global_id < total_padded {
+            let r = global_id / cols_padded;
+            let c = global_id % cols_padded;
+            let val = if r < rows && c < cols {
+                *input.add((r * cols + c) as usize)
+            } else {
+                0.0f32
+            };
+            *output.add(global_id as usize) = val;
+        }
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (input, output, rows, cols, rows_padded, cols_padded);
+    }
+
+    if tid == 0 {
+        let _prev: u32;
+        core::arch::asm!(
+            "atom.global.add.u32 {prev}, [{addr}], 1;",
+            prev = out(reg32) _prev,
+            addr = in(reg64) status,
+        );
+    }
+}

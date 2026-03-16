@@ -1,8 +1,7 @@
 //! Matrix multiplication via `gemm_f32` kernel.
 //!
 //! The kernel expects A=[M,K] row-major, B=[K,N] column-major, output D=[M,N] row-major.
-//! M and K must be padded to multiples of 32 and 16 respectively.
-//! N must be padded to a multiple of 16.
+//! Padding and B-transpose are done on GPU via `matrix_pad` and `matrix_transpose` kernels.
 
 use std::sync::Arc;
 
@@ -16,8 +15,7 @@ use crate::nn::tensor::GpuTensor;
 ///
 /// A: `[M, K]`, B: `[K, N]` → output: `[M, N]`.
 ///
-/// Handles padding to tile boundaries internally (M→32, K→16, N→16).
-/// B is transposed to column-major internally.
+/// Padding and B column-major transpose happen on GPU (no host round-trip).
 pub fn matmul(a: &GpuTensor, b: &GpuTensor, registry: &Arc<KernelRegistry>) -> Result<GpuTensor> {
     if a.ndim() != 2 || b.ndim() != 2 {
         return Err(NnError::ShapeMismatch {
@@ -36,71 +34,107 @@ pub fn matmul(a: &GpuTensor, b: &GpuTensor, registry: &Arc<KernelRegistry>) -> R
         });
     }
 
-    // Pad dimensions to tile boundaries
     let m_pad = m.div_ceil(32) * 32;
     let k_pad = k.div_ceil(16) * 16;
     let n_pad = n.div_ceil(16) * 16;
 
     let dev = registry.device();
+    let status = dev.htod_sync_copy(&[0u32])?;
 
-    // Pad A on GPU: alloc [m_pad, k_pad] zeros, copy A rows via host
-    // Optimization: if already aligned, skip padding
-    let a_dev = if m == m_pad && k == k_pad {
-        // No padding needed — use data directly (but need contiguous copy)
-        let a_host = a.to_host()?;
-        dev.htod_sync_copy(&a_host)?
+    // === Pad A on GPU: [m, k] → [m_pad, k_pad] ===
+    let a_padded = if m == m_pad && k == k_pad {
+        // No padding needed — clone the device data directly
+        let mut buf = dev.alloc_zeros::<f32>(m * k)?;
+        dev.dtod_copy(a.data(), &mut buf)?;
+        buf
     } else {
-        let a_host = a.to_host()?;
-        let mut a_padded = vec![0.0f32; m_pad * k_pad];
-        for r in 0..m {
-            a_padded[r * k_pad..r * k_pad + k].copy_from_slice(&a_host[r * k..r * k + k]);
+        let mut buf = dev.alloc_zeros::<f32>(m_pad * k_pad)?;
+        let f_pad = registry.get("matrix_pad")?;
+        let total = (m_pad * k_pad) as u32;
+        let cfg = KernelRegistry::config_1d(total);
+        unsafe {
+            f_pad.launch(
+                cfg,
+                (
+                    a.data(),
+                    &mut buf,
+                    m as u32,
+                    k as u32,
+                    m_pad as u32,
+                    k_pad as u32,
+                    &status,
+                ),
+            )?;
         }
-        dev.htod_sync_copy(&a_padded)?
+        dev.synchronize().map_err(NnError::Cuda)?;
+        buf
     };
 
-    // B: [K, N] row-major → column-major [K_pad, N_pad]
-    // b_cm[col * K_pad + row] = b[row * N + col]
-    let b_dev = {
-        let b_host = b.to_host()?;
-        let mut b_cm = vec![0.0f32; k_pad * n_pad];
-        for r in 0..k {
-            for c in 0..n {
-                b_cm[c * k_pad + r] = b_host[r * n + c];
+    // === Transpose B on GPU: [k, n] row-major → [n, k] row-major, then pad to [n_pad, k_pad] ===
+    // The GEMM kernel expects B in column-major [K_pad, N_pad], which is the same memory
+    // layout as row-major [N_pad, K_pad]. So we need: transpose B → [n, k], then pad → [n_pad, k_pad].
+    let b_col_major = {
+        // Step 1: Transpose B[k, n] → B_T[n, k] on GPU
+        let mut b_t = dev.alloc_zeros::<f32>(n * k)?;
+        let f_transpose = registry.get("matrix_transpose")?;
+        let total_t = (k * n) as u32;
+        let cfg_t = KernelRegistry::config_1d(total_t);
+        unsafe {
+            f_transpose.launch(cfg_t, (b.data(), &mut b_t, k as u32, n as u32, &status))?;
+        }
+        dev.synchronize().map_err(NnError::Cuda)?;
+
+        // Step 2: Pad B_T[n, k] → [n_pad, k_pad]
+        if n == n_pad && k == k_pad {
+            b_t
+        } else {
+            let mut buf = dev.alloc_zeros::<f32>(n_pad * k_pad)?;
+            let f_pad = registry.get("matrix_pad")?;
+            let total_p = (n_pad * k_pad) as u32;
+            let cfg_p = KernelRegistry::config_1d(total_p);
+            unsafe {
+                f_pad.launch(
+                    cfg_p,
+                    (
+                        &b_t,
+                        &mut buf,
+                        n as u32,
+                        k as u32,
+                        n_pad as u32,
+                        k_pad as u32,
+                        &status,
+                    ),
+                )?;
             }
+            dev.synchronize().map_err(NnError::Cuda)?;
+            buf
         }
-        dev.htod_sync_copy(&b_cm)?
     };
 
-    // Allocate output [m_pad, n_pad]
+    // === GEMM: D[m_pad, n_pad] = A_pad[m_pad, k_pad] × B_cm[k_pad, n_pad] ===
     let mut d_dev = dev.alloc_zeros::<f32>(m_pad * n_pad)?;
-
-    // Allocate status
-    let status_dev = dev.htod_sync_copy(&[0u32])?;
-
-    // Launch gemm_f32
-    let func = registry.get("gemm_f32")?;
-    let config = cudarc::driver::LaunchConfig {
+    let f_gemm = registry.get("gemm_f32")?;
+    let gemm_cfg = cudarc::driver::LaunchConfig {
         grid_dim: ((m_pad as u32) / 32, (n_pad as u32) / 16, 1),
         block_dim: (128, 1, 1),
         shared_mem_bytes: 3072,
     };
     unsafe {
-        func.launch(
-            config,
+        f_gemm.launch(
+            gemm_cfg,
             (
-                &a_dev,
-                &b_dev,
+                &a_padded,
+                &b_col_major,
                 &mut d_dev,
                 k_pad as u32,
                 n_pad as u32,
-                &status_dev,
+                &status,
             ),
-        )
-        .map_err(NnError::Cuda)?;
+        )?;
     }
     dev.synchronize().map_err(NnError::Cuda)?;
 
-    // Extract unpadded result [M, N]
+    // === Extract unpadded [m, n] from [m_pad, n_pad] on host ===
     let d_host = dev.dtoh_sync_copy(&d_dev)?;
     let mut result = vec![0.0f32; m * n];
     for r in 0..m {
@@ -109,7 +143,7 @@ pub fn matmul(a: &GpuTensor, b: &GpuTensor, registry: &Arc<KernelRegistry>) -> R
 
     let mut output = GpuTensor::from_host(&result, &[m, n], dev)?;
 
-    // Record on autograd tape if inputs require gradients
+    // Record on autograd tape
     if a.requires_grad() || b.requires_grad() {
         if let Some(out_id) = crate::nn::autograd::alloc_tensor_id() {
             output.set_tensor_id(out_id);

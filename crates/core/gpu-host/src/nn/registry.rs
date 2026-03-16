@@ -58,6 +58,9 @@ const ML_KERNELS: &[&str] = &[
     // GEMM (compute_gemm.rs)
     "gemm_f32",
     "full_gemm_splitk",
+    // Matrix utilities
+    "matrix_transpose",
+    "matrix_pad",
     // Conv backward
     "col2im",
     // Backward kernels (autograd)

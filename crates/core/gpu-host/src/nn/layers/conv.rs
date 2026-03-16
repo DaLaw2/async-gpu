@@ -198,7 +198,17 @@ mod tests {
         let bias: Vec<f32> = (0..c_out).map(|i| i as f32 * 0.1 - 0.4).collect();
 
         let expected = cpu_conv2d(
-            &input, &weight, Some(&bias), c_in, h, w, c_out, kh, kw, stride, padding,
+            &input,
+            &weight,
+            Some(&bias),
+            c_in,
+            h,
+            w,
+            c_out,
+            kh,
+            kw,
+            stride,
+            padding,
         );
 
         let layer = Conv2d::new(
@@ -268,14 +278,17 @@ mod tests {
         let mut expected = vec![0.0f32; batch * c_out * h_out * w_out];
         for b in 0..batch {
             let sample = &input[b * sample_size..(b + 1) * sample_size];
-            let ref_out = cpu_conv2d(sample, &weight, None, c_in, h, w, c_out, kh, kw, stride, padding);
+            let ref_out = cpu_conv2d(
+                sample, &weight, None, c_in, h, w, c_out, kh, kw, stride, padding,
+            );
             let out_size = c_out * h_out * w_out;
             expected[b * out_size..(b + 1) * out_size].copy_from_slice(&ref_out);
         }
 
         let weight_t = GpuTensor::from_host(&weight, &[c_out, c_in, kh, kw], dev).unwrap();
         let input_t = GpuTensor::from_host(&input, &[batch, c_in, h, w], dev).unwrap();
-        let output_t = crate::nn::ops::conv2d(&input_t, &weight_t, None, stride, padding, &registry).unwrap();
+        let output_t =
+            crate::nn::ops::conv2d(&input_t, &weight_t, None, stride, padding, &registry).unwrap();
         let gpu_result = output_t.to_host().unwrap();
 
         assert_eq!(output_t.shape(), &[batch, c_out, h_out, w_out]);

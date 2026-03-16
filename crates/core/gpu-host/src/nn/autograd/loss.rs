@@ -52,8 +52,10 @@ pub fn cross_entropy_loss(
                 inputs: vec![in_id],
                 output: out_id,
                 saved: vec![in_id],
-                meta: super::OpMeta::Loss {
-                    reduction: super::Reduction::Mean,
+                meta: super::OpMeta::CrossEntropyTargets {
+                    targets: targets.to_vec(),
+                    batch,
+                    num_classes,
                 },
             });
         }

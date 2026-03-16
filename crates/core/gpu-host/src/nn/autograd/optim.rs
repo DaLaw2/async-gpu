@@ -37,34 +37,35 @@ impl Sgd {
     ) -> Result<()> {
         for (id, param) in params.iter_mut() {
             if let Some(grad) = grads.get(id) {
-                let grad_host = grad.to_host()?;
-                let mut param_host = param.to_host()?;
-
                 if self.momentum > 0.0 {
-                    // v = momentum * v + grad
-                    // param -= lr * v
+                    // Momentum SGD: still CPU for now (needs momentum buffer on GPU)
+                    let grad_host = grad.to_host()?;
+                    let mut param_host = param.to_host()?;
                     let vel = self.velocity.entry(*id).or_insert_with(|| {
                         let zeros = vec![0.0f32; param_host.len()];
                         GpuTensor::from_host(&zeros, param.shape(), registry.device()).unwrap()
                     });
                     let mut vel_host = vel.to_host()?;
-
                     for i in 0..param_host.len() {
                         vel_host[i] = self.momentum * vel_host[i] + grad_host[i];
                         param_host[i] -= self.lr * vel_host[i];
                     }
-
-                    // Re-upload velocity
                     *vel = GpuTensor::from_host(&vel_host, vel.shape(), registry.device())?;
+                    *param = GpuTensor::from_host(&param_host, param.shape(), registry.device())?;
                 } else {
-                    // Simple SGD: param -= lr * grad
-                    for i in 0..param_host.len() {
-                        param_host[i] -= self.lr * grad_host[i];
+                    // GPU-side SGD: param -= lr * grad (no host roundtrip!)
+                    let n = param.numel() as u32;
+                    let func = registry.get("sgd_step")?;
+                    let config = crate::nn::registry::KernelRegistry::config_1d(n);
+                    let status = registry.device().htod_sync_copy(&[0u32])?;
+                    unsafe {
+                        cudarc::driver::LaunchAsync::launch(
+                            func,
+                            config,
+                            (param.data_mut(), grad.data(), self.lr, n, &status),
+                        )?;
                     }
                 }
-
-                // Re-upload updated parameters
-                *param = GpuTensor::from_host(&param_host, param.shape(), registry.device())?;
             }
         }
         Ok(())

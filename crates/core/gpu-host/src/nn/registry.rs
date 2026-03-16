@@ -58,6 +58,7 @@ const ML_KERNELS: &[&str] = &[
     // GEMM (compute_gemm.rs)
     "gemm_f32",
     "full_gemm_splitk",
+    "sgd_step",
     "im2col_offset",
     // Matrix utilities
     "matrix_transpose",

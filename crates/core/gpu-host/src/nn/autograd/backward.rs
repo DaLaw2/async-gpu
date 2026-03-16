@@ -190,8 +190,42 @@ pub fn backward(
                 let d_out_clone = d_out.clone_tensor()?;
                 accumulate_grad(&mut grads, entry.inputs[0], d_out_clone, registry)?;
             }
-            OpKind::CrossEntropy | OpKind::Embedding => {
-                // TODO: implement when needed
+            OpKind::CrossEntropy => {
+                // d_logits = softmax(logits) - one_hot(targets), scaled by d_out
+                if let super::OpMeta::CrossEntropyTargets {
+                    targets,
+                    batch,
+                    num_classes,
+                } = &entry.meta
+                {
+                    let input_id = entry.saved[0];
+                    if let Some(logits) = pool.get(input_id) {
+                        let logits_host = logits.to_host()?;
+                        let mut d_logits = vec![0.0f32; batch * num_classes];
+                        for b in 0..*batch {
+                            let row = &logits_host[b * num_classes..(b + 1) * num_classes];
+                            let mx: f64 = row
+                                .iter()
+                                .map(|&x| x as f64)
+                                .fold(f64::NEG_INFINITY, f64::max);
+                            let esum: f64 = row.iter().map(|&x| ((x as f64) - mx).exp()).sum();
+                            for c in 0..*num_classes {
+                                let sm = ((row[c] as f64 - mx).exp() / esum) as f32;
+                                let target = if c == targets[b] as usize { 1.0 } else { 0.0 };
+                                d_logits[b * num_classes + c] = (sm - target) / *batch as f32;
+                            }
+                        }
+                        let d_logits_gpu = GpuTensor::from_host(
+                            &d_logits,
+                            &[*batch, *num_classes],
+                            registry.device(),
+                        )?;
+                        accumulate_grad(&mut grads, input_id, d_logits_gpu, registry)?;
+                    }
+                }
+            }
+            OpKind::Embedding => {
+                // TODO
             }
         }
     }

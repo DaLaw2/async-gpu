@@ -57,6 +57,12 @@ pub enum OpMeta {
     Embedding { vocab_size: usize },
     /// Loss reduction mode.
     Loss { reduction: Reduction },
+    /// Cross-entropy loss: stores targets for backward.
+    CrossEntropyTargets {
+        targets: Vec<u32>,
+        batch: usize,
+        num_classes: usize,
+    },
     /// Attention parameters.
     Attention { seq: usize, d: usize, causal: bool },
     /// Conv2d parameters.

@@ -1461,3 +1461,44 @@ pub unsafe extern "ptx-kernel" fn matrix_unpad(
         );
     }
 }
+
+// ============================================================
+// Optimizer kernels
+// ============================================================
+
+/// SGD step: param[i] -= lr * grad[i]
+///
+/// grid_dim = (ceil(n/256), 1, 1), block_dim = (256, 1, 1)
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn sgd_step(
+    param: *mut f32,
+    grad: *const f32,
+    lr: f32,
+    n: u32,
+    status: *mut u32,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let gid = nvptx::_block_idx_x() as u32 * 256 + tid;
+        if gid < n {
+            let p = *param.add(gid as usize);
+            let g = *grad.add(gid as usize);
+            *param.add(gid as usize) = p - lr * g;
+        }
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (param, grad, lr, n);
+    }
+
+    if tid == 0 {
+        let _prev: u32;
+        core::arch::asm!(
+            "atom.global.add.u32 {prev}, [{addr}], 1;",
+            prev = out(reg32) _prev,
+            addr = in(reg64) status,
+        );
+    }
+}

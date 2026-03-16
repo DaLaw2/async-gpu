@@ -13,13 +13,157 @@ use gpu_host::nn::autograd;
 use gpu_host::nn::tensor::GpuTensor;
 
 fn main() {
-    if let Err(e) = run() {
+    let use_cpu = std::env::args().any(|a| a == "--cpu");
+    if let Err(e) = if use_cpu { run_cpu() } else { run_gpu() } {
         eprintln!("Error: {e}");
         std::process::exit(1);
     }
 }
 
-fn run() -> Result<(), Box<dyn std::error::Error>> {
+/// CPU-only training for benchmark comparison.
+fn run_cpu() -> Result<(), Box<dyn std::error::Error>> {
+    let mnist_dir = gpu_host::model_dir(Some(env!("CARGO_MANIFEST_DIR"))).join("mnist");
+    let train_images = load_idx_images(&mnist_dir.join("train-images-idx3-ubyte"))?;
+    let train_labels = load_idx_labels(&mnist_dir.join("train-labels-idx1-ubyte"))?;
+    let test_images = load_idx_images(&mnist_dir.join("t10k-images-idx3-ubyte"))?;
+    let test_labels = load_idx_labels(&mnist_dir.join("t10k-labels-idx1-ubyte"))?;
+    println!("MNIST CPU training ({} train, {} test)", train_images.len(), test_images.len());
+
+    let in_f = 784;
+    let hidden = 128;
+    let out_f = 10;
+    let scale1 = (2.0 / in_f as f64).sqrt() as f32;
+    let mut w1: Vec<f32> = (0..hidden * in_f).map(|i| ((i * 2654435761 % 1000) as f32 / 1000.0 - 0.5) * 2.0 * scale1).collect();
+    let mut b1 = vec![0.0f32; hidden];
+    let scale2 = (2.0 / hidden as f64).sqrt() as f32;
+    let mut w2: Vec<f32> = (0..out_f * hidden).map(|i| ((i * 340573321 % 1000) as f32 / 1000.0 - 0.5) * 2.0 * scale2).collect();
+    let mut b2 = vec![0.0f32; out_f];
+
+    let lr = 0.01f32;
+    let batch_size = 64;
+    let epochs = 5;
+    let total_start = Instant::now();
+
+    for epoch in 0..epochs {
+        let es = Instant::now();
+        let mut total_loss = 0.0f64;
+        let mut correct = 0usize;
+        let n_batches = train_images.len() / batch_size;
+
+        for batch_idx in 0..n_batches {
+            let start = batch_idx * batch_size;
+            let mut batch_x = vec![0.0f32; batch_size * in_f];
+            let mut batch_y = vec![0u32; batch_size];
+            for i in 0..batch_size {
+                batch_x[i * in_f..(i + 1) * in_f].copy_from_slice(&train_images[start + i]);
+                batch_y[i] = train_labels[start + i] as u32;
+            }
+
+            // CPU forward
+            let mut h_pre = vec![0.0f32; batch_size * hidden];
+            let mut h_act = vec![0.0f32; batch_size * hidden];
+            for b in 0..batch_size {
+                for j in 0..hidden {
+                    let mut s = b1[j];
+                    for k in 0..in_f { s += batch_x[b * in_f + k] * w1[j * in_f + k]; }
+                    h_pre[b * hidden + j] = s;
+                    h_act[b * hidden + j] = s.max(0.0);
+                }
+            }
+            let mut logits = vec![0.0f32; batch_size * out_f];
+            for b in 0..batch_size {
+                for o in 0..out_f {
+                    let mut s = b2[o];
+                    for j in 0..hidden { s += h_act[b * hidden + j] * w2[o * hidden + j]; }
+                    logits[b * out_f + o] = s;
+                }
+            }
+
+            // Softmax + CE
+            let mut d_logits = vec![0.0f32; batch_size * out_f];
+            for b in 0..batch_size {
+                let row = &logits[b * out_f..(b + 1) * out_f];
+                let mx = row.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+                let es: f32 = row.iter().map(|&x| (x - mx).exp()).sum();
+                for o in 0..out_f {
+                    let sm = (row[o] - mx).exp() / es;
+                    d_logits[b * out_f + o] = (sm - if o == batch_y[b] as usize { 1.0 } else { 0.0 }) / batch_size as f32;
+                }
+                total_loss -= ((row[batch_y[b] as usize] - mx).exp() / es).ln() as f64;
+                let pred = row.iter().enumerate().max_by(|a, b| a.1.partial_cmp(b.1).unwrap()).map(|(i, _)| i).unwrap();
+                if pred == batch_y[b] as usize { correct += 1; }
+            }
+
+            // CPU backward
+            let mut dw2 = vec![0.0f32; out_f * hidden];
+            let mut db2 = vec![0.0f32; out_f];
+            for o in 0..out_f {
+                for j in 0..hidden {
+                    let mut s = 0.0f32;
+                    for b in 0..batch_size { s += d_logits[b * out_f + o] * h_act[b * hidden + j]; }
+                    dw2[o * hidden + j] = s;
+                }
+                for b in 0..batch_size { db2[o] += d_logits[b * out_f + o]; }
+            }
+            let mut dh = vec![0.0f32; batch_size * hidden];
+            for b in 0..batch_size {
+                for j in 0..hidden {
+                    let mut s = 0.0f32;
+                    for o in 0..out_f { s += d_logits[b * out_f + o] * w2[o * hidden + j]; }
+                    dh[b * hidden + j] = s * if h_pre[b * hidden + j] > 0.0 { 1.0 } else { 0.0 };
+                }
+            }
+            let mut dw1 = vec![0.0f32; hidden * in_f];
+            let mut db1 = vec![0.0f32; hidden];
+            for j in 0..hidden {
+                for k in 0..in_f {
+                    let mut s = 0.0f32;
+                    for b in 0..batch_size { s += dh[b * hidden + j] * batch_x[b * in_f + k]; }
+                    dw1[j * in_f + k] = s;
+                }
+                for b in 0..batch_size { db1[j] += dh[b * hidden + j]; }
+            }
+
+            for i in 0..w1.len() { w1[i] -= lr * dw1[i]; }
+            for i in 0..b1.len() { b1[i] -= lr * db1[i]; }
+            for i in 0..w2.len() { w2[i] -= lr * dw2[i]; }
+            for i in 0..b2.len() { b2[i] -= lr * db2[i]; }
+        }
+
+        let avg_loss = total_loss / n_batches as f64 / batch_size as f64;
+        let train_acc = correct as f64 / (n_batches * batch_size) as f64 * 100.0;
+        let test_correct = evaluate_cpu(&test_images, &test_labels, &w1, &b1, &w2, &b2);
+        let test_acc = test_correct as f64 / test_images.len() as f64 * 100.0;
+        println!("Epoch {}/{}: loss={avg_loss:.4}, train={train_acc:.1}%, test={test_acc:.1}%, time={:.1}s",
+            epoch + 1, epochs, es.elapsed().as_secs_f64());
+    }
+    println!("\nTotal: {:.1}s (CPU)", total_start.elapsed().as_secs_f64());
+    Ok(())
+}
+
+fn evaluate_cpu(images: &[Vec<f32>], labels: &[u8], w1: &[f32], b1: &[f32], w2: &[f32], b2: &[f32]) -> usize {
+    let (in_f, hidden, out_f) = (784, 128, 10);
+    let mut correct = 0;
+    for (img, &label) in images.iter().zip(labels.iter()) {
+        let mut h = vec![0.0f32; hidden];
+        for j in 0..hidden {
+            let mut s = b1[j];
+            for k in 0..in_f { s += img[k] * w1[j * in_f + k]; }
+            h[j] = s.max(0.0);
+        }
+        let mut logits = vec![0.0f32; out_f];
+        for o in 0..out_f {
+            let mut s = b2[o];
+            for j in 0..hidden { s += h[j] * w2[o * hidden + j]; }
+            logits[o] = s;
+        }
+        let pred = logits.iter().enumerate().max_by(|a, b| a.1.partial_cmp(b.1).unwrap()).map(|(i, _)| i).unwrap();
+        if pred == label as usize { correct += 1; }
+    }
+    correct
+}
+
+fn run_gpu() -> Result<(), Box<dyn std::error::Error>> {
     // Load MNIST
     let mnist_dir = gpu_host::model_dir(Some(env!("CARGO_MANIFEST_DIR"))).join("mnist");
     println!("Loading MNIST from {}...", mnist_dir.display());

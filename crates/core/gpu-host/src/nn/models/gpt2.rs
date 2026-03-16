@@ -322,6 +322,78 @@ impl Gpt2Model {
         ))
     }
 
+    /// Build Gpt2Model from generic [`LoadedWeights`] (via `model_generic` loader).
+    ///
+    /// Expects weights loaded with `gpt2_weight_map()` — Conv1D→Linear transposes
+    /// are already applied during loading. Keys use SafeTensors naming convention.
+    pub fn from_generic_weights(
+        weights: &crate::model_generic::LoadedWeights,
+        config: Gpt2Config,
+        registry: &Arc<KernelRegistry>,
+    ) -> Result<Self> {
+        let w = |key: &str| -> Result<&[f32]> {
+            weights
+                .require(key)
+                .map(|t| t.data.as_slice())
+                .map_err(|e| crate::nn::error::NnError::ShapeMismatch {
+                    expected: key.to_string(),
+                    actual: format!("{e}"),
+                })
+        };
+
+        let embedding = Embedding::new(
+            w("wte.weight")?,
+            w("wpe.weight")?,
+            config.vocab_size,
+            config.n_positions,
+            config.n_embd,
+            registry,
+        )?;
+
+        let mut blocks = Vec::with_capacity(config.n_layer);
+        for i in 0..config.n_layer {
+            let p = format!("h.{i}");
+            // Weights are already transposed by generic loader
+            let block = TransformerBlock::new(
+                w(&format!("{p}.ln_1.weight"))?,
+                w(&format!("{p}.ln_1.bias"))?,
+                w(&format!("{p}.attn.c_attn.weight"))?,
+                w(&format!("{p}.attn.c_attn.bias"))?,
+                w(&format!("{p}.attn.c_proj.weight"))?,
+                w(&format!("{p}.attn.c_proj.bias"))?,
+                w(&format!("{p}.ln_2.weight"))?,
+                w(&format!("{p}.ln_2.bias"))?,
+                w(&format!("{p}.mlp.c_fc.weight"))?,
+                w(&format!("{p}.mlp.c_fc.bias"))?,
+                w(&format!("{p}.mlp.c_proj.weight"))?,
+                w(&format!("{p}.mlp.c_proj.bias"))?,
+                &config,
+                registry,
+            )?;
+            blocks.push(block);
+        }
+
+        let ln_f = LayerNorm::new(
+            w("ln_f.weight")?,
+            w("ln_f.bias")?,
+            config.layer_norm_epsilon,
+            registry,
+        )?;
+
+        // LM head tied to wte
+        let lm_head = Linear::new(
+            w("wte.weight")?,
+            None,
+            config.n_embd,
+            config.vocab_size,
+            registry,
+        )?;
+
+        Ok(Self::new(
+            embedding, blocks, ln_f, lm_head, config, registry,
+        ))
+    }
+
     /// Forward pass: token_ids → logits `[seq_len, vocab_size]`.
     ///
     /// `token_ids`: device buffer of `u32` with `seq_len` elements.
@@ -717,5 +789,62 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// Verify that `from_generic_weights` produces identical logits to `from_weights`.
+    #[test]
+    fn test_gpt2_generic_loader_regression() {
+        let model_path =
+            crate::model_dir(Some(env!("CARGO_MANIFEST_DIR"))).join("model.safetensors");
+        if !model_path.exists() {
+            println!("SKIP: GPT-2 model not found");
+            return;
+        }
+
+        let dev = cudarc::driver::CudaDevice::new(0).expect("CUDA");
+        let registry = Arc::new(
+            crate::nn::KernelRegistry::new(Arc::clone(&dev), crate::ptx::KERNEL).expect("PTX"),
+        );
+
+        // Old path: hardcoded loader
+        let old_weights = crate::model::load_gpt2_weights(&model_path).expect("old weights");
+        let config1 = Gpt2Config::small();
+        let old_model =
+            Gpt2Model::from_weights(&old_weights, config1, &registry).expect("old model");
+
+        // New path: generic loader
+        let config2 = Gpt2Config::small();
+        let weight_map = crate::model_generic::gpt2_weight_map(config2.n_layer);
+        let new_weights = crate::model_generic::load_safetensors_mapped(&model_path, &weight_map)
+            .expect("generic weights");
+        let new_model = Gpt2Model::from_generic_weights(&new_weights, config2, &registry)
+            .expect("generic model");
+
+        // Compare logits for a short prompt
+        let tokens: Vec<u32> = vec![464, 3139, 286, 4881, 318]; // "The capital of France is"
+        let token_ids = dev.htod_sync_copy(&tokens).expect("upload");
+
+        let old_logits = old_model
+            .forward(&token_ids, tokens.len())
+            .expect("old fwd")
+            .to_host()
+            .expect("old d2h");
+        let new_logits = new_model
+            .forward(&token_ids, tokens.len())
+            .expect("new fwd")
+            .to_host()
+            .expect("new d2h");
+
+        assert_eq!(old_logits.len(), new_logits.len(), "logit length mismatch");
+        let max_err: f32 = old_logits
+            .iter()
+            .zip(new_logits.iter())
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0f32, f32::max);
+        eprintln!("GPT-2 generic loader max_err = {max_err}");
+        assert!(
+            max_err < 1e-3,
+            "Generic loader logits differ from old loader: max_err={max_err}"
+        );
     }
 }

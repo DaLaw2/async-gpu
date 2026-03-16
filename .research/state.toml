@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 446     # Monotonic counter, incremented after each completed phase
-completed_tasks = 549
+total_cycles = 448     # Monotonic counter, incremented after each completed phase
+completed_tasks = 551
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "gl-schema.2"
-last_summary = "conv-backward 4/6 done: GPU conv2d backward 2.62x speedup. MNIST CNN 96.4%. gl-schema.1 investigation complete. Starting gl-schema.2 (ModelDef implementation)."
+current_task_id = "gl-schema.3"
+last_summary = "gl-schema.2 DONE: generic SafeTensors loader with ModelDef schema, GPT-2 weight map. MNIST CNN 2.62x GPU speedup. Next: gl-schema.3 (migrate GPT-2 to generic loader)."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 106
@@ -1399,7 +1399,7 @@ id = "gl-schema.2"
 theme = "gl-schema"
 title = "Design and implement ModelDef schema + generic load_weights()"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["gl-schema.1"]
 
 [[tasks]]

@@ -11,8 +11,8 @@ status = "running"     # ready | running | blocked | completed
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "ag3-lora.1"
-last_summary = "autograd-v3 COMPLETE (33 epics done). GPT-2 79ms/tok, fine-tuning loss converges (ppl 127→81). All foundation gaps fixed."
+current_task_id = "lt-mnist-cnn.1"
+last_summary = "33 epics done. Starting larger-training: MNIST CNN with conv2d + autograd."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 104
@@ -1117,7 +1117,7 @@ success_criteria = [
 [[epics]]
 id = "larger-training"
 title = "Larger Training Examples — ResNet, LoRA, real datasets"
-status = "planned"
+status = "active"
 priority = "medium"
 depends_on = "autograd-v3"
 success_criteria = [
@@ -1136,3 +1136,25 @@ success_criteria = [
     "If implemented: slab allocator with size classes for common tensor shapes",
     "Training loop shows measurable speedup from buffer reuse",
 ]
+
+# --- larger-training themes/tasks ---
+
+[[themes]]
+id = "lt-mnist-cnn"
+epic = "larger-training"
+title = "MNIST CNN — Conv2d + ReLU + MaxPool + Linear on full MNIST"
+status = "active"
+goal = "CNN training on MNIST with >95% accuracy showing GPU advantage"
+success_criteria = [
+    "Conv2d(1→16, 3×3) → ReLU → MaxPool2d → Conv2d(16→32, 3×3) → ReLU → MaxPool2d → Linear → CrossEntropy",
+    "Train on full 60K MNIST, test accuracy > 95%",
+    "GPU training faster than CPU",
+]
+
+[[tasks]]
+id = "lt-mnist-cnn.1"
+theme = "lt-mnist-cnn"
+title = "Implement MNIST CNN training example with GPU conv2d + autograd"
+kind = "experiment"
+status = "pending"
+depends = []

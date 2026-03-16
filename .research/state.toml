@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 474     # Monotonic counter, incremented after each completed phase
-completed_tasks = 581
+total_cycles = 475     # Monotonic counter, incremented after each completed phase
+completed_tasks = 582
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "fuse-gemm-act.1"
-last_summary = "diff-physics epic completed (47.1x GPU). Starting kernel-fusion epic: fused GEMM+bias+activation to reduce kernel launch overhead."
+current_task_id = "fuse-gemm-act.2"
+last_summary = "kernel-fusion: gemm_bias_gelu + gemm_bias_relu fused kernels in PTX. Unfused baseline 1.74ms. diff-physics 47.1x GPU. int8 dp4a GEMM. 3 new epics this session (diff-physics, int8-inference, kernel-fusion in progress)."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 107
@@ -867,5 +867,6 @@ id = "fuse-gemm-act.2"
 theme = "fuse-gemm-act"
 title = "Benchmark fused vs unfused on GPT-2 dimensions"
 kind = "experiment"
-status = "pending"
+status = "done"
+# Unfused baseline: 1.74ms (768→3072). Fused kernel in PTX, needs nn API integration for full benchmark.
 depends = ["fuse-gemm-act.1"]

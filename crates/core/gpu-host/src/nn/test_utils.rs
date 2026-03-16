@@ -676,4 +676,152 @@ mod tests {
             }
         }
     }
+
+    /// Test GELU backward via finite differences.
+    #[test]
+    fn test_gelu_gradient_check() {
+        activation_gradient_check("gelu_forward", "gelu_backward", |x| {
+            let x64 = x as f64;
+            let inner =
+                (2.0_f64 / std::f64::consts::PI).sqrt() * (x64 + 0.044715 * x64 * x64 * x64);
+            (0.5 * x64 * (1.0 + inner.tanh())) as f32
+        });
+    }
+
+    /// Test SiLU backward via finite differences.
+    #[test]
+    fn test_silu_gradient_check() {
+        activation_gradient_check("silu_forward", "silu_backward", |x| {
+            let x64 = x as f64;
+            (x64 / (1.0 + (-x64).exp())) as f32
+        });
+    }
+
+    /// Test sigmoid backward via finite differences.
+    #[test]
+    fn test_sigmoid_gradient_check() {
+        activation_gradient_check("sigmoid_forward", "sigmoid_backward", |x| {
+            let x64 = x as f64;
+            (1.0 / (1.0 + (-x64).exp())) as f32
+        });
+    }
+
+    /// Test ReLU backward via finite differences.
+    #[test]
+    fn test_relu_gradient_check() {
+        // ReLU backward is simple: mask = (x > 0)
+        // Can't use the generic helper because relu_forward isn't a GPU kernel
+        let registry = gpu_registry();
+        let dev = registry.device();
+
+        let input: Vec<f32> = vec![-2.0, -1.0, -0.1, 0.0, 0.1, 1.0, 2.0];
+        let n = input.len();
+
+        // Forward: relu
+        let d_output = vec![1.0f32; n];
+        let input_gpu = GpuTensor::from_host(&input, &[n], dev).unwrap();
+        let d_out_gpu = GpuTensor::from_host(&d_output, &[n], dev).unwrap();
+
+        // Launch relu_backward kernel
+        let func = registry.get("relu_backward").unwrap();
+        let mut d_input_gpu = GpuTensor::zeros(&[n], dev).unwrap();
+        let status = dev.htod_sync_copy(&[0u32]).unwrap();
+        let config = crate::nn::registry::KernelRegistry::config_1d(n as u32);
+        unsafe {
+            cudarc::driver::LaunchAsync::launch(
+                func,
+                config,
+                (
+                    d_out_gpu.data(),
+                    input_gpu.data(),
+                    d_input_gpu.data_mut(),
+                    n as u32,
+                    &status,
+                ),
+            )
+            .unwrap();
+        }
+        dev.synchronize().unwrap();
+
+        let d_input = d_input_gpu.to_host().unwrap();
+        // Expected: [0, 0, 0, 0, 1, 1, 1] (x > 0 → 1, else 0)
+        let expected = [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0];
+        assert_close(
+            &d_input,
+            &expected,
+            Tolerance::f32_strict(),
+            "relu_backward",
+        );
+    }
+
+    /// Generic activation gradient check via finite differences.
+    fn activation_gradient_check(
+        forward_kernel: &'static str,
+        backward_kernel: &'static str,
+        cpu_fn: impl Fn(f32) -> f32,
+    ) {
+        let registry = gpu_registry();
+        let dev = registry.device();
+
+        let input: Vec<f32> = vec![-2.0, -1.0, -0.5, 0.0, 0.5, 1.0, 2.0];
+        let n = input.len();
+
+        // GPU forward
+        let input_gpu = GpuTensor::from_host(&input, &[n], dev).unwrap();
+        let mut output_gpu = GpuTensor::zeros(&[n], dev).unwrap();
+        let status = dev.htod_sync_copy(&[0u32]).unwrap();
+        let config = crate::nn::registry::KernelRegistry::config_1d(n as u32);
+
+        let fwd = registry.get(forward_kernel).unwrap();
+        unsafe {
+            cudarc::driver::LaunchAsync::launch(
+                fwd,
+                config,
+                (input_gpu.data(), output_gpu.data_mut(), n as u32, &status),
+            )
+            .unwrap();
+        }
+        dev.synchronize().unwrap();
+
+        // GPU backward with d_output = ones
+        let d_output = vec![1.0f32; n];
+        let d_out_gpu = GpuTensor::from_host(&d_output, &[n], dev).unwrap();
+        let mut d_input_gpu = GpuTensor::zeros(&[n], dev).unwrap();
+        let status2 = dev.htod_sync_copy(&[0u32]).unwrap();
+
+        let bwd = registry.get(backward_kernel).unwrap();
+        unsafe {
+            cudarc::driver::LaunchAsync::launch(
+                bwd,
+                config,
+                (
+                    d_out_gpu.data(),
+                    input_gpu.data(),
+                    d_input_gpu.data_mut(),
+                    n as u32,
+                    &status2,
+                ),
+            )
+            .unwrap();
+        }
+        dev.synchronize().unwrap();
+
+        let autograd_grads = d_input_gpu.to_host().unwrap();
+
+        // Numerical gradient via finite differences
+        let eps = 1e-4f32;
+        let mut numerical_grads = vec![0.0f32; n];
+        for i in 0..n {
+            let f_plus = cpu_fn(input[i] + eps);
+            let f_minus = cpu_fn(input[i] - eps);
+            numerical_grads[i] = (f_plus - f_minus) / (2.0 * eps);
+        }
+
+        assert_close(
+            &autograd_grads,
+            &numerical_grads,
+            Tolerance::gradient(),
+            &format!("{backward_kernel} gradient check"),
+        );
+    }
 }

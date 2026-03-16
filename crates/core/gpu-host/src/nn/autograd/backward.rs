@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use super::tape::{OpKind, TapeEntry, TensorId};
+use super::tape::{OpKind, OpMeta, TapeEntry, TensorId};
 use super::TensorPool;
 use crate::nn::error::{NnError, Result};
 use crate::nn::registry::KernelRegistry;
@@ -177,10 +177,32 @@ pub fn backward(
                 }
             }
             OpKind::BatchNorm => {
-                // BatchNorm backward: passthrough for now (dInput ≈ dOutput * gamma / std)
-                // Full implementation would compute dGamma, dBeta, and proper dInput.
-                let d_out_clone = d_out.clone_tensor()?;
-                accumulate_grad(&mut grads, entry.inputs[0], d_out_clone, registry)?;
+                // BatchNorm backward (eval-mode running stats):
+                // dInput[ch] = d_out[ch] * gamma[ch] * inv_std[ch]
+                if let OpMeta::BatchNorm {
+                    channels,
+                    hw,
+                    ref gamma,
+                    ref inv_std,
+                    ..
+                } = entry.meta
+                {
+                    let d_host = d_out.to_host()?;
+                    let mut d_input = vec![0.0f32; d_host.len()];
+                    for ch in 0..channels {
+                        let scale = gamma[ch] * inv_std[ch];
+                        for i in 0..hw {
+                            d_input[ch * hw + i] = d_host[ch * hw + i] * scale;
+                        }
+                    }
+                    let dev = registry.device();
+                    let di = GpuTensor::from_host(&d_input, d_out.shape(), dev)?;
+                    accumulate_grad(&mut grads, entry.inputs[0], di, registry)?;
+                } else {
+                    // Fallback: passthrough
+                    let d_out_clone = d_out.clone_tensor()?;
+                    accumulate_grad(&mut grads, entry.inputs[0], d_out_clone, registry)?;
+                }
             }
             OpKind::MaxPool2d => {
                 // MaxPool2d backward: route gradient through max indices

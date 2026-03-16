@@ -65,6 +65,14 @@ pub enum OpMeta {
     },
     /// Attention parameters.
     Attention { seq: usize, d: usize, causal: bool },
+    /// BatchNorm parameters for backward.
+    BatchNorm {
+        channels: usize,
+        hw: usize,
+        gamma: Vec<f32>,
+        inv_std: Vec<f32>,
+        x_norm: Vec<f32>,
+    },
     /// Conv2d parameters.
     Conv2d {
         c_in: usize,

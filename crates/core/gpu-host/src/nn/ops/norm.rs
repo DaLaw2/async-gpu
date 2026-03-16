@@ -95,17 +95,48 @@ pub fn batch_norm(
     let c = input.shape()[0];
     let hw: usize = input.shape()[1..].iter().product();
     let mut out = vec![0.0f32; inp.len()];
+    let mut inv_stds = vec![0.0f32; c];
+    let mut x_norm = vec![0.0f32; inp.len()];
 
     for ch in 0..c {
-        let inv_std = 1.0 / (var[ch] + eps).sqrt();
+        let is = 1.0 / (var[ch] + eps).sqrt();
+        inv_stds[ch] = is;
         for i in 0..hw {
             let idx = ch * hw + i;
-            out[idx] = g[ch] * (inp[idx] - mean[ch]) * inv_std + b[ch];
+            let xn = (inp[idx] - mean[ch]) * is;
+            x_norm[idx] = xn;
+            out[idx] = g[ch] * xn + b[ch];
         }
     }
 
     let dev = registry.device();
-    GpuTensor::from_host(&out, input.shape(), dev)
+    let mut output = GpuTensor::from_host(&out, input.shape(), dev)?;
+
+    // Record on autograd tape
+    if input.requires_grad() {
+        let in_id = input
+            .tensor_id()
+            .unwrap_or(crate::nn::autograd::TensorId(u32::MAX));
+        if let Some(out_id) = crate::nn::autograd::alloc_tensor_id() {
+            output.set_tensor_id(out_id);
+            output.set_requires_grad(true);
+            crate::nn::autograd::record_op(crate::nn::autograd::TapeEntry {
+                op: crate::nn::autograd::OpKind::BatchNorm,
+                inputs: vec![in_id],
+                output: out_id,
+                saved: vec![],
+                meta: crate::nn::autograd::OpMeta::BatchNorm {
+                    channels: c,
+                    hw,
+                    gamma: g.clone(),
+                    inv_std: inv_stds,
+                    x_norm,
+                },
+            });
+        }
+    }
+
+    Ok(output)
 }
 
 /// Fused BatchNorm + SiLU for CHW tensors.

@@ -1226,3 +1226,33 @@ title = "Create ResNet-18 CIFAR-10 inference example with random weights"
 kind = "experiment"
 status = "done"
 depends = ["rn-inference.1"]
+
+# --- ResNet training ---
+
+[[themes]]
+id = "rn-training"
+epic = "resnet"
+title = "ResNet-18 training on CIFAR-10"
+status = "active"
+goal = "Train ResNet-18 to >80% on CIFAR-10 with GPU conv2d + autograd"
+success_criteria = [
+    "batch_norm backward properly computes dGamma, dBeta, dInput",
+    "ResNet-18 trains on CIFAR-10 with loss convergence",
+    "Test accuracy > 80%",
+]
+
+[[tasks]]
+id = "rn-training.1"
+theme = "rn-training"
+title = "Implement proper batch_norm backward (dGamma, dBeta, dInput)"
+kind = "experiment"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "rn-training.2"
+theme = "rn-training"
+title = "ResNet-18 CIFAR-10 training loop with full backward"
+kind = "experiment"
+status = "pending"
+depends = ["rn-training.1"]

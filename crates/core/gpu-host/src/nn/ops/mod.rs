@@ -21,7 +21,7 @@ pub use attention::{
     scaled_dot_product_attention_kv, split_qkv,
 };
 pub use conv::{conv2d, conv2d_backward};
-pub use gemm::{matmul, matmul_prepadded_b};
+pub use gemm::{int8_matmul, matmul, matmul_prepadded_b};
 pub use norm::{batch_norm, batch_norm_silu, layer_norm};
 pub use pool::max_pool2d;
 pub use reshape::{bias_add, bias_add_chw, concat_channels, elementwise_add, embedding_lookup};

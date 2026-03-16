@@ -262,3 +262,139 @@ pub fn matmul_prepadded_b(
 
     Ok(GpuTensor::from_data(output_dev, &[m, n], Arc::clone(dev)))
 }
+
+/// INT8 matrix multiplication via dp4a: C = A_i8 × B_i8, dequantized to f32.
+///
+/// Quantizes A and B from f32 to INT8 (per-tensor for A, per-column for B),
+/// packs into u32 (4 INT8 per u32), runs dp4a GEMM, then dequantizes.
+///
+/// A: `[M, K]`, B: `[K, N]` → output: `[M, N]` f32.
+/// K must be divisible by 4.
+pub fn int8_matmul(
+    a: &GpuTensor,
+    b: &GpuTensor,
+    registry: &Arc<KernelRegistry>,
+) -> Result<GpuTensor> {
+    if a.ndim() != 2 || b.ndim() != 2 {
+        return Err(NnError::ShapeMismatch {
+            expected: "2D tensors".to_string(),
+            actual: format!("a.ndim={}, b.ndim={}", a.ndim(), b.ndim()),
+        });
+    }
+    let m = a.shape()[0];
+    let k = a.shape()[1];
+    let n = b.shape()[1];
+    if k % 4 != 0 {
+        return Err(NnError::ShapeMismatch {
+            expected: "K divisible by 4 for INT8 packing".to_string(),
+            actual: format!("K={k}"),
+        });
+    }
+    let k_div4 = k / 4;
+
+    // Download to host for quantization
+    let a_host = a.to_host()?;
+    let b_host = b.to_host()?;
+
+    // Quantize A: per-tensor symmetric
+    let a_max = a_host.iter().fold(0.0f32, |mx, &v| mx.max(v.abs()));
+    let a_scale = if a_max < 1e-12 { 1.0 } else { a_max / 127.0 };
+
+    // Pack A into u32: [M, K/4]
+    let mut a_packed = vec![0u32; m * k_div4];
+    for row in 0..m {
+        for j in 0..k_div4 {
+            let mut packed = 0u32;
+            for b_idx in 0..4 {
+                let val = a_host[row * k + j * 4 + b_idx];
+                let q = (val / a_scale).round().clamp(-128.0, 127.0) as i8;
+                packed |= (q as u8 as u32) << (b_idx * 8);
+            }
+            a_packed[row * k_div4 + j] = packed;
+        }
+    }
+
+    // Quantize B: per-column symmetric, stored column-major [N, K/4]
+    let mut b_scales = vec![0.0f32; n];
+    for col in 0..n {
+        let mut col_max = 0.0f32;
+        for row in 0..k {
+            col_max = col_max.max(b_host[row * n + col].abs());
+        }
+        b_scales[col] = if col_max < 1e-12 {
+            1.0
+        } else {
+            col_max / 127.0
+        };
+    }
+
+    // Pack B column-major: [N, K/4]
+    let mut b_packed = vec![0u32; n * k_div4];
+    for col in 0..n {
+        let inv_scale = 1.0 / b_scales[col];
+        for j in 0..k_div4 {
+            let mut packed = 0u32;
+            for b_idx in 0..4 {
+                let val = b_host[(j * 4 + b_idx) * n + col];
+                let q = (val * inv_scale).round().clamp(-128.0, 127.0) as i8;
+                packed |= (q as u8 as u32) << (b_idx * 8);
+            }
+            b_packed[col * k_div4 + j] = packed;
+        }
+    }
+
+    let dev = registry.device();
+
+    // Upload packed data
+    let a_dev = dev.htod_copy(a_packed)?;
+    let b_dev = dev.htod_copy(b_packed)?;
+    let c_dev = dev.alloc_zeros::<i32>(m * n)?;
+    let status = dev.htod_sync_copy(&[0u32])?;
+
+    // Launch INT8 GEMM
+    let func = registry.get("int8_gemm_dp4a")?;
+    let total = (m * n) as u32;
+    let config = KernelRegistry::config_1d(total);
+    unsafe {
+        func.launch(
+            config,
+            (
+                &a_dev,
+                &b_dev,
+                &c_dev,
+                m as u32,
+                n as u32,
+                k_div4 as u32,
+                &status,
+            ),
+        )
+        .map_err(NnError::Cuda)?;
+    }
+
+    // Dequantize: f32_out = int32_out * a_scale * b_scale[col]
+    let b_scales_dev = dev.htod_copy(b_scales)?;
+    let out_dev = dev.alloc_zeros::<f32>(m * n)?;
+    let status2 = dev.htod_sync_copy(&[0u32])?;
+
+    let func_deq = registry.get("int8_dequantize")?;
+    let config_deq = KernelRegistry::config_1d(total);
+    unsafe {
+        func_deq
+            .launch(
+                config_deq,
+                (
+                    &c_dev,
+                    &out_dev,
+                    a_scale,
+                    &b_scales_dev,
+                    total,
+                    n as u32,
+                    &status2,
+                ),
+            )
+            .map_err(NnError::Cuda)?;
+    }
+    dev.synchronize().map_err(NnError::Cuda)?;
+
+    Ok(GpuTensor::from_data(out_dev, &[m, n], Arc::clone(dev)))
+}

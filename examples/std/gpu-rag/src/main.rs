@@ -17,14 +17,98 @@ use gpu_host::nn::tensor::GpuTensor;
 use gpu_host::tokenizer::Gpt2Tokenizer;
 
 fn main() {
-    let query = std::env::args()
-        .nth(1)
+    let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|a| a == "--bench-int8") {
+        if let Err(e) = bench_int8() {
+            eprintln!("Error: {e}");
+            std::process::exit(1);
+        }
+        return;
+    }
+
+    let query = args
+        .get(1)
+        .cloned()
         .unwrap_or_else(|| "What programming language runs on GPU?".to_string());
 
     if let Err(e) = run(&query) {
         eprintln!("Error: {e}");
         std::process::exit(1);
     }
+}
+
+/// Benchmark INT8 dp4a GEMM vs f32 GEMM.
+fn bench_int8() -> Result<(), Box<dyn std::error::Error>> {
+    let dev = cudarc::driver::CudaDevice::new(0)?;
+    let reg = Arc::new(gpu_host::nn::KernelRegistry::new(
+        Arc::clone(&dev),
+        gpu_host::ptx::KERNEL,
+    )?);
+
+    let tests = vec![
+        (1, 768, 768, "Linear 768→768"),
+        (1, 768, 3072, "Linear 768→3072"),
+        (1, 3072, 768, "Linear 3072→768"),
+        (128, 768, 768, "Batched 128×768→768"),
+    ];
+
+    println!("=== INT8 dp4a GEMM vs f32 GEMM Benchmark ===\n");
+
+    for (m, k, n, label) in &tests {
+        let a_data: Vec<f32> = (0..*m * *k)
+            .map(|i| ((i * 7 + 3) % 200) as f32 / 100.0 - 1.0)
+            .collect();
+        let b_data: Vec<f32> = (0..*k * *n)
+            .map(|i| ((i * 13 + 7) % 200) as f32 / 100.0 - 1.0)
+            .collect();
+
+        let a = GpuTensor::from_host(&a_data, &[*m, *k], &dev)?;
+        let b = GpuTensor::from_host(&b_data, &[*k, *n], &dev)?;
+
+        // Warmup
+        let _ = gpu_host::nn::ops::matmul(&a, &b, &reg)?;
+        let _ = gpu_host::nn::ops::int8_matmul(&a, &b, &reg)?;
+
+        let n_iter = 20;
+        let t0 = Instant::now();
+        for _ in 0..n_iter {
+            let _ = gpu_host::nn::ops::matmul(&a, &b, &reg)?;
+        }
+        dev.synchronize()?;
+        let f32_ms = t0.elapsed().as_secs_f64() * 1000.0 / n_iter as f64;
+
+        let t1 = Instant::now();
+        for _ in 0..n_iter {
+            let _ = gpu_host::nn::ops::int8_matmul(&a, &b, &reg)?;
+        }
+        dev.synchronize()?;
+        let int8_ms = t1.elapsed().as_secs_f64() * 1000.0 / n_iter as f64;
+
+        // Correctness
+        let ref_out = gpu_host::nn::ops::matmul(&a, &b, &reg)?.to_host()?;
+        let int8_out = gpu_host::nn::ops::int8_matmul(&a, &b, &reg)?.to_host()?;
+        let max_err = ref_out
+            .iter()
+            .zip(int8_out.iter())
+            .map(|(r, i)| (r - i).abs())
+            .fold(0.0f32, f32::max);
+        let max_val = ref_out.iter().map(|v| v.abs()).fold(0.0f32, f32::max);
+        let rel_err = if max_val > 1e-6 {
+            max_err / max_val
+        } else {
+            0.0
+        };
+
+        println!("{label} [{m}×{k}×{n}]:");
+        println!(
+            "  f32: {f32_ms:.2}ms, INT8: {int8_ms:.2}ms, speedup: {:.2}x",
+            f32_ms / int8_ms
+        );
+        println!("  max_err: {max_err:.4}, rel_err: {rel_err:.4}");
+    }
+
+    println!("\nDone.");
+    Ok(())
 }
 
 fn run(query: &str) -> Result<(), Box<dyn std::error::Error>> {

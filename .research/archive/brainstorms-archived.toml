@@ -307,3 +307,29 @@ at_cycle = 349
 trigger = "production-ready epic fully completed, no active high-priority epics"
 level = "deep"
 key_insight = "Project is technically feature-complete (v0.3 prototype). Highest-ROI next steps: warp-batch-io, ecosystem-launch, developer-experience."
+
+# --- Archived at cycle 458 ---
+
+[[brainstorms]]
+seq = 99
+at_cycle = 364
+trigger = "object-detection + tensor-core-gemm epics completed, only low-priority epics remain"
+level = "standard"
+new_tasks_spawned = ["codebase-update.1", "codebase-update.2", "codebase-update.3", "dx-xtask.1", "dx-xtask.2", "dx-xtask.3", "dx-editor.1", "dx-editor.2", "dx-setup.1", "dx-setup.2"]
+new_themes_spawned = ["codebase-update", "dx-xtask", "dx-editor", "dx-setup"]
+new_epics_spawned = []
+themes_parked = []
+themes_completed = ["yolo-inference", "mma-splitk"]
+key_insight = "Project is feature-complete (21+ epics, 394 tasks). Remaining work is DX + codebase-health: fix stale README (MMA works, YOLO added), cargo xtask for unified build, rust-analyzer config, setup scripts. No new epics needed."
+
+[[brainstorms]]
+seq = 98
+at_cycle = 356
+trigger = "tensor-core-gemm epic fully completed (all 5 criteria met), object-detection unblocked"
+level = "standard"
+new_tasks_spawned = ["yolo-inference.1", "yolo-inference.2", "yolo-inference.3", "yolo-inference.4", "yolo-inference.5", "yolo-inference.6", "yolo-inference.7", "yolo-inference.8"]
+new_themes_spawned = ["yolo-inference"]
+new_epics_spawned = []
+themes_parked = []
+themes_completed = ["mma-splitk"]
+key_insight = "tensor-core-gemm ALL criteria met (2.18x throughput, zero error, 26ms latency, 3/3 prompts). Object-detection next: YOLOv8-nano has 60 layers but only 6 unique ops. Key insight: im2col + existing MMA GEMM reuses proven 2.18x speedup for Conv2D. 8 tasks: investigation → parallel kernel dev → backbone → head → demo."

@@ -2067,3 +2067,359 @@ title = "Experiment: write setup scripts for Linux + Windows"
 kind = "experiment"
 status = "done"
 depends = ["dx-setup.1"]
+
+# --- Archived at cycle 458 ---
+
+# --- ve-nn-unit-tests (verify-examples) ---
+
+[[tasks]]
+id = "ve-nn-unit-tests.4"
+theme = "ve-nn-unit-tests"
+title = "Add MultiHeadAttention numerical correctness test"
+kind = "experiment"
+status = "done"
+
+# --- ti-cpu-ref (testing-infra) ---
+
+[[tasks]]
+id = "ti-cpu-ref.5"
+theme = "ti-cpu-ref"
+title = "Per-op validation tests: GPU output vs CPU f64 reference for all 13 ops"
+kind = "experiment"
+status = "done"
+
+# --- ag-demo (autograd-v1) ---
+
+[[tasks]]
+id = "ag-demo.1"
+theme = "ag-demo"
+title = "End-to-end training: 2-layer MLP on XOR/MNIST, verify loss converges"
+kind = "experiment"
+status = "done"
+
+# --- gs-spike (gpu-safety-spike) ---
+
+[[tasks]]
+id = "gs-spike.1"
+theme = "gs-spike"
+title = "Audit all unsafe blocks in nn module + tensor.rs for lifetime safety gaps"
+kind = "investigation"
+status = "done"
+
+[[tasks]]
+id = "gs-spike.2"
+theme = "gs-spike"
+title = "Write decision doc: GpuRef vs arena vs current RAII — with concrete bug scenarios"
+kind = "design"
+status = "done"
+
+# --- ag2-train-demo (autograd-v2) ---
+
+[[tasks]]
+id = "ag2-train-demo.2"
+theme = "ag2-train-demo"
+title = "Train small CNN on CIFAR-10, verify loss converges"
+kind = "experiment"
+status = "done"
+
+# --- te-cifar (training-examples) ---
+
+[[tasks]]
+id = "te-cifar.3"
+theme = "te-cifar"
+title = "Run CIFAR-10 training, verify loss decreases and accuracy > random"
+kind = "experiment"
+status = "done"
+
+# --- tp-batch-conv (training-perf) ---
+
+[[tasks]]
+id = "tp-batch-conv.1"
+theme = "tp-batch-conv"
+title = "Extend conv2d op to accept batched [N,C,H,W] input"
+kind = "experiment"
+status = "done"
+
+[[tasks]]
+id = "tp-batch-conv.2"
+theme = "tp-batch-conv"
+title = "Benchmark CIFAR-10 GPU vs CPU after batched conv2d"
+kind = "experiment"
+status = "done"
+
+# --- tp-audit (training-perf) ---
+
+[[tasks]]
+id = "tp-audit.1"
+theme = "tp-audit"
+title = "Subagent audit: conv2d correctness — verify all dimensions match CPU"
+kind = "investigation"
+status = "done"
+
+[[tasks]]
+id = "tp-audit.2"
+theme = "tp-audit"
+title = "Subagent audit: YOLO nn model vs raw yolo_backbone — compare detections"
+kind = "investigation"
+status = "done"
+
+[[tasks]]
+id = "tp-audit.3"
+theme = "tp-audit"
+title = "Subagent audit: CIFAR GPU training — trace gradient flow end-to-end"
+kind = "investigation"
+status = "done"
+
+[[tasks]]
+id = "tp-audit.4"
+theme = "tp-audit"
+title = "Fix all issues found by audit subagents"
+kind = "experiment"
+status = "done"
+
+# --- tv-impl (tensor-views) ---
+
+[[tasks]]
+id = "tv-impl.1"
+theme = "tv-impl"
+title = "Refactor GpuTensor to use Arc<CudaSlice<f32>> + offset + length"
+kind = "experiment"
+status = "done"
+
+[[tasks]]
+id = "tv-impl.2"
+theme = "tv-impl"
+title = "Zero-copy reshape: return view when numel matches"
+kind = "experiment"
+status = "done"
+
+[[tasks]]
+id = "tv-impl.3"
+theme = "tv-impl"
+title = "Benchmark: conv2d + CIFAR training after view optimization"
+kind = "experiment"
+status = "done"
+
+# --- np-mha (nn-perf) ---
+
+[[tasks]]
+id = "np-mha.1"
+theme = "np-mha"
+title = "Rewrite MHA forward to use GPU split_qkv + multi-head flash_attention + concat_heads"
+kind = "experiment"
+status = "done"
+
+# --- ag3-foundation (autograd-v3) — orphaned pending tasks, marked skipped ---
+
+[[tasks]]
+id = "ag3-foundation.1"
+theme = "ag3-foundation"
+title = "Wire CrossEntropy backward into tape dispatcher"
+kind = "experiment"
+status = "skipped"
+
+[[tasks]]
+id = "ag3-foundation.2"
+theme = "ag3-foundation"
+title = "GPU-side optimizer: sgd_step/adam_step without host roundtrip"
+kind = "experiment"
+status = "skipped"
+
+[[tasks]]
+id = "ag3-foundation.3"
+theme = "ag3-foundation"
+title = "conv2d backward: compute dWeight (not just dInput)"
+kind = "experiment"
+status = "skipped"
+
+[[tasks]]
+id = "ag3-foundation.4"
+theme = "ag3-foundation"
+title = "Linear weight pre-padding: pad once in constructor, skip in matmul"
+kind = "experiment"
+status = "skipped"
+
+[[tasks]]
+id = "ag3-foundation.5"
+theme = "ag3-foundation"
+title = "Benchmark: GPT-2 nn API after weight pre-padding"
+kind = "experiment"
+status = "skipped"
+
+# --- ag3-lora (autograd-v3) ---
+
+[[tasks]]
+id = "ag3-lora.1"
+theme = "ag3-lora"
+title = "Implement LoRA adapter (low-rank Linear wrapper with A,B matrices)"
+kind = "experiment"
+status = "done"
+
+[[tasks]]
+id = "ag3-lora.2"
+theme = "ag3-lora"
+title = "Download WikiText-2 subset + tokenize for training"
+kind = "experiment"
+status = "done"
+
+[[tasks]]
+id = "ag3-lora.3"
+theme = "ag3-lora"
+title = "GPT-2 LoRA training loop: freeze base, train adapters, verify loss converges"
+kind = "experiment"
+status = "done"
+
+# --- lt-mnist-cnn (larger-training) ---
+
+[[tasks]]
+id = "lt-mnist-cnn.1"
+theme = "lt-mnist-cnn"
+title = "Implement MNIST CNN training example with GPU conv2d + autograd"
+kind = "experiment"
+status = "done"
+
+# --- mp-measure (gpu-mempool) ---
+
+[[tasks]]
+id = "mp-measure.1"
+theme = "mp-measure"
+title = "Profile CUDA alloc overhead in MNIST training loop"
+kind = "investigation"
+status = "done"
+
+# --- rn-inference (resnet) ---
+
+[[tasks]]
+id = "rn-inference.1"
+theme = "rn-inference"
+title = "Implement ResNet-18 model definition (BasicBlock + ResNet struct)"
+kind = "experiment"
+status = "done"
+
+[[tasks]]
+id = "rn-inference.2"
+theme = "rn-inference"
+title = "Create ResNet-18 CIFAR-10 inference example with random weights"
+kind = "experiment"
+status = "done"
+
+# --- rn-training (resnet) ---
+
+[[tasks]]
+id = "rn-training.1"
+theme = "rn-training"
+title = "Implement proper batch_norm backward (dGamma, dBeta, dInput)"
+kind = "experiment"
+status = "done"
+
+[[tasks]]
+id = "rn-training.2"
+theme = "rn-training"
+title = "ResNet-18 CIFAR-10 training loop with full backward"
+kind = "experiment"
+status = "done"
+
+# --- cb-kernels (conv-backward-training) ---
+
+[[tasks]]
+id = "cb-kernels.1"
+theme = "cb-kernels"
+title = "Implement GPU conv2d_backward_dweight kernel (im2col-based)"
+kind = "experiment"
+status = "done"
+
+[[tasks]]
+id = "cb-kernels.2"
+theme = "cb-kernels"
+title = "Implement GPU conv2d_backward_dinput kernel (col2im-based)"
+kind = "experiment"
+status = "done"
+
+[[tasks]]
+id = "cb-kernels.3"
+theme = "cb-kernels"
+title = "Wire GPU conv2d backward into autograd tape dispatcher"
+kind = "experiment"
+status = "done"
+
+# --- cb-batched (conv-backward-training) ---
+
+[[tasks]]
+id = "cb-batched.1"
+theme = "cb-batched"
+title = "Extend conv2d backward to accept batched [N,C,H,W] input"
+kind = "experiment"
+status = "done"
+
+[[tasks]]
+id = "cb-batched.2"
+theme = "cb-batched"
+title = "Benchmark MNIST CNN with GPU batched backward vs CPU backward"
+kind = "experiment"
+status = "done"
+
+# --- gl-schema (generic-loader) ---
+
+[[tasks]]
+id = "gl-schema.1"
+theme = "gl-schema"
+title = "Investigate current weight loading patterns across GPT-2, YOLO, ResNet"
+kind = "investigation"
+status = "done"
+
+[[tasks]]
+id = "gl-schema.2"
+theme = "gl-schema"
+title = "Design and implement ModelDef schema + generic load_weights()"
+kind = "experiment"
+status = "done"
+
+[[tasks]]
+id = "gl-schema.3"
+theme = "gl-schema"
+title = "Migrate GPT-2 to generic loader, verify regression"
+kind = "experiment"
+status = "done"
+
+# --- gl-resnet (generic-loader) ---
+
+[[tasks]]
+id = "gl-resnet.1"
+theme = "gl-resnet"
+title = "Export PyTorch ResNet-18 CIFAR-10 pretrained weights to safetensors"
+kind = "experiment"
+status = "done"
+
+[[tasks]]
+id = "gl-resnet.2"
+theme = "gl-resnet"
+title = "Load pretrained ResNet-18 via generic loader, verify >90% accuracy"
+kind = "experiment"
+status = "done"
+
+# --- gl-yolo (generic-loader) ---
+
+[[tasks]]
+id = "gl-yolo.1"
+theme = "gl-yolo"
+title = "Implement YOLOv8 from_safetensors using generic loader"
+kind = "experiment"
+status = "done"
+
+# --- tq-resnet (training-quality) ---
+
+[[tasks]]
+id = "tq-resnet.1"
+theme = "tq-resnet"
+title = "Mini-ResNet full conv training with GPU backward on CIFAR-10"
+kind = "experiment"
+status = "done"
+
+# --- tq-lora (training-quality) ---
+
+[[tasks]]
+id = "tq-lora.1"
+theme = "tq-lora"
+title = "Rewrite gpt2-lora example to use LoraLinear + autograd tape"
+kind = "experiment"
+status = "done"

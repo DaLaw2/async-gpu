@@ -722,3 +722,143 @@ id = "dx-setup"
 epic = "developer-experience"
 title = "Setup script for new users"
 status = "completed"
+
+# --- Archived at cycle 458 ---
+
+[[themes]]
+id = "ve-nn-unit-tests"
+epic = "verify-examples"
+title = "Add nn layer numerical correctness tests"
+status = "completed"
+
+[[themes]]
+id = "ti-cpu-ref"
+epic = "testing-infra"
+title = "CPU f64 reference implementations"
+status = "completed"
+
+[[themes]]
+id = "ag-demo"
+epic = "autograd-v1"
+title = "Training demo — MLP on XOR/MNIST"
+status = "completed"
+
+[[themes]]
+id = "gs-spike"
+epic = "gpu-safety-spike"
+title = "GpuRef investigation spike"
+status = "completed"
+
+[[themes]]
+id = "ag2-train-demo"
+epic = "autograd-v2"
+title = "CNN training demo on CIFAR-10"
+status = "completed"
+
+[[themes]]
+id = "te-cifar"
+epic = "training-examples"
+title = "CIFAR-10 tiny CNN training example"
+status = "completed"
+
+[[themes]]
+id = "tp-batch-conv"
+epic = "training-perf"
+title = "Batched conv2d — process full batch in one GPU launch"
+status = "completed"
+
+[[themes]]
+id = "tp-audit"
+epic = "training-perf"
+title = "Audit all prior fixes — verify correctness from root"
+status = "completed"
+
+[[themes]]
+id = "tv-impl"
+epic = "tensor-views"
+title = "Implement tensor views with shared ownership"
+status = "completed"
+
+[[themes]]
+id = "np-mha"
+epic = "nn-perf"
+title = "GPU-native MHA — replace host-side QKV split with GPU kernels"
+status = "completed"
+
+[[themes]]
+id = "ag3-foundation"
+epic = "autograd-v3"
+title = "Fix autograd foundation gaps"
+status = "completed"
+
+[[themes]]
+id = "ag3-lora"
+epic = "autograd-v3"
+title = "GPT-2 LoRA fine-tuning example"
+status = "completed"
+
+[[themes]]
+id = "lt-mnist-cnn"
+epic = "larger-training"
+title = "MNIST CNN — Conv2d + ReLU + MaxPool + Linear on full MNIST"
+status = "completed"
+
+[[themes]]
+id = "mp-measure"
+epic = "gpu-mempool"
+title = "Measure GPU allocation overhead in training workloads"
+status = "completed"
+
+[[themes]]
+id = "rn-inference"
+epic = "resnet"
+title = "ResNet-18 inference — model definition + forward pass"
+status = "completed"
+
+[[themes]]
+id = "rn-training"
+epic = "resnet"
+title = "ResNet-18 training on CIFAR-10"
+status = "completed"
+
+[[themes]]
+id = "cb-kernels"
+epic = "conv-backward-training"
+title = "GPU conv2d backward kernels (dWeight + dInput)"
+status = "completed"
+
+[[themes]]
+id = "cb-batched"
+epic = "conv-backward-training"
+title = "Batched conv2d backward — process full batch in one launch"
+status = "completed"
+
+[[themes]]
+id = "gl-schema"
+epic = "generic-loader"
+title = "ModelDef schema + generic SafeTensors loading"
+status = "completed"
+
+[[themes]]
+id = "gl-resnet"
+epic = "generic-loader"
+title = "Load pretrained ResNet-18 weights + verify accuracy"
+status = "completed"
+
+[[themes]]
+id = "gl-yolo"
+epic = "generic-loader"
+title = "Migrate YOLOv8 weights to generic loader"
+status = "completed"
+
+[[themes]]
+id = "tq-resnet"
+epic = "training-quality"
+title = "Mini-ResNet full conv training"
+status = "completed"
+
+[[themes]]
+id = "tq-lora"
+epic = "training-quality"
+title = "Real GPT-2 LoRA training with autograd"
+status = "completed"

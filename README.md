@@ -284,7 +284,7 @@ RTX 3060, SM 86:
 |--------|-------|
 | GPT-2 per-token f32 FMA (KV cache) | ~68ms/token |
 | GPT-2 per-token f16 MMA (Tensor Core) | ~26ms/token (2.18x over f32 FMA) |
-| GPT-2 nn API (KV cache) | ~190ms/token |
+| GPT-2 nn API (non-cached) | ~166ms/token |
 | YOLOv8-nano inference | 374ms, 34 detections on 640x640 |
 | Compute pipeline speedup | 1.91x vs multi-launch |
 

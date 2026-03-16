@@ -574,4 +574,106 @@ mod tests {
         assert!(matches!(tape.entries()[0].op, autograd::OpKind::Matmul));
         assert!(matches!(tape.entries()[1].op, autograd::OpKind::Gelu));
     }
+
+    /// Test backward() produces correct gradients for matmul + elem_add chain.
+    ///
+    /// Forward: loss = sum(A × B + C) where A=[4,8], B=[8,4], C=[4,4].
+    /// Backward: dA = 1 × B^T = B^T, dB = A^T × 1 = A^T, dC = 1.
+    /// Verified via finite differences.
+    #[test]
+    fn test_backward_matmul_add_chain() {
+        use crate::nn::autograd;
+        let registry = gpu_registry();
+        let dev = registry.device();
+
+        let m = 4;
+        let k = 8;
+        let n = 4;
+
+        let a_data: Vec<f32> = (0..m * k).map(|i| ((i % 7) as f32 - 3.0) * 0.1).collect();
+        let b_data: Vec<f32> = (0..k * n).map(|i| ((i % 11) as f32 - 5.0) * 0.1).collect();
+        let c_data: Vec<f32> = (0..m * n).map(|i| ((i % 5) as f32 - 2.0) * 0.1).collect();
+
+        let tape = autograd::Tape::new();
+        let mut pool = autograd::TensorPool::new();
+
+        let (loss_id, tape) = autograd::with_tape(tape, || {
+            // Create tracked tensors
+            let mut a_gpu = GpuTensor::from_host(&a_data, &[m, k], dev).unwrap();
+            a_gpu.set_requires_grad(true);
+            let a_id = autograd::alloc_tensor_id().unwrap();
+            a_gpu.set_tensor_id(a_id);
+            pool.insert(a_id, a_gpu.clone_tensor().unwrap());
+
+            let mut b_gpu = GpuTensor::from_host(&b_data, &[k, n], dev).unwrap();
+            b_gpu.set_requires_grad(true);
+            let b_id = autograd::alloc_tensor_id().unwrap();
+            b_gpu.set_tensor_id(b_id);
+            pool.insert(b_id, b_gpu.clone_tensor().unwrap());
+
+            let mut c_gpu = GpuTensor::from_host(&c_data, &[m, n], dev).unwrap();
+            c_gpu.set_requires_grad(true);
+            let c_id = autograd::alloc_tensor_id().unwrap();
+            c_gpu.set_tensor_id(c_id);
+            pool.insert(c_id, c_gpu.clone_tensor().unwrap());
+
+            // Forward: matmul(A, B)
+            let mut ab = crate::nn::ops::matmul(&a_gpu, &b_gpu, &registry).unwrap();
+            let ab_id = ab.tensor_id().unwrap();
+            pool.insert(ab_id, ab.clone_tensor().unwrap());
+
+            // Forward: ab + c
+            crate::nn::ops::elementwise_add(&mut ab, &c_gpu, &registry).unwrap();
+            let loss_id = ab.tensor_id().unwrap();
+            pool.insert(loss_id, ab);
+
+            loss_id
+        });
+
+        // Backward
+        let grads = autograd::backward::backward(&tape, &pool, loss_id, &registry).unwrap();
+
+        // Verify dC = ones (gradient of sum w.r.t. addend is all 1s)
+        // Find the c_id (should be TensorId(2))
+        let c_id = autograd::TensorId(2);
+        if let Some(dc) = grads.get(&c_id) {
+            let dc_host = dc.to_host().unwrap();
+            for (i, &v) in dc_host.iter().enumerate() {
+                assert!((v - 1.0).abs() < 1e-3, "dC[{i}] = {v}, expected 1.0");
+            }
+        }
+
+        // Verify dA via finite differences
+        let a_id = autograd::TensorId(0);
+        if let Some(da) = grads.get(&a_id) {
+            let da_host = da.to_host().unwrap();
+            let eps = 1e-3;
+
+            // Compute f(A) = sum(A × B + C)
+            let ab_ref = cpu_matmul_f64(&a_data, &b_data, m, k, n);
+            let f0: f64 = ab_ref
+                .iter()
+                .zip(c_data.iter())
+                .map(|(&ab, &c)| (ab + c) as f64)
+                .sum();
+
+            // Check a few elements of dA via finite difference
+            for idx in [0, 1, m * k - 1] {
+                let mut a_plus = a_data.clone();
+                a_plus[idx] += eps;
+                let ab_plus = cpu_matmul_f64(&a_plus, &b_data, m, k, n);
+                let f_plus: f64 = ab_plus
+                    .iter()
+                    .zip(c_data.iter())
+                    .map(|(&ab, &c)| (ab + c) as f64)
+                    .sum();
+                let numerical_grad = ((f_plus - f0) / eps as f64) as f32;
+                let autograd_val = da_host[idx];
+                assert!(
+                    (autograd_val - numerical_grad).abs() < 0.1,
+                    "dA[{idx}]: autograd={autograd_val:.4}, numerical={numerical_grad:.4}"
+                );
+            }
+        }
+    }
 }

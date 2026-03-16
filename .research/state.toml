@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 473     # Monotonic counter, incremented after each completed phase
-completed_tasks = 580
+total_cycles = 474     # Monotonic counter, incremented after each completed phase
+completed_tasks = 581
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "diffphys-sim.2"
-last_summary = "diff-physics epic COMPLETED: gravity_forces GPU kernel 47.1x speedup at N=4096. Spring-mass optimization converges (loss 7.07→1.55). Standalone example in examples/std/diff-physics/. Next: brainstorm new direction."
+current_task_id = "fuse-gemm-act.1"
+last_summary = "diff-physics epic completed (47.1x GPU). Starting kernel-fusion epic: fused GEMM+bias+activation to reduce kernel launch overhead."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 107
@@ -824,3 +824,48 @@ kind = "experiment"
 status = "done"
 # examples/std/diff-physics/ — optimization demo + GPU vs CPU benchmark (47.1x speedup)
 depends = ["diffphys-sim.3"]
+
+# ============================================================
+# Kernel Fusion v1 Epic
+# ============================================================
+
+[[epics]]
+id = "kernel-fusion"
+title = "Kernel Fusion v1 — fused GEMM+bias+activation kernels"
+status = "active"
+priority = "high"
+success_criteria = [
+    "Fused gemm_bias_gelu kernel: GEMM + bias add + GELU in single launch",
+    "Fused gemm_bias_relu kernel: GEMM + bias add + ReLU in single launch",
+    "GPT-2 nn API uses fused kernels for FFN layers (measurable latency reduction)",
+    "At least 15% reduction in GPT-2 per-token latency from fusion",
+]
+
+[[themes]]
+id = "fuse-gemm-act"
+epic = "kernel-fusion"
+title = "Fused GEMM + bias + activation kernels"
+status = "active"
+goal = "Single-launch fused compute for common Linear+activation patterns"
+success_criteria = [
+    "PTX kernel fuses matmul output write + bias add + activation",
+    "Correctness matches unfused path within f32 tolerance",
+    "Benchmark shows reduced kernel launch overhead",
+]
+
+[[tasks]]
+id = "fuse-gemm-act.1"
+theme = "fuse-gemm-act"
+title = "Implement fused gemm_bias_gelu + gemm_bias_relu PTX kernels"
+kind = "experiment"
+status = "done"
+# gemm_bias_gelu + gemm_bias_relu in compute_fused.rs, same tiling as gemm_f32 + fused bias+activation
+depends = []
+
+[[tasks]]
+id = "fuse-gemm-act.2"
+theme = "fuse-gemm-act"
+title = "Benchmark fused vs unfused on GPT-2 dimensions"
+kind = "experiment"
+status = "pending"
+depends = ["fuse-gemm-act.1"]

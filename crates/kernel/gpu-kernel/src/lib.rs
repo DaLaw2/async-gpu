@@ -17,6 +17,7 @@ mod helpers;
 mod basic;
 mod compute_cnn;
 mod compute_demo;
+mod compute_fused;
 mod compute_physics;
 mod compute_gemm;
 mod compute_math;

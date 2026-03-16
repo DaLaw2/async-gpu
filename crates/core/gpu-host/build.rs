@@ -44,6 +44,8 @@ fn main() {
     println!("cargo:rerun-if-changed=kernel.ptx");
     println!("cargo:rerun-if-changed=../../kernel/gpu-kernel/src/lib.rs");
     println!("cargo:rerun-if-changed=../../kernel/gpu-kernel/src/hostcall_kernels.rs");
+    println!("cargo:rerun-if-changed=../../kernel/gpu-kernel/src/compute_fused.rs");
+    println!("cargo:rerun-if-changed=../../kernel/gpu-kernel/src/compute_physics.rs");
     println!("cargo:rerun-if-changed=../../kernel/gpu-kernel/Cargo.toml");
     println!("cargo:rerun-if-changed=../../../rust-toolchain.toml");
 

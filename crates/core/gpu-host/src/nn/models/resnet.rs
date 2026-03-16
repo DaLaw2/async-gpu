@@ -302,7 +302,8 @@ impl ResNet18Weights {
         }
     }
 
-    /// Load weights from a SafeTensors file.
+    /// Load weights from a SafeTensors file (requires `gpt2` feature for safetensors support).
+    #[cfg(feature = "gpt2")]
     ///
     /// Expected key naming convention (matches PyTorch ResNet-18 CIFAR variant):
     /// - `conv1.weight`, `bn1.weight`, `bn1.bias`, `bn1.running_mean`, `bn1.running_var`

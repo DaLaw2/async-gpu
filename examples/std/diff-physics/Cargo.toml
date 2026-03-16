@@ -1,0 +1,11 @@
+[workspace]
+
+[package]
+name = "diff-physics"
+version = "0.1.0"
+edition = "2021"
+description = "Differentiable 2D spring-mass simulation on GPU"
+
+[dependencies]
+cudarc = { version = "0.12", features = ["cuda-12060"] }
+gpu-host = { path = "../../../crates/core/gpu-host", features = ["nn"], default-features = false }

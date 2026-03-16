@@ -15,7 +15,7 @@ current_task_id = ""
 last_summary = "GPT-2 164ms/tok (was 760ms = 4.6x). MNIST 5.6x (7.8s). CIFAR 0.9x. GPU-native MHA. Tensor views. 115 kernels. 52 tests. Sync removal. All ops GPU-resident."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 103
+brainstorm_seq = 104
 review_seq = 5
 
 # Brainstorm trigger control (event-driven, no fixed interval)

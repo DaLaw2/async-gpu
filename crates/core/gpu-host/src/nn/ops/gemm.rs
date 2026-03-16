@@ -43,25 +43,33 @@ pub fn matmul(a: &GpuTensor, b: &GpuTensor, registry: &Arc<KernelRegistry>) -> R
 
     let dev = registry.device();
 
-    // Pad A to [m_pad, k_pad] row-major
-    let a_host = a.to_host()?;
-    let mut a_padded = vec![0.0f32; m_pad * k_pad];
-    for r in 0..m {
-        for c in 0..k {
-            a_padded[r * k_pad + c] = a_host[r * k + c];
+    // Pad A on GPU: alloc [m_pad, k_pad] zeros, copy A rows via host
+    // Optimization: if already aligned, skip padding
+    let a_dev = if m == m_pad && k == k_pad {
+        // No padding needed — use data directly (but need contiguous copy)
+        let a_host = a.to_host()?;
+        dev.htod_sync_copy(&a_host)?
+    } else {
+        let a_host = a.to_host()?;
+        let mut a_padded = vec![0.0f32; m_pad * k_pad];
+        for r in 0..m {
+            a_padded[r * k_pad..r * k_pad + k].copy_from_slice(&a_host[r * k..r * k + k]);
         }
-    }
-    let a_dev = dev.htod_sync_copy(&a_padded)?;
+        dev.htod_sync_copy(&a_padded)?
+    };
 
-    // B is [K, N] row-major on host. Kernel expects column-major: b_cm[col * K_pad + row]
-    let b_host = b.to_host()?;
-    let mut b_cm = vec![0.0f32; k_pad * n_pad];
-    for r in 0..k {
-        for c in 0..n {
-            b_cm[c * k_pad + r] = b_host[r * n + c];
+    // B: [K, N] row-major → column-major [K_pad, N_pad]
+    // b_cm[col * K_pad + row] = b[row * N + col]
+    let b_dev = {
+        let b_host = b.to_host()?;
+        let mut b_cm = vec![0.0f32; k_pad * n_pad];
+        for r in 0..k {
+            for c in 0..n {
+                b_cm[c * k_pad + r] = b_host[r * n + c];
+            }
         }
-    }
-    let b_dev = dev.htod_sync_copy(&b_cm)?;
+        dev.htod_sync_copy(&b_cm)?
+    };
 
     // Allocate output [m_pad, n_pad]
     let mut d_dev = dev.alloc_zeros::<f32>(m_pad * n_pad)?;
@@ -96,9 +104,7 @@ pub fn matmul(a: &GpuTensor, b: &GpuTensor, registry: &Arc<KernelRegistry>) -> R
     let d_host = dev.dtoh_sync_copy(&d_dev)?;
     let mut result = vec![0.0f32; m * n];
     for r in 0..m {
-        for c in 0..n {
-            result[r * n + c] = d_host[r * n_pad + c];
-        }
+        result[r * n..r * n + n].copy_from_slice(&d_host[r * n_pad..r * n_pad + n]);
     }
 
     let mut output = GpuTensor::from_host(&result, &[m, n], dev)?;

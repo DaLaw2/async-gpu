@@ -130,7 +130,7 @@ pub fn backward(
                             expected: "saved conv2d weight".to_string(),
                             actual: format!("TensorId({}) not found", weight_id.0),
                         })?;
-                    let d_input = conv2d_backward_cpu(
+                    let (d_input, d_weight) = conv2d_backward_cpu(
                         &d_out_clone,
                         saved_input,
                         saved_weight,
@@ -145,6 +145,9 @@ pub fn backward(
                         registry,
                     )?;
                     accumulate_grad(&mut grads, entry.inputs[0], d_input, registry)?;
+                    if weight_id.0 != u32::MAX {
+                        accumulate_grad(&mut grads, weight_id, d_weight, registry)?;
+                    }
                 }
             }
             OpKind::Attention => {
@@ -438,7 +441,7 @@ fn attention_backward_cpu(
 #[allow(clippy::too_many_arguments)]
 fn conv2d_backward_cpu(
     d_output: &GpuTensor,
-    _input: &GpuTensor,
+    input: &GpuTensor,
     weight: &GpuTensor,
     c_in: usize,
     c_out: usize,
@@ -449,13 +452,14 @@ fn conv2d_backward_cpu(
     stride: usize,
     padding: usize,
     registry: &Arc<KernelRegistry>,
-) -> Result<GpuTensor> {
+) -> Result<(GpuTensor, GpuTensor)> {
     let dev = registry.device();
     let h_out = (h + 2 * padding - kh) / stride + 1;
     let w_out = (w + 2 * padding - kw) / stride + 1;
 
     let d_out_host = d_output.to_host()?;
     let w_host = weight.to_host()?;
+    let in_host = input.to_host()?;
 
     // dInput = transposed convolution of dOutput with weight
     let mut d_input = vec![0.0f32; c_in * h * w];
@@ -482,7 +486,33 @@ fn conv2d_backward_cpu(
         }
     }
 
-    GpuTensor::from_host(&d_input, &[c_in, h, w], dev)
+    // dWeight[co, ci, fh, fw] = sum over spatial of d_output[co, oh, ow] * input[ci, ih, iw]
+    let mut d_weight = vec![0.0f32; c_out * c_in * kh * kw];
+    for co in 0..c_out {
+        for ci in 0..c_in {
+            for fh in 0..kh {
+                for fw in 0..kw {
+                    let mut sum = 0.0f32;
+                    for oh in 0..h_out {
+                        for ow in 0..w_out {
+                            let ih = (oh * stride + fh) as isize - padding as isize;
+                            let iw = (ow * stride + fw) as isize - padding as isize;
+                            if ih >= 0 && ih < h as isize && iw >= 0 && iw < w as isize {
+                                sum += d_out_host[co * h_out * w_out + oh * w_out + ow]
+                                    * in_host[ci * h * w + ih as usize * w + iw as usize];
+                            }
+                        }
+                    }
+                    d_weight[co * (c_in * kh * kw) + ci * (kh * kw) + fh * kw + fw] = sum;
+                }
+            }
+        }
+    }
+
+    Ok((
+        GpuTensor::from_host(&d_input, &[c_in, h, w], dev)?,
+        GpuTensor::from_host(&d_weight, &[c_out, c_in, kh, kw], dev)?,
+    ))
 }
 
 /// Launch an element-wise activation backward kernel.

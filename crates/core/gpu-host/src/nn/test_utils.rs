@@ -942,6 +942,80 @@ mod tests {
         );
     }
 
+    /// End-to-end training demo: 2-layer MLP learns XOR.
+    ///
+    /// CPU backprop proving the training loop structure. GPU autograd is used
+    /// for matmul backward in the previous tests; this test validates convergence.
+    #[test]
+    fn test_xor_training_demo() {
+        // CPU-side XOR training proving the training loop concept.
+        // W1[2,4], b1[4], W2[4,1], b2[1] — 2-layer MLP with ReLU.
+        let inputs = [[0.0f32, 0.0], [0.0, 1.0], [1.0, 0.0], [1.0, 1.0]];
+        let targets = [0.0f32, 1.0, 1.0, 0.0];
+
+        // Asymmetric init — crucial for XOR to break symmetry
+        let mut w1 = [0.15, -0.47, 0.23, -0.62, 0.74, -0.11, -0.38, 0.55f32];
+        let mut b1 = [-0.1, 0.2, -0.15, 0.05f32];
+        let mut w2 = [0.8, -0.6, 0.7, -0.9f32];
+        let mut b2 = [0.1f32];
+
+        let lr = 0.1f32;
+        let epochs = 5000;
+        let mut first_loss = 0.0f32;
+        let mut last_loss = 0.0f32;
+
+        for epoch in 0..epochs {
+            let mut epoch_loss = 0.0f64;
+            for (inp, &tgt) in inputs.iter().zip(targets.iter()) {
+                // Forward
+                // Forward with tanh activation
+                let mut h = [0.0f32; 4];
+                for j in 0..4 {
+                    let z = inp[0] * w1[j] + inp[1] * w1[4 + j] + b1[j];
+                    h[j] = z.tanh();
+                }
+                let out: f32 = b2[0] + (0..4).map(|j| h[j] * w2[j]).sum::<f32>();
+                epoch_loss += ((out - tgt) * (out - tgt)) as f64;
+
+                // Backward
+                let d_out = 2.0 * (out - tgt);
+                for j in 0..4 {
+                    let dh = d_out * w2[j] * (1.0 - h[j] * h[j]); // tanh'(z) = 1-tanh^2(z)
+                    w1[j] -= lr * inp[0] * dh;
+                    w1[4 + j] -= lr * inp[1] * dh;
+                    b1[j] -= lr * dh;
+                    w2[j] -= lr * d_out * h[j];
+                }
+                b2[0] -= lr * d_out;
+            }
+            epoch_loss /= 4.0;
+            if epoch == 0 {
+                first_loss = epoch_loss as f32;
+            }
+            last_loss = epoch_loss as f32;
+        }
+
+        eprintln!("XOR training: first_loss={first_loss:.6}, last_loss={last_loss:.6}");
+        assert!(
+            last_loss < first_loss * 0.01,
+            "Loss should decrease 100x: {first_loss:.4} → {last_loss:.4}"
+        );
+
+        // Verify predictions
+        for (inp, &tgt) in inputs.iter().zip(targets.iter()) {
+            let h: Vec<f32> = (0..4)
+                .map(|j| (inp[0] * w1[j] + inp[1] * w1[4 + j] + b1[j]).tanh())
+                .collect();
+            let out: f32 = b2[0] + h.iter().zip(w2.iter()).map(|(h, w)| h * w).sum::<f32>();
+            assert!(
+                (out - tgt).abs() < 0.15,
+                "XOR [{},{}]: {out:.3} != {tgt}",
+                inp[0],
+                inp[1]
+            );
+        }
+    }
+
     /// Generic activation gradient check via finite differences.
     fn activation_gradient_check(
         forward_kernel: &'static str,

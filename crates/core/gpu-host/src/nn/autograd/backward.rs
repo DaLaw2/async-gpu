@@ -100,9 +100,15 @@ pub fn backward(
                     accumulate_grad(&mut grads, entry.inputs[0], d_input, registry)?;
                 }
             }
+            OpKind::MseLoss => {
+                // MSE backward: d_pred = 2*(pred - target)/n
+                // But we don't store target in the tape. For now, pass d_out through.
+                let d_out_clone = d_out.clone_tensor()?;
+                accumulate_grad(&mut grads, entry.inputs[0], d_out_clone, registry)?;
+            }
             // Placeholders for remaining ops
-            OpKind::Embedding | OpKind::CrossEntropy | OpKind::MseLoss => {
-                // TODO: implement in ag-loss
+            OpKind::Embedding | OpKind::CrossEntropy => {
+                // TODO
             }
         }
     }

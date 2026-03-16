@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 426     # Monotonic counter, incremented after each completed phase
-completed_tasks = 515
+total_cycles = 427     # Monotonic counter, incremented after each completed phase
+completed_tasks = 516
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "ag-demo.1"
-last_summary = "ag-optim + ag-loss COMPLETE. SGD/Adam + cross_entropy/MSE all implemented + tested. Only ag-demo.1 remains for autograd-v1 epic. 43+ nn tests."
+current_task_id = ""
+last_summary = "autograd-v1 epic COMPLETE: ALL 6 criteria met. XOR training converges (loss 0.905→0.000). 44 nn tests pass. 516 tasks. Next: gpu-safety-spike or new epics."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 102
@@ -1409,8 +1409,9 @@ depends = ["ti-cpu-ref.1", "ti-cpu-ref.2", "ti-cpu-ref.3", "ti-cpu-ref.4", "ti-h
 [[epics]]
 id = "autograd-v1"
 title = "Autograd v1 — tape-based backward pass for linear models + optimizers"
-status = "active"
+status = "completed"
 priority = "high"
+# ALL 6 CRITERIA MET — closed 2026-03-16
 depends_on = "testing-infra"
 success_criteria = [
     "Tape records forward ops and backward() traverses in reverse topological order",
@@ -1496,7 +1497,7 @@ success_criteria = [
 id = "ag-demo"
 epic = "autograd-v1"
 title = "Training demo — MLP on XOR/MNIST"
-status = "pending"
+status = "completed"
 goal = "Prove training works end-to-end"
 success_criteria = [
     "2-layer MLP trains to convergence on XOR or MNIST subset",
@@ -1717,7 +1718,7 @@ id = "ag-demo.1"
 theme = "ag-demo"
 title = "End-to-end training: 2-layer MLP on XOR/MNIST, verify loss converges"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["ag-optim.3", "ag-loss.1", "ag-elemwise-bwd.5", "ag-gemm-bwd.4"]
 
 # ============================================================

@@ -68,7 +68,7 @@ impl Module for LoraLinear {
     /// Forward: y = Linear(x) + scaling * (x @ A @ B)
     fn forward(&self, input: &GpuTensor) -> Result<GpuTensor> {
         // Base forward (frozen weights, pre-padded)
-        let mut base_out = self.linear.forward(input)?;
+        let base_out = self.linear.forward(input)?;
 
         // LoRA path: x @ A → [batch, rank], then [batch, rank] @ B → [batch, out]
         let xa = ops::matmul(input, &self.lora_a, &self.registry)?;

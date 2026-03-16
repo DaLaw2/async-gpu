@@ -1,0 +1,10 @@
+[workspace]
+
+[package]
+name = "resnet-cifar"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+gpu-host = { path = "../../../crates/core/gpu-host", features = ["nn"] }
+cudarc = { version = "0.12", features = ["cuda-12060"] }

@@ -84,6 +84,7 @@ cargo run --manifest-path examples/vector-math/host/Cargo.toml
 | `cifar-train` | CIFAR-10 tiny CNN training with loss convergence | Stock nightly |
 | `gpt2-lora` | GPT-2 LoRA evaluation on WikiText-2 (ppl=74.7) | Stock nightly |
 | `mnist-cnn` | MNIST CNN training (96.4% accuracy, 1.47x GPU speedup) | Stock nightly |
+| `resnet-cifar` | ResNet-18 CIFAR-10 inference (8.1M params, 15.7ms/image) | Stock nightly |
 
 </details>
 
@@ -256,7 +257,7 @@ crates/
     gpu-host/          Host-side SDK: GpuRuntime, HostcallBuffer, MappedBuffer, GpuStream
       nn/              Neural network module: GpuTensor, KernelRegistry, ops, layers, models
         autograd/      Tape-based reverse-mode AD: backward, optimizers, losses
-        models/        GPT-2 and YOLOv8-nano model implementations
+        models/        GPT-2, YOLOv8-nano, and ResNet-18 model implementations
         test_utils/    Numerical comparison harness, CPU f64 references, golden files
     gpu-protocol/      Shared constants: packet layout, service IDs, error codes
     gpu-runtime/       GPU-side runtime: index, math, warp, block, nn, executor, channels
@@ -272,7 +273,7 @@ rustc-patches/       Custom MIR pass patches for rustc
 scripts/             Build/CI automation, model download (download-models.sh, export_yolo.py)
 examples/
   hostcall/          8 raw-API examples (hello-gpu, async-pipeline, vector-math, etc.)
-  std/               5 nn-API examples (gpt2-inference, yolo-detect, mnist-train, cifar-train, gpt2-lora)
+  std/               7 nn-API examples (gpt2-inference, yolo-detect, mnist-train, mnist-cnn, cifar-train, gpt2-lora, resnet-cifar)
 formal/              TLA+ specification and model-checking config
 ```
 

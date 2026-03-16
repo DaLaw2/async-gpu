@@ -4,4 +4,5 @@
 //! and a `forward()` method for inference.
 
 pub mod gpt2;
+pub mod resnet;
 pub mod yolov8;

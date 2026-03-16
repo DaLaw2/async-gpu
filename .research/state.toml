@@ -9,10 +9,10 @@ completed_tasks = 538
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
-current_mode = "think"
-current_step = "think.done"
-current_task_id = ""
-last_summary = "bs105: park generic-loader (negative ROI). All non-evergreen epics complete (34 total). Next direction: ResNet-18 (requires batch_norm backward). Awaiting user direction."
+current_mode = "do"
+current_step = "do.execute"
+current_task_id = "rn-inference.1"
+last_summary = "bs105 done. ResNet epic created. Starting rn-inference.1: ResNet-18 model definition."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 105
@@ -1182,3 +1182,47 @@ title = "Profile CUDA alloc overhead in MNIST training loop"
 kind = "investigation"
 status = "done"
 depends = []
+
+# ============================================================
+# ResNet-18 Epic
+# ============================================================
+
+[[epics]]
+id = "resnet"
+title = "ResNet-18 — standard CNN architecture on CIFAR-10"
+status = "active"
+priority = "medium"
+success_criteria = [
+    "ResNet-18 model definition using nn module (BasicBlock, residual connections)",
+    "Inference on CIFAR-10 with pretrained weights (or random init forward pass)",
+    "Training on CIFAR-10 with proper batch_norm backward + residual gradient flow",
+    "Test accuracy > 80% on CIFAR-10 (standard benchmark)",
+]
+
+[[themes]]
+id = "rn-inference"
+epic = "resnet"
+title = "ResNet-18 inference — model definition + forward pass"
+status = "active"
+goal = "Build ResNet-18 using existing nn layers and verify forward pass"
+success_criteria = [
+    "ResNet-18 model struct using Conv2d, BatchNorm2d, ReLU, MaxPool2d, Linear",
+    "Forward pass produces valid logits for CIFAR-10 (10 classes)",
+    "Standalone example in examples/std/",
+]
+
+[[tasks]]
+id = "rn-inference.1"
+theme = "rn-inference"
+title = "Implement ResNet-18 model definition (BasicBlock + ResNet struct)"
+kind = "experiment"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "rn-inference.2"
+theme = "rn-inference"
+title = "Create ResNet-18 CIFAR-10 inference example with random weights"
+kind = "experiment"
+status = "pending"
+depends = ["rn-inference.1"]

@@ -945,3 +945,39 @@ title = "Benchmark: conv2d + CIFAR training after view optimization"
 kind = "experiment"
 status = "pending"
 depends = ["tv-impl.2"]
+
+# ============================================================
+# nn-perf Epic — optimize nn API inference speed
+# ============================================================
+
+[[epics]]
+id = "nn-perf"
+title = "NN API Inference Performance — close gap with raw kernels"
+status = "active"
+priority = "high"
+success_criteria = [
+    "GPT-2 nn API < 100ms/token (currently 190ms, raw=68ms)",
+    "MHA uses GPU split_qkv + concat_heads kernels (no host QKV extraction)",
+    "Reduce per-layer host round-trips in transformer forward",
+]
+
+[[themes]]
+id = "np-mha"
+epic = "nn-perf"
+title = "GPU-native MHA — replace host-side QKV split with GPU kernels"
+status = "active"
+goal = "MHA forward uses split_qkv, multi-head flash_attention, concat_heads on GPU"
+success_criteria = [
+    "split_qkv kernel replaces host-side per-head extraction loop",
+    "flash_attention launched with grid=(N_HEADS, n_tiles, 1) for all heads at once",
+    "concat_heads kernel replaces host-side output assembly",
+    "GPT-2 per-token latency < 100ms",
+]
+
+[[tasks]]
+id = "np-mha.1"
+theme = "np-mha"
+title = "Rewrite MHA forward to use GPU split_qkv + multi-head flash_attention + concat_heads"
+kind = "experiment"
+status = "pending"
+depends = []

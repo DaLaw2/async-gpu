@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 475     # Monotonic counter, incremented after each completed phase
-completed_tasks = 582
+total_cycles = 477     # Monotonic counter, incremented after each completed phase
+completed_tasks = 584
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "fuse-gemm-act.2"
-last_summary = "kernel-fusion: gemm_bias_gelu + gemm_bias_relu fused kernels in PTX. Unfused baseline 1.74ms. diff-physics 47.1x GPU. int8 dp4a GEMM. 3 new epics this session (diff-physics, int8-inference, kernel-fusion in progress)."
+current_task_id = "persist-kernel.2"
+last_summary = "persistent_worker kernel implemented: mapped memory work queue, fn_id dispatch (NOP/ADD/MUL/DOT4/SQRT). Next: benchmark dispatch latency vs kernel re-launch."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 107
@@ -871,3 +871,57 @@ kind = "experiment"
 status = "done"
 # Unfused baseline: 1.74ms (768→3072). Fused kernel in PTX, needs nn API integration for full benchmark.
 depends = ["fuse-gemm-act.1"]
+
+# ============================================================
+# Persistent Kernel Epic
+# ============================================================
+
+[[epics]]
+id = "persistent-kernel"
+title = "Persistent Kernel — long-running GPU compute with dynamic work dispatch"
+status = "active"
+priority = "high"
+success_criteria = [
+    "Persistent kernel stays alive across 100+ work items without re-launch",
+    "Work dispatch latency < 10μs (vs ~50μs for kernel re-launch)",
+    "At least one real workload benefits (e.g., many small GEMM dispatches)",
+    "Clean API: PersistentScheduler::submit(work_item) from host side",
+]
+
+[[themes]]
+id = "persist-kernel"
+epic = "persistent-kernel"
+title = "Persistent kernel with work queue"
+status = "active"
+goal = "GPU blocks stay alive consuming work items from shared queue"
+success_criteria = [
+    "Lock-free work queue between host and persistent GPU blocks",
+    "GPU blocks spin-wait on queue, execute work, signal completion",
+    "Host pushes work items and waits for results",
+]
+
+[[tasks]]
+id = "persist-kernel.1"
+theme = "persist-kernel"
+title = "Investigation: persistent kernel design, TDR avoidance, work queue protocol"
+kind = "investigation"
+status = "done"
+# Mapped memory work queue, 3-state protocol (FREE/READY/DONE), hostcall NOP for TDR heartbeat
+depends = []
+
+[[tasks]]
+id = "persist-kernel.2"
+theme = "persist-kernel"
+title = "Implement persistent kernel + work queue + host API"
+kind = "experiment"
+status = "done"
+# persistent_worker kernel: polls mapped memory work queue, executes fn_id-dispatched work items
+depends = ["persist-kernel.1"]
+
+[[tasks]]
+id = "persist-kernel.3"
+theme = "persist-kernel"
+title = "Benchmark: persistent dispatch latency vs kernel re-launch"
+kind = "experiment"
+status = "pending"
+depends = ["persist-kernel.2"]

@@ -42,6 +42,8 @@ const ML_KERNELS: &[&str] = &[
     "sigmoid_forward",
     "bias_add_chw",
     "channel_scale_chw",
+    // Persistent kernel (compute_persistent.rs)
+    "persistent_worker",
     // Fused GEMM + activation ops (compute_fused.rs)
     "gemm_bias_gelu",
     "gemm_bias_relu",

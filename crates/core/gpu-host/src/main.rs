@@ -424,10 +424,11 @@ fn main() -> Result<()> {
 
     // GPT-2 model weight loading test (model-loading.3)
     {
-        let model_path = std::path::Path::new("../../models/model.safetensors");
+        let model_path =
+            gpu_host::model_dir(Some(env!("CARGO_MANIFEST_DIR"))).join("model.safetensors");
         if model_path.exists() {
             println!("\n--- GPT-2 weight loading test (model-loading.3) ---");
-            let weights = gpu_host::model::load_gpt2_weights(model_path).map_err(|e| {
+            let weights = gpu_host::model::load_gpt2_weights(&model_path).map_err(|e| {
                 GpuHostError::Verification {
                     test: "model_loading",
                     detail: format!("{e}"),

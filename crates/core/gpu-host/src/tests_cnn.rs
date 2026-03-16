@@ -677,8 +677,8 @@ pub(crate) fn run_yolo_io_test() -> Result<()> {
 
     // Test 5: YOLO weight loading (optional — only if model file exists)
     {
-        let model_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../models/yolov8n.safetensors");
+        let model_path =
+            gpu_host::model_dir(Some(env!("CARGO_MANIFEST_DIR"))).join("yolov8n.safetensors");
         if model_path.exists() {
             let weights = gpu_host::model_yolo::load_yolo_weights(&model_path).map_err(|e| {
                 crate::error::GpuHostError::Verification {
@@ -1109,9 +1109,9 @@ pub(crate) fn run_yolo_end_to_end_test(dev: Arc<CudaDevice>) -> Result<()> {
         println!("\n=== YOLOv8-nano End-to-End Inference ===");
 
         // Check for required files
-        let base = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
-        let weights_path = base.join("models/yolov8n.safetensors");
-        let image_path = base.join("models/bus.ppm");
+        let models = gpu_host::model_dir(Some(env!("CARGO_MANIFEST_DIR")));
+        let weights_path = models.join("yolov8n.safetensors");
+        let image_path = models.join("bus.ppm");
 
         if !weights_path.exists() {
             println!("  SKIP: weights not found at {}", weights_path.display());

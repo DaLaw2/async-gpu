@@ -116,3 +116,49 @@ pub use error::{GpuHostError, Result};
 pub use hostcall::{HostcallBuffer, HostcallSession, Pipeline};
 pub use memory::MappedBuffer;
 pub use runtime::GpuRuntime;
+
+/// Returns the path to the repository-root `models/` directory.
+///
+/// Resolution order:
+/// 1. `ASYNC_GPU_MODELS` environment variable (if set)
+/// 2. Walk up from `start` (or current dir) until a `Cargo.toml` containing
+///    `[workspace]` is found, then append `models/`.
+///
+/// # Example
+///
+/// ```no_run
+/// // From any crate in the workspace:
+/// let dir = gpu_host::model_dir(Some(env!("CARGO_MANIFEST_DIR")));
+/// let gpt2 = dir.join("model.safetensors");
+/// ```
+pub fn model_dir(start: Option<&str>) -> std::path::PathBuf {
+    // 1. Env var override
+    if let Ok(dir) = std::env::var("ASYNC_GPU_MODELS") {
+        return std::path::PathBuf::from(dir);
+    }
+
+    // 2. Walk up to workspace root
+    let start_path = match start {
+        Some(s) => std::path::PathBuf::from(s),
+        None => std::env::current_dir().unwrap_or_default(),
+    };
+
+    let mut dir = start_path.as_path();
+    loop {
+        let cargo_toml = dir.join("Cargo.toml");
+        if cargo_toml.exists() {
+            if let Ok(contents) = std::fs::read_to_string(&cargo_toml) {
+                if contents.contains("[workspace]") {
+                    return dir.join("models");
+                }
+            }
+        }
+        match dir.parent() {
+            Some(parent) => dir = parent,
+            None => break,
+        }
+    }
+
+    // Fallback: assume CWD is workspace root
+    std::path::PathBuf::from("models")
+}

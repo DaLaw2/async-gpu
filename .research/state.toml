@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 407     # Monotonic counter, incremented after each completed phase
-completed_tasks = 462
+total_cycles = 409     # Monotonic counter, incremented after each completed phase
+completed_tasks = 469
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "ve-model-paths.1"
-last_summary = "Deep brainstorm bs102 complete. Roadmap: verify-examples (15t) → testing-infra (12t) → autograd-v1 (22t) → gpu-safety spike (2t). Scripts cleanup needed."
+current_task_id = "ve-nn-unit-tests.1"
+last_summary = "ve-model-paths theme DONE (3/3 tasks). model_dir() helper created, all 19+ refs updated. GPT-2 model downloaded. Next: nn unit tests + GPT-2 run."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 102
@@ -1082,7 +1082,7 @@ success_criteria = [
 id = "ve-model-paths"
 epic = "verify-examples"
 title = "Centralize model paths — all models under /models/"
-status = "active"
+status = "completed"
 goal = "Every safetensors reference points to repo-root /models/, no scattered paths"
 success_criteria = [
     "main.rs, tests_inference.rs, tests_cnn.rs all use consistent /models/ path",
@@ -1149,7 +1149,7 @@ id = "ve-model-paths.1"
 theme = "ve-model-paths"
 title = "Audit all model path references across codebase"
 kind = "investigation"
-status = "pending"
+status = "done"
 depends = []
 
 [[tasks]]
@@ -1157,7 +1157,7 @@ id = "ve-model-paths.2"
 theme = "ve-model-paths"
 title = "Create model_dir() helper that resolves to repo-root /models/"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["ve-model-paths.1"]
 
 [[tasks]]
@@ -1165,7 +1165,7 @@ id = "ve-model-paths.3"
 theme = "ve-model-paths"
 title = "Update all model path references to use centralized helper"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["ve-model-paths.2"]
 
 # --- ve-run-gpt2 tasks ---
@@ -1229,7 +1229,7 @@ id = "ve-nn-unit-tests.1"
 theme = "ve-nn-unit-tests"
 title = "Add Linear layer numerical correctness test (GPU vs CPU reference)"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = []
 
 [[tasks]]
@@ -1237,7 +1237,7 @@ id = "ve-nn-unit-tests.2"
 theme = "ve-nn-unit-tests"
 title = "Add LayerNorm layer numerical correctness test"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = []
 
 [[tasks]]
@@ -1245,7 +1245,7 @@ id = "ve-nn-unit-tests.3"
 theme = "ve-nn-unit-tests"
 title = "Add Conv2d layer numerical correctness test"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = []
 
 [[tasks]]
@@ -1253,7 +1253,7 @@ id = "ve-nn-unit-tests.4"
 theme = "ve-nn-unit-tests"
 title = "Add MultiHeadAttention numerical correctness test"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["ve-nn-unit-tests.1"]
 
 # ============================================================

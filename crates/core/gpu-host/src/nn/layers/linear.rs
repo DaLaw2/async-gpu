@@ -88,3 +88,105 @@ impl Module for Linear {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    fn test_registry() -> Arc<KernelRegistry> {
+        let dev = cudarc::driver::CudaDevice::new(0).expect("CUDA device");
+        Arc::new(KernelRegistry::new(Arc::clone(&dev), crate::ptx::KERNEL).expect("PTX load"))
+    }
+
+    /// CPU reference: y = x * W^T + b
+    fn cpu_linear(
+        input: &[f32],
+        weight: &[f32],
+        bias: Option<&[f32]>,
+        batch: usize,
+        in_f: usize,
+        out_f: usize,
+    ) -> Vec<f32> {
+        let mut out = vec![0.0f32; batch * out_f];
+        for b in 0..batch {
+            for o in 0..out_f {
+                let mut sum = 0.0f64;
+                for i in 0..in_f {
+                    // weight is [out_f, in_f] (row-major), so W[o][i] = weight[o * in_f + i]
+                    sum += input[b * in_f + i] as f64 * weight[o * in_f + i] as f64;
+                }
+                if let Some(bias) = bias {
+                    sum += bias[o] as f64;
+                }
+                out[b * out_f + o] = sum as f32;
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn test_linear_forward_matches_cpu() {
+        let registry = test_registry();
+        let dev = registry.device();
+
+        let batch = 4;
+        let in_f = 8;
+        let out_f = 6;
+
+        // Deterministic weights: small values for numerical stability
+        let weight: Vec<f32> = (0..out_f * in_f)
+            .map(|i| ((i as f32) - 24.0) * 0.01)
+            .collect();
+        let bias: Vec<f32> = (0..out_f).map(|i| i as f32 * 0.1).collect();
+        let input: Vec<f32> = (0..batch * in_f)
+            .map(|i| ((i as f32) - 16.0) * 0.1)
+            .collect();
+
+        // CPU reference
+        let expected = cpu_linear(&input, &weight, Some(&bias), batch, in_f, out_f);
+
+        // GPU
+        let layer = Linear::new(&weight, Some(&bias), in_f, out_f, &registry).unwrap();
+        let input_tensor = GpuTensor::from_host(&input, &[batch, in_f], dev).unwrap();
+        let output_tensor = layer.forward(&input_tensor).unwrap();
+        let gpu_result = output_tensor.to_host().unwrap();
+
+        assert_eq!(output_tensor.shape(), &[batch, out_f]);
+
+        // Compare with tolerance (f32 GEMM)
+        let max_err: f32 = expected
+            .iter()
+            .zip(gpu_result.iter())
+            .map(|(e, g)| (e - g).abs())
+            .fold(0.0f32, f32::max);
+        assert!(max_err < 1e-3, "max absolute error {max_err} exceeds 1e-3");
+    }
+
+    #[test]
+    fn test_linear_no_bias() {
+        let registry = test_registry();
+        let dev = registry.device();
+
+        let batch = 2;
+        let in_f = 4;
+        let out_f = 3;
+
+        let weight: Vec<f32> = (0..out_f * in_f).map(|i| i as f32 * 0.1).collect();
+        let input: Vec<f32> = (0..batch * in_f).map(|i| i as f32 * 0.5).collect();
+
+        let expected = cpu_linear(&input, &weight, None, batch, in_f, out_f);
+
+        let layer = Linear::new(&weight, None, in_f, out_f, &registry).unwrap();
+        let input_tensor = GpuTensor::from_host(&input, &[batch, in_f], dev).unwrap();
+        let output_tensor = layer.forward(&input_tensor).unwrap();
+        let gpu_result = output_tensor.to_host().unwrap();
+
+        let max_err: f32 = expected
+            .iter()
+            .zip(gpu_result.iter())
+            .map(|(e, g)| (e - g).abs())
+            .fold(0.0f32, f32::max);
+        assert!(max_err < 1e-3, "max absolute error {max_err} exceeds 1e-3");
+    }
+}

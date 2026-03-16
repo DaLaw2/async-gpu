@@ -8,7 +8,6 @@
 //!
 //! Requires `models/model.safetensors` in the repository root.
 
-use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -32,7 +31,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     println!("Kernel registry loaded ({} ML kernels)", 23);
 
     // 3. Load model weights from safetensors
-    let model_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../models/model.safetensors");
+    let model_path =
+        gpu_host::model_dir(Some(env!("CARGO_MANIFEST_DIR"))).join("model.safetensors");
     if !model_path.exists() {
         return Err(format!(
             "Model file not found: {}\nDownload GPT-2 Small safetensors to models/model.safetensors",
@@ -55,11 +55,14 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let config = gpu_host::nn::models::gpt2::Gpt2Config::small();
     let t1 = Instant::now();
     let model = gpu_host::nn::models::gpt2::Gpt2Model::from_weights(&weights, config, &registry)?;
-    println!("Model built on GPU in {:.1}ms", t1.elapsed().as_secs_f64() * 1000.0);
+    println!(
+        "Model built on GPU in {:.1}ms",
+        t1.elapsed().as_secs_f64() * 1000.0
+    );
 
     // 5. Tokenize prompts
-    let tokenizer = gpu_host::tokenizer::Gpt2Tokenizer::new()
-        .map_err(|e| format!("Tokenizer error: {e}"))?;
+    let tokenizer =
+        gpu_host::tokenizer::Gpt2Tokenizer::new().map_err(|e| format!("Tokenizer error: {e}"))?;
 
     let prompts = [
         "The capital of France is",
@@ -119,7 +122,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         if output_tokens == cached_tokens {
             println!("MATCH: cached and non-cached outputs agree");
         } else {
-            println!("MISMATCH: cached={} tokens, non-cached={} tokens", cached_tokens.len(), output_tokens.len());
+            println!(
+                "MISMATCH: cached={} tokens, non-cached={} tokens",
+                cached_tokens.len(),
+                output_tokens.len()
+            );
         }
     }
 

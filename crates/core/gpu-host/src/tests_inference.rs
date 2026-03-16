@@ -15,7 +15,7 @@ use crate::mapped_mem::{alloc_mapped_result_array, free_mapped_mem};
 /// Skips if model file is not present.
 pub(crate) fn run_full_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
     let model_path =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../models/model.safetensors");
+        gpu_host::model_dir(Some(env!("CARGO_MANIFEST_DIR"))).join("model.safetensors");
     if !model_path.exists() {
         println!("\n--- Skipping 12-layer forward pass (models/model.safetensors not found) ---");
         return Ok(());
@@ -797,7 +797,7 @@ pub(crate) fn run_full_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
 /// Skips if model file is not present.
 pub(crate) fn run_generation_test(dev: Arc<CudaDevice>) -> Result<()> {
     let model_path =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../models/model.safetensors");
+        gpu_host::model_dir(Some(env!("CARGO_MANIFEST_DIR"))).join("model.safetensors");
     if !model_path.exists() {
         println!("\n--- Skipping generation test (models/model.safetensors not found) ---");
         return Ok(());
@@ -1474,7 +1474,7 @@ pub(crate) fn run_generation_test(dev: Arc<CudaDevice>) -> Result<()> {
 /// the reason for wrong predictions.
 pub(crate) fn run_f32_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
     let model_path =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../models/model.safetensors");
+        gpu_host::model_dir(Some(env!("CARGO_MANIFEST_DIR"))).join("model.safetensors");
     if !model_path.exists() {
         println!("\n--- Skipping f32 GEMM forward pass (models/model.safetensors not found) ---");
         return Ok(());
@@ -2109,7 +2109,7 @@ pub(crate) fn run_f32_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
 /// (no host-side f16 packing needed). Reports timing for both paths.
 pub(crate) fn run_bf16_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
     let model_path =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../models/model.safetensors");
+        gpu_host::model_dir(Some(env!("CARGO_MANIFEST_DIR"))).join("model.safetensors");
     if !model_path.exists() {
         println!(
             "\n--- Skipping BF16 inference validation (models/model.safetensors not found) ---"
@@ -2883,7 +2883,7 @@ pub(crate) fn run_bf16_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
 /// baseline to validate MMA correctness in inference context.
 pub(crate) fn run_mma_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
     let model_path =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../models/model.safetensors");
+        gpu_host::model_dir(Some(env!("CARGO_MANIFEST_DIR"))).join("model.safetensors");
     if !model_path.exists() {
         println!("\n--- Skipping MMA forward pass (models/model.safetensors not found) ---");
         return Ok(());
@@ -3576,7 +3576,7 @@ pub(crate) fn run_mma_forward_test(dev: Arc<CudaDevice>) -> Result<()> {
 /// LM head after each of 12 layers to track where semantic content appears/is lost.
 pub(crate) fn run_cpu_f64_reference_test() -> Result<()> {
     let model_path =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../models/model.safetensors");
+        gpu_host::model_dir(Some(env!("CARGO_MANIFEST_DIR"))).join("model.safetensors");
     if !model_path.exists() {
         println!("\n--- Skipping CPU f64 reference (models/model.safetensors not found) ---");
         return Ok(());
@@ -4560,7 +4560,7 @@ pub(crate) fn run_cpu_f64_reference_test() -> Result<()> {
 /// Compares output tokens against non-cached generation to verify correctness.
 pub(crate) fn run_kv_cached_generation_test(dev: Arc<CudaDevice>) -> Result<()> {
     let model_path =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../models/model.safetensors");
+        gpu_host::model_dir(Some(env!("CARGO_MANIFEST_DIR"))).join("model.safetensors");
     if !model_path.exists() {
         println!("\n--- Skipping KV-cached generation (models/model.safetensors not found) ---");
         return Ok(());

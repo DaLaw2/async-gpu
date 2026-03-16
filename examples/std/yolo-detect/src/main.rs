@@ -16,18 +16,86 @@ use std::time::Instant;
 
 /// COCO class names (80 classes).
 const COCO_CLASSES: [&str; 80] = [
-    "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck",
-    "boat", "traffic light", "fire hydrant", "stop sign", "parking meter", "bench",
-    "bird", "cat", "dog", "horse", "sheep", "cow", "elephant", "bear", "zebra",
-    "giraffe", "backpack", "umbrella", "handbag", "tie", "suitcase", "frisbee",
-    "skis", "snowboard", "sports ball", "kite", "baseball bat", "baseball glove",
-    "skateboard", "surfboard", "tennis racket", "bottle", "wine glass", "cup",
-    "fork", "knife", "spoon", "bowl", "banana", "apple", "sandwich", "orange",
-    "broccoli", "carrot", "hot dog", "pizza", "donut", "cake", "chair", "couch",
-    "potted plant", "bed", "dining table", "toilet", "tv", "laptop", "mouse",
-    "remote", "keyboard", "cell phone", "microwave", "oven", "toaster", "sink",
-    "refrigerator", "book", "clock", "vase", "scissors", "teddy bear",
-    "hair drier", "toothbrush",
+    "person",
+    "bicycle",
+    "car",
+    "motorcycle",
+    "airplane",
+    "bus",
+    "train",
+    "truck",
+    "boat",
+    "traffic light",
+    "fire hydrant",
+    "stop sign",
+    "parking meter",
+    "bench",
+    "bird",
+    "cat",
+    "dog",
+    "horse",
+    "sheep",
+    "cow",
+    "elephant",
+    "bear",
+    "zebra",
+    "giraffe",
+    "backpack",
+    "umbrella",
+    "handbag",
+    "tie",
+    "suitcase",
+    "frisbee",
+    "skis",
+    "snowboard",
+    "sports ball",
+    "kite",
+    "baseball bat",
+    "baseball glove",
+    "skateboard",
+    "surfboard",
+    "tennis racket",
+    "bottle",
+    "wine glass",
+    "cup",
+    "fork",
+    "knife",
+    "spoon",
+    "bowl",
+    "banana",
+    "apple",
+    "sandwich",
+    "orange",
+    "broccoli",
+    "carrot",
+    "hot dog",
+    "pizza",
+    "donut",
+    "cake",
+    "chair",
+    "couch",
+    "potted plant",
+    "bed",
+    "dining table",
+    "toilet",
+    "tv",
+    "laptop",
+    "mouse",
+    "remote",
+    "keyboard",
+    "cell phone",
+    "microwave",
+    "oven",
+    "toaster",
+    "sink",
+    "refrigerator",
+    "book",
+    "clock",
+    "vase",
+    "scissors",
+    "teddy bear",
+    "hair drier",
+    "toothbrush",
 ];
 
 fn main() {
@@ -52,8 +120,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     println!("Kernel registry loaded");
 
     // 3. Load YOLO weights
-    let model_path =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../models/yolov8n.safetensors");
+    let models = gpu_host::model_dir(Some(env!("CARGO_MANIFEST_DIR")));
+    let model_path = models.join("yolov8n.safetensors");
     if !model_path.exists() {
         return Err(format!(
             "Model file not found: {}\nExport YOLOv8n with scripts/export_yolo.py",
@@ -65,18 +133,24 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let t0 = Instant::now();
     let weights = gpu_host::model_yolo::load_yolo_weights(&model_path)
         .map_err(|e| format!("Failed to load weights: {e}"))?;
-    println!("Weights loaded in {:.1}ms", t0.elapsed().as_secs_f64() * 1000.0);
+    println!(
+        "Weights loaded in {:.1}ms",
+        t0.elapsed().as_secs_f64() * 1000.0
+    );
 
     // 4. Build model
     let t1 = Instant::now();
     let model = gpu_host::nn::models::yolov8::YoloV8Nano::from_weights(&weights, &registry)?;
-    println!("Model built on GPU in {:.1}ms", t1.elapsed().as_secs_f64() * 1000.0);
+    println!(
+        "Model built on GPU in {:.1}ms",
+        t1.elapsed().as_secs_f64() * 1000.0
+    );
 
     // 5. Load input image
     let image_path = if args.len() > 1 {
         args[1].clone()
     } else {
-        let default = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../models/bus.ppm");
+        let default = gpu_host::model_dir(Some(env!("CARGO_MANIFEST_DIR"))).join("bus.ppm");
         default.to_string_lossy().to_string()
     };
 

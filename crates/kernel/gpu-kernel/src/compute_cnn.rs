@@ -430,6 +430,46 @@ pub unsafe extern "ptx-kernel" fn bias_add_chw(
     }
 }
 
+/// Per-channel multiplicative scale for CHW tensors.
+///
+/// `output[ch * hw + i] = input[ch * hw + i] * scale[ch]`
+///
+/// Used in BatchNorm backward: d_input = d_out * gamma * inv_std (per channel).
+///
+/// Grid: `(ceil(n / 256), 1, 1)`, Block: `(256, 1, 1)`.
+/// `n = channels * hw`, `hw = H * W`.
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn channel_scale_chw(
+    input: *const f32,
+    output: *mut f32,
+    scale: *const f32,
+    n: u32,
+    hw: u32,
+    status: *mut u32,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let block_x = nvptx::_block_idx_x() as u32;
+        let global_id = block_x * 256 + tid;
+
+        if global_id < n {
+            let ch = global_id / hw;
+            let val = *input.add(global_id as usize) * *scale.add(ch as usize);
+            *output.add(global_id as usize) = val;
+        }
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (input, output, scale, n, hw);
+    }
+
+    if tid == 0 {
+        *status = 0;
+    }
+}
+
 // ============================================================
 // col2im kernel — reverse of im2col for Conv2d backward
 // ============================================================

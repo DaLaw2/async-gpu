@@ -5,6 +5,8 @@ use std::sync::Arc;
 
 use super::tape::{OpKind, OpMeta, TapeEntry, TensorId};
 use super::TensorPool;
+use cudarc::driver::LaunchAsync;
+
 use crate::nn::error::{NnError, Result};
 use crate::nn::registry::KernelRegistry;
 use crate::nn::tensor::GpuTensor;
@@ -179,6 +181,7 @@ pub fn backward(
             OpKind::BatchNorm => {
                 // BatchNorm backward (eval-mode running stats):
                 // dInput[ch] = d_out[ch] * gamma[ch] * inv_std[ch]
+                // Fully GPU-side: upload per-channel scale, run channel_scale_chw kernel
                 if let OpMeta::BatchNorm {
                     channels,
                     hw,
@@ -187,16 +190,25 @@ pub fn backward(
                     ..
                 } = entry.meta
                 {
-                    let d_host = d_out.to_host()?;
-                    let mut d_input = vec![0.0f32; d_host.len()];
-                    for ch in 0..channels {
-                        let scale = gamma[ch] * inv_std[ch];
-                        for i in 0..hw {
-                            d_input[ch * hw + i] = d_host[ch * hw + i] * scale;
-                        }
-                    }
+                    // Compute per-channel scale on CPU (just `channels` floats, trivial)
+                    let scale_vec: Vec<f32> =
+                        (0..channels).map(|ch| gamma[ch] * inv_std[ch]).collect();
                     let dev = registry.device();
-                    let di = GpuTensor::from_host(&d_input, d_out.shape(), dev)?;
+                    let scale_gpu = dev.htod_copy(scale_vec)?;
+                    let n = (channels * hw) as u32;
+
+                    // Launch GPU kernel: d_input[i] = d_out[i] * scale[ch]
+                    let func = registry.get("channel_scale_chw")?;
+                    let config = crate::nn::KernelRegistry::config_1d(n);
+                    let status = dev.alloc_zeros::<u32>(1)?;
+                    let out_buf = dev.alloc_zeros::<f32>(n as usize)?;
+                    unsafe {
+                        func.launch(
+                            config,
+                            (d_out.data(), &out_buf, &scale_gpu, n, hw as u32, &status),
+                        )?;
+                    }
+                    let di = GpuTensor::from_data(out_buf, d_out.shape(), Arc::clone(dev));
                     accumulate_grad(&mut grads, entry.inputs[0], di, registry)?;
                 } else {
                     // Fallback: passthrough

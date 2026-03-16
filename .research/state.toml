@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 462     # Monotonic counter, incremented after each completed phase
-completed_tasks = 566
+total_cycles = 463     # Monotonic counter, incremented after each completed phase
+completed_tasks = 567
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = ""
-last_summary = "gpu-rag epic COMPLETED: 1030 chunks, 0.8ms GPU search, GPT-2 conditioned generation. Full RAG pipeline in examples/std/gpu-rag/. Next: brainstorm for more work (autograd-v4, kernel fusion, etc)."
+current_task_id = "ag4-batchnorm.1"
+last_summary = "ag4-batchnorm.1 DONE: GPU channel_scale_chw kernel replaces CPU roundtrip in BN backward. MNIST CNN 96.4% verified. Next: ag4-batchnorm.2 (numerical gradient check), MaxPool2d backward, UpsampleNearest backward."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 107
@@ -593,3 +593,48 @@ new_epics_spawned = ["gpu-rag"]
 themes_parked = []
 themes_completed = []
 key_insight = "GPU-Autonomous RAG is the killer app for the async model — combines hostcall I/O + real GPU compute (embedding, search, generation) in a single persistent kernel. Also identified: autograd-v4 (fix backward correctness), kernel fusion, persistent kernels as future epics."
+
+# ============================================================
+# Autograd v4 Epic — fix backward correctness
+# ============================================================
+
+[[epics]]
+id = "autograd-v4"
+title = "Autograd v4 — GPU-native backward passes for all ops"
+status = "active"
+priority = "high"
+success_criteria = [
+    "BatchNorm2d backward: GPU kernel computing dInput, dGamma, dBeta (no CPU roundtrip)",
+    "MaxPool2d backward: proper gradient routing through stored max indices",
+    "UpsampleNearest backward: correct 4-to-1 gradient accumulation",
+    "Numerical gradient check passes for each fixed op (finite differences, tolerance < 1e-3)",
+]
+
+[[themes]]
+id = "ag4-batchnorm"
+epic = "autograd-v4"
+title = "Fix BatchNorm2d backward — GPU kernel"
+status = "active"
+goal = "Replace CPU-roundtrip BatchNorm backward with GPU kernel"
+success_criteria = [
+    "GPU batchnorm_backward kernel computes dInput, dGamma, dBeta",
+    "Numerical gradient check passes (finite differences vs autograd)",
+    "CIFAR-10 training with BN produces lower loss than without BN",
+]
+
+[[tasks]]
+id = "ag4-batchnorm.1"
+theme = "ag4-batchnorm"
+title = "Implement GPU BatchNorm2d backward kernel + wire into tape"
+kind = "experiment"
+status = "done"
+# channel_scale_chw GPU kernel, no CPU roundtrip. MNIST CNN 96.4% verified.
+depends = []
+
+[[tasks]]
+id = "ag4-batchnorm.2"
+theme = "ag4-batchnorm"
+title = "Numerical gradient check for BatchNorm backward"
+kind = "experiment"
+status = "pending"
+depends = ["ag4-batchnorm.1"]

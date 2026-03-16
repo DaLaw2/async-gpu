@@ -41,6 +41,7 @@ const ML_KERNELS: &[&str] = &[
     "concat_channels",
     "sigmoid_forward",
     "bias_add_chw",
+    "channel_scale_chw",
     // Transformer ops (compute_transformer.rs)
     "layer_norm",
     "gelu_forward",

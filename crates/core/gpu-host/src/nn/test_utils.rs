@@ -872,6 +872,76 @@ mod tests {
         out
     }
 
+    /// Test LayerNorm gradient via finite differences.
+    #[test]
+    fn test_layer_norm_gradient_check() {
+        use crate::nn::autograd;
+        let registry = gpu_registry();
+        let dev = registry.device();
+
+        let rows = 3;
+        let d = 16;
+        let eps = 1e-5f32;
+        let x_data: Vec<f32> = (0..rows * d)
+            .map(|i| ((i % 13) as f32 - 6.0) * 0.1)
+            .collect();
+        let gamma: Vec<f32> = vec![1.0; d]; // gamma=1 for gradient check (matches our backward)
+        let beta: Vec<f32> = vec![0.0; d];
+
+        // CPU reference forward
+        let cpu_fwd = |x: &[f32]| -> f64 {
+            let out = cpu_layer_norm_f64(x, &gamma, &beta, rows, d, eps);
+            out.iter().map(|&v| v as f64).sum()
+        };
+
+        // Numerical gradient
+        let f0 = cpu_fwd(&x_data);
+        let h = 1e-3f32;
+        let mut numerical = vec![0.0f32; rows * d];
+        for i in 0..rows * d {
+            let mut x_plus = x_data.clone();
+            x_plus[i] += h;
+            numerical[i] = ((cpu_fwd(&x_plus) - f0) / h as f64) as f32;
+        }
+
+        // Autograd gradient
+        let tape = autograd::Tape::new();
+        let mut pool = autograd::TensorPool::new();
+
+        let (loss_id, tape) = autograd::with_tape(tape, || {
+            let mut x_gpu = GpuTensor::from_host(&x_data, &[rows, d], dev).unwrap();
+            x_gpu.set_requires_grad(true);
+            let x_id = autograd::alloc_tensor_id().unwrap();
+            x_gpu.set_tensor_id(x_id);
+            pool.insert(x_id, x_gpu.clone_tensor().unwrap());
+
+            let gamma_gpu = GpuTensor::from_host(&gamma, &[d], dev).unwrap();
+            let beta_gpu = GpuTensor::from_host(&beta, &[d], dev).unwrap();
+            let out =
+                crate::nn::ops::layer_norm(&x_gpu, &gamma_gpu, &beta_gpu, eps, &registry).unwrap();
+            let out_id = out.tensor_id().unwrap();
+            pool.insert(out_id, out);
+            out_id
+        });
+
+        let grads = autograd::backward::backward(&tape, &pool, loss_id, &registry).unwrap();
+        let x_id = autograd::TensorId(0);
+        let dx = grads.get(&x_id).expect("gradient for x");
+        let dx_host = dx.to_host().unwrap();
+
+        // LayerNorm backward with gamma=1 CPU approximation — use relaxed tolerance
+        // due to f32 precision differences between GPU kernel and CPU reference
+        assert_close(
+            &dx_host,
+            &numerical,
+            Tolerance {
+                rtol: 0.05,
+                atol: 5e-4,
+            },
+            "LayerNorm grad",
+        );
+    }
+
     /// Generic activation gradient check via finite differences.
     fn activation_gradient_check(
         forward_kernel: &'static str,

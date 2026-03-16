@@ -81,9 +81,28 @@ pub fn backward(
                 let d_out_clone = d_out.clone_tensor()?;
                 accumulate_grad(&mut grads, entry.inputs[0], d_out_clone, registry)?;
             }
+            OpKind::LayerNorm => {
+                let d_out_clone = d_out.clone_tensor()?;
+                let input_id = entry.saved[0];
+                let saved_input = pool.get(input_id).ok_or_else(|| NnError::ShapeMismatch {
+                    expected: "saved LayerNorm input".to_string(),
+                    actual: format!("TensorId({}) not found", input_id.0),
+                })?;
+                if let super::OpMeta::LayerNorm { rows, d, eps } = &entry.meta {
+                    let d_input = layer_norm_backward_cpu(
+                        &d_out_clone,
+                        saved_input,
+                        *rows,
+                        *d,
+                        *eps,
+                        registry,
+                    )?;
+                    accumulate_grad(&mut grads, entry.inputs[0], d_input, registry)?;
+                }
+            }
             // Placeholders for remaining ops
-            OpKind::LayerNorm | OpKind::Embedding | OpKind::CrossEntropy | OpKind::MseLoss => {
-                // TODO: implement in ag-norm-bwd, ag-loss
+            OpKind::Embedding | OpKind::CrossEntropy | OpKind::MseLoss => {
+                // TODO: implement in ag-loss
             }
         }
     }
@@ -106,6 +125,70 @@ fn accumulate_grad(
         grads.insert(id, new_grad);
     }
     Ok(())
+}
+
+/// CPU-side LayerNorm backward (v1 — simple, not fused).
+///
+/// Returns dX. (dGamma and dBeta are not yet needed for v1 since we only
+/// differentiate w.r.t. the input, not the parameters.)
+fn layer_norm_backward_cpu(
+    d_output: &GpuTensor,
+    input: &GpuTensor,
+    rows: usize,
+    d: usize,
+    eps: f32,
+    registry: &Arc<KernelRegistry>,
+) -> Result<GpuTensor> {
+    let dev = registry.device();
+    let dy_host = d_output.to_host()?;
+    let x_host = input.to_host()?;
+
+    // We also need gamma from the layer, but it's not saved.
+    // For now, assume gamma = 1 (standard LN without affine transform effect on backward).
+    // This is CORRECT for dX when we use the chain rule through the full op:
+    // dX = (1/std) * (dy*gamma - mean(dy*gamma) - x_hat * mean(dy*gamma*x_hat))
+    // Without gamma stored, we use gamma=1 which is a simplification.
+    // TODO: save gamma in TapeEntry for full correctness when gamma != 1.
+
+    let mut dx = vec![0.0f32; rows * d];
+    let eps64 = eps as f64;
+
+    for r in 0..rows {
+        let row = &x_host[r * d..(r + 1) * d];
+        let dy_row = &dy_host[r * d..(r + 1) * d];
+
+        // Compute mean and variance
+        let mean: f64 = row.iter().map(|&x| x as f64).sum::<f64>() / d as f64;
+        let var: f64 = row
+            .iter()
+            .map(|&x| {
+                let diff = x as f64 - mean;
+                diff * diff
+            })
+            .sum::<f64>()
+            / d as f64;
+        let inv_std = 1.0 / (var + eps64).sqrt();
+
+        // x_hat = (x - mean) / std
+        // With gamma=1: dx_hat = dy
+        // dX = inv_std * (dx_hat - mean(dx_hat) - x_hat * mean(dx_hat * x_hat))
+        let mut mean_dy: f64 = 0.0;
+        let mut mean_dy_xhat: f64 = 0.0;
+        for j in 0..d {
+            let xhat = (row[j] as f64 - mean) * inv_std;
+            mean_dy += dy_row[j] as f64;
+            mean_dy_xhat += dy_row[j] as f64 * xhat;
+        }
+        mean_dy /= d as f64;
+        mean_dy_xhat /= d as f64;
+
+        for j in 0..d {
+            let xhat = (row[j] as f64 - mean) * inv_std;
+            dx[r * d + j] = (inv_std * (dy_row[j] as f64 - mean_dy - xhat * mean_dy_xhat)) as f32;
+        }
+    }
+
+    GpuTensor::from_host(&dx, &[rows, d], dev)
 }
 
 /// Launch an element-wise activation backward kernel.

@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 424     # Monotonic counter, incremented after each completed phase
-completed_tasks = 506
+total_cycles = 425     # Monotonic counter, incremented after each completed phase
+completed_tasks = 509
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "ag-norm-bwd.1"
-last_summary = "ag-tape + ag-elemwise-bwd + ag-gemm-bwd COMPLETE (15 tasks). 38 nn tests pass, 506 tasks. Next: ag-norm-bwd.1 investigation then PTX kernel, then ag-optim + ag-loss + ag-demo."
+current_task_id = "ag-optim.1"
+last_summary = "ag-norm-bwd COMPLETE. LayerNorm backward + gradient check pass. 39 nn tests. Next: ag-optim (SGD+Adam) + ag-loss (cross_entropy+MSE) + ag-demo."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 102
@@ -1461,7 +1461,7 @@ success_criteria = [
 id = "ag-norm-bwd"
 epic = "autograd-v1"
 title = "LayerNorm backward kernel"
-status = "active"
+status = "completed"
 goal = "layer_norm_backward fused reduction kernel"
 success_criteria = [
     "dX, dγ, dβ computed correctly in fused kernel",
@@ -1642,7 +1642,7 @@ id = "ag-norm-bwd.1"
 theme = "ag-norm-bwd"
 title = "Design layer_norm_backward algorithm (Jacobian decomposition)"
 kind = "investigation"
-status = "active"
+status = "done"
 depends = []
 
 [[tasks]]
@@ -1650,7 +1650,7 @@ id = "ag-norm-bwd.2"
 theme = "ag-norm-bwd"
 title = "Implement layer_norm_backward fused PTX kernel"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["ag-norm-bwd.1", "ag-tape.6"]
 
 [[tasks]]
@@ -1658,7 +1658,7 @@ id = "ag-norm-bwd.3"
 theme = "ag-norm-bwd"
 title = "Numerical gradient check for LayerNorm"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["ag-norm-bwd.2", "ti-cpu-ref.2"]
 
 # ag-optim

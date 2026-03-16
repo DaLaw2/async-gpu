@@ -18,7 +18,7 @@
 
 ## CRITICAL Rules
 1. **Host Environment Policy** — The research workflow MUST NOT modify anything outside this repository. No installing packages, toolchains, or system libraries. No modifying PATH, environment variables, or system config. If environment changes are needed → STOP and ask the user.
-2. **Never Stop** — Do NOT stop unless the user explicitly asks. Keep executing the research loop continuously. When approaching context limits, save progress to `last_summary` in state.toml, commit + push. If no ready tasks, brainstorm will generate new ones.
+2. **Never Stop** — Do NOT stop unless the user explicitly asks. Keep executing the research loop continuously. **NEVER** pause to ask "要我繼續嗎?", **NEVER** report and wait, **NEVER** say "下個 session 繼續". When approaching context limits, save progress to `last_summary` in state.toml, commit + push, then **keep working**. If no ready tasks, brainstorm will generate new ones. This rule has been reinforced by the user 5+ times — treat any violation as a critical failure.
 3. **Infrastructure Serves Real Use Cases** — Build for practical value, NOT for its own sake. Every feature must answer: "How does this help a user build real GPU programs?" Demos must showcase COMPUTE, not just I/O. Always ask: "Would a user care about this?"
 4. **Keep the Repo Clean** — Codex is watching your every move. Do NOT litter the repo with temp files, one-off scripts, stale outputs, or misplaced artifacts. Clean up after yourself. If you keep making a mess, you WILL be replaced by Codex or Gemini.
 5. **GPU is Available — Always Run Tests** — This machine has a CUDA-capable NVIDIA GPU. **NEVER** say "I cannot run GPU" or "needs GPU hardware to test" — just run it. CI lacks GPU, but the development machine always has one.

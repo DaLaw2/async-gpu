@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 411     # Monotonic counter, incremented after each completed phase
-completed_tasks = 472
+total_cycles = 413     # Monotonic counter, incremented after each completed phase
+completed_tasks = 477
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "ve-existing-tests.1"
-last_summary = "GPT-2 nn API FIXED: embedding grid bug + LM head weight layout. Coherent text on all 3 prompts, cached=non-cached MATCH. 15 nn tests pass. YOLO blocked (no model)."
+current_task_id = ""
+last_summary = "verify-examples epic COMPLETE: all 5 criteria met. GPT-2 coherent text, YOLO 34 detections, tests_inference + tests_cnn all pass, 15 nn unit tests pass. Next: testing-infra epic."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 102
@@ -1064,8 +1064,9 @@ key_insight = "tensor-core-gemm ALL criteria met (2.18x throughput, zero error, 
 [[epics]]
 id = "verify-examples"
 title = "Verify Examples & Tests — end-to-end validation with centralized model storage"
-status = "active"
+status = "completed"
 priority = "high"
+# ALL 5 CRITERIA MET — closed 2026-03-16
 success_criteria = [
     "All model files referenced from /models/ (repo root) — no scattered paths",
     "GPT-2 inference example runs end-to-end and produces coherent text",
@@ -1106,7 +1107,7 @@ success_criteria = [
 id = "ve-run-yolo"
 epic = "verify-examples"
 title = "Run YOLOv8 detection end-to-end and verify output"
-status = "active"
+status = "completed"
 goal = "YOLOv8 example detects objects correctly in test image"
 success_criteria = [
     "yolo-detect example runs without crash",
@@ -1117,7 +1118,7 @@ success_criteria = [
 id = "ve-existing-tests"
 epic = "verify-examples"
 title = "Run existing test suites and fix any failures"
-status = "active"
+status = "completed"
 goal = "tests_inference.rs and tests_cnn.rs pass after nn API migration"
 success_criteria = [
     "cargo test tests_inference passes",
@@ -1193,16 +1194,15 @@ id = "ve-run-yolo.1"
 theme = "ve-run-yolo"
 title = "Prepare test image (PPM format) and run yolo-detect example"
 kind = "experiment"
-status = "blocked"
+status = "done"
 depends = ["ve-model-paths.3"]
-blocked_reason = "Needs yolov8n.safetensors + bus.ppm — requires ultralytics Python package"
 
 [[tasks]]
 id = "ve-run-yolo.2"
 theme = "ve-run-yolo"
 title = "Verify detections match expected objects in test image"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["ve-run-yolo.1"]
 
 # --- ve-existing-tests tasks ---
@@ -1212,7 +1212,7 @@ id = "ve-existing-tests.1"
 theme = "ve-existing-tests"
 title = "Run tests_inference.rs test suite and fix failures"
 kind = "experiment"
-status = "active"
+status = "done"
 depends = ["ve-model-paths.3"]
 
 [[tasks]]
@@ -1220,9 +1220,8 @@ id = "ve-existing-tests.2"
 theme = "ve-existing-tests"
 title = "Run tests_cnn.rs test suite and fix failures"
 kind = "experiment"
-status = "blocked"
+status = "done"
 depends = ["ve-model-paths.3"]
-blocked_reason = "Needs yolov8n.safetensors — requires ultralytics Python package to export"
 
 # --- ve-nn-unit-tests tasks ---
 

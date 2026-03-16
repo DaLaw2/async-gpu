@@ -83,8 +83,10 @@ cargo run --manifest-path examples/vector-math/host/Cargo.toml
 | `mnist-train` | MNIST MLP training (91.2% accuracy in 5 epochs) | Stock nightly |
 | `cifar-train` | CIFAR-10 tiny CNN training with loss convergence | Stock nightly |
 | `gpt2-lora` | GPT-2 LoRA fine-tuning on WikiText-2 (ppl 128→16, rank=8) | Stock nightly |
-| `mnist-cnn` | MNIST CNN training (96.4% accuracy, 1.47x GPU speedup) | Stock nightly |
-| `resnet-cifar` | ResNet-18 inference + Mini-ResNet training (8.1M params) | Stock nightly |
+| `mnist-cnn` | MNIST CNN training (96.4% accuracy, 2.62x GPU speedup) | Stock nightly |
+| `resnet-cifar` | ResNet-18 pretrained inference (91.3% CIFAR-10) + full conv training | Stock nightly |
+| `gpu-rag` | GPU-Autonomous RAG: 1030-chunk vector search + GPT-2 generation | Stock nightly |
+| `diff-physics` | Differentiable 2D spring-mass / N-body gravity (47.1x GPU speedup) | Stock nightly |
 
 </details>
 
@@ -139,7 +141,7 @@ End-to-end transformer inference — real HuggingFace weights, custom BPE tokeni
   PASSED (50 tokens, no NaN)
 ```
 
-GPU compute kernels: GEMM (f32 FMA + f16 Tensor Core MMA with split-K), FlashAttention (tiled online softmax, causal masking, KV cache), LayerNorm, GELU, Softmax, Embedding — all in Rust inline PTX.
+GPU compute kernels: GEMM (f32 FMA + f16 Tensor Core MMA with split-K + INT8 dp4a), FlashAttention (tiled online softmax, causal masking, KV cache), LayerNorm, GELU, Softmax, Embedding, fused GEMM+bias+activation — all in Rust inline PTX.
 
 Standalone example: `cargo run --manifest-path examples/std/gpt2-inference/Cargo.toml --release` (requires `models/model.safetensors` — run `bash scripts/download-models.sh`).
 
@@ -244,7 +246,7 @@ let tokens = model.generate(&prompt_tokens, 50)?;
 **Autograd** (tape-based reverse-mode AD):
 - Forward ops automatically record on a thread-local tape when `requires_grad = true`
 - `backward()` traverses tape in reverse with chain rule dispatch
-- Backward kernels: GELU, SiLU, sigmoid, ReLU, matmul, LayerNorm, bias_add, elementwise_add
+- Backward kernels: GELU, SiLU, sigmoid, ReLU, matmul, LayerNorm, BatchNorm (GPU), Conv2d (im2col), MaxPool2d (gradient routing), UpsampleNearest (4-to-1), bias_add, elementwise_add
 - Optimizers: SGD (with momentum), Adam
 - Losses: cross-entropy, MSE
 - Verified via numerical gradient checks (finite differences)
@@ -264,7 +266,7 @@ crates/
     gpu-atomics/       System-scope GPU atomics via inline PTX (CAS, shfl, activemask)
     gpu-libc/          Minimal libc shim for GPU: routes sys calls to hostcall
   kernel/
-    gpu-kernel/        Main GPU kernel crate (115 kernels: compute, hostcall, pipeline, backward)
+    gpu-kernel/        Main GPU kernel crate (125+ kernels: compute, hostcall, pipeline, backward, fused, physics, persistent)
     gpu-kernel-std/    GPU kernels using patched Rust std (println!, Vec, File, stdin)
   macro/
     warp-macro/        #[warp_async] proc macro (generates WarpFuture state machines)
@@ -273,7 +275,7 @@ rustc-patches/       Custom MIR pass patches for rustc
 scripts/             Build/CI automation, model download (download-models.sh, export_yolo.py)
 examples/
   hostcall/          8 raw-API examples (hello-gpu, async-pipeline, vector-math, etc.)
-  std/               7 nn-API examples (gpt2-inference, yolo-detect, mnist-train, mnist-cnn, cifar-train, gpt2-lora, resnet-cifar)
+  std/               9 nn-API examples (gpt2-inference, yolo-detect, mnist-train, mnist-cnn, cifar-train, gpt2-lora, resnet-cifar, gpu-rag, diff-physics)
 formal/              TLA+ specification and model-checking config
 ```
 
@@ -289,7 +291,9 @@ RTX 3060, SM 86:
 | GPT-2 per-token f16 MMA (Tensor Core) | ~26ms/token (2.18x over f32 FMA) |
 | GPT-2 nn API (non-cached) | ~79ms/token |
 | YOLOv8-nano inference | 374ms, 34 detections on 640x640 |
+| ResNet-18 pretrained (CIFAR-10) | 91.3% accuracy, 16.0ms/image |
 | Compute pipeline speedup | 1.91x vs multi-launch |
+| N-body gravity (4096 particles) | 47.1x GPU vs CPU |
 
 **Training** (GPU matmul + autograd tape):
 
@@ -298,6 +302,7 @@ RTX 3060, SM 86:
 | MNIST MLP (60K, 5 epochs) | 44.0s (8.8s/ep) | 7.8s (1.6s/ep) | **5.6x** | 91.2% |
 | MNIST CNN (60K, 5 epochs) | 541.3s (107.5s/ep) | 206.7s (41.3s/ep) | **2.62x** | 96.4% |
 | CIFAR-10 CNN (2K, 10 epochs) | 6.5s (0.7s/ep) | 7.2s (0.7s/ep) | 0.90x | 27.2%/21.0% |
+| Mini-ResNet (2K, 20 ep, full conv bwd) | — | 468.9s | — | 32.1% |
 
 MNIST MLP shows clear GPU advantage for matmul-heavy workloads (batch=64, 784×128 GPU GEMM). MNIST CNN uses full GPU conv2d backward (im2col + matmul + col2im) — 2.62x over CPU. CIFAR-10 GPU produces **identical** loss/accuracy curves to CPU. All use `--cpu` for comparison.
 

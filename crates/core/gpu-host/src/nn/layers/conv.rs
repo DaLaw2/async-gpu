@@ -129,9 +129,48 @@ mod tests {
         out
     }
 
-    // NOTE: multi-channel and small-N conv2d have GEMM output extraction bugs.
-    // The 3x3 padding=1 test passes because n=25 requires 2 GEMM tiles.
-    // See ve-model-paths findings for details. Fix task needed.
+    #[test]
+    fn test_conv2d_1x1_identity() {
+        let registry = test_registry();
+        let dev = registry.device();
+        let weight = vec![1.0, 0.0, 0.0, 1.0]; // [2, 2, 1, 1] identity
+        let input: Vec<f32> = (0..2 * 4 * 4).map(|i| i as f32 * 0.1).collect();
+        let expected = cpu_conv2d(&input, &weight, None, 2, 4, 4, 2, 1, 1, 1, 0);
+        let layer = Conv2d::new(&weight, None, 2, 2, 1, 1, 1, 0, &registry).unwrap();
+        let input_t = GpuTensor::from_host(&input, &[2, 4, 4], dev).unwrap();
+        let output_t = layer.forward(&input_t).unwrap();
+        let gpu = output_t.to_host().unwrap();
+        let max_err: f32 = expected
+            .iter()
+            .zip(gpu.iter())
+            .map(|(e, g)| (e - g).abs())
+            .fold(0.0f32, f32::max);
+        assert!(max_err < 1e-3, "1x1 identity conv max_err={max_err}");
+    }
+
+    #[test]
+    fn test_conv2d_multichannel() {
+        let registry = test_registry();
+        let dev = registry.device();
+        let (c_in, c_out, h, w, kh, kw) = (3, 4, 8, 8, 3, 3);
+        let weight: Vec<f32> = (0..c_out * c_in * kh * kw)
+            .map(|i| ((i as f32) - 54.0) * 0.01)
+            .collect();
+        let input: Vec<f32> = (0..c_in * h * w)
+            .map(|i| ((i as f32) - 96.0) * 0.01)
+            .collect();
+        let expected = cpu_conv2d(&input, &weight, None, c_in, h, w, c_out, kh, kw, 1, 1);
+        let layer = Conv2d::new(&weight, None, c_out, c_in, kh, kw, 1, 1, &registry).unwrap();
+        let input_t = GpuTensor::from_host(&input, &[c_in, h, w], dev).unwrap();
+        let output_t = layer.forward(&input_t).unwrap();
+        let gpu = output_t.to_host().unwrap();
+        let max_err: f32 = expected
+            .iter()
+            .zip(gpu.iter())
+            .map(|(e, g)| (e - g).abs())
+            .fold(0.0f32, f32::max);
+        assert!(max_err < 0.1, "multichannel conv max_err={max_err}");
+    }
 
     #[test]
     fn test_conv2d_3x3_matches_cpu() {

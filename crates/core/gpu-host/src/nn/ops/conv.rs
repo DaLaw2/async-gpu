@@ -81,74 +81,27 @@ pub fn conv2d(
     }
     dev.synchronize().map_err(NnError::Cuda)?;
 
-    // 2. GEMM: weight_cm [col_h, C_out] col-major × col [col_h, col_w] → result [col_w, C_out]
-    // Actually: gemm_f32 computes D = A * B where A=[M,K] row-major, B=[K,N] col-major
-    // We want: output = weight_reshaped * col_matrix
-    //   weight is [C_out, col_h] row-major → use as A with M=C_out, K=col_h
-    //   col is [col_h, col_w] row-major → need col-major B with K=col_h, N=col_w
-    let m = c_out;
-    let k = col_h;
-    let n = col_w;
-
-    // Pad to tile boundaries
-    let m_pad = m.div_ceil(32) * 32;
-    let k_pad = k.div_ceil(16) * 16;
-    let n_pad = n.div_ceil(16) * 16;
-
-    // Prepare A (weight reshaped to [C_out, col_h] = [C_out, C_in*kH*kW]) padded
+    // 2. GEMM via nn::ops::matmul (handles all padding correctly)
+    // im2col outputs [spatial, K] row-major (spatial = h_out*w_out, K = c_in*kh*kw)
+    // We need: Output[C_out, spatial] = Weight[C_out, K] × Col[K, spatial]
+    // So transpose the im2col output from [spatial, K] to [K, spatial]
     let w_host = weight.to_host()?;
-    let mut a_padded = vec![0.0f32; m_pad * k_pad];
-    for r in 0..m {
-        for c in 0..k {
-            a_padded[r * k_pad + c] = w_host[r * k + c];
+    let col_raw = dev.dtoh_sync_copy(&col_dev)?;
+
+    // Transpose col from [spatial, K] to [K, spatial]
+    let mut col_t = vec![0.0f32; col_h * col_w];
+    for s in 0..col_w {
+        for k in 0..col_h {
+            col_t[k * col_w + s] = col_raw[s * col_h + k];
         }
     }
-    let a_dev = dev.htod_sync_copy(&a_padded)?;
 
-    // Prepare B (col matrix) in column-major, padded
-    let col_host = dev.dtoh_sync_copy(&col_dev)?;
-    let mut b_cm = vec![0.0f32; k_pad * n_pad];
-    for r in 0..k {
-        for c in 0..n {
-            b_cm[c * k_pad + r] = col_host[r * n + c];
-        }
-    }
-    let b_dev = dev.htod_sync_copy(&b_cm)?;
+    let w_tensor = GpuTensor::from_host(&w_host, &[c_out, col_h], dev)?;
+    let col_tensor = GpuTensor::from_host(&col_t, &[col_h, col_w], dev)?;
+    let gemm_out = super::matmul(&w_tensor, &col_tensor, registry)?;
 
-    let mut d_dev = dev.alloc_zeros::<f32>(m_pad * n_pad)?;
-
-    let f_gemm = registry.get("gemm_f32")?;
-    let gemm_config = cudarc::driver::LaunchConfig {
-        grid_dim: (m_pad as u32 / 32, n_pad as u32 / 16, 1),
-        block_dim: (128, 1, 1),
-        shared_mem_bytes: 3072,
-    };
-    let status_dev2 = dev.htod_sync_copy(&[0u32])?;
-    unsafe {
-        f_gemm
-            .launch(
-                gemm_config,
-                (
-                    &a_dev,
-                    &b_dev,
-                    &mut d_dev,
-                    k_pad as u32,
-                    n_pad as u32,
-                    &status_dev2,
-                ),
-            )
-            .map_err(NnError::Cuda)?;
-    }
-    dev.synchronize().map_err(NnError::Cuda)?;
-
-    // 3. Extract [C_out, col_w] from padded output and reshape to [C_out, H_out, W_out]
-    let d_host = dev.dtoh_sync_copy(&d_dev)?;
-    let mut result = vec![0.0f32; c_out * h_out * w_out];
-    for r in 0..c_out {
-        for c in 0..col_w {
-            result[r * col_w + c] = d_host[r * n_pad + c];
-        }
-    }
+    // 3. Result is [C_out, col_w] = [C_out, h_out * w_out] — already in CHW layout
+    let mut result = gemm_out.to_host()?;
 
     // 4. Add bias if present
     if let Some(bias_tensor) = bias {

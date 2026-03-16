@@ -293,9 +293,9 @@ RTX 3060, SM 86:
 | Example | CPU | GPU | Speedup | Accuracy |
 |---------|-----|-----|---------|----------|
 | MNIST MLP (60K, 5 epochs) | 43.9s (8.8s/ep) | 12.6s (2.5s/ep) | **3.5x** | 91.2% |
-| CIFAR-10 CNN (2K, 10 epochs) | 6.5s (0.7s/ep) | 9.1s (0.9s/ep) | 0.7x | 27%/19% |
+| CIFAR-10 CNN (2K, 10 epochs) | 6.5s (0.7s/ep) | 12.6s (1.3s/ep) | 0.5x | 27%/29% |
 
-MNIST shows clear GPU advantage for matmul-heavy workloads (batch=64, 784×128 GEMM). CIFAR-10 CNN is slower on GPU due to per-sample conv2d H2D/D2H overhead for small 32×32 images. Both examples include `--cpu` flag for benchmark comparison.
+MNIST shows clear GPU advantage for matmul-heavy workloads (batch=64, 784×128 GEMM). CIFAR-10 GPU accuracy matches CPU (conv weights fully trained via backward), but per-sample conv2d H2D/D2H overhead makes it slower for small 32×32 images. Both examples include `--cpu` flag for benchmark comparison.
 
 **Hostcall**:
 

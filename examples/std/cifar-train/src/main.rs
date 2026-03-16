@@ -49,8 +49,8 @@ fn run_gpu() -> Result<(), Box<dyn std::error::Error>> {
     let epochs = 10;
     let ts = Instant::now();
 
-    // Pre-upload conv weights (reuse across batch)
-    let cw_gpu = GpuTensor::from_host(&conv_w, &[c_out, c_in, kh, kw], &dev)?;
+    // Conv weights GPU tensor — re-uploaded after each batch update
+    let mut cw_gpu = GpuTensor::from_host(&conv_w, &[c_out, c_in, kh, kw], &dev)?;
 
     for epoch in 0..epochs {
         let es = Instant::now();
@@ -84,6 +84,7 @@ fn run_gpu() -> Result<(), Box<dyn std::error::Error>> {
 
             let (logits_host, tape) = autograd::with_tape(tape, || {
                 let mut feat = GpuTensor::from_host(&all_pooled, &[bs, flat], &dev).unwrap();
+                feat.set_requires_grad(true); // needed for FC backward to compute d_feat
                 let fid = autograd::alloc_tensor_id().unwrap();
                 feat.set_tensor_id(fid);
                 pool.insert(fid, feat.clone_tensor().unwrap());
@@ -178,7 +179,8 @@ fn run_gpu() -> Result<(), Box<dyn std::error::Error>> {
                     for i in 0..d_conv_w.len() { d_conv_w[i] += dw[i]; }
                 }
                 for i in 0..conv_w.len() { conv_w[i] -= lr * d_conv_w[i]; }
-                // Update GPU conv weight tensor
+                // Re-upload updated conv weights to GPU
+                cw_gpu = GpuTensor::from_host(&conv_w, &[c_out, c_in, kh, kw], &dev)?;
             }
 
             total_loss /= bs as f64;

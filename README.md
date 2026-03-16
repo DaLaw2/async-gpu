@@ -292,7 +292,7 @@ RTX 3060, SM 86:
 
 | Example | CPU | GPU | Speedup | Accuracy |
 |---------|-----|-----|---------|----------|
-| MNIST MLP (60K, 5 epochs) | 44.0s (8.8s/ep) | 8.4s (1.7s/ep) | **5.2x** | 91.2% |
+| MNIST MLP (60K, 5 epochs) | 44.0s (8.8s/ep) | 7.9s (1.6s/ep) | **5.6x** | 91.2% |
 | CIFAR-10 CNN (2K, 10 epochs) | 6.5s (0.7s/ep) | 7.2s (0.7s/ep) | 0.90x | 27.2%/21.0% |
 
 MNIST shows clear GPU advantage for matmul-heavy workloads (batch=64, 784×128 GPU GEMM). CIFAR-10 GPU produces **identical** loss/accuracy curves to CPU — per-epoch time matches at 0.7s; total GPU overhead is one-time initialization. Both use `--cpu` for comparison.

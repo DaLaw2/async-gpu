@@ -66,7 +66,6 @@ pub fn matmul(a: &GpuTensor, b: &GpuTensor, registry: &Arc<KernelRegistry>) -> R
                 ),
             )?;
         }
-        dev.synchronize().map_err(NnError::Cuda)?;
         buf
     };
 
@@ -82,7 +81,6 @@ pub fn matmul(a: &GpuTensor, b: &GpuTensor, registry: &Arc<KernelRegistry>) -> R
         unsafe {
             f_transpose.launch(cfg_t, (b.data(), &mut b_t, k as u32, n as u32, &status))?;
         }
-        dev.synchronize().map_err(NnError::Cuda)?;
 
         // Step 2: Pad B_T[n, k] → [n_pad, k_pad]
         if n == n_pad && k == k_pad {
@@ -106,7 +104,6 @@ pub fn matmul(a: &GpuTensor, b: &GpuTensor, registry: &Arc<KernelRegistry>) -> R
                     ),
                 )?;
             }
-            dev.synchronize().map_err(NnError::Cuda)?;
             buf
         }
     };
@@ -132,7 +129,6 @@ pub fn matmul(a: &GpuTensor, b: &GpuTensor, registry: &Arc<KernelRegistry>) -> R
             ),
         )?;
     }
-    dev.synchronize().map_err(NnError::Cuda)?;
 
     // === Extract unpadded [m, n] from [m_pad, n_pad] on GPU ===
     let output_dev = if m == m_pad && n == n_pad {
@@ -148,7 +144,6 @@ pub fn matmul(a: &GpuTensor, b: &GpuTensor, registry: &Arc<KernelRegistry>) -> R
                 (&d_dev, &mut buf, m as u32, n as u32, n_pad as u32, &status),
             )?;
         }
-        dev.synchronize().map_err(NnError::Cuda)?;
         buf
     };
 

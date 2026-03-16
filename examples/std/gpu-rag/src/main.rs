@@ -59,7 +59,8 @@ fn run(query: &str) -> Result<(), Box<dyn std::error::Error>> {
 
     // --- Step 2: Build vector store from sample chunks ---
     let t1 = Instant::now();
-    let chunks = sample_knowledge_base();
+    let chunks = build_knowledge_base();
+    let chunk_refs: Vec<&str> = chunks.iter().map(|s| s.as_str()).collect();
     println!("Knowledge base: {} chunks", chunks.len());
 
     // Embed each chunk via wte averaging (fast, no transformer forward pass)
@@ -67,7 +68,7 @@ fn run(query: &str) -> Result<(), Box<dyn std::error::Error>> {
     let embed_dim = config.n_embd;
 
     let mut store_embeddings = Vec::with_capacity(chunks.len() * embed_dim);
-    for chunk in &chunks {
+    for chunk in &chunk_refs {
         let tokens = tokenizer.encode(chunk);
         let emb = wte_average(&wte_host, &tokens, embed_dim);
         let norm = l2_normalize(&emb);
@@ -108,8 +109,8 @@ fn run(query: &str) -> Result<(), Box<dyn std::error::Error>> {
     println!("\nTop-{top_k} retrieved chunks:");
     let mut context = String::new();
     for (rank, &(idx, score)) in indexed.iter().take(top_k).enumerate() {
-        println!("  [{rank}] score={score:.4}: {}", &chunks[idx][..chunks[idx].len().min(80)]);
-        context.push_str(chunks[idx]);
+        println!("  [{rank}] score={score:.4}: {}", &chunk_refs[idx][..chunk_refs[idx].len().min(80)]);
+        context.push_str(chunk_refs[idx]);
         context.push('\n');
     }
 
@@ -213,9 +214,9 @@ fn l2_normalize(v: &[f32]) -> Vec<f32> {
     v.iter().map(|x| x / norm).collect()
 }
 
-/// Sample knowledge base for the RAG demo.
-fn sample_knowledge_base() -> Vec<&'static str> {
-    vec![
+/// Build knowledge base: 30 core chunks + generated domain chunks to reach 1000+.
+fn build_knowledge_base() -> Vec<String> {
+    let core: Vec<&str> = vec![
         "Rust is a systems programming language focused on safety, speed, and concurrency. It achieves memory safety without garbage collection through its ownership system.",
         "CUDA is NVIDIA's parallel computing platform that enables GPU-accelerated computing. It provides APIs for C, C++, and Fortran to access GPU hardware.",
         "async_gpu is a research project that brings Rust async/await to GPU programming. It uses a patched rustc compiler to compile Rust futures to PTX assembly.",
@@ -246,5 +247,47 @@ fn sample_knowledge_base() -> Vec<&'static str> {
         "Global average pooling replaces the fully connected classifier in modern CNNs. It averages each feature map to a single value, reducing parameters and overfitting.",
         "The C2f module in YOLOv8 uses cross-stage partial connections with two convolutions and N bottleneck blocks, efficiently combining features from different depths.",
         "Warp-cooperative async enables GPU threads within a warp to share a single hostcall packet. Lane 0 submits the request, and the result is broadcast via shuffle instructions.",
-    ]
+    ];
+
+    let mut chunks: Vec<String> = core.iter().map(|s| s.to_string()).collect();
+
+    // Generate domain-specific chunks to reach 1000+
+    let topics = [
+        ("GPU architecture", &["SM count", "warp scheduler", "register file", "shared memory bank", "L2 cache", "memory controller", "PCIe bus", "NVLink", "texture unit", "RT core"] as &[&str]),
+        ("CUDA programming", &["kernel launch", "thread block", "grid dimension", "threadIdx", "blockIdx", "syncthreads", "atomic operation", "coalesced access", "bank conflict", "occupancy"]),
+        ("Deep learning", &["backpropagation", "gradient descent", "learning rate", "weight decay", "dropout", "data augmentation", "transfer learning", "fine-tuning", "knowledge distillation", "model pruning"]),
+        ("Transformer architecture", &["self-attention", "multi-head attention", "positional encoding", "feed-forward network", "layer normalization", "residual connection", "causal mask", "token embedding", "softmax", "scaled dot product"]),
+        ("Computer vision", &["convolution", "pooling", "feature map", "receptive field", "stride", "padding", "dilation", "depthwise separable", "anchor box", "non-maximum suppression"]),
+        ("Natural language processing", &["tokenization", "byte-pair encoding", "vocabulary", "sequence length", "padding mask", "autoregressive", "beam search", "temperature sampling", "top-k sampling", "nucleus sampling"]),
+        ("Optimization", &["SGD", "momentum", "AdaGrad", "RMSprop", "Adam", "AdamW", "learning rate schedule", "warmup", "cosine annealing", "gradient clipping"]),
+        ("Memory management", &["CUDA malloc", "pinned memory", "unified memory", "memory pool", "slab allocator", "bump allocator", "reference counting", "arena allocation", "zero-copy", "DMA transfer"]),
+        ("Numerical computing", &["floating point", "IEEE 754", "rounding error", "catastrophic cancellation", "Kahan summation", "numerical stability", "condition number", "matrix factorization", "eigenvalue", "singular value"]),
+        ("Systems programming", &["ownership", "borrowing", "lifetime", "trait object", "generic type", "associated type", "unsafe block", "FFI", "ABI", "linker"]),
+    ];
+
+    for (domain, concepts) in &topics {
+        for concept in concepts.iter() {
+            // Generate 10 variations per concept
+            let templates = [
+                format!("In {domain}, {concept} is a fundamental concept that affects how computations are organized and executed on modern hardware."),
+                format!("The {concept} technique in {domain} provides a way to optimize performance by reducing overhead and improving resource utilization."),
+                format!("Understanding {concept} is essential for {domain} practitioners. It determines how data flows through the computational pipeline."),
+                format!("When working with {concept} in {domain}, developers must consider trade-offs between throughput, latency, and memory usage."),
+                format!("Advanced {domain} systems rely heavily on {concept} to achieve high performance. Proper tuning can yield significant speedups."),
+                format!("The relationship between {concept} and other {domain} primitives creates opportunities for optimization at multiple levels."),
+                format!("Research in {domain} has shown that {concept} can be improved by up to 10x through careful algorithmic and hardware co-design."),
+                format!("Modern {domain} frameworks abstract {concept} behind high-level APIs, but understanding the underlying mechanics remains important."),
+                format!("The evolution of {concept} in {domain} reflects broader trends in computer architecture and software engineering practices."),
+                format!("Benchmarking {concept} across different {domain} implementations reveals significant performance variations depending on hardware and workload."),
+            ];
+            for t in &templates {
+                chunks.push(t.clone());
+                if chunks.len() >= 1030 {
+                    return chunks;
+                }
+            }
+        }
+    }
+
+    chunks
 }

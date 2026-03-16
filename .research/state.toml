@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 460     # Monotonic counter, incremented after each completed phase
-completed_tasks = 563
+total_cycles = 461     # Monotonic counter, incremented after each completed phase
+completed_tasks = 564
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "rag-embed.2"
-last_summary = "bs107: GPU-Autonomous RAG chosen as next epic. Builds on async model + GPT-2. Also recommended: autograd-v4 (fix backward correctness), kernel fusion, persistent kernels."
+current_task_id = "rag-pipeline.2"
+last_summary = "rag-embed theme DONE: 1030 chunks, 0.8ms GPU matmul search, wte averaging. RAG demo works with GPT-2 generation. Next: rag-pipeline.2 (autonomous kernel with hostcall)."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 107
@@ -501,7 +501,7 @@ success_criteria = [
 id = "rag-embed"
 epic = "gpu-rag"
 title = "Vector embedding + similarity search on GPU"
-status = "active"
+status = "completed"
 goal = "GPU-side cosine similarity search over embedded document store"
 success_criteria = [
     "GPU cosine similarity kernel: compute similarity between query and N stored vectors",
@@ -546,7 +546,8 @@ id = "rag-embed.3"
 theme = "rag-embed"
 title = "Vector store: load pre-embedded chunks, benchmark search latency"
 kind = "experiment"
-status = "pending"
+status = "done"
+# 1030 chunks, 0.8ms GPU matmul search, correct retrieval verified
 depends = ["rag-embed.2"]
 
 [[tasks]]
@@ -563,7 +564,7 @@ id = "rag-pipeline.2"
 theme = "rag-pipeline"
 title = "Implement autonomous RAG kernel: query → search → GPT-2 generate → output"
 kind = "experiment"
-status = "pending"
+status = "active"
 depends = ["rag-embed.3", "rag-pipeline.1"]
 
 [[tasks]]

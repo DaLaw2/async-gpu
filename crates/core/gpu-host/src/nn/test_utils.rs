@@ -942,6 +942,88 @@ mod tests {
         );
     }
 
+    /// Test attention gradient via finite differences (autograd-v2).
+    #[test]
+    fn test_attention_gradient_check() {
+        use crate::nn::autograd;
+        let registry = gpu_registry();
+        let dev = registry.device();
+
+        let seq = 4;
+        let d = 64; // Must match flash_attention kernel's d_head expectation
+        let q_data: Vec<f32> = (0..seq * d)
+            .map(|i| ((i % 17) as f32 - 8.0) * 0.01)
+            .collect();
+        let k_data: Vec<f32> = (0..seq * d)
+            .map(|i| ((i % 13) as f32 - 6.0) * 0.01)
+            .collect();
+        let v_data: Vec<f32> = (0..seq * d)
+            .map(|i| ((i % 19) as f32 - 9.0) * 0.01)
+            .collect();
+
+        // CPU reference forward: sum of all output elements
+        let cpu_fwd = |q: &[f32], k: &[f32], v: &[f32]| -> f64 {
+            let out = cpu_attention_f64(q, k, v, seq, d);
+            out.iter().map(|&x| x as f64).sum()
+        };
+
+        // Numerical gradient for Q
+        let f0 = cpu_fwd(&q_data, &k_data, &v_data);
+        let eps = 1e-3f32;
+        let check_indices = [0, 1, d - 1, seq * d - 1];
+        let mut numerical_dq = vec![0.0f32; check_indices.len()];
+        for (ci, &idx) in check_indices.iter().enumerate() {
+            let mut q_plus = q_data.clone();
+            q_plus[idx] += eps;
+            numerical_dq[ci] = ((cpu_fwd(&q_plus, &k_data, &v_data) - f0) / eps as f64) as f32;
+        }
+
+        // Autograd gradient
+        let tape = autograd::Tape::new();
+        let mut pool = autograd::TensorPool::new();
+
+        let (loss_id, tape) = autograd::with_tape(tape, || {
+            let mut q_gpu = GpuTensor::from_host(&q_data, &[seq, d], dev).unwrap();
+            q_gpu.set_requires_grad(true);
+            let q_id = autograd::alloc_tensor_id().unwrap();
+            q_gpu.set_tensor_id(q_id);
+            pool.insert(q_id, q_gpu.clone_tensor().unwrap());
+
+            let mut k_gpu = GpuTensor::from_host(&k_data, &[seq, d], dev).unwrap();
+            let k_id = autograd::alloc_tensor_id().unwrap();
+            k_gpu.set_tensor_id(k_id);
+            pool.insert(k_id, k_gpu.clone_tensor().unwrap());
+
+            let mut v_gpu = GpuTensor::from_host(&v_data, &[seq, d], dev).unwrap();
+            let v_id = autograd::alloc_tensor_id().unwrap();
+            v_gpu.set_tensor_id(v_id);
+            pool.insert(v_id, v_gpu.clone_tensor().unwrap());
+
+            let out = crate::nn::ops::scaled_dot_product_attention(
+                &q_gpu, &k_gpu, &v_gpu, true, &registry,
+            )
+            .unwrap();
+            let out_id = out.tensor_id().unwrap();
+            pool.insert(out_id, out);
+            out_id
+        });
+
+        let grads = autograd::backward::backward(&tape, &pool, loss_id, &registry).unwrap();
+        let q_id = autograd::TensorId(0);
+        let dq = grads.get(&q_id).expect("gradient for Q");
+        let dq_host = dq.to_host().unwrap();
+
+        // Compare selected indices
+        for (ci, &idx) in check_indices.iter().enumerate() {
+            let autograd_val = dq_host[idx];
+            let numerical_val = numerical_dq[ci];
+            assert!(
+                (autograd_val - numerical_val).abs() < 0.05,
+                "dQ[{idx}]: autograd={autograd_val:.4}, numerical={numerical_val:.4}"
+            );
+        }
+    }
+
     /// Test Conv2d gradient via finite differences (autograd-v2).
     #[test]
     fn test_conv2d_gradient_check() {

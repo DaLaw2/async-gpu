@@ -69,6 +69,34 @@ pub fn scaled_dot_product_attention(
     }
     dev.synchronize().map_err(NnError::Cuda)?;
 
+    // Record on autograd tape
+    if q.requires_grad() || k.requires_grad() || v.requires_grad() {
+        if let Some(out_id) = crate::nn::autograd::alloc_tensor_id() {
+            output.set_tensor_id(out_id);
+            output.set_requires_grad(true);
+            let q_id = q
+                .tensor_id()
+                .unwrap_or(crate::nn::autograd::TensorId(u32::MAX));
+            let k_id = k
+                .tensor_id()
+                .unwrap_or(crate::nn::autograd::TensorId(u32::MAX));
+            let v_id = v
+                .tensor_id()
+                .unwrap_or(crate::nn::autograd::TensorId(u32::MAX));
+            crate::nn::autograd::record_op(crate::nn::autograd::TapeEntry {
+                op: crate::nn::autograd::OpKind::Attention,
+                inputs: vec![q_id, k_id, v_id],
+                output: out_id,
+                saved: vec![q_id, k_id, v_id],
+                meta: crate::nn::autograd::OpMeta::Attention {
+                    seq: seq_len,
+                    d: d_head,
+                    causal,
+                },
+            });
+        }
+    }
+
     Ok(output)
 }
 

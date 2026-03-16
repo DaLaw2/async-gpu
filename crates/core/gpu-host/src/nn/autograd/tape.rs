@@ -37,6 +37,8 @@ pub enum OpKind {
     MaxPool2d,
     /// Nearest-neighbor upsampling
     UpsampleNearest,
+    /// Scaled dot-product attention
+    Attention,
 }
 
 /// Operation-specific metadata for backward computation.
@@ -55,6 +57,8 @@ pub enum OpMeta {
     Embedding { vocab_size: usize },
     /// Loss reduction mode.
     Loss { reduction: Reduction },
+    /// Attention parameters.
+    Attention { seq: usize, d: usize, causal: bool },
     /// Conv2d parameters.
     Conv2d {
         c_in: usize,

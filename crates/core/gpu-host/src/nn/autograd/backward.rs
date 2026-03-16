@@ -147,6 +147,32 @@ pub fn backward(
                     accumulate_grad(&mut grads, entry.inputs[0], d_input, registry)?;
                 }
             }
+            OpKind::Attention => {
+                let d_out_clone = d_out.clone_tensor()?;
+                let q_id = entry.saved[0];
+                let k_id = entry.saved[1];
+                let v_id = entry.saved[2];
+                if let super::OpMeta::Attention { seq, d, causal } = &entry.meta {
+                    let q = pool.get(q_id);
+                    let k = pool.get(k_id);
+                    let v = pool.get(v_id);
+                    if let (Some(q), Some(k), Some(v)) = (q, k, v) {
+                        let (dq, dk, dv) = attention_backward_cpu(
+                            &d_out_clone,
+                            q,
+                            k,
+                            v,
+                            *seq,
+                            *d,
+                            *causal,
+                            registry,
+                        )?;
+                        accumulate_grad(&mut grads, entry.inputs[0], dq, registry)?;
+                        accumulate_grad(&mut grads, entry.inputs[1], dk, registry)?;
+                        accumulate_grad(&mut grads, entry.inputs[2], dv, registry)?;
+                    }
+                }
+            }
             OpKind::BatchNorm | OpKind::MaxPool2d | OpKind::UpsampleNearest => {
                 // TODO: implement in later tasks
             }
@@ -238,6 +264,124 @@ fn layer_norm_backward_cpu(
     }
 
     GpuTensor::from_host(&dx, &[rows, d], dev)
+}
+
+/// CPU-side attention backward.
+///
+/// Returns (dQ, dK, dV) given dOutput and saved Q, K, V.
+#[allow(clippy::too_many_arguments)]
+fn attention_backward_cpu(
+    d_output: &GpuTensor,
+    q: &GpuTensor,
+    k: &GpuTensor,
+    v: &GpuTensor,
+    seq: usize,
+    d: usize,
+    causal: bool,
+    registry: &Arc<KernelRegistry>,
+) -> Result<(GpuTensor, GpuTensor, GpuTensor)> {
+    let dev = registry.device();
+    let do_host = d_output.to_host()?;
+    let q_host = q.to_host()?;
+    let k_host = k.to_host()?;
+    let v_host = v.to_host()?;
+
+    let scale = 1.0 / (d as f64).sqrt();
+
+    // Recompute attention scores and probabilities
+    let mut scores = vec![0.0f64; seq * seq];
+    for i in 0..seq {
+        for j in 0..seq {
+            if causal && j > i {
+                scores[i * seq + j] = f64::NEG_INFINITY;
+            } else {
+                let mut dot = 0.0f64;
+                for p in 0..d {
+                    dot += q_host[i * d + p] as f64 * k_host[j * d + p] as f64;
+                }
+                scores[i * seq + j] = dot * scale;
+            }
+        }
+    }
+
+    // Softmax
+    let mut probs = vec![0.0f64; seq * seq];
+    for i in 0..seq {
+        let max_s = scores[i * seq..(i + 1) * seq]
+            .iter()
+            .fold(f64::NEG_INFINITY, |a, &b| a.max(b));
+        let sum_exp: f64 = (0..seq).map(|j| (scores[i * seq + j] - max_s).exp()).sum();
+        for j in 0..seq {
+            probs[i * seq + j] = (scores[i * seq + j] - max_s).exp() / sum_exp;
+        }
+    }
+
+    // dV = P^T × dO: [seq, seq]^T × [seq, d] = [seq, d]
+    let mut dv = vec![0.0f64; seq * d];
+    for j in 0..seq {
+        for p in 0..d {
+            let mut sum = 0.0f64;
+            for i in 0..seq {
+                sum += probs[i * seq + j] * do_host[i * d + p] as f64;
+            }
+            dv[j * d + p] = sum;
+        }
+    }
+
+    // dP = dO × V^T: [seq, d] × [d, seq] = [seq, seq]
+    let mut dp = vec![0.0f64; seq * seq];
+    for i in 0..seq {
+        for j in 0..seq {
+            let mut sum = 0.0f64;
+            for p in 0..d {
+                sum += do_host[i * d + p] as f64 * v_host[j * d + p] as f64;
+            }
+            dp[i * seq + j] = sum;
+        }
+    }
+
+    // dS = P ⊙ (dP - sum(dP ⊙ P, dim=-1))
+    let mut ds = vec![0.0f64; seq * seq];
+    for i in 0..seq {
+        let dot_pp: f64 = (0..seq).map(|j| dp[i * seq + j] * probs[i * seq + j]).sum();
+        for j in 0..seq {
+            ds[i * seq + j] = probs[i * seq + j] * (dp[i * seq + j] - dot_pp);
+        }
+    }
+
+    // dQ = dS × K * scale: [seq, seq] × [seq, d] × scale = [seq, d]
+    let mut dq = vec![0.0f64; seq * d];
+    for i in 0..seq {
+        for p in 0..d {
+            let mut sum = 0.0f64;
+            for j in 0..seq {
+                sum += ds[i * seq + j] * k_host[j * d + p] as f64;
+            }
+            dq[i * d + p] = sum * scale;
+        }
+    }
+
+    // dK = dS^T × Q * scale: [seq, seq]^T × [seq, d] × scale = [seq, d]
+    let mut dk = vec![0.0f64; seq * d];
+    for j in 0..seq {
+        for p in 0..d {
+            let mut sum = 0.0f64;
+            for i in 0..seq {
+                sum += ds[i * seq + j] * q_host[i * d + p] as f64;
+            }
+            dk[j * d + p] = sum * scale;
+        }
+    }
+
+    let dq_f32: Vec<f32> = dq.iter().map(|&v| v as f32).collect();
+    let dk_f32: Vec<f32> = dk.iter().map(|&v| v as f32).collect();
+    let dv_f32: Vec<f32> = dv.iter().map(|&v| v as f32).collect();
+
+    Ok((
+        GpuTensor::from_host(&dq_f32, &[seq, d], dev)?,
+        GpuTensor::from_host(&dk_f32, &[seq, d], dev)?,
+        GpuTensor::from_host(&dv_f32, &[seq, d], dev)?,
+    ))
 }
 
 /// CPU-side Conv2d backward: dInput only (weight gradient not yet needed for v2 demo).

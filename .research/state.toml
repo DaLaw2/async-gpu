@@ -4,8 +4,8 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 428     # Monotonic counter, incremented after each completed phase
-completed_tasks = 520
+total_cycles = 429     # Monotonic counter, incremented after each completed phase
+completed_tasks = 523
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
@@ -13,8 +13,8 @@ current_mode = "do"
 current_step = "do.execute"
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "ag2-attn-bwd.1"
-last_summary = "ag2-conv-bwd COMPLETE: col2im PTX + conv2d_backward CPU + gradient check passes. 45 tests. Next: ag2-attn-bwd (attention backward)."
+current_task_id = "ag2-misc-bwd.1"
+last_summary = "ag2-conv-bwd + ag2-attn-bwd COMPLETE. Conv2d + attention backward with gradient checks. 46 tests. Next: ag2-misc-bwd (batch_norm, max_pool, upsample)."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 103
@@ -1810,7 +1810,7 @@ success_criteria = [
 id = "ag2-attn-bwd"
 epic = "autograd-v2"
 title = "Attention backward — softmax + matmul decomposition"
-status = "pending"
+status = "completed"
 goal = "scaled_dot_product_attention backward with gradient check"
 success_criteria = [
     "softmax_backward kernel or CPU implementation",
@@ -1897,7 +1897,7 @@ id = "ag2-attn-bwd.1"
 theme = "ag2-attn-bwd"
 title = "softmax_backward CPU implementation"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = []
 
 [[tasks]]
@@ -1905,7 +1905,7 @@ id = "ag2-attn-bwd.2"
 theme = "ag2-attn-bwd"
 title = "Attention backward: decompose into matmul + softmax backward"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["ag2-attn-bwd.1"]
 
 [[tasks]]
@@ -1913,7 +1913,7 @@ id = "ag2-attn-bwd.3"
 theme = "ag2-attn-bwd"
 title = "Numerical gradient check for attention"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["ag2-attn-bwd.2"]
 
 # --- ag2-misc-bwd tasks ---

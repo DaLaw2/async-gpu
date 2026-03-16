@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 421     # Monotonic counter, incremented after each completed phase
-completed_tasks = 496
+total_cycles = 422     # Monotonic counter, incremented after each completed phase
+completed_tasks = 502
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "ag-gemm-bwd.1"
-last_summary = "ag-tape theme COMPLETE (7/7). Backward verified: matmul + elem_add gradients match finite diff. 33 tests pass. Next: ag-gemm-bwd + ag-elemwise-bwd."
+current_task_id = "ag-elemwise-bwd.5"
+last_summary = "Backward kernels: gelu/silu/sigmoid/relu/bias_add_backward all in PTX + wired to dispatcher. ag-gemm-bwd.1+3, ag-elemwise-bwd.1-4 DONE. 33 tests pass. Next: numerical gradient checks."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 102
@@ -1439,7 +1439,7 @@ success_criteria = [
 id = "ag-elemwise-bwd"
 epic = "autograd-v1"
 title = "Element-wise backward kernels"
-status = "pending"
+status = "active"
 goal = "GELU, SiLU, sigmoid, ReLU backward PTX kernels"
 success_criteria = [
     "Each activation backward kernel matches numerical gradient check",
@@ -1449,7 +1449,7 @@ success_criteria = [
 id = "ag-gemm-bwd"
 epic = "autograd-v1"
 title = "GEMM / Linear backward"
-status = "pending"
+status = "active"
 goal = "matmul backward (reuse gemm_f32 transposed), Linear backward, bias_add backward"
 success_criteria = [
     "dA = dC * B^T, dB = A^T * dC via existing gemm_f32",
@@ -1568,7 +1568,7 @@ id = "ag-elemwise-bwd.1"
 theme = "ag-elemwise-bwd"
 title = "gelu_backward PTX kernel + host wrapper"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["ag-tape.6"]
 
 [[tasks]]
@@ -1576,7 +1576,7 @@ id = "ag-elemwise-bwd.2"
 theme = "ag-elemwise-bwd"
 title = "silu_backward PTX kernel + host wrapper"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["ag-tape.6"]
 
 [[tasks]]
@@ -1584,7 +1584,7 @@ id = "ag-elemwise-bwd.3"
 theme = "ag-elemwise-bwd"
 title = "sigmoid_backward PTX kernel + host wrapper"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["ag-tape.6"]
 
 [[tasks]]
@@ -1592,7 +1592,7 @@ id = "ag-elemwise-bwd.4"
 theme = "ag-elemwise-bwd"
 title = "relu_backward PTX kernel (+ GPU relu_forward if missing)"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["ag-tape.6"]
 
 [[tasks]]
@@ -1609,7 +1609,7 @@ id = "ag-gemm-bwd.1"
 theme = "ag-gemm-bwd"
 title = "matmul_backward: dA = dC * B^T, dB = A^T * dC (reuse gemm_f32)"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["ag-tape.6"]
 
 [[tasks]]
@@ -1625,7 +1625,7 @@ id = "ag-gemm-bwd.3"
 theme = "ag-gemm-bwd"
 title = "bias_add_backward: sum reduction kernel for bias gradient"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["ag-tape.6"]
 
 [[tasks]]

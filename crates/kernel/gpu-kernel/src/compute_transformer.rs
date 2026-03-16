@@ -1096,3 +1096,231 @@ pub unsafe extern "ptx-kernel" fn zero_pad(buffer: *mut f32, start_offset: u32, 
         let _ = (buffer, start_offset, total_elems);
     }
 }
+
+// ============================================================
+// Backward kernels for autograd
+// ============================================================
+
+/// GELU backward: d_input[i] = d_output[i] * gelu'(input[i]).
+///
+/// grid_dim = (ceil(n/256), 1, 1), block_dim = (256, 1, 1).
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn gelu_backward(
+    d_output: *const f32,
+    input: *const f32,
+    d_input: *mut f32,
+    n: u32,
+    status: *mut u32,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let block_x = nvptx::_block_idx_x() as u32;
+        let global_id = block_x * 256 + tid;
+
+        if global_id < n {
+            let x = *input.add(global_id as usize);
+            let dy = *d_output.add(global_id as usize);
+
+            let sqrt_2_over_pi: f32 = 0.7978845608;
+            let coeff: f32 = 0.044715;
+            let z = sqrt_2_over_pi * (x + coeff * x * x * x);
+
+            let tanh_z = if z > 10.0 {
+                1.0f32
+            } else if z < -10.0 {
+                -1.0f32
+            } else {
+                let exp_2z = gpu_exp_f32(2.0 * z);
+                (exp_2z - 1.0) / (exp_2z + 1.0)
+            };
+
+            let sech2_z = 1.0 - tanh_z * tanh_z;
+            let dz_dx = sqrt_2_over_pi * (1.0 + 3.0 * coeff * x * x);
+            let gelu_grad = 0.5 * (1.0 + tanh_z) + 0.5 * x * sech2_z * dz_dx;
+
+            *d_input.add(global_id as usize) = dy * gelu_grad;
+        }
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (d_output, input, d_input, n);
+    }
+
+    if tid == 0 {
+        let _prev: u32;
+        core::arch::asm!(
+            "atom.global.add.u32 {prev}, [{addr}], 1;",
+            prev = out(reg32) _prev,
+            addr = in(reg64) status,
+        );
+    }
+}
+
+/// SiLU backward: d_input[i] = d_output[i] * (sigmoid(x) + x * sigmoid(x) * (1 - sigmoid(x))).
+///
+/// grid_dim = (ceil(n/256), 1, 1), block_dim = (256, 1, 1).
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn silu_backward(
+    d_output: *const f32,
+    input: *const f32,
+    d_input: *mut f32,
+    n: u32,
+    status: *mut u32,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let block_x = nvptx::_block_idx_x() as u32;
+        let global_id = block_x * 256 + tid;
+
+        if global_id < n {
+            let x = *input.add(global_id as usize);
+            let dy = *d_output.add(global_id as usize);
+
+            let sig = 1.0 / (1.0 + gpu_exp_f32(-x));
+            let silu_grad = sig + x * sig * (1.0 - sig);
+            *d_input.add(global_id as usize) = dy * silu_grad;
+        }
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (d_output, input, d_input, n);
+    }
+
+    if tid == 0 {
+        let _prev: u32;
+        core::arch::asm!(
+            "atom.global.add.u32 {prev}, [{addr}], 1;",
+            prev = out(reg32) _prev,
+            addr = in(reg64) status,
+        );
+    }
+}
+
+/// Sigmoid backward: d_input[i] = d_output[i] * sigmoid(x) * (1 - sigmoid(x)).
+///
+/// grid_dim = (ceil(n/256), 1, 1), block_dim = (256, 1, 1).
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn sigmoid_backward(
+    d_output: *const f32,
+    input: *const f32,
+    d_input: *mut f32,
+    n: u32,
+    status: *mut u32,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let block_x = nvptx::_block_idx_x() as u32;
+        let global_id = block_x * 256 + tid;
+
+        if global_id < n {
+            let x = *input.add(global_id as usize);
+            let dy = *d_output.add(global_id as usize);
+
+            let sig = 1.0 / (1.0 + gpu_exp_f32(-x));
+            *d_input.add(global_id as usize) = dy * sig * (1.0 - sig);
+        }
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (d_output, input, d_input, n);
+    }
+
+    if tid == 0 {
+        let _prev: u32;
+        core::arch::asm!(
+            "atom.global.add.u32 {prev}, [{addr}], 1;",
+            prev = out(reg32) _prev,
+            addr = in(reg64) status,
+        );
+    }
+}
+
+/// ReLU backward: d_input[i] = d_output[i] * (input[i] > 0 ? 1 : 0).
+///
+/// grid_dim = (ceil(n/256), 1, 1), block_dim = (256, 1, 1).
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn relu_backward(
+    d_output: *const f32,
+    input: *const f32,
+    d_input: *mut f32,
+    n: u32,
+    status: *mut u32,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let block_x = nvptx::_block_idx_x() as u32;
+        let global_id = block_x * 256 + tid;
+
+        if global_id < n {
+            let x = *input.add(global_id as usize);
+            let dy = *d_output.add(global_id as usize);
+            let grad = if x > 0.0 { dy } else { 0.0 };
+            *d_input.add(global_id as usize) = grad;
+        }
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (d_output, input, d_input, n);
+    }
+
+    if tid == 0 {
+        let _prev: u32;
+        core::arch::asm!(
+            "atom.global.add.u32 {prev}, [{addr}], 1;",
+            prev = out(reg32) _prev,
+            addr = in(reg64) status,
+        );
+    }
+}
+
+/// Bias add backward: d_bias[j] = sum_i(d_output[i][j]).
+///
+/// grid_dim = (ceil(n_cols/256), 1, 1), block_dim = (256, 1, 1).
+/// Simple serial sum per column (n_rows is small for typical training).
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn bias_add_backward(
+    d_output: *const f32,
+    d_bias: *mut f32,
+    n_cols: u32,
+    n_rows: u32,
+    status: *mut u32,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let block_x = nvptx::_block_idx_x() as u32;
+        let col = block_x * 256 + tid;
+
+        if col < n_cols {
+            let mut sum: f32 = 0.0;
+            let mut row = 0u32;
+            while row < n_rows {
+                sum += *d_output.add((row * n_cols + col) as usize);
+                row += 1;
+            }
+            *d_bias.add(col as usize) = sum;
+        }
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (d_output, d_bias, n_cols, n_rows);
+    }
+
+    if tid == 0 {
+        let _prev: u32;
+        core::arch::asm!(
+            "atom.global.add.u32 {prev}, [{addr}], 1;",
+            prev = out(reg32) _prev,
+            addr = in(reg64) status,
+        );
+    }
+}

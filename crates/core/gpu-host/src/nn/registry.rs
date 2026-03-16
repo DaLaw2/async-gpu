@@ -58,6 +58,12 @@ const ML_KERNELS: &[&str] = &[
     // GEMM (compute_gemm.rs)
     "gemm_f32",
     "full_gemm_splitk",
+    // Backward kernels (autograd)
+    "gelu_backward",
+    "silu_backward",
+    "sigmoid_backward",
+    "relu_backward",
+    "bias_add_backward",
 ];
 
 impl KernelRegistry {

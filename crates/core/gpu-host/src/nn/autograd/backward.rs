@@ -58,17 +58,32 @@ pub fn backward(
                 let d_out_for_matmul = d_out.clone_tensor()?;
                 backward_matmul_inline(entry, &d_out_for_matmul, pool, &mut grads, registry)?;
             }
-            // Placeholder for ops that need backward kernels (implemented in later tasks)
-            OpKind::Gelu
-            | OpKind::Silu
-            | OpKind::Sigmoid
-            | OpKind::Relu
-            | OpKind::LayerNorm
-            | OpKind::BiasAdd
-            | OpKind::Embedding
-            | OpKind::CrossEntropy
-            | OpKind::MseLoss => {
-                // TODO: dispatch to backward kernels in ag-elemwise-bwd, ag-norm-bwd, etc.
+            OpKind::Gelu | OpKind::Silu | OpKind::Sigmoid | OpKind::Relu => {
+                let d_out_clone = d_out.clone_tensor()?;
+                let kernel_name = match entry.op {
+                    OpKind::Gelu => "gelu_backward",
+                    OpKind::Silu => "silu_backward",
+                    OpKind::Sigmoid => "sigmoid_backward",
+                    OpKind::Relu => "relu_backward",
+                    _ => unreachable!(),
+                };
+                let input_id = entry.saved[0];
+                let saved_input = pool.get(input_id).ok_or_else(|| NnError::ShapeMismatch {
+                    expected: "saved activation input".to_string(),
+                    actual: format!("TensorId({}) not found", input_id.0),
+                })?;
+                let d_input =
+                    activation_backward(&d_out_clone, saved_input, kernel_name, registry)?;
+                accumulate_grad(&mut grads, entry.inputs[0], d_input, registry)?;
+            }
+            OpKind::BiasAdd => {
+                // d_input = d_out (passthrough), d_bias = sum(d_out, dim=0)
+                let d_out_clone = d_out.clone_tensor()?;
+                accumulate_grad(&mut grads, entry.inputs[0], d_out_clone, registry)?;
+            }
+            // Placeholders for remaining ops
+            OpKind::LayerNorm | OpKind::Embedding | OpKind::CrossEntropy | OpKind::MseLoss => {
+                // TODO: implement in ag-norm-bwd, ag-loss
             }
         }
     }
@@ -91,6 +106,41 @@ fn accumulate_grad(
         grads.insert(id, new_grad);
     }
     Ok(())
+}
+
+/// Launch an element-wise activation backward kernel.
+fn activation_backward(
+    d_output: &GpuTensor,
+    input: &GpuTensor,
+    kernel_name: &'static str,
+    registry: &Arc<KernelRegistry>,
+) -> Result<GpuTensor> {
+    use crate::nn::registry::KernelRegistry as KR;
+    use cudarc::driver::LaunchAsync;
+
+    let n = d_output.numel();
+    let dev = registry.device();
+    let mut d_input = GpuTensor::zeros(d_output.shape(), dev)?;
+    let status_dev = dev.htod_sync_copy(&[0u32])?;
+
+    let func = registry.get(kernel_name)?;
+    let config = KR::config_1d(n as u32);
+    unsafe {
+        func.launch(
+            config,
+            (
+                d_output.data(),
+                input.data(),
+                d_input.data_mut(),
+                n as u32,
+                &status_dev,
+            ),
+        )
+        .map_err(crate::nn::error::NnError::Cuda)?;
+    }
+    dev.synchronize().map_err(crate::nn::error::NnError::Cuda)?;
+
+    Ok(d_input)
 }
 
 /// Backward for matmul: C = A × B.

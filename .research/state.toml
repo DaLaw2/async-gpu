@@ -11,8 +11,8 @@ status = "running"     # ready | running | blocked | completed
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "bench-cifar-fix"
-last_summary = "MNIST GPU 91.2% done. Next: 1) CPU vs GPU benchmark, 2) fix CIFAR conv backward, 3) README benchmarks, 4) gpu-perf epic."
+current_task_id = "tp-batch-conv.1"
+last_summary = "Benchmarks done: MNIST 3.5x GPU, CIFAR GPU slower (per-sample overhead). README updated. training-perf epic created. Next: batch conv2d."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 103
@@ -2073,3 +2073,46 @@ title = "Run CIFAR-10 training, verify loss decreases and accuracy > random"
 kind = "experiment"
 status = "done"
 depends = ["te-cifar.2"]
+
+# ============================================================
+# training-perf Epic
+# ============================================================
+
+[[epics]]
+id = "training-perf"
+title = "Training Performance — batch GPU ops, reduce H2D/D2H overhead"
+status = "active"
+priority = "high"
+success_criteria = [
+    "Batched GPU conv2d: process entire batch in one kernel launch instead of per-sample",
+    "CIFAR-10 CNN GPU training faster than CPU (currently 2.6x slower)",
+    "Reduce per-batch tensor allocation overhead (reuse buffers across batches)",
+    "MNIST GPU training speedup > 5x over CPU (currently 3.5x)",
+]
+
+[[themes]]
+id = "tp-batch-conv"
+epic = "training-perf"
+title = "Batched conv2d — process full batch in one GPU launch"
+status = "active"
+goal = "Eliminate per-sample H2D/D2H overhead for conv2d"
+success_criteria = [
+    "conv2d accepts [batch, C, H, W] input (not just [C, H, W])",
+    "CIFAR-10 GPU training faster than CPU after batching",
+]
+
+[[tasks]]
+id = "tp-batch-conv.1"
+theme = "tp-batch-conv"
+title = "Extend conv2d op to accept batched [N,C,H,W] input"
+kind = "experiment"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "tp-batch-conv.2"
+theme = "tp-batch-conv"
+title = "Benchmark CIFAR-10 GPU vs CPU after batched conv2d"
+kind = "experiment"
+status = "pending"
+depends = ["tp-batch-conv.1"]

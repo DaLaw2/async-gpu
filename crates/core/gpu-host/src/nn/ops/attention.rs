@@ -147,6 +147,7 @@ pub fn split_qkv(
 /// Output: `[n_heads * seq_len, d_head]`.
 ///
 /// Uses `flash_attention` with grid=(n_heads, n_q_tiles, 1).
+#[allow(clippy::too_many_arguments)]
 pub fn multi_head_flash_attention(
     q: &GpuTensor,
     k: &GpuTensor,

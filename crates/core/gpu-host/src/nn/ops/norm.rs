@@ -121,7 +121,7 @@ pub fn batch_norm_silu(
     eps: f32,
     registry: &Arc<KernelRegistry>,
 ) -> Result<GpuTensor> {
-    let c = input.shape()[0];
+    let _c = input.shape()[0];
     let hw: usize = input.shape()[1..].iter().product();
     let n = input.numel();
 
@@ -151,6 +151,5 @@ pub fn batch_norm_silu(
         .map_err(NnError::Cuda)?;
     }
 
-    let _ = c; // used indirectly via hw calculation
     Ok(output)
 }

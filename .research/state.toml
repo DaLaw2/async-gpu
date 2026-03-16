@@ -11,8 +11,8 @@ status = "running"     # ready | running | blocked | completed
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = ""
-last_summary = "GPT-2 164ms/tok (was 760ms = 4.6x). MNIST 5.6x (7.8s). CIFAR 0.9x. GPU-native MHA. Tensor views. 115 kernels. 52 tests. Sync removal. All ops GPU-resident."
+current_task_id = "ag3-foundation.1"
+last_summary = "BS104 done. autograd-v3 epic created: fix CrossEntropy backward, GPU optimizer, conv2d dWeight, weight pre-pad, then GPT-2 LoRA. Starting ag3-foundation.1."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 104
@@ -981,3 +981,116 @@ title = "Rewrite MHA forward to use GPU split_qkv + multi-head flash_attention +
 kind = "experiment"
 status = "done"
 depends = []
+
+# ============================================================
+# autograd-v3 Epic — fix foundation + LoRA training
+# ============================================================
+
+[[epics]]
+id = "autograd-v3"
+title = "Autograd v3 — fix foundation gaps, GPU optimizer, LoRA fine-tuning"
+status = "active"
+priority = "high"
+depends_on = "autograd-v2"
+success_criteria = [
+    "CrossEntropy backward wired into tape dispatcher (not just forward-only)",
+    "GPU-side SGD/Adam step kernels (no CPU roundtrip in optimizer)",
+    "conv2d backward computes BOTH dInput AND dWeight",
+    "Linear weights pre-padded once in constructor (not per-forward reshape)",
+    "GPT-2 LoRA fine-tuning example: train adapters on small text dataset, loss converges",
+    "GPT-2 nn API < 120ms/token (from weight pre-padding optimization)",
+]
+
+# --- Themes ---
+
+[[themes]]
+id = "ag3-foundation"
+epic = "autograd-v3"
+title = "Fix autograd foundation gaps"
+status = "active"
+goal = "Complete backward coverage + GPU optimizer + weight pre-padding"
+success_criteria = [
+    "CrossEntropy backward dispatches in backward.rs",
+    "GPU sgd_step/adam_step kernels called from optimizer (no to_host/from_host)",
+    "conv2d_backward computes dWeight via im2col(input)^T × d_output",
+    "Linear pre-pads weight_t once, matmul skips padding",
+]
+
+[[themes]]
+id = "ag3-lora"
+epic = "autograd-v3"
+title = "GPT-2 LoRA fine-tuning example"
+status = "pending"
+goal = "Train LoRA adapters on GPT-2 with autograd tape"
+success_criteria = [
+    "LoRA adapter: Linear wrapper with low-rank A,B matrices",
+    "Freeze base model, train only LoRA params",
+    "Loss converges on WikiText-2 subset",
+    "Standalone example in examples/std/gpt2-lora/",
+]
+
+# --- Tasks ---
+
+[[tasks]]
+id = "ag3-foundation.1"
+theme = "ag3-foundation"
+title = "Wire CrossEntropy backward into tape dispatcher"
+kind = "experiment"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "ag3-foundation.2"
+theme = "ag3-foundation"
+title = "GPU-side optimizer: sgd_step/adam_step without host roundtrip"
+kind = "experiment"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "ag3-foundation.3"
+theme = "ag3-foundation"
+title = "conv2d backward: compute dWeight (not just dInput)"
+kind = "experiment"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "ag3-foundation.4"
+theme = "ag3-foundation"
+title = "Linear weight pre-padding: pad once in constructor, skip in matmul"
+kind = "experiment"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "ag3-foundation.5"
+theme = "ag3-foundation"
+title = "Benchmark: GPT-2 nn API after weight pre-padding"
+kind = "experiment"
+status = "pending"
+depends = ["ag3-foundation.4"]
+
+[[tasks]]
+id = "ag3-lora.1"
+theme = "ag3-lora"
+title = "Implement LoRA adapter (low-rank Linear wrapper with A,B matrices)"
+kind = "experiment"
+status = "pending"
+depends = ["ag3-foundation.1", "ag3-foundation.2"]
+
+[[tasks]]
+id = "ag3-lora.2"
+theme = "ag3-lora"
+title = "Download WikiText-2 subset + tokenize for training"
+kind = "experiment"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "ag3-lora.3"
+theme = "ag3-lora"
+title = "GPT-2 LoRA training loop: freeze base, train adapters, verify loss converges"
+kind = "experiment"
+status = "pending"
+depends = ["ag3-lora.1", "ag3-lora.2"]

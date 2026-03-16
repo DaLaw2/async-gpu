@@ -11,8 +11,8 @@ status = "running"     # ready | running | blocked | completed
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "ag3-foundation.1"
-last_summary = "BS104 done. autograd-v3 epic created: fix CrossEntropy backward, GPU optimizer, conv2d dWeight, weight pre-pad, then GPT-2 LoRA. Starting ag3-foundation.1."
+current_task_id = "ag3-lora.1"
+last_summary = "ag3-foundation DONE (5/5). GPT-2 79ms/tok (was 164ms). CrossEntropy backward, GPU SGD, conv2d dWeight, weight pre-pad all done. Starting LoRA."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 104
@@ -1007,7 +1007,7 @@ success_criteria = [
 id = "ag3-foundation"
 epic = "autograd-v3"
 title = "Fix autograd foundation gaps"
-status = "active"
+status = "completed"
 goal = "Complete backward coverage + GPU optimizer + weight pre-padding"
 success_criteria = [
     "CrossEntropy backward dispatches in backward.rs",
@@ -1020,7 +1020,7 @@ success_criteria = [
 id = "ag3-lora"
 epic = "autograd-v3"
 title = "GPT-2 LoRA fine-tuning example"
-status = "pending"
+status = "active"
 goal = "Train LoRA adapters on GPT-2 with autograd tape"
 success_criteria = [
     "LoRA adapter: Linear wrapper with low-rank A,B matrices",

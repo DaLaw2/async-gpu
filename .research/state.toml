@@ -802,7 +802,8 @@ depends = ["te-cifar.2"]
 [[epics]]
 id = "training-perf"
 title = "Training Performance — batch GPU ops, reduce H2D/D2H overhead"
-status = "active"
+status = "completed"
+# MNIST 5.6x, CIFAR per-epoch matches CPU, GPU pad/transpose/unpad
 priority = "high"
 success_criteria = [
     "DONE: Batched GPU conv2d: conv2d_batched + conv2d_offset for [N,C,H,W] input",
@@ -900,7 +901,8 @@ depends = ["tp-audit.1", "tp-audit.2", "tp-audit.3"]
 [[epics]]
 id = "tensor-views"
 title = "Tensor Views — zero-copy reshape/slice for GPU tensors"
-status = "active"
+status = "completed"
+# Arc<CudaSlice> zero-copy reshape, GPT-2 79ms from weight pre-pad
 priority = "high"
 success_criteria = [
     "GpuTensor reshape returns a view (no memcpy) when shapes are compatible",
@@ -953,7 +955,8 @@ depends = ["tv-impl.2"]
 [[epics]]
 id = "nn-perf"
 title = "NN API Inference Performance — close gap with raw kernels"
-status = "active"
+status = "completed"
+# ALL 3 CRITERIA MET — GPT-2 79ms/tok, GPU-native MHA, weight pre-padding
 priority = "high"
 success_criteria = [
     "GPT-2 nn API < 100ms/token (currently 190ms, raw=68ms)",

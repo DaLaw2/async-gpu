@@ -33,6 +33,7 @@ pub mod models;
 pub mod ops;
 pub mod registry;
 pub mod tensor;
+pub mod test_utils;
 
 pub use error::{NnError, Result};
 pub use layers::Module;

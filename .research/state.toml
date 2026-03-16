@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 413     # Monotonic counter, incremented after each completed phase
-completed_tasks = 477
+total_cycles = 414     # Monotonic counter, incremented after each completed phase
+completed_tasks = 483
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = ""
-last_summary = "verify-examples epic COMPLETE: all 5 criteria met. GPT-2 coherent text, YOLO 34 detections, tests_inference + tests_cnn all pass, 15 nn unit tests pass. Next: testing-infra epic."
+current_task_id = "ti-harness.1"
+last_summary = "verify-examples epic COMPLETE. Starting testing-infra: ti-harness.1 + ti-cpu-ref.1-4 batch."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 102
@@ -1281,7 +1281,7 @@ success_criteria = [
 id = "ti-harness"
 epic = "testing-infra"
 title = "Numerical comparison harness"
-status = "pending"
+status = "completed"
 goal = "Reusable assert_close/max_abs_error/mse utilities for GPU vs CPU comparison"
 success_criteria = [
     "assert_close() with rtol/atol, per-element error reporting",
@@ -1304,7 +1304,7 @@ success_criteria = [
 id = "ti-cpu-ref"
 epic = "testing-infra"
 title = "CPU f64 reference implementations"
-status = "pending"
+status = "completed"
 goal = "CPU reference for gradient checking and cross-validation"
 success_criteria = [
     "CPU f64 matmul, layer_norm, conv2d (im2col+gemm), softmax+attention",
@@ -1318,7 +1318,7 @@ id = "ti-harness.1"
 theme = "ti-harness"
 title = "Design + implement assert_close(), max_abs_error(), mse() in nn/test_utils.rs"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = []
 
 [[tasks]]
@@ -1326,7 +1326,7 @@ id = "ti-harness.2"
 theme = "ti-harness"
 title = "Add tolerance presets (f32_loose, f32_strict, gradient) and error formatting"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["ti-harness.1"]
 
 [[tasks]]
@@ -1366,7 +1366,7 @@ id = "ti-cpu-ref.1"
 theme = "ti-cpu-ref"
 title = "CPU f64 matmul reference for gradient checking"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = []
 
 [[tasks]]
@@ -1374,7 +1374,7 @@ id = "ti-cpu-ref.2"
 theme = "ti-cpu-ref"
 title = "CPU f64 layer_norm reference"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = []
 
 [[tasks]]
@@ -1382,7 +1382,7 @@ id = "ti-cpu-ref.3"
 theme = "ti-cpu-ref"
 title = "CPU f64 conv2d reference (im2col + matmul)"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = []
 
 [[tasks]]
@@ -1390,7 +1390,7 @@ id = "ti-cpu-ref.4"
 theme = "ti-cpu-ref"
 title = "CPU f64 softmax + attention reference"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = []
 
 [[tasks]]

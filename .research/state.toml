@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 436     # Monotonic counter, incremented after each completed phase
-completed_tasks = 540
+total_cycles = 437     # Monotonic counter, incremented after each completed phase
+completed_tasks = 541
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.route"
-current_task_id = ""
-last_summary = "ResNet-18 inference DONE: model + example (8.1M params, 15.7ms/image, 3rd architecture). rn-inference theme completed. ResNet epic 2/4 criteria met (model def + inference). Next: training requires batch_norm backward."
+current_step = "do.execute"
+current_task_id = "rn-training.2"
+last_summary = "batch_norm backward DONE (gamma*inv_std scaling + tape recording). 53 tests pass. Starting rn-training.2: ResNet-18 CIFAR-10 training loop."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 105
@@ -1246,7 +1246,7 @@ id = "rn-training.1"
 theme = "rn-training"
 title = "Implement proper batch_norm backward (dGamma, dBeta, dInput)"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = []
 
 [[tasks]]

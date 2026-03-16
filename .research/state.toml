@@ -12,7 +12,7 @@ status = "running"     # ready | running | blocked | completed
 current_mode = "do"
 current_step = "do.execute"
 current_task_id = "tp-batch-conv.1"
-last_summary = "GPU-side transpose/pad/unpad kernels added. MNIST 5.2x speedup (8.4s vs 44s CPU). CIFAR 8.8s (0.74x vs CPU 6.5s). bias_add_chw param bug fixed. 52 tests. Next: eliminate batched conv2d input download (use GPU pointer offset for per-sample im2col)."
+last_summary = "MNIST 5.2x GPU speedup (8.4s vs 44s). CIFAR 8.5s GPU (0.76x vs 6.5s CPU), bit-exact accuracy. All fixes verified by 3 subagents. 52 tests. GPU kernels: matrix_transpose, matrix_pad, matrix_unpad, im2col_offset. Remaining CIFAR bottleneck: batched conv2d host-side column assembly."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 103

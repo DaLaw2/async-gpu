@@ -8,7 +8,8 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
-use crate::model::{ModelError, TensorData};
+use crate::model::ModelError;
+use crate::model_generic::TensorData;
 
 // ---------------------------------------------------------------------------
 // YOLO Constants
@@ -79,12 +80,12 @@ impl YoloWeights {
 
     /// Get f32 data for a tensor by name.
     pub fn get_data(&self, name: &str) -> Result<&[f32], ModelError> {
-        Ok(&self.get(name)?.0)
+        Ok(&self.get(name)?.data)
     }
 
     /// Get shape for a tensor by name.
     pub fn get_shape(&self, name: &str) -> Result<&[usize], ModelError> {
-        Ok(&self.get(name)?.1)
+        Ok(&self.get(name)?.shape)
     }
 
     /// Load Conv+BN+SiLU weights for a simple Conv layer (e.g., backbone layer 0).
@@ -139,13 +140,13 @@ impl YoloWeights {
             )
         };
 
-        let (weight, shape) = self.get(&w_name)?;
-        let (bias, _) = self.get(&b_name)?;
+        let w = self.get(&w_name)?;
+        let b = self.get(&b_name)?;
 
         Ok(ConvWeights {
-            weight: weight.clone(),
-            shape: shape.clone(),
-            bias: bias.clone(),
+            weight: w.data.clone(),
+            shape: w.shape.clone(),
+            bias: b.data.clone(),
         })
     }
 
@@ -162,15 +163,15 @@ impl YoloWeights {
 
     /// Internal helper: load Conv+BN weights from prefix.
     fn load_conv_bn_block(&self, prefix: &str) -> Result<ConvBnSiluWeights, ModelError> {
-        let (conv_weight, conv_shape) = self.get(&format!("{prefix}.conv.weight"))?;
+        let conv = self.get(&format!("{prefix}.conv.weight"))?;
         let bn_weight = self.get_data(&format!("{prefix}.bn.weight"))?;
         let bn_bias = self.get_data(&format!("{prefix}.bn.bias"))?;
         let bn_running_mean = self.get_data(&format!("{prefix}.bn.running_mean"))?;
         let bn_running_var = self.get_data(&format!("{prefix}.bn.running_var"))?;
 
         Ok(ConvBnSiluWeights {
-            conv_weight: conv_weight.clone(),
-            conv_shape: conv_shape.clone(),
+            conv_weight: conv.data.clone(),
+            conv_shape: conv.shape.clone(),
             bn_weight: bn_weight.to_vec(),
             bn_bias: bn_bias.to_vec(),
             bn_running_mean: bn_running_mean.to_vec(),
@@ -190,7 +191,7 @@ impl YoloWeights {
 ///
 /// The safetensors file should be exported by `scripts/export_yolo.py`.
 pub fn load_yolo_weights(path: &Path) -> Result<YoloWeights, ModelError> {
-    let tensors = crate::model::load_all_tensors(path)?;
+    let tensors = crate::model_generic::load_safetensors_raw(path)?;
     println!("  Loaded {} tensors from {}", tensors.len(), path.display());
 
     // Sanity check: verify a few expected tensors exist

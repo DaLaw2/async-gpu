@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 457     # Monotonic counter, incremented after each completed phase
-completed_tasks = 559
+total_cycles = 458     # Monotonic counter, incremented after each completed phase
+completed_tasks = 560
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "gl-resnet.2"
-last_summary = "gl-resnet.2 DONE: ResNet-18 pretrained 91.3% CIFAR-10 via generic loader. tq-resnet.1 DONE: Mini-ResNet 32.1% full conv training. training-quality + gl-resnet themes completed. Next: YOLOv8 generic loader migration or brainstorm for new work."
+current_task_id = "gl-yolo.1"
+last_summary = "generic-loader epic COMPLETED (all 6 criteria). gl-yolo.1: YOLOv8 migrated to model_generic. tq-resnet.1: 32.1% full conv. gl-resnet.2: 91.3% pretrained. training-quality + generic-loader epics done. Next: brainstorm — only conv-backward-training (5/6) + codebase-health active."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 106
@@ -1106,7 +1106,8 @@ depends = ["ag3-lora.1", "ag3-lora.2"]
 [[epics]]
 id = "generic-loader"
 title = "Generic SafeTensors Model Loader"
-status = "active"
+status = "completed"
+# ALL 6 CRITERIA MET — GPT-2 + YOLOv8 + ResNet-18 (91.3% CIFAR-10) via generic loader
 priority = "high"
 success_criteria = [
     "ModelDef schema: declarative layer name → tensor shape + type mapping",
@@ -1441,6 +1442,28 @@ kind = "experiment"
 status = "done"
 # 91.3% accuracy on 10K CIFAR-10 test set, 16.0ms/image
 depends = ["gl-resnet.1"]
+
+# --- gl-yolo theme ---
+
+[[themes]]
+id = "gl-yolo"
+epic = "generic-loader"
+title = "Migrate YOLOv8 weights to generic loader"
+status = "completed"
+goal = "Replace hardcoded load_yolo_weights with from_safetensors"
+success_criteria = [
+    "YOLOv8Weights::from_safetensors() loads all YOLO layers",
+    "YOLO detection produces same results as current loader",
+]
+
+[[tasks]]
+id = "gl-yolo.1"
+theme = "gl-yolo"
+title = "Implement YOLOv8 from_safetensors using generic loader"
+kind = "experiment"
+status = "done"
+# Migrated model_yolo.rs to use model_generic::TensorData + load_safetensors_raw. YOLO detection verified.
+depends = ["gl-schema.2"]
 
 # ============================================================
 # training-quality themes/tasks

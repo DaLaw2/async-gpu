@@ -176,3 +176,89 @@ pub fn matmul(a: &GpuTensor, b: &GpuTensor, registry: &Arc<KernelRegistry>) -> R
 
     Ok(output)
 }
+
+/// Matrix multiplication with pre-computed column-major padded B.
+///
+/// A: `[M, K]`, b_prepadded: pre-transposed+padded `[N_pad, K_pad]` col-major.
+/// Skips B transpose and B pad for ~2 fewer kernel launches per call.
+#[allow(clippy::too_many_arguments)]
+pub fn matmul_prepadded_b(
+    a: &GpuTensor,
+    b_prepadded: &cudarc::driver::CudaSlice<f32>,
+    m: usize,
+    k: usize,
+    n: usize,
+    k_pad: usize,
+    n_pad: usize,
+    registry: &Arc<KernelRegistry>,
+) -> Result<GpuTensor> {
+    let m_pad = m.div_ceil(32) * 32;
+    let dev = registry.device();
+    let status = dev.htod_sync_copy(&[0u32])?;
+
+    // Pad A on GPU
+    let a_padded = if m == m_pad && k == k_pad {
+        let mut buf = dev.alloc_zeros::<f32>(m * k)?;
+        dev.dtod_copy(a.data(), &mut buf)?;
+        buf
+    } else {
+        let mut buf = dev.alloc_zeros::<f32>(m_pad * k_pad)?;
+        let f_pad = registry.get("matrix_pad")?;
+        let cfg = KernelRegistry::config_1d((m_pad * k_pad) as u32);
+        unsafe {
+            f_pad.launch(
+                cfg,
+                (
+                    a.data(),
+                    &mut buf,
+                    m as u32,
+                    k as u32,
+                    m_pad as u32,
+                    k_pad as u32,
+                    &status,
+                ),
+            )?;
+        }
+        buf
+    };
+
+    // GEMM
+    let mut d_dev = dev.alloc_zeros::<f32>(m_pad * n_pad)?;
+    let f_gemm = registry.get("gemm_f32")?;
+    let gemm_cfg = cudarc::driver::LaunchConfig {
+        grid_dim: ((m_pad as u32) / 32, (n_pad as u32) / 16, 1),
+        block_dim: (128, 1, 1),
+        shared_mem_bytes: 3072,
+    };
+    unsafe {
+        f_gemm.launch(
+            gemm_cfg,
+            (
+                &a_padded,
+                b_prepadded,
+                &mut d_dev,
+                k_pad as u32,
+                n_pad as u32,
+                &status,
+            ),
+        )?;
+    }
+
+    // Extract unpadded
+    let output_dev = if m == m_pad && n == n_pad {
+        d_dev
+    } else {
+        let mut buf = dev.alloc_zeros::<f32>(m * n)?;
+        let f_unpad = registry.get("matrix_unpad")?;
+        let cfg = KernelRegistry::config_1d((m * n) as u32);
+        unsafe {
+            f_unpad.launch(
+                cfg,
+                (&d_dev, &mut buf, m as u32, n as u32, n_pad as u32, &status),
+            )?;
+        }
+        buf
+    };
+
+    Ok(GpuTensor::from_data(output_dev, &[m, n], Arc::clone(dev)))
+}

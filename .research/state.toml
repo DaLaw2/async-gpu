@@ -1094,3 +1094,41 @@ title = "GPT-2 LoRA training loop: freeze base, train adapters, verify loss conv
 kind = "experiment"
 status = "pending"
 depends = ["ag3-lora.1", "ag3-lora.2"]
+
+# ============================================================
+# Future epics (from bs104, user requested)
+# ============================================================
+
+[[epics]]
+id = "generic-loader"
+title = "Generic SafeTensors/ONNX Model Loader"
+status = "planned"
+priority = "medium"
+success_criteria = [
+    "Generic SafeTensors loader: ModelDef schema → automatic weight mapping",
+    "Support loading at least 3 different model architectures",
+    "Optional: ONNX graph execution for common ops",
+]
+
+[[epics]]
+id = "larger-training"
+title = "Larger Training Examples — ResNet, LoRA, real datasets"
+status = "planned"
+priority = "medium"
+depends_on = "autograd-v3"
+success_criteria = [
+    "At least one training example with >90% GPU utilization",
+    "Training on real dataset (ImageNet subset, WikiText, etc.)",
+    "Model trains to non-trivial accuracy",
+]
+
+[[epics]]
+id = "gpu-mempool"
+title = "GPU Memory Pool — arena/slab allocator for tensor buffers"
+status = "planned"
+priority = "low"
+success_criteria = [
+    "Measured: alloc overhead < 5% (if yes, skip; if no, implement pool)",
+    "If implemented: slab allocator with size classes for common tensor shapes",
+    "Training loop shows measurable speedup from buffer reuse",
+]

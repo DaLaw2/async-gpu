@@ -53,7 +53,6 @@ fn elementwise_activation(
         )
         .map_err(NnError::Cuda)?;
     }
-    dev.synchronize().map_err(NnError::Cuda)?;
 
     // Record on autograd tape
     if input.requires_grad() {

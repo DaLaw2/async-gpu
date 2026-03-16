@@ -44,7 +44,6 @@ pub fn layer_norm(
         )
         .map_err(NnError::Cuda)?;
     }
-    dev.synchronize().map_err(NnError::Cuda)?;
 
     // Record on autograd tape
     if input.requires_grad() {
@@ -151,7 +150,6 @@ pub fn batch_norm_silu(
         )
         .map_err(NnError::Cuda)?;
     }
-    dev.synchronize().map_err(NnError::Cuda)?;
 
     let _ = c; // used indirectly via hw calculation
     Ok(output)

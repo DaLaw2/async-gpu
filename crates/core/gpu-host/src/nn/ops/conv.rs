@@ -83,7 +83,6 @@ pub fn conv2d(
             )
             .map_err(NnError::Cuda)?;
     }
-    dev.synchronize().map_err(NnError::Cuda)?;
 
     // 2. Transpose im2col output on GPU: [spatial, K] → [K, spatial]
     let mut col_transposed = dev.alloc_zeros::<f32>(col_h * col_w)?;
@@ -104,7 +103,6 @@ pub fn conv2d(
             )
             .map_err(NnError::Cuda)?;
     }
-    dev.synchronize().map_err(NnError::Cuda)?;
 
     // 3. GEMM: W[c_out, K] × Col_T[K, spatial] → [c_out, spatial]
     // Weight [c_out, c_in, kh, kw] has same flat data as [c_out, K] — just reshape on GPU
@@ -217,7 +215,6 @@ fn conv2d_batched(
             )
             .map_err(NnError::Cuda)?;
         }
-        dev.synchronize().map_err(NnError::Cuda)?;
 
         // Transpose from [spatial, K] to [K, spatial] and place into
         // the correct batch-column slice of the big matrix.

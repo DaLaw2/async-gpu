@@ -67,7 +67,6 @@ pub fn scaled_dot_product_attention(
         )
         .map_err(NnError::Cuda)?;
     }
-    dev.synchronize().map_err(NnError::Cuda)?;
 
     // Record on autograd tape
     if q.requires_grad() || k.requires_grad() || v.requires_grad() {
@@ -138,7 +137,6 @@ pub fn split_qkv(
         )
         .map_err(NnError::Cuda)?;
     }
-    dev.synchronize().map_err(NnError::Cuda)?;
 
     Ok((q, k, v))
 }
@@ -189,7 +187,6 @@ pub fn multi_head_flash_attention(
         )
         .map_err(NnError::Cuda)?;
     }
-    dev.synchronize().map_err(NnError::Cuda)?;
 
     // Reshape output metadata (data unchanged)
     let _ = total; // suppress unused warning
@@ -231,7 +228,6 @@ pub fn concat_heads(
         )
         .map_err(NnError::Cuda)?;
     }
-    dev.synchronize().map_err(NnError::Cuda)?;
 
     Ok(output)
 }
@@ -289,7 +285,6 @@ pub fn scaled_dot_product_attention_kv(
         )
         .map_err(NnError::Cuda)?;
     }
-    dev.synchronize().map_err(NnError::Cuda)?;
 
     Ok(output)
 }

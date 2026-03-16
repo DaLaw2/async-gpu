@@ -62,7 +62,6 @@ pub fn concat_channels(
         )
         .map_err(NnError::Cuda)?;
     }
-    dev.synchronize().map_err(NnError::Cuda)?;
 
     Ok(output)
 }
@@ -101,7 +100,6 @@ pub fn bias_add_chw(
         )
         .map_err(NnError::Cuda)?;
     }
-    dev.synchronize().map_err(NnError::Cuda)?;
 
     Ok(output)
 }
@@ -136,7 +134,6 @@ pub fn bias_add(
         )
         .map_err(NnError::Cuda)?;
     }
-    registry.device().synchronize().map_err(NnError::Cuda)?;
 
     // Record on autograd tape
     if input.requires_grad() {
@@ -181,7 +178,6 @@ pub fn elementwise_add(
         func.launch(config, (a.data_mut(), b.data(), n as u32))
             .map_err(NnError::Cuda)?;
     }
-    registry.device().synchronize().map_err(NnError::Cuda)?;
 
     // Record on autograd tape
     if a.requires_grad() || b.requires_grad() {
@@ -246,7 +242,6 @@ pub fn embedding_lookup(
         )
         .map_err(NnError::Cuda)?;
     }
-    dev.synchronize().map_err(NnError::Cuda)?;
 
     Ok(output)
 }

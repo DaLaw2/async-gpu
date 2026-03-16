@@ -107,27 +107,18 @@ pub fn conv2d(
     dev.synchronize().map_err(NnError::Cuda)?;
 
     // 3. GEMM: W[c_out, K] × Col_T[K, spatial] → [c_out, spatial]
-    // Weight needs reshape from [c_out, c_in, kh, kw] to [c_out, K] — same flat data
-    let w_host = weight.to_host()?;
-    let w_tensor = GpuTensor::from_host(&w_host, &[c_out, col_h], dev)?;
+    // Weight [c_out, c_in, kh, kw] has same flat data as [c_out, K] — just reshape on GPU
+    let w_reshaped = weight.reshape(&[c_out, col_h])?;
     let col_tensor = GpuTensor::from_data(col_transposed, &[col_h, col_w], Arc::clone(&dev));
-    let gemm_out = super::matmul(&w_tensor, &col_tensor, registry)?;
+    let gemm_out = super::matmul(&w_reshaped, &col_tensor, registry)?;
 
-    // 3. Result is [C_out, col_w] = [C_out, h_out * w_out] — already in CHW layout
-    let mut result = gemm_out.to_host()?;
+    // 3. Result is [C_out, col_w] = [C_out, h_out * w_out] — reshape to [C_out, H_out, W_out]
+    let mut output = gemm_out.reshape(&[c_out, h_out, w_out])?;
 
-    // 4. Add bias if present
+    // 4. Add bias if present (GPU kernel)
     if let Some(bias_tensor) = bias {
-        let bias_host = bias_tensor.to_host()?;
-        for ch in 0..c_out {
-            let b = bias_host[ch];
-            for i in 0..(h_out * w_out) {
-                result[ch * h_out * w_out + i] += b;
-            }
-        }
+        output = super::bias_add_chw(&output, bias_tensor, registry)?;
     }
-
-    let mut output = GpuTensor::from_host(&result, &[c_out, h_out, w_out], dev)?;
 
     // Record on autograd tape
     if input.requires_grad() {

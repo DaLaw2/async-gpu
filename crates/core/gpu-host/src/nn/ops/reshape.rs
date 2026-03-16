@@ -95,7 +95,7 @@ pub fn bias_add_chw(
                 input.data(),
                 output.data_mut(),
                 bias.data(),
-                c as u32,
+                n as u32,
                 hw as u32,
                 &status_dev,
             ),

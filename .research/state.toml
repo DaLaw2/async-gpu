@@ -4,8 +4,8 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 430     # Monotonic counter, incremented after each completed phase
-completed_tasks = 530
+total_cycles = 431     # Monotonic counter, incremented after each completed phase
+completed_tasks = 536
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
@@ -14,9 +14,9 @@ current_step = "do.execute"
 current_mode = "do"
 current_step = "do.execute"
 current_mode = "do"
-current_step = "do.execute"
-current_task_id = "te-mnist.1"
-last_summary = "training-examples epic created. Starting te-mnist.1: MNIST download + IDX parser."
+current_step = "do.save"
+current_task_id = ""
+last_summary = "training-examples epic COMPLETE. MNIST MLP 91.2% acc, CIFAR-10 CNN 15% acc. 536 tasks. Next: maintain (module refactoring)."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 103
@@ -1988,8 +1988,9 @@ depends = ["ag2-conv-bwd.4", "ag2-misc-bwd.1", "ag2-misc-bwd.2", "ag2-train-demo
 [[epics]]
 id = "training-examples"
 title = "Training Examples — MNIST MLP + CIFAR-10 CNN end-to-end training demos"
-status = "active"
+status = "completed"
 priority = "high"
+# ALL 5 CRITERIA MET — closed 2026-03-16
 depends_on = "autograd-v2"
 success_criteria = [
     "MNIST MLP example: Linear(784→128) → ReLU → Linear(128→10), trains to >90% accuracy",
@@ -2018,7 +2019,7 @@ success_criteria = [
 id = "te-cifar"
 epic = "training-examples"
 title = "CIFAR-10 tiny CNN training example"
-status = "pending"
+status = "completed"
 goal = "Standalone example training small CNN on CIFAR-10 subset"
 success_criteria = [
     "CIFAR-10 binary subset (1000 images) downloaded",
@@ -2058,7 +2059,7 @@ id = "te-cifar.1"
 theme = "te-cifar"
 title = "Download CIFAR-10 binary subset + implement parser"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = []
 
 [[tasks]]
@@ -2066,7 +2067,7 @@ id = "te-cifar.2"
 theme = "te-cifar"
 title = "Implement examples/std/cifar-train/ with small CNN training loop"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["te-cifar.1"]
 
 [[tasks]]
@@ -2074,5 +2075,5 @@ id = "te-cifar.3"
 theme = "te-cifar"
 title = "Run CIFAR-10 training, verify loss decreases and accuracy > random"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["te-cifar.2"]

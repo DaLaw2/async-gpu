@@ -12,7 +12,7 @@ status = "running"     # ready | running | blocked | completed
 current_mode = "do"
 current_step = "do.execute"
 current_task_id = "ag-tape.5"
-last_summary = "autograd-v1: ag-tape.1-4 DONE (design + pool + tape + requires_grad). 31 tests pass. Next: ag-tape.5 wire forward ops to tape."
+last_summary = "autograd-v1: ag-tape.1-4 DONE + thread-local tape + tensor_id on GpuTensor. 31 tests pass. ag-tape.5 in progress: wiring ops to tape."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 102
@@ -1543,7 +1543,7 @@ id = "ag-tape.5"
 theme = "ag-tape"
 title = "Modify forward ops to record on tape when recording=true"
 kind = "experiment"
-status = "pending"
+status = "active"
 depends = ["ag-tape.3", "ag-tape.4"]
 
 [[tasks]]

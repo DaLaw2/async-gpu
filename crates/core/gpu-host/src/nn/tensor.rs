@@ -55,6 +55,8 @@ pub struct GpuTensor {
     /// Whether this tensor requires gradient computation.
     /// When true, operations involving this tensor are recorded on the autograd tape.
     requires_grad: bool,
+    /// Autograd tensor ID (set when tensor is tracked on the tape).
+    tensor_id: Option<crate::nn::autograd::TensorId>,
 }
 
 impl GpuTensor {
@@ -70,6 +72,7 @@ impl GpuTensor {
             strides,
             device,
             requires_grad: false,
+            tensor_id: None,
         }
     }
 
@@ -93,6 +96,7 @@ impl GpuTensor {
             strides,
             device: Arc::clone(device),
             requires_grad: false,
+            tensor_id: None,
         })
     }
 
@@ -113,6 +117,7 @@ impl GpuTensor {
             strides,
             device: Arc::clone(device),
             requires_grad: false,
+            tensor_id: None,
         })
     }
 
@@ -149,6 +154,16 @@ impl GpuTensor {
     /// Set whether this tensor requires gradient computation.
     pub fn set_requires_grad(&mut self, val: bool) {
         self.requires_grad = val;
+    }
+
+    /// Get the autograd tensor ID (if tracked).
+    pub fn tensor_id(&self) -> Option<crate::nn::autograd::TensorId> {
+        self.tensor_id
+    }
+
+    /// Set the autograd tensor ID.
+    pub fn set_tensor_id(&mut self, id: crate::nn::autograd::TensorId) {
+        self.tensor_id = Some(id);
     }
 
     /// Reference to the underlying device memory slice.
@@ -202,6 +217,7 @@ impl GpuTensor {
             strides: compute_strides(new_shape),
             device: Arc::clone(&self.device),
             requires_grad: false,
+            tensor_id: None,
         })
     }
 
@@ -259,6 +275,7 @@ impl GpuTensor {
             strides: self.strides.clone(),
             device: Arc::clone(&self.device),
             requires_grad: false,
+            tensor_id: None,
         })
     }
 

@@ -1988,3 +1988,105 @@ pub unsafe extern "ptx-kernel" fn mma_diag(
         );
     }
 }
+
+// ============================================================
+// INT8 GEMM via dp4a — 4x INT8 dot product per instruction
+// ============================================================
+
+/// INT8 GEMM: C[M,N] = A_int8[M,K] × B_int8[K,N] using dp4a.
+///
+/// A is row-major [M, K/4] packed u32, B is column-major [N, K/4] packed u32.
+/// Output C: [M, N] as i32 (INT32 accumulation).
+///
+/// Each thread computes one C[row, col] by accumulating K/4 dp4a operations.
+///
+/// Grid: (ceil(M*N / 256), 1, 1), Block: (256, 1, 1).
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn int8_gemm_dp4a(
+    a_packed: *const u32,
+    b_packed: *const u32,
+    c_out: *mut i32,
+    m: u32,
+    n: u32,
+    k_div4: u32,
+    status: *mut u32,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let block_x = nvptx::_block_idx_x() as u32;
+        let global_id = block_x * 256 + tid;
+        let total = m * n;
+
+        if global_id < total {
+            let row = global_id / n;
+            let col = global_id % n;
+
+            let mut acc: u32 = 0;
+            let a_row = a_packed.add((row * k_div4) as usize);
+            let b_col = b_packed.add((col * k_div4) as usize);
+
+            for k in 0..k_div4 {
+                let a_val = *a_row.add(k as usize);
+                let b_val = *b_col.add(k as usize);
+                core::arch::asm!(
+                    "dp4a.s32.s32 {out}, {a}, {b}, {c};",
+                    out = out(reg32) acc,
+                    a = in(reg32) a_val,
+                    b = in(reg32) b_val,
+                    c = in(reg32) acc,
+                );
+            }
+
+            *c_out.add((row * n + col) as usize) = acc as i32;
+        }
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (a_packed, b_packed, c_out, m, n, k_div4);
+    }
+
+    if tid == 0 {
+        *status = 0;
+    }
+}
+
+/// Dequantize INT32 GEMM result to f32.
+///
+/// out_f32[i] = c_int32[i] * scale_a * scale_b[col]
+///
+/// Grid: (ceil(n_total/256), 1, 1), Block: (256, 1, 1).
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn int8_dequantize(
+    c_int32: *const i32,
+    out_f32: *mut f32,
+    scale_a: f32,
+    scale_b: *const f32,
+    n_total: u32,
+    n_cols: u32,
+    status: *mut u32,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let block_x = nvptx::_block_idx_x() as u32;
+        let global_id = block_x * 256 + tid;
+
+        if global_id < n_total {
+            let col = global_id % n_cols;
+            let val = *c_int32.add(global_id as usize);
+            let sb = *scale_b.add(col as usize);
+            *out_f32.add(global_id as usize) = val as f32 * scale_a * sb;
+        }
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (c_int32, out_f32, scale_a, scale_b, n_total, n_cols);
+    }
+
+    if tid == 0 {
+        *status = 0;
+    }
+}

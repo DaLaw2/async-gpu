@@ -42,6 +42,9 @@ const ML_KERNELS: &[&str] = &[
     "sigmoid_forward",
     "bias_add_chw",
     "channel_scale_chw",
+    // INT8 GEMM ops (compute_gemm.rs)
+    "int8_gemm_dp4a",
+    "int8_dequantize",
     // Transformer ops (compute_transformer.rs)
     "layer_norm",
     "gelu_forward",

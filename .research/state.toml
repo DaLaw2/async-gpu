@@ -4,14 +4,14 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 465     # Monotonic counter, incremented after each completed phase
-completed_tasks = 571
+total_cycles = 466     # Monotonic counter, incremented after each completed phase
+completed_tasks = 572
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "ag4-upsample.1"
+current_task_id = "int8-gemm.1"
 last_summary = "Session: 5 epics completed (training-quality, generic-loader, gpu-rag, conv-backward-training, autograd-v4). GPU BN backward kernel, MaxPool2d gradient routing, UpsampleNearest 4-to-1 accumulation. RAG demo 1030 chunks. ResNet-18 91.3%. Next: brainstorm new direction."
 
 # Sequence counters for unique file naming across iterations
@@ -681,3 +681,76 @@ kind = "experiment"
 status = "done"
 # Correct 2×2 summation replacing passthrough. CPU-side for now.
 depends = []
+
+# ============================================================
+# INT8 Quantized Inference Epic
+# ============================================================
+
+[[epics]]
+id = "int8-inference"
+title = "INT8 Quantized Inference — post-training quantization for GPT-2"
+status = "active"
+priority = "high"
+success_criteria = [
+    "INT8 GEMM kernel using dp4a instruction (4× INT8 dot product → INT32)",
+    "Post-training quantization: f32 weights → INT8 with per-channel scale factors",
+    "GPT-2 INT8 inference produces coherent text (top-5 match f32 for >= 2/3 prompts)",
+    "Per-token latency improvement over f32 (target: < 50ms, baseline 68ms f32)",
+]
+
+[[themes]]
+id = "int8-gemm"
+epic = "int8-inference"
+title = "INT8 GEMM kernel using dp4a"
+status = "active"
+goal = "dp4a-based INT8 matrix multiply with INT32 accumulation"
+success_criteria = [
+    "dp4a PTX kernel: INT8 A × INT8 B → INT32 C with tiling",
+    "Correctness: matches f32 reference within quantization tolerance",
+    "Benchmark: throughput > f32 GEMM",
+]
+
+[[tasks]]
+id = "int8-gemm.1"
+theme = "int8-gemm"
+title = "Investigation: dp4a instruction, quantization scheme, PTX syntax"
+kind = "investigation"
+status = "done"
+# dp4a.s32.s32 compiles to valid PTX. INT8 GEMM + dequantize kernels added.
+depends = []
+
+[[tasks]]
+id = "int8-gemm.2"
+theme = "int8-gemm"
+title = "Implement INT8 GEMM kernel with dp4a + benchmark vs f32"
+kind = "experiment"
+status = "pending"
+depends = ["int8-gemm.1"]
+
+[[themes]]
+id = "int8-gpt2"
+epic = "int8-inference"
+title = "GPT-2 INT8 inference"
+status = "active"
+goal = "Run GPT-2 with INT8 quantized weights"
+success_criteria = [
+    "Quantize GPT-2 weights to INT8 with per-channel scales",
+    "INT8 forward pass produces coherent text",
+    "Per-token latency < 50ms",
+]
+
+[[tasks]]
+id = "int8-gpt2.1"
+theme = "int8-gpt2"
+title = "Quantize GPT-2 weights to INT8 + implement INT8 Linear forward"
+kind = "experiment"
+status = "pending"
+depends = ["int8-gemm.2"]
+
+[[tasks]]
+id = "int8-gpt2.2"
+theme = "int8-gpt2"
+title = "GPT-2 INT8 inference: benchmark latency + verify output quality"
+kind = "experiment"
+status = "pending"
+depends = ["int8-gpt2.1"]

@@ -68,6 +68,7 @@ cargo run --manifest-path examples/vector-math/host/Cargo.toml
 
 | Example | Description | Toolchain |
 |---------|-------------|-----------|
+| **Hostcall examples** (`examples/hostcall/`) | | |
 | `hello-gpu` | Vector add, GPU print, file I/O, bulk sideband | Stock nightly |
 | `async-pipeline` | `#[warp_cooperative] async fn` with hostcall Futures | Patched rustc |
 | `async-io` | Multi-file write pipeline + read-transform-write | Stock nightly |
@@ -76,6 +77,9 @@ cargo run --manifest-path examples/vector-math/host/Cargo.toml
 | `tcp-echo` | GPU-initiated TCP networking via hostcall | Stock nightly |
 | `tokio-offload` | Async kernel launch from tokio runtime | Stock nightly |
 | `warp-cooperative` | MIR pass verification tests | Patched rustc |
+| **NN API examples** (`examples/std/`) | | |
+| `gpt2-inference` | GPT-2 Small text generation using `nn` module | Stock nightly |
+| `yolo-detect` | YOLOv8-nano object detection using `nn` module | Stock nightly |
 
 </details>
 
@@ -119,7 +123,7 @@ This works via a **patched std** (`-Zbuild-std=std`) with a CUDA platform adapta
 
 ## GPT-2 Inference (124M Parameters)
 
-End-to-end transformer inference — real HuggingFace weights, custom BPE tokenizer, 12 transformer layers, KV-cached autoregressive generation. All compute kernels in pure Rust with inline PTX, no CUDA C++ or cuBLAS.
+End-to-end transformer inference — real HuggingFace weights, custom BPE tokenizer, 12 transformer layers, KV-cached autoregressive generation. Available via both the raw kernel API and the composable **nn module** (`Linear`, `LayerNorm`, `MultiHeadAttention`, `Gpt2Model`). All compute kernels in pure Rust with inline PTX, no CUDA C++ or cuBLAS.
 
 ```
 --- Greedy autoregressive generation (with KV cache) ---
@@ -131,6 +135,8 @@ End-to-end transformer inference — real HuggingFace weights, custom BPE tokeni
 ```
 
 GPU compute kernels: GEMM (f32 FMA + f16 Tensor Core MMA with split-K), FlashAttention (tiled online softmax, causal masking, KV cache), LayerNorm, GELU, Softmax, Embedding — all in Rust inline PTX.
+
+Standalone example: `cargo run --manifest-path examples/std/gpt2-inference/Cargo.toml --release` (requires `models/model.safetensors` — run `bash scripts/download-models.sh`).
 
 <details>
 <summary>More demos</summary>
@@ -180,6 +186,8 @@ End-to-end real-time object detection — SafeTensors weights, 23-layer backbone
 
 GPU compute kernels: Conv2D (im2col + GEMM), BatchNorm+SiLU (fused elementwise), MaxPool2D, Upsample (nearest-neighbor), C2f blocks, SPPF, Sigmoid — all in Rust inline PTX.
 
+Standalone example: `cargo run --manifest-path examples/std/yolo-detect/Cargo.toml --release` (requires `models/yolov8n.safetensors` — run `uv run --with ultralytics --with safetensors scripts/export_yolo.py`).
+
 ## How It Works
 
 ### Host SDK
@@ -212,25 +220,55 @@ Formally verified with TLA+ (367M safety states, 337K liveness states, 0 violati
 
 All 32 lanes always agree on the current state — warp convergence is maintained by construction.
 
+## Neural Network Module (`gpu_host::nn`)
+
+PyTorch-style composable layers and autograd, running on GPU via the kernel registry:
+
+```rust
+use gpu_host::nn::{GpuTensor, KernelRegistry, Module};
+use gpu_host::nn::layers::{Linear, LayerNorm, GELU};
+use gpu_host::nn::models::gpt2::Gpt2Model;
+
+// Build model from safetensors weights — no raw kernel launches needed
+let model = Gpt2Model::from_weights(&weights, config, &registry)?;
+let tokens = model.generate(&prompt_tokens, 50)?;
+```
+
+**Layers**: `Linear`, `Conv2d`, `LayerNorm`, `BatchNorm2d`, `Embedding`, `MultiHeadAttention`, `GELU`, `SiLU`, `Sigmoid`, `ReLU`, `MaxPool2d`, `Sequential`.
+
+**Autograd** (tape-based reverse-mode AD):
+- Forward ops automatically record on a thread-local tape when `requires_grad = true`
+- `backward()` traverses tape in reverse with chain rule dispatch
+- Backward kernels: GELU, SiLU, sigmoid, ReLU, matmul, LayerNorm, bias_add, elementwise_add
+- Optimizers: SGD (with momentum), Adam
+- Losses: cross-entropy, MSE
+- Verified via numerical gradient checks (finite differences)
+
 ## Crate Map
 
 ```
 crates/
   core/
     gpu-host/          Host-side SDK: GpuRuntime, HostcallBuffer, MappedBuffer, GpuStream
+      nn/              Neural network module: GpuTensor, KernelRegistry, ops, layers, models
+        autograd/      Tape-based reverse-mode AD: backward, optimizers, losses
+        models/        GPT-2 and YOLOv8-nano model implementations
+        test_utils/    Numerical comparison harness, CPU f64 references, golden files
     gpu-protocol/      Shared constants: packet layout, service IDs, error codes
     gpu-runtime/       GPU-side runtime: index, math, warp, block, nn, executor, channels
     gpu-atomics/       System-scope GPU atomics via inline PTX (CAS, shfl, activemask)
     gpu-libc/          Minimal libc shim for GPU: routes sys calls to hostcall
   kernel/
-    gpu-kernel/        Main GPU kernel crate (94+ kernels: compute, hostcall, pipeline)
+    gpu-kernel/        Main GPU kernel crate (110 kernels: compute, hostcall, pipeline, backward)
     gpu-kernel-std/    GPU kernels using patched Rust std (println!, Vec, File, stdin)
   macro/
     warp-macro/        #[warp_async] proc macro (generates WarpFuture state machines)
 
 rustc-patches/       Custom MIR pass patches for rustc
-scripts/             Build/CI automation (build-toolchain, ci-lint, pre-push, install-toolchain)
-examples/            8 self-contained examples (see Quick Start)
+scripts/             Build/CI automation, model download (download-models.sh, export_yolo.py)
+examples/
+  hostcall/          8 raw-API examples (hello-gpu, async-pipeline, vector-math, etc.)
+  std/               2 nn-API examples (gpt2-inference, yolo-detect)
 formal/              TLA+ specification and model-checking config
 ```
 

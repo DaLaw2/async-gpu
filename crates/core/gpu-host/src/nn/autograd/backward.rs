@@ -130,7 +130,7 @@ pub fn backward(
                             expected: "saved conv2d weight".to_string(),
                             actual: format!("TensorId({}) not found", weight_id.0),
                         })?;
-                    let (d_input, d_weight) = conv2d_backward_cpu(
+                    let (d_input, d_weight) = conv2d_backward_gpu(
                         &d_out_clone,
                         saved_input,
                         saved_weight,
@@ -461,7 +461,11 @@ fn attention_backward_cpu(
 ///
 /// dInput[c_in, h, w] = sum over c_out of conv2d_transpose(dOutput, weight)
 #[allow(clippy::too_many_arguments)]
-fn conv2d_backward_cpu(
+/// GPU conv2d backward using im2col + matmul + col2im.
+///
+/// **dWeight** = d_output_2d [C_out, spatial] × im2col(input) [spatial, K] → [C_out, K]
+/// **dInput** = col2im(weight_2d.T [K, C_out] × d_output_2d [C_out, spatial]) → [C_in, H, W]
+fn conv2d_backward_gpu(
     d_output: &GpuTensor,
     input: &GpuTensor,
     weight: &GpuTensor,
@@ -475,66 +479,102 @@ fn conv2d_backward_cpu(
     padding: usize,
     registry: &Arc<KernelRegistry>,
 ) -> Result<(GpuTensor, GpuTensor)> {
+    use cudarc::driver::LaunchAsync;
+
     let dev = registry.device();
     let h_out = (h + 2 * padding - kh) / stride + 1;
     let w_out = (w + 2 * padding - kw) / stride + 1;
+    let col_k = c_in * kh * kw;
+    let spatial = h_out * w_out;
 
-    let d_out_host = d_output.to_host()?;
-    let w_host = weight.to_host()?;
-    let in_host = input.to_host()?;
+    // 1. im2col(input) → col [spatial, K] (same as forward)
+    let mut col_dev = dev.alloc_zeros::<f32>(col_k * spatial)?;
+    let status_dev = dev.htod_sync_copy(&[0u32])?;
+    let f_im2col = registry.get("im2col")?;
+    let im2col_total = (col_k * spatial) as u32;
+    unsafe {
+        f_im2col
+            .launch(
+                KernelRegistry::config_1d(im2col_total),
+                (
+                    input.data(),
+                    &mut col_dev,
+                    c_in as u32,
+                    h as u32,
+                    w as u32,
+                    kh as u32,
+                    kw as u32,
+                    stride as u32,
+                    padding as u32,
+                    h_out as u32,
+                    w_out as u32,
+                    &status_dev,
+                ),
+            )
+            .map_err(crate::nn::error::NnError::Cuda)?;
+    }
+    // col_dev is [spatial, K] layout (from im2col kernel)
+    let col_tensor = GpuTensor::from_data(col_dev, &[spatial, col_k], Arc::clone(dev));
 
-    // dInput = transposed convolution of dOutput with weight
-    let mut d_input = vec![0.0f32; c_in * h * w];
+    // 2. dWeight = d_output_2d [C_out, spatial] @ col [spatial, K] → [C_out, K]
+    let d_out_2d = d_output.reshape(&[c_out, spatial])?;
+    let d_weight_flat = crate::nn::ops::matmul(&d_out_2d, &col_tensor, registry)?;
+    let d_weight = d_weight_flat.reshape(&[c_out, c_in, kh, kw])?;
 
-    for co in 0..c_out {
-        for oh in 0..h_out {
-            for ow in 0..w_out {
-                let d_val = d_out_host[co * h_out * w_out + oh * w_out + ow];
-                for ci in 0..c_in {
-                    for fh in 0..kh {
-                        for fw in 0..kw {
-                            let ih = (oh * stride + fh) as isize - padding as isize;
-                            let iw = (ow * stride + fw) as isize - padding as isize;
-                            if ih >= 0 && ih < h as isize && iw >= 0 && iw < w as isize {
-                                let w_val =
-                                    w_host[co * (c_in * kh * kw) + ci * (kh * kw) + fh * kw + fw];
-                                d_input[ci * h * w + ih as usize * w + iw as usize] +=
-                                    d_val * w_val;
-                            }
-                        }
-                    }
-                }
-            }
-        }
+    // 3. dInput via col2im:
+    //    d_col = weight_2d.T [K, C_out] @ d_output_2d [C_out, spatial] → [K, spatial]
+    let w_2d = weight.reshape(&[c_out, col_k])?;
+    let w_2d_t = w_2d.transpose(0, 1)?; // [K, C_out]
+    let d_col = crate::nn::ops::matmul(&w_2d_t, &d_out_2d, registry)?;
+
+    // d_col is [K, spatial] = [C_in*kH*kW, H_out*W_out]
+    // Need to transpose to [spatial, K] for col2im kernel (which expects that layout)
+    let mut d_col_transposed = dev.alloc_zeros::<f32>(col_k * spatial)?;
+    let f_transpose = registry.get("matrix_transpose")?;
+    unsafe {
+        f_transpose
+            .launch(
+                KernelRegistry::config_1d((col_k * spatial) as u32),
+                (
+                    d_col.data(),
+                    &mut d_col_transposed,
+                    col_k as u32,   // rows: K
+                    spatial as u32, // cols: spatial
+                    &status_dev,
+                ),
+            )
+            .map_err(crate::nn::error::NnError::Cuda)?;
     }
 
-    // dWeight[co, ci, fh, fw] = sum over spatial of d_output[co, oh, ow] * input[ci, ih, iw]
-    let mut d_weight = vec![0.0f32; c_out * c_in * kh * kw];
-    for co in 0..c_out {
-        for ci in 0..c_in {
-            for fh in 0..kh {
-                for fw in 0..kw {
-                    let mut sum = 0.0f32;
-                    for oh in 0..h_out {
-                        for ow in 0..w_out {
-                            let ih = (oh * stride + fh) as isize - padding as isize;
-                            let iw = (ow * stride + fw) as isize - padding as isize;
-                            if ih >= 0 && ih < h as isize && iw >= 0 && iw < w as isize {
-                                sum += d_out_host[co * h_out * w_out + oh * w_out + ow]
-                                    * in_host[ci * h * w + ih as usize * w + iw as usize];
-                            }
-                        }
-                    }
-                    d_weight[co * (c_in * kh * kw) + ci * (kh * kw) + fh * kw + fw] = sum;
-                }
-            }
-        }
+    // col2im: d_col_transposed [spatial, K] → d_input [C_in, H, W]
+    let mut d_input_dev = dev.alloc_zeros::<f32>(c_in * h * w)?;
+    let f_col2im = registry.get("col2im")?;
+    let col2im_total = (col_k * spatial) as u32;
+    unsafe {
+        f_col2im
+            .launch(
+                KernelRegistry::config_1d(col2im_total),
+                (
+                    &d_col_transposed,
+                    &mut d_input_dev,
+                    c_in as u32,
+                    h as u32,
+                    w as u32,
+                    kh as u32,
+                    kw as u32,
+                    stride as u32,
+                    padding as u32,
+                    h_out as u32,
+                    w_out as u32,
+                    &status_dev,
+                ),
+            )
+            .map_err(crate::nn::error::NnError::Cuda)?;
     }
 
-    Ok((
-        GpuTensor::from_host(&d_input, &[c_in, h, w], dev)?,
-        GpuTensor::from_host(&d_weight, &[c_out, c_in, kh, kw], dev)?,
-    ))
+    let d_input = GpuTensor::from_data(d_input_dev, &[c_in, h, w], Arc::clone(dev));
+
+    Ok((d_input, d_weight))
 }
 
 /// Launch an element-wise activation backward kernel.

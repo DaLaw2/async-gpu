@@ -9,13 +9,13 @@ completed_tasks = 543
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
-current_mode = "think"
-current_step = "think.triage"
-current_task_id = ""
-last_summary = "3 new epics created: generic-loader (reactivated), conv-backward-training, training-quality. Need brainstorm to create themes/tasks."
+current_mode = "do"
+current_step = "do.execute"
+current_task_id = "cb-kernels.1"
+last_summary = "Quick bs106: themes/tasks created for conv-backward-training and generic-loader. Starting cb-kernels.1 (GPU conv2d backward dWeight kernel)."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 105
+brainstorm_seq = 106
 review_seq = 5
 
 # Brainstorm trigger control (event-driven, no fixed interval)
@@ -1298,3 +1298,140 @@ success_criteria = [
     "Mini-ResNet shows meaningful accuracy improvement over random (>30% CIFAR-10)",
     "At least one training example demonstrates GPU speedup > 2x over CPU",
 ]
+
+# ============================================================
+# conv-backward-training themes/tasks
+# ============================================================
+
+[[themes]]
+id = "cb-kernels"
+epic = "conv-backward-training"
+title = "GPU conv2d backward kernels (dWeight + dInput)"
+status = "active"
+goal = "Replace CPU conv backward with GPU kernels"
+success_criteria = [
+    "conv2d_backward_dweight GPU kernel: computes weight gradient on GPU",
+    "conv2d_backward_dinput GPU kernel: computes input gradient on GPU",
+    "Both kernels match CPU reference within tolerance",
+    "Integrated into autograd backward dispatcher",
+]
+
+[[tasks]]
+id = "cb-kernels.1"
+theme = "cb-kernels"
+title = "Implement GPU conv2d_backward_dweight kernel (im2col-based)"
+kind = "experiment"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "cb-kernels.2"
+theme = "cb-kernels"
+title = "Implement GPU conv2d_backward_dinput kernel (col2im-based)"
+kind = "experiment"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "cb-kernels.3"
+theme = "cb-kernels"
+title = "Wire GPU conv2d backward into autograd tape dispatcher"
+kind = "experiment"
+status = "pending"
+depends = ["cb-kernels.1", "cb-kernels.2"]
+
+[[themes]]
+id = "cb-batched"
+epic = "conv-backward-training"
+title = "Batched conv2d backward — process full batch in one launch"
+status = "active"
+goal = "Eliminate per-sample backward overhead"
+success_criteria = [
+    "Batched dWeight: accumulate weight gradient across N samples in one kernel",
+    "Batched dInput: compute input gradient for [N,C,H,W] in one launch",
+    "MNIST CNN backward uses batched GPU kernels, maintains 96%+ accuracy",
+]
+
+[[tasks]]
+id = "cb-batched.1"
+theme = "cb-batched"
+title = "Extend conv2d backward to accept batched [N,C,H,W] input"
+kind = "experiment"
+status = "pending"
+depends = ["cb-kernels.3"]
+
+[[tasks]]
+id = "cb-batched.2"
+theme = "cb-batched"
+title = "Benchmark MNIST CNN with GPU batched backward vs CPU backward"
+kind = "experiment"
+status = "pending"
+depends = ["cb-batched.1"]
+
+# ============================================================
+# generic-loader themes/tasks
+# ============================================================
+
+[[themes]]
+id = "gl-schema"
+epic = "generic-loader"
+title = "ModelDef schema + generic SafeTensors loading"
+status = "active"
+goal = "Declarative weight mapping that works across model architectures"
+success_criteria = [
+    "ModelDef struct: maps safetensors key patterns to nn layer constructors",
+    "Generic load function: ModelDef + safetensors file → HashMap<String, Vec<f32>>",
+    "GPT-2 loads via generic loader (regression test against current loader)",
+]
+
+[[tasks]]
+id = "gl-schema.1"
+theme = "gl-schema"
+title = "Investigate current weight loading patterns across GPT-2, YOLO, ResNet"
+kind = "investigation"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "gl-schema.2"
+theme = "gl-schema"
+title = "Design and implement ModelDef schema + generic load_weights()"
+kind = "experiment"
+status = "pending"
+depends = ["gl-schema.1"]
+
+[[tasks]]
+id = "gl-schema.3"
+theme = "gl-schema"
+title = "Migrate GPT-2 to generic loader, verify regression"
+kind = "experiment"
+status = "pending"
+depends = ["gl-schema.2"]
+
+[[themes]]
+id = "gl-resnet"
+epic = "generic-loader"
+title = "Load pretrained ResNet-18 weights + verify accuracy"
+status = "active"
+goal = "ResNet-18 pretrained inference via generic loader"
+success_criteria = [
+    "Export ResNet-18 pretrained weights from PyTorch to safetensors",
+    "Load into ResNet18 model via generic loader",
+    "Inference accuracy > 90% on CIFAR-10 test set",
+]
+
+[[tasks]]
+id = "gl-resnet.1"
+theme = "gl-resnet"
+title = "Export PyTorch ResNet-18 CIFAR-10 pretrained weights to safetensors"
+kind = "experiment"
+status = "pending"
+depends = ["gl-schema.2"]
+
+[[tasks]]
+id = "gl-resnet.2"
+theme = "gl-resnet"
+title = "Load pretrained ResNet-18 via generic loader, verify >90% accuracy"
+kind = "experiment"
+status = "pending"
+depends = ["gl-resnet.1"]

@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 423     # Monotonic counter, incremented after each completed phase
-completed_tasks = 503
+total_cycles = 424     # Monotonic counter, incremented after each completed phase
+completed_tasks = 506
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "ag-gemm-bwd.2"
-last_summary = "ag-elemwise-bwd COMPLETE (5/5). All activation gradients match finite diffs. 37 tests pass, 503 tasks. Next: ag-gemm-bwd.2 linear_backward, ag-gemm-bwd.4 gradient check."
+current_task_id = "ag-norm-bwd.1"
+last_summary = "ag-tape + ag-elemwise-bwd + ag-gemm-bwd ALL COMPLETE. Linear gradient matches finite diff. 38 tests pass, 506 tasks. Next: ag-norm-bwd (LayerNorm backward)."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 102
@@ -1449,7 +1449,7 @@ success_criteria = [
 id = "ag-gemm-bwd"
 epic = "autograd-v1"
 title = "GEMM / Linear backward"
-status = "active"
+status = "completed"
 goal = "matmul backward (reuse gemm_f32 transposed), Linear backward, bias_add backward"
 success_criteria = [
     "dA = dC * B^T, dB = A^T * dC via existing gemm_f32",
@@ -1617,7 +1617,7 @@ id = "ag-gemm-bwd.2"
 theme = "ag-gemm-bwd"
 title = "linear_backward: decompose into matmul_bwd + bias_add_bwd"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["ag-gemm-bwd.1"]
 
 [[tasks]]
@@ -1633,7 +1633,7 @@ id = "ag-gemm-bwd.4"
 theme = "ag-gemm-bwd"
 title = "Numerical gradient check for Linear layer"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["ag-gemm-bwd.2", "ti-cpu-ref.1"]
 
 # ag-norm-bwd

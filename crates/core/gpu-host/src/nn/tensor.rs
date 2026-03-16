@@ -216,8 +216,8 @@ impl GpuTensor {
             shape: SmallVec::from_slice(new_shape),
             strides: compute_strides(new_shape),
             device: Arc::clone(&self.device),
-            requires_grad: false,
-            tensor_id: None,
+            requires_grad: self.requires_grad,
+            tensor_id: self.tensor_id,
         })
     }
 
@@ -265,6 +265,8 @@ impl GpuTensor {
     }
 
     /// Deep copy on device (device-to-device copy).
+    ///
+    /// Preserves `requires_grad` and `tensor_id` from the source tensor.
     pub fn clone_tensor(&self) -> Result<Self> {
         let numel = self.numel();
         let mut new_data = self.device.alloc_zeros::<f32>(numel)?;
@@ -274,8 +276,8 @@ impl GpuTensor {
             shape: self.shape.clone(),
             strides: self.strides.clone(),
             device: Arc::clone(&self.device),
-            requires_grad: false,
-            tensor_id: None,
+            requires_grad: self.requires_grad,
+            tensor_id: self.tensor_id,
         })
     }
 

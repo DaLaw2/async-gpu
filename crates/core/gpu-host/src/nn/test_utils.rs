@@ -754,6 +754,124 @@ mod tests {
         );
     }
 
+    /// Test Linear layer gradient via finite differences.
+    /// Verifies d(sum(Linear(x)))/dx matches autograd.
+    #[test]
+    fn test_linear_gradient_check() {
+        use crate::nn::autograd;
+        use crate::nn::layers::{Linear, Module};
+        let registry = gpu_registry();
+        let dev = registry.device();
+
+        let batch = 2;
+        let in_f = 8;
+        let out_f = 4;
+
+        let weight: Vec<f32> = (0..out_f * in_f)
+            .map(|i| ((i % 7) as f32 - 3.0) * 0.1)
+            .collect();
+        let bias: Vec<f32> = (0..out_f).map(|i| i as f32 * 0.1).collect();
+        let x_data: Vec<f32> = (0..batch * in_f)
+            .map(|i| ((i % 11) as f32 - 5.0) * 0.1)
+            .collect();
+
+        // CPU reference: f(x) = sum(x @ W^T + b)
+        let cpu_forward = |x: &[f32]| -> f64 {
+            let expected = cpu_linear(x, &weight, Some(&bias), batch, in_f, out_f);
+            expected.iter().map(|&v| v as f64).sum()
+        };
+
+        // Numerical gradient of sum w.r.t. x
+        let f0 = cpu_forward(&x_data);
+        let eps = 1e-3f32;
+        let mut numerical_dx = vec![0.0f32; batch * in_f];
+        for i in 0..batch * in_f {
+            let mut x_plus = x_data.clone();
+            x_plus[i] += eps;
+            let f_plus = cpu_forward(&x_plus);
+            numerical_dx[i] = ((f_plus - f0) / eps as f64) as f32;
+        }
+
+        // Autograd gradient — use raw matmul + bias_add instead of Linear layer
+        // so we can control tensor IDs and pool registration.
+        let tape = autograd::Tape::new();
+        let mut pool = autograd::TensorPool::new();
+
+        // Transpose weight from [out, in] to [in, out] (same as Linear::new does)
+        let mut wt = vec![0.0f32; in_f * out_f];
+        for r in 0..out_f {
+            for c in 0..in_f {
+                wt[c * out_f + r] = weight[r * in_f + c];
+            }
+        }
+
+        let (loss_id, tape) = autograd::with_tape(tape, || {
+            let mut x_gpu = GpuTensor::from_host(&x_data, &[batch, in_f], dev).unwrap();
+            x_gpu.set_requires_grad(true);
+            let x_id = autograd::alloc_tensor_id().unwrap();
+            x_gpu.set_tensor_id(x_id);
+            pool.insert(x_id, x_gpu.clone_tensor().unwrap());
+
+            // Weight (not requires_grad, but needs to be in pool for backward)
+            let mut wt_gpu = GpuTensor::from_host(&wt, &[in_f, out_f], dev).unwrap();
+            let wt_id = autograd::alloc_tensor_id().unwrap();
+            wt_gpu.set_tensor_id(wt_id);
+            pool.insert(wt_id, wt_gpu.clone_tensor().unwrap());
+
+            // matmul: x @ wt
+            let mut out = crate::nn::ops::matmul(&x_gpu, &wt_gpu, &registry).unwrap();
+            let out_id = out.tensor_id().unwrap();
+            pool.insert(out_id, out.clone_tensor().unwrap());
+
+            // bias_add
+            let bias_gpu = GpuTensor::from_host(&bias, &[out_f], dev).unwrap();
+            crate::nn::ops::bias_add(&mut out, &bias_gpu, &registry).unwrap();
+            let loss_id = out.tensor_id().unwrap();
+            pool.insert(loss_id, out);
+
+            loss_id
+        });
+
+        let grads = autograd::backward::backward(&tape, &pool, loss_id, &registry).unwrap();
+
+        // Find x gradient (TensorId(0))
+        let x_id = autograd::TensorId(0);
+        let dx = grads.get(&x_id).expect("gradient for x not found");
+        let dx_host = dx.to_host().unwrap();
+
+        assert_close(
+            &dx_host,
+            &numerical_dx,
+            Tolerance::gradient(),
+            "Linear gradient check",
+        );
+    }
+
+    /// CPU reference: y = x * W^T + b (same as in linear.rs tests).
+    fn cpu_linear(
+        input: &[f32],
+        weight: &[f32],
+        bias: Option<&[f32]>,
+        batch: usize,
+        in_f: usize,
+        out_f: usize,
+    ) -> Vec<f32> {
+        let mut out = vec![0.0f32; batch * out_f];
+        for b in 0..batch {
+            for o in 0..out_f {
+                let mut sum = 0.0f64;
+                for i in 0..in_f {
+                    sum += input[b * in_f + i] as f64 * weight[o * in_f + i] as f64;
+                }
+                if let Some(bias) = bias {
+                    sum += bias[o] as f64;
+                }
+                out[b * out_f + o] = sum as f32;
+            }
+        }
+        out
+    }
+
     /// Generic activation gradient check via finite differences.
     fn activation_gradient_check(
         forward_kernel: &'static str,

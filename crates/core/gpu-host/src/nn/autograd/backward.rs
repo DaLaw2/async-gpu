@@ -156,24 +156,23 @@ fn backward_matmul_inline(
     let a_id = entry.saved[0];
     let b_id = entry.saved[1];
 
-    let a = pool.get(a_id).ok_or_else(|| NnError::ShapeMismatch {
-        expected: "saved tensor A in pool".to_string(),
-        actual: format!("TensorId({}) not found", a_id.0),
-    })?;
-    let b = pool.get(b_id).ok_or_else(|| NnError::ShapeMismatch {
-        expected: "saved tensor B in pool".to_string(),
-        actual: format!("TensorId({}) not found", b_id.0),
-    })?;
+    // dA = dC × B^T (if A has gradient and B is in pool)
+    if a_id.0 != u32::MAX {
+        if let Some(b) = pool.get(b_id) {
+            let b_t = b.transpose(0, 1)?;
+            let d_a = crate::nn::ops::matmul(d_out, &b_t, registry)?;
+            accumulate_grad(grads, a_id, d_a, registry)?;
+        }
+    }
 
-    // dA = dC × B^T: [m,n] × [n,k] → [m,k]
-    let b_t = b.transpose(0, 1)?;
-    let d_a = crate::nn::ops::matmul(d_out, &b_t, registry)?;
-    accumulate_grad(grads, a_id, d_a, registry)?;
-
-    // dB = A^T × dC: [k,m] × [m,n] → [k,n]
-    let a_t = a.transpose(0, 1)?;
-    let d_b = crate::nn::ops::matmul(&a_t, d_out, registry)?;
-    accumulate_grad(grads, b_id, d_b, registry)?;
+    // dB = A^T × dC (if B has gradient and A is in pool)
+    if b_id.0 != u32::MAX {
+        if let Some(a) = pool.get(a_id) {
+            let a_t = a.transpose(0, 1)?;
+            let d_b = crate::nn::ops::matmul(&a_t, d_out, registry)?;
+            accumulate_grad(grads, b_id, d_b, registry)?;
+        }
+    }
 
     Ok(())
 }

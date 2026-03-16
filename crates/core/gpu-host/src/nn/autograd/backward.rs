@@ -130,7 +130,7 @@ pub fn backward(
                             expected: "saved conv2d weight".to_string(),
                             actual: format!("TensorId({}) not found", weight_id.0),
                         })?;
-                    let (d_input, d_weight) = conv2d_backward_gpu(
+                    let (d_input, d_weight) = conv2d_backward_dispatch(
                         &d_out_clone,
                         saved_input,
                         saved_weight,
@@ -461,6 +461,83 @@ fn attention_backward_cpu(
 ///
 /// dInput[c_in, h, w] = sum over c_out of conv2d_transpose(dOutput, weight)
 #[allow(clippy::too_many_arguments)]
+/// GPU conv2d backward — dispatches to single-sample or batched.
+fn conv2d_backward_dispatch(
+    d_output: &GpuTensor,
+    input: &GpuTensor,
+    weight: &GpuTensor,
+    c_in: usize,
+    c_out: usize,
+    h: usize,
+    w: usize,
+    kh: usize,
+    kw: usize,
+    stride: usize,
+    padding: usize,
+    registry: &Arc<KernelRegistry>,
+) -> Result<(GpuTensor, GpuTensor)> {
+    // Check if input is batched [N, C_in, H, W]
+    if input.ndim() == 4 {
+        let batch = input.shape()[0];
+        let dev = registry.device();
+        let sample_in = c_in * h * w;
+        let h_out = (h + 2 * padding - kh) / stride + 1;
+        let w_out = (w + 2 * padding - kw) / stride + 1;
+        let sample_out = c_out * h_out * w_out;
+
+        let in_host = input.to_host()?;
+        let d_out_host = d_output.to_host()?;
+
+        let mut d_input_all = vec![0.0f32; batch * sample_in];
+        let mut d_weight_acc: Option<Vec<f32>> = None;
+
+        for b in 0..batch {
+            let sample_in_data = &in_host[b * sample_in..(b + 1) * sample_in];
+            let sample_dout_data = &d_out_host[b * sample_out..(b + 1) * sample_out];
+
+            let sample_input = GpuTensor::from_host(sample_in_data, &[c_in, h, w], dev)?;
+            let sample_dout = GpuTensor::from_host(sample_dout_data, &[c_out, h_out, w_out], dev)?;
+
+            let (di, dw) = conv2d_backward_gpu(
+                &sample_dout,
+                &sample_input,
+                weight,
+                c_in,
+                c_out,
+                h,
+                w,
+                kh,
+                kw,
+                stride,
+                padding,
+                registry,
+            )?;
+
+            let di_host = di.to_host()?;
+            d_input_all[b * sample_in..(b + 1) * sample_in].copy_from_slice(&di_host);
+
+            let dw_host = dw.to_host()?;
+            match &mut d_weight_acc {
+                None => d_weight_acc = Some(dw_host),
+                Some(acc) => {
+                    for (a, &v) in acc.iter_mut().zip(dw_host.iter()) {
+                        *a += v;
+                    }
+                }
+            }
+        }
+
+        let d_input = GpuTensor::from_host(&d_input_all, input.shape(), dev)?;
+        let d_weight =
+            GpuTensor::from_host(&d_weight_acc.unwrap_or_default(), weight.shape(), dev)?;
+        Ok((d_input, d_weight))
+    } else {
+        conv2d_backward_gpu(
+            d_output, input, weight, c_in, c_out, h, w, kh, kw, stride, padding, registry,
+        )
+    }
+}
+
 /// GPU conv2d backward using im2col + matmul + col2im.
 ///
 /// **dWeight** = d_output_2d [C_out, spatial] × im2col(input) [spatial, K] → [C_out, K]

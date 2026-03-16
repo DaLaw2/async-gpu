@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 439     # Monotonic counter, incremented after each completed phase
-completed_tasks = 543
+total_cycles = 442     # Monotonic counter, incremented after each completed phase
+completed_tasks = 546
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "cb-kernels.1"
-last_summary = "Quick bs106: themes/tasks created for conv-backward-training and generic-loader. Starting cb-kernels.1 (GPU conv2d backward dWeight kernel)."
+current_task_id = "cb-batched.1"
+last_summary = "cb-kernels DONE: GPU conv2d backward (im2col+matmul+col2im) replaces CPU. 53 tests pass. Next: batched conv2d backward."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 106
@@ -1307,7 +1307,7 @@ success_criteria = [
 id = "cb-kernels"
 epic = "conv-backward-training"
 title = "GPU conv2d backward kernels (dWeight + dInput)"
-status = "active"
+status = "completed"
 goal = "Replace CPU conv backward with GPU kernels"
 success_criteria = [
     "conv2d_backward_dweight GPU kernel: computes weight gradient on GPU",
@@ -1321,7 +1321,7 @@ id = "cb-kernels.1"
 theme = "cb-kernels"
 title = "Implement GPU conv2d_backward_dweight kernel (im2col-based)"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = []
 
 [[tasks]]
@@ -1329,7 +1329,7 @@ id = "cb-kernels.2"
 theme = "cb-kernels"
 title = "Implement GPU conv2d_backward_dinput kernel (col2im-based)"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = []
 
 [[tasks]]
@@ -1337,7 +1337,8 @@ id = "cb-kernels.3"
 theme = "cb-kernels"
 title = "Wire GPU conv2d backward into autograd tape dispatcher"
 kind = "experiment"
-status = "pending"
+status = "done"
+# Already wired — replaced conv2d_backward_cpu with conv2d_backward_gpu in-place.
 depends = ["cb-kernels.1", "cb-kernels.2"]
 
 [[themes]]

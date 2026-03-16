@@ -259,5 +259,37 @@ fn conv2d_batched(
         }
     }
 
-    GpuTensor::from_host(&output_data, &[batch, c_out, h_out, w_out], dev)
+    let mut output = GpuTensor::from_host(&output_data, &[batch, c_out, h_out, w_out], dev)?;
+
+    // Record on autograd tape (same as single-sample conv2d)
+    if input.requires_grad() {
+        if let Some(out_id) = crate::nn::autograd::alloc_tensor_id() {
+            output.set_tensor_id(out_id);
+            output.set_requires_grad(true);
+            let in_id = input
+                .tensor_id()
+                .unwrap_or(crate::nn::autograd::TensorId(u32::MAX));
+            let w_id = weight
+                .tensor_id()
+                .unwrap_or(crate::nn::autograd::TensorId(u32::MAX));
+            crate::nn::autograd::record_op(crate::nn::autograd::TapeEntry {
+                op: crate::nn::autograd::OpKind::Conv2d,
+                inputs: vec![in_id],
+                output: out_id,
+                saved: vec![in_id, w_id],
+                meta: crate::nn::autograd::OpMeta::Conv2d {
+                    c_in,
+                    c_out,
+                    h,
+                    w,
+                    kh,
+                    kw,
+                    stride,
+                    padding,
+                },
+            });
+        }
+    }
+
+    Ok(output)
 }

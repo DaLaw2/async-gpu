@@ -101,5 +101,32 @@ pub fn matmul(a: &GpuTensor, b: &GpuTensor, registry: &Arc<KernelRegistry>) -> R
         }
     }
 
-    GpuTensor::from_host(&result, &[m, n], dev)
+    let mut output = GpuTensor::from_host(&result, &[m, n], dev)?;
+
+    // Record on autograd tape if inputs require gradients
+    if a.requires_grad() || b.requires_grad() {
+        if let Some(out_id) = crate::nn::autograd::alloc_tensor_id() {
+            output.set_tensor_id(out_id);
+            output.set_requires_grad(true);
+            crate::nn::autograd::record_op(crate::nn::autograd::TapeEntry {
+                op: crate::nn::autograd::OpKind::Matmul,
+                inputs: vec![
+                    a.tensor_id()
+                        .unwrap_or(crate::nn::autograd::TensorId(u32::MAX)),
+                    b.tensor_id()
+                        .unwrap_or(crate::nn::autograd::TensorId(u32::MAX)),
+                ],
+                output: out_id,
+                saved: vec![
+                    a.tensor_id()
+                        .unwrap_or(crate::nn::autograd::TensorId(u32::MAX)),
+                    b.tensor_id()
+                        .unwrap_or(crate::nn::autograd::TensorId(u32::MAX)),
+                ],
+                meta: crate::nn::autograd::OpMeta::Matmul { m, k, n },
+            });
+        }
+    }
+
+    Ok(output)
 }

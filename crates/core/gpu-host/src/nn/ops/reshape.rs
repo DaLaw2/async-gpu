@@ -139,6 +139,22 @@ pub fn bias_add(
     }
     registry.device().synchronize().map_err(NnError::Cuda)?;
 
+    // Record on autograd tape
+    if input.requires_grad() {
+        if let Some(out_id) = crate::nn::autograd::alloc_tensor_id() {
+            input.set_tensor_id(out_id);
+            crate::nn::autograd::record_op(crate::nn::autograd::TapeEntry {
+                op: crate::nn::autograd::OpKind::BiasAdd,
+                inputs: vec![input
+                    .tensor_id()
+                    .unwrap_or(crate::nn::autograd::TensorId(u32::MAX))],
+                output: out_id,
+                saved: vec![],
+                meta: crate::nn::autograd::OpMeta::BiasAdd { n_cols },
+            });
+        }
+    }
+
     Ok(())
 }
 
@@ -166,6 +182,26 @@ pub fn elementwise_add(
             .map_err(NnError::Cuda)?;
     }
     registry.device().synchronize().map_err(NnError::Cuda)?;
+
+    // Record on autograd tape
+    if a.requires_grad() || b.requires_grad() {
+        if let Some(out_id) = crate::nn::autograd::alloc_tensor_id() {
+            a.set_tensor_id(out_id);
+            let a_id = a
+                .tensor_id()
+                .unwrap_or(crate::nn::autograd::TensorId(u32::MAX));
+            let b_id = b
+                .tensor_id()
+                .unwrap_or(crate::nn::autograd::TensorId(u32::MAX));
+            crate::nn::autograd::record_op(crate::nn::autograd::TapeEntry {
+                op: crate::nn::autograd::OpKind::ElemAdd,
+                inputs: vec![a_id, b_id],
+                output: out_id,
+                saved: vec![],
+                meta: crate::nn::autograd::OpMeta::None,
+            });
+        }
+    }
 
     Ok(())
 }

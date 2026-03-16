@@ -55,5 +55,29 @@ fn elementwise_activation(
     }
     dev.synchronize().map_err(NnError::Cuda)?;
 
+    // Record on autograd tape
+    if input.requires_grad() {
+        let op = match kernel_name {
+            "gelu_forward" => crate::nn::autograd::OpKind::Gelu,
+            "silu_forward" => crate::nn::autograd::OpKind::Silu,
+            "sigmoid_forward" => crate::nn::autograd::OpKind::Sigmoid,
+            _ => crate::nn::autograd::OpKind::Relu,
+        };
+        if let Some(out_id) = crate::nn::autograd::alloc_tensor_id() {
+            output.set_tensor_id(out_id);
+            output.set_requires_grad(true);
+            let in_id = input
+                .tensor_id()
+                .unwrap_or(crate::nn::autograd::TensorId(u32::MAX));
+            crate::nn::autograd::record_op(crate::nn::autograd::TapeEntry {
+                op,
+                inputs: vec![in_id],
+                output: out_id,
+                saved: vec![in_id], // save input for backward (activation derivative)
+                meta: crate::nn::autograd::OpMeta::None,
+            });
+        }
+    }
+
     Ok(output)
 }

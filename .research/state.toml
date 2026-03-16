@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 418     # Monotonic counter, incremented after each completed phase
-completed_tasks = 493
+total_cycles = 419     # Monotonic counter, incremented after each completed phase
+completed_tasks = 494
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "ag-tape.5"
-last_summary = "autograd-v1: ag-tape.1-4 DONE + thread-local tape + tensor_id on GpuTensor. 31 tests pass. ag-tape.5 in progress: wiring ops to tape."
+current_task_id = "ag-tape.6"
+last_summary = "autograd-v1: ag-tape.1-5 DONE. Forward ops record on tape (matmul, gelu, silu, sigmoid, layer_norm, bias_add, elem_add). 32 tests pass. Next: ag-tape.6 backward()."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 102
@@ -1543,7 +1543,7 @@ id = "ag-tape.5"
 theme = "ag-tape"
 title = "Modify forward ops to record on tape when recording=true"
 kind = "experiment"
-status = "active"
+status = "done"
 depends = ["ag-tape.3", "ag-tape.4"]
 
 [[tasks]]

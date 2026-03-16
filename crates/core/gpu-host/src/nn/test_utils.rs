@@ -539,4 +539,39 @@ mod tests {
 
         assert_close(&actual, &expected, Tolerance::f32_strict(), "GPU gelu");
     }
+
+    #[test]
+    fn test_tape_records_matmul_gelu_chain() {
+        use crate::nn::autograd;
+        let registry = gpu_registry();
+        let dev = registry.device();
+
+        let tape = autograd::Tape::new();
+        let (_, tape) = autograd::with_tape(tape, || {
+            let mut a = GpuTensor::from_host(&[1.0; 32 * 16], &[32, 16], dev).unwrap();
+            a.set_requires_grad(true);
+            let a_id = autograd::alloc_tensor_id().unwrap();
+            a.set_tensor_id(a_id);
+
+            let b = GpuTensor::from_host(&[0.1; 16 * 8], &[16, 8], dev).unwrap();
+
+            // matmul: [32,16] × [16,8] → [32,8]
+            let c = crate::nn::ops::matmul(&a, &b, &registry).unwrap();
+            assert!(c.requires_grad());
+
+            // gelu
+            let d = crate::nn::ops::gelu(&c, &registry).unwrap();
+            assert!(d.requires_grad());
+        });
+
+        // Tape should have 2 entries: matmul + gelu
+        assert_eq!(
+            tape.len(),
+            2,
+            "tape should record 2 ops, got {}",
+            tape.len()
+        );
+        assert!(matches!(tape.entries()[0].op, autograd::OpKind::Matmul));
+        assert!(matches!(tape.entries()[1].op, autograd::OpKind::Gelu));
+    }
 }

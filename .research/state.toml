@@ -12,7 +12,7 @@ status = "running"     # ready | running | blocked | completed
 current_mode = "do"
 current_step = "do.execute"
 current_task_id = "tp-batch-conv.1"
-last_summary = "Benchmarks done: MNIST 3.5x GPU, CIFAR GPU slower (per-sample overhead). README updated. training-perf epic created. Next: batch conv2d."
+last_summary = "conv2d GEMM bug FIXED (im2col transpose). C2f concat FIXED (+second half). YOLO golden 8 detections. CIFAR GPU accuracy matches CPU (29%). 50 tests. Next: batch conv2d for speed."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 103

@@ -417,6 +417,23 @@ impl Gpt2Model {
         self.lm_head.forward(&hidden)
     }
 
+    /// Forward pass returning hidden states before the LM head.
+    ///
+    /// Returns `[seq_len, n_embd]` — the normalized hidden states after all
+    /// transformer blocks + final LayerNorm. Use this for LoRA or fine-tuning
+    /// where you want to apply a custom head.
+    pub fn forward_features(
+        &self,
+        token_ids: &cudarc::driver::CudaSlice<u32>,
+        seq_len: usize,
+    ) -> Result<GpuTensor> {
+        let mut hidden = self.embedding.forward_tokens(token_ids, seq_len)?;
+        for block in &self.blocks {
+            hidden = block.forward(&hidden)?;
+        }
+        self.ln_f.forward(&hidden)
+    }
+
     /// Diagnostic forward pass: prints intermediate values for debugging.
     ///
     /// Same as [`forward`] but dumps first/last position values after each stage.

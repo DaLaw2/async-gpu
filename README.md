@@ -82,7 +82,7 @@ cargo run --manifest-path examples/vector-math/host/Cargo.toml
 | `yolo-detect` | YOLOv8-nano object detection using `nn` module | Stock nightly |
 | `mnist-train` | MNIST MLP training (91.2% accuracy in 5 epochs) | Stock nightly |
 | `cifar-train` | CIFAR-10 tiny CNN training with loss convergence | Stock nightly |
-| `gpt2-lora` | GPT-2 LoRA evaluation on WikiText-2 (ppl=74.7) | Stock nightly |
+| `gpt2-lora` | GPT-2 LoRA fine-tuning on WikiText-2 (ppl 128→16, rank=8) | Stock nightly |
 | `mnist-cnn` | MNIST CNN training (96.4% accuracy, 1.47x GPU speedup) | Stock nightly |
 | `resnet-cifar` | ResNet-18 inference + Mini-ResNet training (8.1M params) | Stock nightly |
 

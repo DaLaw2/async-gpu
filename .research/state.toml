@@ -13,8 +13,10 @@ current_mode = "do"
 current_step = "do.execute"
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = ""
-last_summary = "autograd-v2 epic COMPLETE: ALL 5 criteria met. Conv2d + attention + misc backward, checkpoint API, CNN training demo. 48 tests, 530 tasks."
+current_mode = "do"
+current_step = "do.execute"
+current_task_id = "te-mnist.1"
+last_summary = "training-examples epic created. Starting te-mnist.1: MNIST download + IDX parser."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 103
@@ -1978,3 +1980,99 @@ title = "Train small CNN on CIFAR-10, verify loss converges"
 kind = "experiment"
 status = "done"
 depends = ["ag2-conv-bwd.4", "ag2-misc-bwd.1", "ag2-misc-bwd.2", "ag2-train-demo.1"]
+
+# ============================================================
+# training-examples Epic
+# ============================================================
+
+[[epics]]
+id = "training-examples"
+title = "Training Examples — MNIST MLP + CIFAR-10 CNN end-to-end training demos"
+status = "active"
+priority = "high"
+depends_on = "autograd-v2"
+success_criteria = [
+    "MNIST MLP example: Linear(784→128) → ReLU → Linear(128→10), trains to >90% accuracy",
+    "CIFAR-10 tiny CNN example: Conv2d + ReLU + MaxPool + Linear, trains with decreasing loss",
+    "Both examples are standalone binaries in examples/std/",
+    "MNIST data downloaded via scripts/download-mnist.sh",
+    "Training loop uses autograd tape + SGD/Adam optimizer",
+]
+
+# --- training-examples Themes ---
+
+[[themes]]
+id = "te-mnist"
+epic = "training-examples"
+title = "MNIST MLP training example"
+status = "completed"
+goal = "Standalone example training MLP on MNIST to >90% accuracy"
+success_criteria = [
+    "scripts/download-mnist.sh downloads MNIST to models/",
+    "Data loader parses IDX format into f32 tensors",
+    "MLP trains for 5+ epochs with loss decreasing",
+    "Test accuracy >90%",
+]
+
+[[themes]]
+id = "te-cifar"
+epic = "training-examples"
+title = "CIFAR-10 tiny CNN training example"
+status = "pending"
+goal = "Standalone example training small CNN on CIFAR-10 subset"
+success_criteria = [
+    "CIFAR-10 binary subset (1000 images) downloaded",
+    "Small CNN: Conv2d(3→16) → ReLU → MaxPool → Conv2d(16→32) → ReLU → MaxPool → Linear(512→10)",
+    "Training loop with loss decreasing over epochs",
+    "Test accuracy > random (>15% on 10 classes)",
+]
+
+# --- training-examples Tasks ---
+
+[[tasks]]
+id = "te-mnist.1"
+theme = "te-mnist"
+title = "Create scripts/download-mnist.sh + IDX parser in Rust"
+kind = "experiment"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "te-mnist.2"
+theme = "te-mnist"
+title = "Implement examples/std/mnist-train/ standalone binary with MLP training loop"
+kind = "experiment"
+status = "done"
+depends = ["te-mnist.1"]
+
+[[tasks]]
+id = "te-mnist.3"
+theme = "te-mnist"
+title = "Run MNIST training, verify >90% accuracy"
+kind = "experiment"
+status = "done"
+depends = ["te-mnist.2"]
+
+[[tasks]]
+id = "te-cifar.1"
+theme = "te-cifar"
+title = "Download CIFAR-10 binary subset + implement parser"
+kind = "experiment"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "te-cifar.2"
+theme = "te-cifar"
+title = "Implement examples/std/cifar-train/ with small CNN training loop"
+kind = "experiment"
+status = "pending"
+depends = ["te-cifar.1"]
+
+[[tasks]]
+id = "te-cifar.3"
+theme = "te-cifar"
+title = "Run CIFAR-10 training, verify loss decreases and accuracy > random"
+kind = "experiment"
+status = "pending"
+depends = ["te-cifar.2"]

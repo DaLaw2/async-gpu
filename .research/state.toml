@@ -651,7 +651,8 @@ depends = ["ag-optim.3", "ag-loss.1", "ag-elemwise-bwd.5", "ag-gemm-bwd.4"]
 [[epics]]
 id = "gpu-safety-spike"
 title = "GPU Safety Spike — investigate whether GpuRef<'a,T> is needed or reframe as tensor views"
-status = "active"
+status = "completed"
+# Decision: Skip GpuRef (zero safety bugs found), reframe as tensor-views for perf. Closed 2026-03-16.
 priority = "medium"
 success_criteria = [
     "Document 3 concrete bug scenarios GpuRef would prevent (or prove none exist)",
@@ -664,7 +665,7 @@ success_criteria = [
 id = "gs-spike"
 epic = "gpu-safety-spike"
 title = "GpuRef investigation spike"
-status = "pending"
+status = "completed"
 goal = "Resolve whether GpuRef is a safety feature or a performance feature"
 success_criteria = [
     "3 concrete bug scenarios analyzed",
@@ -678,7 +679,7 @@ id = "gs-spike.1"
 theme = "gs-spike"
 title = "Audit all unsafe blocks in nn module + tensor.rs for lifetime safety gaps"
 kind = "investigation"
-status = "pending"
+status = "done"
 depends = []
 
 
@@ -828,7 +829,7 @@ id = "tp-batch-conv.1"
 theme = "tp-batch-conv"
 title = "Extend conv2d op to accept batched [N,C,H,W] input"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = []
 
 

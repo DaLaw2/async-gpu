@@ -11,8 +11,8 @@ status = "running"     # ready | running | blocked | completed
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "tv-impl.1"
-last_summary = "Tensor views done (Arc<CudaSlice>, zero-copy reshape). gpu-safety-spike: skip GpuRef, reframe as views. MNIST 5.2x. CIFAR 8.9s (0.73x). 52 tests in 7.9s. Next: continue tensor-views (slice), or training-perf CIFAR optimization."
+current_task_id = ""
+last_summary = "CIFAR GPU matches CPU per-epoch (0.7s each). MNIST 5.2x. Tensor views (Arc zero-copy reshape). 52 tests in 7.9s. gpu-safety-spike DONE (skip GpuRef). Active: training-perf (mostly done), tensor-views (reshape done, slice pending), codebase-health."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 103
@@ -806,7 +806,7 @@ status = "active"
 priority = "high"
 success_criteria = [
     "DONE: Batched GPU conv2d: conv2d_batched + conv2d_offset for [N,C,H,W] input",
-    "WIP: CIFAR-10 CNN GPU training faster than CPU (currently 0.76x — need fully GPU-resident pipeline)",
+    "MOSTLY: CIFAR-10 per-epoch matches CPU (0.7s each), total 7.2s vs 6.5s (GPU init overhead)",
     "DONE: GPU-side pad/transpose/unpad eliminates most H2D/D2H in matmul",
     "DONE: MNIST GPU training speedup 5.2x over CPU (target was >5x)",
 ]

@@ -188,7 +188,8 @@ echo.
 echo === Step 6: Building toolchain ===
 echo Working dir: %CD%
 
-python x.py build compiler library
+set CI=
+python x.py build --stage 1 compiler library
 if errorlevel 1 (
     echo.
     echo BUILD FAILED

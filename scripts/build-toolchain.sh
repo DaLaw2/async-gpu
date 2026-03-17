@@ -174,7 +174,10 @@ download-ci-llvm = false
 EOF
 
 cd "$PATCHED_RUSTC"
-python3 x.py build compiler library 2>&1 | tee "$REPO_DIR/.research/toolchain-build.log" || {
+# Unset CI to avoid rustc bootstrap asserting --stage 2 requirement.
+# We intentionally build stage1 (faster, sufficient for our MIR pass).
+unset CI
+python3 x.py build --stage 1 compiler library 2>&1 | tee "$REPO_DIR/.research/toolchain-build.log" || {
     echo ""
     echo "BUILD FAILED — see .research/toolchain-build.log"
     exit 1

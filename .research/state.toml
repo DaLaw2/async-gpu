@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 552     # Monotonic counter, incremented after each completed phase
-completed_tasks = 662
+total_cycles = 555     # Monotonic counter, incremented after each completed phase
+completed_tasks = 665
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
 current_task_id = "onnx-gpt2-debug.1"
-last_summary = "Fixed 10+ ONNX bugs. GPT-2 ONNX 150ms forward, single-token correct. Next: GPT-2 multi-token debug, ResNet accuracy test."
+last_summary = "Found and fixed Mul scalar broadcast bug (GPT-2 GELU shape issue). Embedding values match native to 5 decimals. Trilu k param fixed. Still debugging MLP path allocation. 665 tasks."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 109

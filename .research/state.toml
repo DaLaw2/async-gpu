@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 573     # Monotonic counter, incremented after each completed phase
-completed_tasks = 684
+total_cycles = 578     # Monotonic counter, incremented after each completed phase
+completed_tasks = 689
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
 current_task_id = ""
-last_summary = "graph-bfs.2 DONE (GPU BFS verified vs CPU, 131K vertices). int4-integrate.1 DONE (Int4Gpt2Model, coherent text). Next: graph-bfs.3 (PageRank), mc-finance.2/3 (GPU MC)."
+last_summary = "ALL 5 ACTIVE EPICS COMPLETED: gpu-dynamic, benchmark, graph-algorithms (BFS+PageRank 4.3x), int4-gpt2 (7.5x mem), monte-carlo (BS 129x throughput). User directive fulfilled."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 110
@@ -1137,7 +1137,7 @@ success_criteria = [
 [[epics]]
 id = "graph-algorithms"
 title = "Graph Algorithms on GPU — BFS, PageRank with async scheduling"
-status = "active"
+status = "completed"
 priority = "high"
 success_criteria = [
     "CSR (Compressed Sparse Row) graph representation loaded on GPU",
@@ -1150,7 +1150,7 @@ success_criteria = [
 [[epics]]
 id = "int4-gpt2"
 title = "INT4 GPT-2 Inference — complete the deferred 4-bit inference"
-status = "active"
+status = "completed"
 priority = "medium"
 depends_on = "int4-quantization"
 success_criteria = [
@@ -1163,7 +1163,7 @@ success_criteria = [
 [[epics]]
 id = "monte-carlo"
 title = "Monte Carlo Simulations — GPU PRNG, option pricing, convergence"
-status = "active"
+status = "completed"
 priority = "medium"
 success_criteria = [
     "GPU PRNG (xoshiro256++ or similar): 10K+ independent streams, passes basic statistical test",
@@ -1271,7 +1271,7 @@ depends = ["dyn-control.1", "dyn-control.2"]
 id = "graph-bfs"
 epic = "graph-algorithms"
 title = "BFS + PageRank on CSR graphs"
-status = "active"
+status = "completed"
 goal = "GPU graph traversal with async-friendly frontier scheduling"
 success_criteria = [
     "CSR graph construction from edge list",
@@ -1300,14 +1300,14 @@ id = "graph-bfs.3"
 theme = "graph-bfs"
 title = "Experiment: GPU PageRank (iterative SpMV) + convergence check"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["graph-bfs.1"]
 
 [[themes]]
 id = "int4-integrate"
 epic = "int4-gpt2"
 title = "Integrate Int4Linear into GPT-2 model"
-status = "active"
+status = "completed"
 goal = "GPT-2 runs with 4-bit quantized weights"
 success_criteria = [
     "Int4Linear replaces Linear in GPT-2 forward pass",
@@ -1322,11 +1322,19 @@ kind = "experiment"
 status = "done"
 depends = []
 
+[[tasks]]
+id = "int4-integrate.2"
+theme = "int4-integrate"
+title = "Design: verify top-5 match on 3 prompts + measure per-token latency"
+kind = "design"
+status = "done"
+depends = ["int4-integrate.1"]
+
 [[themes]]
 id = "mc-finance"
 epic = "monte-carlo"
 title = "Monte Carlo — GPU PRNG + Black-Scholes + Pi estimation"
-status = "active"
+status = "completed"
 goal = "Stochastic simulation with GPU-parallel random sampling"
 success_criteria = [
     "GPU PRNG kernel with per-thread state",
@@ -1347,7 +1355,7 @@ id = "mc-finance.2"
 theme = "mc-finance"
 title = "Experiment: Black-Scholes Monte Carlo option pricing (1M paths)"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["mc-finance.1"]
 
 [[tasks]]
@@ -1355,7 +1363,7 @@ id = "mc-finance.3"
 theme = "mc-finance"
 title = "Experiment: Pi estimation via Monte Carlo (10M points) + CPU comparison"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["mc-finance.1"]
 
 # ============================================================

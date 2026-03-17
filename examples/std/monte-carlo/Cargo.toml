@@ -7,3 +7,4 @@ edition = "2021"
 description = "Monte Carlo simulations — GPU PRNG, option pricing, Pi estimation"
 
 [dependencies]
+cudarc = { version = "0.12", features = ["cuda-12060"] }

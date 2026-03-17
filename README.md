@@ -5,7 +5,7 @@
 
 **What if the GPU could drive its own computation?** Open files, read data, branch on results, loop until convergence, write output — all from GPU code, with zero CPU orchestration between steps.
 
-async_gpu makes this real: **Rust async/await running natively on NVIDIA GPUs**, with a custom rustc MIR pass that turns standard `async fn` into warp-cooperative state machines — and GPU compute kernels powerful enough to run **end-to-end GPT-2 inference** and **YOLOv8-nano object detection** entirely from Rust inline PTX.
+async_gpu makes this real: **Rust async/await running natively on NVIDIA GPUs**, with a custom rustc MIR pass that turns standard `async fn` into warp-cooperative state machines — and GPU compute kernels powerful enough to run **end-to-end GPT-2 inference** (f32/f16/INT4), **YOLOv8-nano object detection**, **graph algorithms** (BFS, PageRank), and **Monte Carlo simulations** (129x throughput) entirely from Rust inline PTX.
 
 ```rust
 #[warp_cooperative]
@@ -87,6 +87,10 @@ cargo run --manifest-path examples/vector-math/host/Cargo.toml
 | `resnet-cifar` | ResNet-18 pretrained inference (91.3% CIFAR-10) + ONNX inference (91.2%) + full conv training | Stock nightly |
 | `gpu-rag` | GPU-Autonomous RAG: 1030-chunk vector search + GPT-2 generation | Stock nightly |
 | `diff-physics` | Differentiable 2D spring-mass / N-body gravity (47.1x GPU speedup) | Stock nightly |
+| `dynamic-control` | Data-dependent GPU control flow: variable-length gen, early exit, sampling | Stock nightly |
+| `graph-algorithms` | GPU BFS + PageRank on RMAT graphs (CSR, 1M+ vertices, 4.3x speedup) | Stock nightly |
+| `monte-carlo` | GPU Monte Carlo: Black-Scholes pricing (129x), Pi estimation (12x) | Stock nightly |
+| `benchmark` | SGEMM/Conv2D/Attention vs cuBLAS, memory bandwidth, GPT-2 profiling | Stock nightly |
 
 </details>
 
@@ -286,7 +290,7 @@ rustc-patches/       Custom MIR pass patches for rustc
 scripts/             Build/CI automation, model download (download-models.sh, export_yolo.py)
 examples/
   hostcall/          8 raw-API examples (hello-gpu, async-pipeline, vector-math, etc.)
-  std/               9 nn-API examples (gpt2-inference, yolo-detect, mnist-train, mnist-cnn, cifar-train, gpt2-lora, resnet-cifar, gpu-rag, diff-physics)
+  std/               13 nn-API examples (gpt2-inference, yolo-detect, mnist-train, mnist-cnn, cifar-train, gpt2-lora, resnet-cifar, gpu-rag, diff-physics, dynamic-control, graph-algorithms, monte-carlo, benchmark)
 formal/              TLA+ specification and model-checking config
 ```
 
@@ -308,6 +312,10 @@ RTX 3060, SM 86:
 | **ONNX Runtime** (ResNet-18, 48 nodes) | 42ms/inference, 91.2% CIFAR-10 (matches ORT) |
 | **ONNX Runtime** (GPT-2, 1107 nodes) | 150ms/forward pass, text generation works |
 | **ONNX Runtime** (MobileNetV2, 209 nodes) | 409ms/inference, 1000-class output verified |
+| **INT4 GPT-2** (W4A16 quantized) | 43ms/token, 7.5x memory reduction (45MB vs 340MB) |
+| **GPU PageRank** (1M vertices, 16M edges) | 4.3x speedup over CPU (scale=22) |
+| **GPU Monte Carlo** (Black-Scholes, f32) | 129x throughput speedup, 0.004% error |
+| **SGEMM** (custom kernel, 4096³) | 160 GFLOPS (5.7% of cuBLAS) |
 
 **Training** (GPU matmul + autograd tape):
 

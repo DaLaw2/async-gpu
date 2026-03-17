@@ -89,6 +89,40 @@ impl CsrGraph {
     fn avg_degree(&self) -> f64 {
         self.num_edges() as f64 / self.num_vertices as f64
     }
+
+    /// Build the transpose of this graph (reverse all edge directions).
+    ///
+    /// If the original has edge (u, v), the transpose has edge (v, u).
+    /// Used for PageRank which needs in-neighbors.
+    fn transpose(&self) -> Self {
+        let n = self.num_vertices;
+        // Collect reversed edges.
+        let mut adj: Vec<Vec<u32>> = vec![Vec::new(); n as usize];
+        for src in 0..n {
+            for &dst in self.neighbors(src) {
+                adj[dst as usize].push(src);
+            }
+        }
+        // Sort each adjacency list (for determinism).
+        for list in &mut adj {
+            list.sort_unstable();
+        }
+        // Build CSR.
+        let mut row_ptr = Vec::with_capacity(n as usize + 1);
+        let mut col_idx = Vec::new();
+        let mut offset: u32 = 0;
+        for list in &adj {
+            row_ptr.push(offset);
+            col_idx.extend_from_slice(list);
+            offset += list.len() as u32;
+        }
+        row_ptr.push(offset);
+        Self {
+            num_vertices: n,
+            row_ptr,
+            col_idx,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -332,11 +366,204 @@ fn gpu_bfs(
 }
 
 // ---------------------------------------------------------------------------
+// CPU PageRank — iterative power-iteration style
+// ---------------------------------------------------------------------------
+
+/// Iterative PageRank on a directed graph.
+///
+/// Uses the pull-based formula:
+///   PR(v) = (1-d)/N + d * sum(PR(u) / out_degree(u)) for each in-neighbor u
+///
+/// `graph` is the *original* (forward) graph — needed for out-degrees.
+/// `graph_t` is the *transposed* graph — needed to iterate in-neighbors.
+///
+/// Converges when L1 norm of the delta vector < `epsilon`, or after `max_iter`.
+fn cpu_pagerank(
+    graph: &CsrGraph,
+    graph_t: &CsrGraph,
+    damping: f32,
+    epsilon: f32,
+    max_iter: u32,
+) -> (Vec<f32>, u32) {
+    let n = graph.num_vertices as usize;
+    let inv_n = 1.0f32 / n as f32;
+    let base = (1.0 - damping) * inv_n;
+
+    let mut pr = vec![inv_n; n];
+    let mut pr_next = vec![0.0f32; n];
+    let mut iters = 0u32;
+
+    for _ in 0..max_iter {
+        iters += 1;
+        let mut delta = 0.0f32;
+
+        for v in 0..n {
+            let mut sum = 0.0f32;
+            // Iterate over in-neighbors of v (= neighbors in transposed graph).
+            let start = graph_t.row_ptr[v] as usize;
+            let end = graph_t.row_ptr[v + 1] as usize;
+            for &u in &graph_t.col_idx[start..end] {
+                let out_deg = graph.degree(u);
+                if out_deg > 0 {
+                    sum += pr[u as usize] / out_deg as f32;
+                }
+            }
+            pr_next[v] = base + damping * sum;
+            delta += (pr_next[v] - pr[v]).abs();
+        }
+
+        std::mem::swap(&mut pr, &mut pr_next);
+
+        if delta < epsilon {
+            break;
+        }
+    }
+
+    (pr, iters)
+}
+
+// ---------------------------------------------------------------------------
+// GPU PageRank — iterative SpMV with CUDA kernel
+// ---------------------------------------------------------------------------
+
+/// CUDA C kernel for one PageRank iteration.
+///
+/// Each thread computes the new PageRank for one vertex by pulling from
+/// in-neighbors (stored in the transposed CSR). The kernel also computes
+/// a per-thread contribution to the global L1 delta via atomicAdd.
+const PAGERANK_KERNEL_SRC: &str = r#"
+extern "C" __global__ void pagerank_iter(
+    const unsigned int* __restrict__ t_row_ptr,  // transposed graph row_ptr
+    const unsigned int* __restrict__ t_col_idx,  // transposed graph col_idx
+    const unsigned int* __restrict__ out_degree, // out-degree of each vertex (original graph)
+    const float* __restrict__ pr_in,             // current PageRank scores
+    float* __restrict__ pr_out,                  // next PageRank scores
+    float* __restrict__ delta,                   // global L1 delta (single float)
+    unsigned int num_vertices,
+    float damping,
+    float base_score                             // (1-d)/N
+) {
+    unsigned int v = blockIdx.x * blockDim.x + threadIdx.x;
+    if (v >= num_vertices) return;
+
+    unsigned int start = t_row_ptr[v];
+    unsigned int end   = t_row_ptr[v + 1];
+
+    float sum = 0.0f;
+    for (unsigned int e = start; e < end; e++) {
+        unsigned int u = t_col_idx[e];
+        unsigned int deg = out_degree[u];
+        if (deg > 0) {
+            sum += pr_in[u] / (float)deg;
+        }
+    }
+
+    float new_pr = base_score + damping * sum;
+    pr_out[v] = new_pr;
+
+    float diff = new_pr - pr_in[v];
+    if (diff < 0.0f) diff = -diff;
+    atomicAdd(delta, diff);
+}
+"#;
+
+/// Run iterative PageRank on GPU using cudarc.
+///
+/// `graph` is the original (forward) graph, `graph_t` is the transposed graph.
+/// Returns (pagerank_scores, iterations_used).
+fn gpu_pagerank(
+    graph: &CsrGraph,
+    graph_t: &CsrGraph,
+    damping: f32,
+    epsilon: f32,
+    max_iter: u32,
+    dev: &Arc<CudaDevice>,
+    ptx: &Ptx,
+) -> Result<(Vec<f32>, u32), Box<dyn std::error::Error>> {
+    let n = graph.num_vertices as usize;
+    let inv_n = 1.0f32 / n as f32;
+    let base = (1.0 - damping) * inv_n;
+
+    // Load the PageRank kernel.
+    dev.load_ptx(ptx.clone(), "pagerank", &["pagerank_iter"])?;
+
+    // Upload transposed CSR.
+    let d_t_row_ptr = dev.htod_sync_copy(&graph_t.row_ptr)?;
+    let d_t_col_idx = dev.htod_sync_copy(&graph_t.col_idx)?;
+
+    // Upload out-degrees from original graph.
+    let out_degrees: Vec<u32> = (0..graph.num_vertices).map(|v| graph.degree(v)).collect();
+    let d_out_degree = dev.htod_sync_copy(&out_degrees)?;
+
+    // Initialize PageRank vectors (uniform 1/N).
+    let pr_init = vec![inv_n; n];
+    let mut d_pr_in = dev.htod_sync_copy(&pr_init)?;
+    let mut d_pr_out = dev.htod_sync_copy(&pr_init)?;
+
+    // Delta accumulator (single f32).
+    let mut d_delta = dev.htod_sync_copy(&[0.0f32])?;
+
+    let block_size = 256u32;
+    let grid_size = (graph.num_vertices + block_size - 1) / block_size;
+    let cfg = LaunchConfig {
+        grid_dim: (grid_size, 1, 1),
+        block_dim: (block_size, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    let mut iters = 0u32;
+
+    for _ in 0..max_iter {
+        iters += 1;
+
+        // Reset delta to 0.
+        dev.htod_sync_copy_into(&[0.0f32], &mut d_delta)?;
+
+        // Launch kernel.
+        let func = dev
+            .get_func("pagerank", "pagerank_iter")
+            .ok_or("PageRank kernel function not found")?;
+        unsafe {
+            func.launch(
+                cfg,
+                (
+                    &d_t_row_ptr,
+                    &d_t_col_idx,
+                    &d_out_degree,
+                    &d_pr_in,
+                    &mut d_pr_out,
+                    &mut d_delta,
+                    graph.num_vertices,
+                    damping,
+                    base,
+                ),
+            )?;
+        }
+        dev.synchronize()?;
+
+        // Check convergence.
+        let delta_host = dev.dtoh_sync_copy(&d_delta)?;
+        if delta_host[0] < epsilon {
+            // Copy final result from pr_out.
+            std::mem::swap(&mut d_pr_in, &mut d_pr_out);
+            break;
+        }
+
+        // Swap in/out for next iteration.
+        std::mem::swap(&mut d_pr_in, &mut d_pr_out);
+    }
+
+    // Result is in d_pr_in (after final swap).
+    let result = dev.dtoh_sync_copy(&d_pr_in)?;
+    Ok((result, iters))
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
 fn main() {
-    let scale: u32 = 17; // 2^17 = 131072 vertices
+    let scale: u32 = 20; // 2^20 = 1048576 vertices (use 22+ for GPU speedup >= 3x)
     let edge_factor: u32 = 16;
     let num_vertices: u32 = 1 << scale;
     let seed: u64 = 42;
@@ -516,6 +743,127 @@ fn main() {
         if col_idx_ok { "PASS" } else { "FAIL" },
         graph.col_idx.len()
     );
+
+    // =========================================================================
+    // PageRank
+    // =========================================================================
+    println!("\n=== PageRank (iterative, damping=0.85) ===\n");
+
+    // Build transposed graph for in-neighbor access.
+    let t0 = Instant::now();
+    let graph_t = graph.transpose();
+    let transpose_time = t0.elapsed();
+    println!(
+        "Transposed graph built: {} edges ({:.2} ms)",
+        graph_t.num_edges(),
+        transpose_time.as_secs_f64() * 1000.0
+    );
+
+    let damping = 0.85f32;
+    let epsilon = 1e-6f32;
+    let max_iter = 100u32;
+
+    // -- CPU PageRank ---------------------------------------------------------
+    println!("\nRunning CPU PageRank...");
+    let t0 = Instant::now();
+    let (cpu_pr, cpu_pr_iters) = cpu_pagerank(&graph, &graph_t, damping, epsilon, max_iter);
+    let cpu_pr_time = t0.elapsed();
+
+    let pr_sum: f32 = cpu_pr.iter().sum();
+    let pr_max = cpu_pr.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+    let pr_min = cpu_pr.iter().cloned().fold(f32::INFINITY, f32::min);
+    println!("CPU PageRank results:");
+    println!("  Iterations:  {cpu_pr_iters}");
+    println!("  Sum(PR):     {pr_sum:.6} (should be ~1.0)");
+    println!("  Max PR:      {pr_max:.8}");
+    println!("  Min PR:      {pr_min:.8}");
+    println!(
+        "  Time:        {:.2} ms",
+        cpu_pr_time.as_secs_f64() * 1000.0
+    );
+
+    // -- GPU PageRank ---------------------------------------------------------
+    println!("\nCompiling PageRank CUDA kernel via NVRTC...");
+    let t0 = Instant::now();
+    let pr_ptx = match compile_ptx(PAGERANK_KERNEL_SRC) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("Failed to compile PageRank kernel: {e}");
+            eprintln!("Skipping GPU PageRank.");
+            println!("\nDone.");
+            return;
+        }
+    };
+    let compile_time = t0.elapsed();
+    println!(
+        "  Kernel compiled in {:.2} ms",
+        compile_time.as_secs_f64() * 1000.0
+    );
+
+    // Warmup run.
+    println!("Running GPU PageRank warmup...");
+    let _ = gpu_pagerank(&graph, &graph_t, damping, epsilon, max_iter, &dev, &pr_ptx);
+
+    // Timed run.
+    println!("Running GPU PageRank...");
+    let t0 = Instant::now();
+    let (gpu_pr, gpu_pr_iters) =
+        match gpu_pagerank(&graph, &graph_t, damping, epsilon, max_iter, &dev, &pr_ptx) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("GPU PageRank failed: {e}");
+                println!("\nDone.");
+                return;
+            }
+        };
+    let gpu_pr_time = t0.elapsed();
+
+    let gpu_pr_sum: f32 = gpu_pr.iter().sum();
+    println!("GPU PageRank results:");
+    println!("  Iterations:  {gpu_pr_iters}");
+    println!("  Sum(PR):     {gpu_pr_sum:.6}");
+    println!(
+        "  Time:        {:.2} ms",
+        gpu_pr_time.as_secs_f64() * 1000.0
+    );
+
+    // -- Verify GPU vs CPU PageRank -------------------------------------------
+    println!("\n--- Verification: GPU vs CPU PageRank ---");
+    let tolerance = 1e-4f32;
+    let mut pr_mismatches = 0u64;
+    let mut max_abs_err: f32 = 0.0;
+    let mut max_err_vertex: u32 = 0;
+    for v in 0..num_vertices as usize {
+        let err = (cpu_pr[v] - gpu_pr[v]).abs();
+        if err > max_abs_err {
+            max_abs_err = err;
+            max_err_vertex = v as u32;
+        }
+        if err > tolerance {
+            pr_mismatches += 1;
+        }
+    }
+
+    if pr_mismatches == 0 {
+        println!(
+            "  PASS: GPU PageRank matches CPU within {tolerance} for all {num_vertices} vertices"
+        );
+    } else {
+        println!(
+            "  FAIL: {pr_mismatches} vertices exceed tolerance {tolerance} out of {num_vertices}"
+        );
+    }
+    println!("  Max absolute error: {max_abs_err:.8} (vertex {max_err_vertex})");
+
+    // -- PageRank Timing Summary ----------------------------------------------
+    let cpu_pr_ms = cpu_pr_time.as_secs_f64() * 1000.0;
+    let gpu_pr_ms = gpu_pr_time.as_secs_f64() * 1000.0;
+    let pr_speedup = cpu_pr_ms / gpu_pr_ms;
+
+    println!("\n--- PageRank Timing Summary ---");
+    println!("  CPU PageRank: {cpu_pr_ms:.2} ms ({cpu_pr_iters} iterations)");
+    println!("  GPU PageRank: {gpu_pr_ms:.2} ms ({gpu_pr_iters} iterations)");
+    println!("  Speedup:      {pr_speedup:.2}x");
 
     println!("\nDone.");
 }

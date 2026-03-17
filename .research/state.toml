@@ -4,14 +4,14 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 545     # Monotonic counter, incremented after each completed phase
-completed_tasks = 655
+total_cycles = 546     # Monotonic counter, incremented after each completed phase
+completed_tasks = 656
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "onnx-gpt2-gen.1"
+current_task_id = "onnx-conv-prepad.1"
 last_summary = "GPT-2 ONNX generates text (10 tokens, 150ms/fwd). Trained ResNet ONNX exported. 41 ops, all broadcasting fixed. Continuing with Conv prepad + accuracy test."
 
 # Sequence counters for unique file naming across iterations
@@ -1030,7 +1030,7 @@ depends = ["onnx-gpt2-gen.1"]
 id = "onnx-conv-prepad"
 epic = "onnx-inference"
 title = "Conv2d weight prepadding in OnnxSession"
-status = "active"
+status = "completed"
 goal = "Reduce ResNet ONNX from 43ms toward 25ms"
 success_criteria = [
     "Conv2d weights pre-im2col'd at session creation",
@@ -1042,7 +1042,7 @@ id = "onnx-conv-prepad.1"
 theme = "onnx-conv-prepad"
 title = "Pre-compute im2col column matrix for Conv weights in OnnxSession"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = []
 
 [[brainstorms]]

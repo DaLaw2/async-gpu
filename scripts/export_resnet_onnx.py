@@ -57,12 +57,13 @@ def main():
     os.makedirs(out_dir, exist_ok=True)
     out_path = os.path.join(out_dir, "resnet18_cifar10.onnx")
 
+    # Use opset 13, embed all weights (no external data)
     torch.onnx.export(
         model, dummy, out_path,
         input_names=["input"],
         output_names=["output"],
-        dynamic_axes={"input": {0: "batch"}, "output": {0: "batch"}},
         opset_version=13,
+        do_constant_folding=True,
     )
 
     size_mb = os.path.getsize(out_path) / 1024 / 1024

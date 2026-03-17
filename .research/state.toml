@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 488     # Monotonic counter, incremented after each completed phase
-completed_tasks = 598
+total_cycles = 489     # Monotonic counter, incremented after each completed phase
+completed_tasks = 599
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "onnx-executor.1"
-last_summary = "ONNX executor implemented: 20+ op types (Conv, MatMul, BN, Relu, Add, Reshape, Softmax, etc). Parser + executor in onnx.rs + onnx_executor.rs. Next: onnx-executor.3 (more ops), onnx-executor.4 (ResNet-18 e2e), int4-kernel.2."
+current_task_id = "onnx-executor.4"
+last_summary = "ONNX parser + executor DONE (20+ ops). kernel-fusion-v2 done (matmul_fused). onnx-executor.4 pending (PyTorch ONNX export embeds weights externally). Next: fix ONNX export, INT4 kernel, transformer ops."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 108
@@ -706,7 +706,8 @@ id = "onnx-executor.3"
 theme = "onnx-executor"
 title = "Add remaining Phase 1 ops (Concat, Flatten, Gather, Unsqueeze, Squeeze, Clip, Transpose)"
 kind = "experiment"
-status = "pending"
+status = "done"
+# All Phase 1 ops already implemented in onnx-executor.2 (Concat, Flatten, Gather, Unsqueeze, Squeeze, Clip, Transpose).
 depends = ["onnx-executor.2"]
 
 [[tasks]]
@@ -715,6 +716,7 @@ theme = "onnx-executor"
 title = "ResNet-18 ONNX end-to-end: export from PyTorch, load, infer, verify >90% CIFAR-10"
 kind = "experiment"
 status = "pending"
+# BLOCKED: PyTorch ONNX export uses external data — weights not embedded in .onnx file. Need opset 13 with embedded weights.
 depends = ["onnx-executor.3"]
 
 # --- onnx-transformer theme ---

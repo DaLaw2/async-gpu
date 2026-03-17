@@ -876,12 +876,59 @@ fn dispatch_shape(
         }
         "Transpose" => {
             let x = get_input(&node.inputs[0], tensor_map)?;
-            if x.ndim() == 2 {
+            let perm = node.attr_ints("perm");
+
+            if x.ndim() == 2 && perm.is_empty() {
+                // Default 2D transpose
                 let out = x.transpose(0, 1).map_err(map_nn_err)?;
                 Ok(NodeOutput::Single(out))
             } else {
-                // Multi-dim transpose: download, permute on CPU, re-upload
-                let out = x.clone_tensor().map_err(map_nn_err)?;
+                // General ND permute on CPU
+                let x_h = x.to_host().map_err(map_nn_err)?;
+                let shape = x.shape();
+                let ndim = shape.len();
+
+                // Default perm: reverse all axes
+                let perm_usize: Vec<usize> = if perm.is_empty() {
+                    (0..ndim).rev().collect()
+                } else {
+                    perm.iter().map(|&p| p as usize).collect()
+                };
+
+                // Compute output shape
+                let out_shape: Vec<usize> = perm_usize.iter().map(|&p| shape[p]).collect();
+                let out_numel: usize = out_shape.iter().product();
+
+                // Compute strides for input
+                let mut in_strides = vec![1usize; ndim];
+                for i in (0..ndim - 1).rev() {
+                    in_strides[i] = in_strides[i + 1] * shape[i + 1];
+                }
+
+                // Permute
+                let mut out_data = vec![0.0f32; out_numel];
+                let mut out_strides = vec![1usize; ndim];
+                for i in (0..ndim - 1).rev() {
+                    out_strides[i] = out_strides[i + 1] * out_shape[i + 1];
+                }
+
+                for idx in 0..out_numel {
+                    // Convert flat index to ND index in output
+                    let mut out_nd = vec![0usize; ndim];
+                    let mut remaining = idx;
+                    for d in 0..ndim {
+                        out_nd[d] = remaining / out_strides[d];
+                        remaining %= out_strides[d];
+                    }
+                    // Map to input ND index via inverse permutation
+                    let mut in_flat = 0usize;
+                    for d in 0..ndim {
+                        in_flat += out_nd[d] * in_strides[perm_usize[d]];
+                    }
+                    out_data[idx] = x_h[in_flat];
+                }
+
+                let out = GpuTensor::from_host(&out_data, &out_shape, dev).map_err(map_nn_err)?;
                 Ok(NodeOutput::Single(out))
             }
         }

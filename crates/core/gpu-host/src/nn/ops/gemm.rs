@@ -243,15 +243,27 @@ pub fn matmul_v2(
     let status = dev.htod_sync_copy(&[0u32])?;
 
     let mut d_dev = dev.alloc_zeros::<f32>(m * n)?;
-    let f_gemm = registry.get("gemm_f32_v2")?;
 
-    // grid_dim = (ceil(M/128), ceil(N/64), 1)
-    let grid_m = m.div_ceil(128) as u32;
-    let grid_n = n.div_ceil(64) as u32;
-    let gemm_cfg = cudarc::driver::LaunchConfig {
-        grid_dim: (grid_m, grid_n, 1),
-        block_dim: (256, 1, 1),
-        shared_mem_bytes: 12544, // 2 * (8*132 + 8*64) * 4
+    // Use V3 (128×128, 8×8) for large matrices, V2 (128×64, 4×8) for smaller
+    let use_v3 = m >= 128 && n >= 128;
+    let f_gemm = if use_v3 {
+        registry.get("gemm_f32_v3")?
+    } else {
+        registry.get("gemm_f32_v2")?
+    };
+
+    let gemm_cfg = if use_v3 {
+        cudarc::driver::LaunchConfig {
+            grid_dim: (m.div_ceil(128) as u32, n.div_ceil(128) as u32, 1),
+            block_dim: (256, 1, 1),
+            shared_mem_bytes: 16640, // 2 * (8*132 + 8*128) * 4
+        }
+    } else {
+        cudarc::driver::LaunchConfig {
+            grid_dim: (m.div_ceil(128) as u32, n.div_ceil(64) as u32, 1),
+            block_dim: (256, 1, 1),
+            shared_mem_bytes: 12544, // 2 * (8*132 + 8*64) * 4
+        }
     };
     unsafe {
         f_gemm.launch(

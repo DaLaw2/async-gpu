@@ -76,6 +76,7 @@ const ML_KERNELS: &[&str] = &[
     // GEMM (compute_gemm.rs)
     "gemm_f32",
     "gemm_f32_v2",
+    "gemm_f32_v3",
     "layer_norm_v2",
     "elementwise_add_v2",
     "gelu_forward_v2",

@@ -11,7 +11,7 @@ status = "running"     # ready | running | blocked | completed
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "perf-attention.1"
+current_task_id = "perf-gemm.6"
 last_summary = "All V2 kernels integrated: GEMM 998 GFLOPS (36.8%), Attn 1.77x, LN 80 GB/s, elem V2. GPT-2 221→54ms (4.1x). Next: perf-attention.3/4 (deeper optimization), perf-conv."
 
 # Sequence counters for unique file naming across iterations
@@ -1583,6 +1583,14 @@ title = "Experiment: flash_attention_v2 with 4-way unrolled dots + explicit FMA"
 kind = "experiment"
 status = "done"
 depends = ["perf-attention.1", "perf-gemm.3"]
+
+[[tasks]]
+id = "perf-gemm.6"
+theme = "perf-gemm"
+title = "Experiment: 128×128 tile + 8×8 register blocking via macro-generated accumulators"
+kind = "experiment"
+status = "active"
+depends = ["perf-gemm.5"]
 
 [[tasks]]
 id = "perf-attention.3"

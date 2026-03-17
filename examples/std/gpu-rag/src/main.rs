@@ -96,8 +96,39 @@ fn bench_fused() -> Result<(), Box<dyn std::error::Error>> {
 
         println!("{label} [{m}×{k}→{n}]:");
         println!("  Unfused (3 launches): {unfused_ms:.2}ms");
-        println!("  (Fused kernel available but host-side integration pending)");
-        println!("  Expected speedup: ~30-50% from eliminating 2 kernel launches + 2 global mem round-trips\n");
+        // Fused: matmul_fused (1 launch)
+        let t2 = Instant::now();
+        for _ in 0..n_iter {
+            let _ = gpu_host::nn::ops::matmul_fused(
+                &a,
+                &b,
+                &bias,
+                gpu_host::nn::ops::FusedActivation::Gelu,
+                &reg,
+            )?;
+        }
+        dev.synchronize()?;
+        let fused_ms = t2.elapsed().as_secs_f64() * 1000.0 / n_iter as f64;
+
+        // Correctness
+        let fused_out = gpu_host::nn::ops::matmul_fused(
+            &a,
+            &b,
+            &bias,
+            gpu_host::nn::ops::FusedActivation::Gelu,
+            &reg,
+        )?
+        .to_host()?;
+        let max_diff = ref_out
+            .iter()
+            .zip(fused_out.iter())
+            .map(|(r, f)| (r - f).abs())
+            .fold(0.0f32, f32::max);
+
+        let speedup = unfused_ms / fused_ms;
+        println!(
+            "  Fused (1 launch): {fused_ms:.2}ms, speedup: {speedup:.2}x, max_diff: {max_diff:.6}\n"
+        );
     }
 
     println!("Done.");

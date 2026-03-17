@@ -177,6 +177,184 @@ pub fn matmul(a: &GpuTensor, b: &GpuTensor, registry: &Arc<KernelRegistry>) -> R
     Ok(output)
 }
 
+/// Activation type for fused GEMM.
+#[derive(Copy, Clone, Debug)]
+pub enum FusedActivation {
+    /// GELU activation (approximation: x * sigmoid(1.702 * x)).
+    Gelu,
+    /// ReLU activation (max(0, x)).
+    Relu,
+}
+
+/// Fused matrix multiplication + bias + activation: `activation(A × B + bias)`.
+///
+/// Eliminates 2 kernel launches vs separate matmul + bias_add + activation.
+/// A: `[M, K]`, B: `[K, N]`, bias: `[N]` → output: `[M, N]`.
+pub fn matmul_fused(
+    a: &GpuTensor,
+    b: &GpuTensor,
+    bias: &GpuTensor,
+    activation: FusedActivation,
+    registry: &Arc<KernelRegistry>,
+) -> Result<GpuTensor> {
+    if a.ndim() != 2 || b.ndim() != 2 {
+        return Err(NnError::ShapeMismatch {
+            expected: "2D tensors".to_string(),
+            actual: format!("a.ndim={}, b.ndim={}", a.ndim(), b.ndim()),
+        });
+    }
+    let m = a.shape()[0];
+    let k = a.shape()[1];
+    let n = b.shape()[1];
+    if a.shape()[1] != b.shape()[0] {
+        return Err(NnError::ShapeMismatch {
+            expected: format!("a.shape[1]={} == b.shape[0]", a.shape()[1]),
+            actual: format!("b.shape[0]={}", b.shape()[0]),
+        });
+    }
+    if bias.ndim() != 1 || bias.shape()[0] != n {
+        return Err(NnError::ShapeMismatch {
+            expected: format!("bias.shape=[{n}]"),
+            actual: format!("bias.shape={:?}", bias.shape()),
+        });
+    }
+
+    let m_pad = m.div_ceil(32) * 32;
+    let k_pad = k.div_ceil(16) * 16;
+    let n_pad = n.div_ceil(16) * 16;
+
+    let dev = registry.device();
+    let status = dev.htod_sync_copy(&[0u32])?;
+
+    // Pad A
+    let a_padded = if m == m_pad && k == k_pad {
+        let mut buf = dev.alloc_zeros::<f32>(m * k)?;
+        dev.dtod_copy(a.data(), &mut buf)?;
+        buf
+    } else {
+        let mut buf = dev.alloc_zeros::<f32>(m_pad * k_pad)?;
+        let f_pad = registry.get("matrix_pad")?;
+        unsafe {
+            f_pad.launch(
+                KernelRegistry::config_1d((m_pad * k_pad) as u32),
+                (
+                    a.data(),
+                    &mut buf,
+                    m as u32,
+                    k as u32,
+                    m_pad as u32,
+                    k_pad as u32,
+                    &status,
+                ),
+            )?;
+        }
+        buf
+    };
+
+    // Transpose + pad B
+    let b_col_major = {
+        let mut b_t = dev.alloc_zeros::<f32>(n * k)?;
+        let f_transpose = registry.get("matrix_transpose")?;
+        unsafe {
+            f_transpose.launch(
+                KernelRegistry::config_1d((k * n) as u32),
+                (b.data(), &mut b_t, k as u32, n as u32, &status),
+            )?;
+        }
+        if n == n_pad && k == k_pad {
+            b_t
+        } else {
+            let mut buf = dev.alloc_zeros::<f32>(n_pad * k_pad)?;
+            let f_pad = registry.get("matrix_pad")?;
+            unsafe {
+                f_pad.launch(
+                    KernelRegistry::config_1d((n_pad * k_pad) as u32),
+                    (
+                        &b_t,
+                        &mut buf,
+                        n as u32,
+                        k as u32,
+                        n_pad as u32,
+                        k_pad as u32,
+                        &status,
+                    ),
+                )?;
+            }
+            buf
+        }
+    };
+
+    // Pad bias: [n] → [n_pad]
+    let bias_padded = if n == n_pad {
+        let mut buf = dev.alloc_zeros::<f32>(n)?;
+        dev.dtod_copy(bias.data(), &mut buf)?;
+        buf
+    } else {
+        let mut buf = dev.alloc_zeros::<f32>(n_pad)?;
+        // Copy first n elements (rest are zero-padded)
+        let f_pad = registry.get("matrix_pad")?;
+        unsafe {
+            f_pad.launch(
+                KernelRegistry::config_1d(n_pad as u32),
+                (
+                    bias.data(),
+                    &mut buf,
+                    1u32,
+                    n as u32,
+                    1u32,
+                    n_pad as u32,
+                    &status,
+                ),
+            )?;
+        }
+        buf
+    };
+
+    // Fused GEMM + bias + activation
+    let mut d_dev = dev.alloc_zeros::<f32>(m_pad * n_pad)?;
+    let kernel_name = match activation {
+        FusedActivation::Gelu => "gemm_bias_gelu",
+        FusedActivation::Relu => "gemm_bias_relu",
+    };
+    let f_gemm = registry.get(kernel_name)?;
+    let gemm_cfg = cudarc::driver::LaunchConfig {
+        grid_dim: ((m_pad as u32) / 32, (n_pad as u32) / 16, 1),
+        block_dim: (128, 1, 1),
+        shared_mem_bytes: 3072,
+    };
+    unsafe {
+        f_gemm.launch(
+            gemm_cfg,
+            (
+                &a_padded,
+                &b_col_major,
+                &bias_padded,
+                &mut d_dev,
+                k_pad as u32,
+                n_pad as u32,
+                &status,
+            ),
+        )?;
+    }
+
+    // Unpad
+    let output_dev = if m == m_pad && n == n_pad {
+        d_dev
+    } else {
+        let mut buf = dev.alloc_zeros::<f32>(m * n)?;
+        let f_unpad = registry.get("matrix_unpad")?;
+        unsafe {
+            f_unpad.launch(
+                KernelRegistry::config_1d((m * n) as u32),
+                (&d_dev, &mut buf, m as u32, n as u32, n_pad as u32, &status),
+            )?;
+        }
+        buf
+    };
+
+    Ok(GpuTensor::from_data(output_dev, &[m, n], Arc::clone(dev)))
+}
+
 /// Matrix multiplication with pre-computed column-major padded B.
 ///
 /// A: `[M, K]`, b_prepadded: pre-transposed+padded `[N_pad, K_pad]` col-major.

@@ -4,8 +4,8 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 479     # Monotonic counter, incremented after each completed phase
-completed_tasks = 587
+total_cycles = 480     # Monotonic counter, incremented after each completed phase
+completed_tasks = 588
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
@@ -812,7 +812,8 @@ id = "fuse-nn-api.1"
 theme = "fuse-nn-api"
 title = "Add matmul_fused() op that calls gemm_bias_gelu/relu with proper padding"
 kind = "experiment"
-status = "active"
+status = "done"
+# 6-7% speedup per matmul (1.75→1.65ms). FusedActivation enum + full pad/transpose/unpad pipeline.
 depends = []
 
 [[tasks]]
@@ -820,7 +821,7 @@ id = "fuse-nn-api.2"
 theme = "fuse-nn-api"
 title = "Wire fused matmul into GPT-2 FFN forward path"
 kind = "experiment"
-status = "pending"
+status = "active"
 depends = ["fuse-nn-api.1"]
 
 [[tasks]]

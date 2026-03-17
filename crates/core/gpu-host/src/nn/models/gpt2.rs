@@ -8,7 +8,9 @@ use std::sync::Arc;
 #[cfg(feature = "gpt2")]
 use crate::model::Gpt2Weights;
 use crate::nn::error::Result;
-use crate::nn::layers::{Embedding, LayerNorm, Linear, Module, MultiHeadAttention, GELU};
+use crate::nn::layers::{
+    Embedding, Int4Linear, LayerNorm, Linear, Module, MultiHeadAttention, GELU,
+};
 use crate::nn::ops;
 use crate::nn::registry::KernelRegistry;
 use crate::nn::tensor::GpuTensor;
@@ -963,6 +965,444 @@ impl KvCache {
     /// Update kv_len after all layers have appended the same number of new positions.
     fn advance(&mut self, new_positions: usize) {
         self.kv_len += new_positions;
+    }
+}
+
+// ============================================================
+// INT4 quantized GPT-2 model
+// ============================================================
+
+/// Multi-head attention using INT4 quantized projections.
+///
+/// Same architecture as [`MultiHeadAttention`] but QKV and output projections
+/// use [`Int4Linear`] for ~4x weight memory reduction.
+struct Int4MultiHeadAttention {
+    qkv_proj: Int4Linear,
+    out_proj: Int4Linear,
+    n_heads: usize,
+    d_head: usize,
+    registry: Arc<KernelRegistry>,
+}
+
+impl Int4MultiHeadAttention {
+    /// Create from f32 weights, quantizing to INT4 at construction time.
+    ///
+    /// Weight convention: `qkv_weight [3*n_embd, n_embd]`, `out_weight [n_embd, n_embd]`
+    /// (already in Linear [out, in] format — need to transpose to [K, N] for Int4Linear).
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        qkv_weight: &[f32],
+        qkv_bias: &[f32],
+        out_weight: &[f32],
+        out_bias: &[f32],
+        n_embd: usize,
+        n_heads: usize,
+        group_size: usize,
+        registry: &Arc<KernelRegistry>,
+    ) -> Result<Self> {
+        let d_head = n_embd / n_heads;
+
+        // QKV: weight is [3*n_embd, n_embd] (out, in). Transpose to [n_embd, 3*n_embd] = [K, N].
+        let qkv_t = transpose_2d(qkv_weight, 3 * n_embd, n_embd);
+        let (qkv_packed, qkv_scales) =
+            ops::quantize::quantize_weight_int4(&qkv_t, n_embd, 3 * n_embd, group_size);
+        let qkv_proj = Int4Linear::new(
+            &qkv_packed,
+            &qkv_scales,
+            Some(qkv_bias),
+            n_embd,
+            3 * n_embd,
+            group_size,
+            registry,
+        )?;
+
+        // Output: weight is [n_embd, n_embd]. Transpose to [n_embd, n_embd] = [K, N].
+        let out_t = transpose_2d(out_weight, n_embd, n_embd);
+        let (out_packed, out_scales) =
+            ops::quantize::quantize_weight_int4(&out_t, n_embd, n_embd, group_size);
+        let out_proj = Int4Linear::new(
+            &out_packed,
+            &out_scales,
+            Some(out_bias),
+            n_embd,
+            n_embd,
+            group_size,
+            registry,
+        )?;
+
+        Ok(Self {
+            qkv_proj,
+            out_proj,
+            n_heads,
+            d_head,
+            registry: Arc::clone(registry),
+        })
+    }
+
+    /// Forward pass with causal attention (same logic as MultiHeadAttention).
+    fn forward_causal(&self, input: &GpuTensor) -> Result<GpuTensor> {
+        let seq_len = input.shape()[0];
+        let qkv = self.qkv_proj.forward(input)?;
+        let (q, k, v) = ops::split_qkv(&qkv, seq_len, self.n_heads, self.d_head, &self.registry)?;
+        let attn_out = ops::multi_head_flash_attention(
+            &q,
+            &k,
+            &v,
+            seq_len,
+            self.n_heads,
+            self.d_head,
+            true,
+            &self.registry,
+        )?;
+        let concat = ops::concat_heads(
+            &attn_out,
+            seq_len,
+            self.n_heads,
+            self.d_head,
+            &self.registry,
+        )?;
+        self.out_proj.forward(&concat)
+    }
+}
+
+/// GPT-2 transformer block with INT4 quantized Linear layers.
+///
+/// LayerNorm stays f32 (tiny parameters). All dense projections use INT4.
+pub struct Int4TransformerBlock {
+    ln_1: LayerNorm,
+    attn: Int4MultiHeadAttention,
+    ln_2: LayerNorm,
+    ffn_up: Int4Linear,
+    ffn_down: Int4Linear,
+    gelu: GELU,
+    registry: Arc<KernelRegistry>,
+}
+
+impl Int4TransformerBlock {
+    /// Create from f32 weights, quantizing to INT4.
+    ///
+    /// Same weight naming as [`TransformerBlock::new`].
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        ln_1_weight: &[f32],
+        ln_1_bias: &[f32],
+        attn_qkv_weight: &[f32],
+        attn_qkv_bias: &[f32],
+        attn_out_weight: &[f32],
+        attn_out_bias: &[f32],
+        ln_2_weight: &[f32],
+        ln_2_bias: &[f32],
+        ffn_up_weight: &[f32],
+        ffn_up_bias: &[f32],
+        ffn_down_weight: &[f32],
+        ffn_down_bias: &[f32],
+        config: &Gpt2Config,
+        group_size: usize,
+        registry: &Arc<KernelRegistry>,
+    ) -> Result<Self> {
+        let eps = config.layer_norm_epsilon;
+        let n_embd = config.n_embd;
+        let ffn_dim = config.ffn_dim();
+
+        // FFN up: [ffn_dim, n_embd] → transpose to [n_embd, ffn_dim] = [K, N]
+        let ffn_up_t = transpose_2d(ffn_up_weight, ffn_dim, n_embd);
+        let (up_packed, up_scales) =
+            ops::quantize::quantize_weight_int4(&ffn_up_t, n_embd, ffn_dim, group_size);
+
+        // FFN down: [n_embd, ffn_dim] → transpose to [ffn_dim, n_embd] = [K, N]
+        let ffn_down_t = transpose_2d(ffn_down_weight, n_embd, ffn_dim);
+        let (down_packed, down_scales) =
+            ops::quantize::quantize_weight_int4(&ffn_down_t, ffn_dim, n_embd, group_size);
+
+        Ok(Self {
+            ln_1: LayerNorm::new(ln_1_weight, ln_1_bias, eps, registry)?,
+            attn: Int4MultiHeadAttention::new(
+                attn_qkv_weight,
+                attn_qkv_bias,
+                attn_out_weight,
+                attn_out_bias,
+                n_embd,
+                config.n_head,
+                group_size,
+                registry,
+            )?,
+            ln_2: LayerNorm::new(ln_2_weight, ln_2_bias, eps, registry)?,
+            ffn_up: Int4Linear::new(
+                &up_packed,
+                &up_scales,
+                Some(ffn_up_bias),
+                n_embd,
+                ffn_dim,
+                group_size,
+                registry,
+            )?,
+            ffn_down: Int4Linear::new(
+                &down_packed,
+                &down_scales,
+                Some(ffn_down_bias),
+                ffn_dim,
+                n_embd,
+                group_size,
+                registry,
+            )?,
+            gelu: GELU::new(registry),
+            registry: Arc::clone(registry),
+        })
+    }
+
+    /// Forward pass: input `[seq_len, n_embd]` → output `[seq_len, n_embd]`.
+    pub fn forward(&self, input: &GpuTensor) -> Result<GpuTensor> {
+        // LN1 → MHA → residual
+        let ln1_out = self.ln_1.forward(input)?;
+        let attn_out = self.attn.forward_causal(&ln1_out)?;
+        let mut residual = input.clone_tensor()?;
+        ops::elementwise_add(&mut residual, &attn_out, &self.registry)?;
+
+        // LN2 → FFN → residual
+        let ln2_out = self.ln_2.forward(&residual)?;
+        let ffn_hidden = self.ffn_up.forward(&ln2_out)?;
+        let ffn_act = self.gelu.forward(&ffn_hidden)?;
+        let ffn_out = self.ffn_down.forward(&ffn_act)?;
+        ops::elementwise_add(&mut residual, &ffn_out, &self.registry)?;
+
+        Ok(residual)
+    }
+}
+
+/// Complete GPT-2 model with INT4 quantized transformer blocks.
+///
+/// Embedding, final LayerNorm, and LM head remain f32. All dense projections
+/// in the transformer blocks use INT4 quantization (~4x memory reduction on
+/// the bulk of model parameters).
+pub struct Int4Gpt2Model {
+    embedding: Embedding,
+    blocks: Vec<Int4TransformerBlock>,
+    ln_f: LayerNorm,
+    lm_head: Linear, // f32: vocab_size not divisible by 8
+    config: Gpt2Config,
+    group_size: usize,
+    registry: Arc<KernelRegistry>,
+}
+
+impl Int4Gpt2Model {
+    /// Default quantization group size.
+    pub const DEFAULT_GROUP_SIZE: usize = 128;
+
+    /// Build from pre-loaded [`Gpt2Weights`], quantizing all dense layers to INT4.
+    #[cfg(feature = "gpt2")]
+    pub fn from_weights(
+        weights: &Gpt2Weights,
+        config: Gpt2Config,
+        group_size: usize,
+        registry: &Arc<KernelRegistry>,
+    ) -> Result<Self> {
+        let embedding = Embedding::new(
+            &weights.wte,
+            &weights.wpe,
+            config.vocab_size,
+            config.n_positions,
+            config.n_embd,
+            registry,
+        )?;
+
+        let n = config.n_embd;
+        let ffn = config.ffn_dim();
+        let mut blocks = Vec::with_capacity(config.n_layer);
+
+        for layer in &weights.layers {
+            // Conv1D [in, out] → Linear [out, in]
+            let qkv_w = transpose_2d(&layer.c_attn_weight, n, 3 * n);
+            let proj_w = transpose_2d(&layer.c_proj_weight, n, n);
+            let fc_w = transpose_2d(&layer.mlp_fc_weight, n, ffn);
+            let fc_proj_w = transpose_2d(&layer.mlp_proj_weight, ffn, n);
+
+            let block = Int4TransformerBlock::new(
+                &layer.ln_1.weight,
+                &layer.ln_1.bias,
+                &qkv_w,
+                &layer.c_attn_bias,
+                &proj_w,
+                &layer.c_proj_bias,
+                &layer.ln_2.weight,
+                &layer.ln_2.bias,
+                &fc_w,
+                &layer.mlp_fc_bias,
+                &fc_proj_w,
+                &layer.mlp_proj_bias,
+                &config,
+                group_size,
+                registry,
+            )?;
+            blocks.push(block);
+        }
+
+        let ln_f = LayerNorm::new(
+            &weights.ln_f.weight,
+            &weights.ln_f.bias,
+            config.layer_norm_epsilon,
+            registry,
+        )?;
+
+        // LM head stays f32 (vocab_size=50257 not divisible by 8)
+        let lm_head = Linear::new(
+            &weights.wte,
+            None,
+            config.n_embd,
+            config.vocab_size,
+            registry,
+        )?;
+
+        Ok(Self {
+            embedding,
+            blocks,
+            ln_f,
+            lm_head,
+            config,
+            group_size,
+            registry: Arc::clone(registry),
+        })
+    }
+
+    /// Build from generic [`LoadedWeights`], quantizing all dense layers to INT4.
+    pub fn from_generic_weights(
+        weights: &crate::model_generic::LoadedWeights,
+        config: Gpt2Config,
+        group_size: usize,
+        registry: &Arc<KernelRegistry>,
+    ) -> Result<Self> {
+        let w = |key: &str| -> Result<&[f32]> {
+            weights
+                .require(key)
+                .map(|t| t.data.as_slice())
+                .map_err(|e| crate::nn::error::NnError::ShapeMismatch {
+                    expected: key.to_string(),
+                    actual: format!("{e}"),
+                })
+        };
+
+        let embedding = Embedding::new(
+            w("wte.weight")?,
+            w("wpe.weight")?,
+            config.vocab_size,
+            config.n_positions,
+            config.n_embd,
+            registry,
+        )?;
+
+        let mut blocks = Vec::with_capacity(config.n_layer);
+        for i in 0..config.n_layer {
+            let p = format!("h.{i}");
+            // Weights are already transposed by generic loader
+            let block = Int4TransformerBlock::new(
+                w(&format!("{p}.ln_1.weight"))?,
+                w(&format!("{p}.ln_1.bias"))?,
+                w(&format!("{p}.attn.c_attn.weight"))?,
+                w(&format!("{p}.attn.c_attn.bias"))?,
+                w(&format!("{p}.attn.c_proj.weight"))?,
+                w(&format!("{p}.attn.c_proj.bias"))?,
+                w(&format!("{p}.ln_2.weight"))?,
+                w(&format!("{p}.ln_2.bias"))?,
+                w(&format!("{p}.mlp.c_fc.weight"))?,
+                w(&format!("{p}.mlp.c_fc.bias"))?,
+                w(&format!("{p}.mlp.c_proj.weight"))?,
+                w(&format!("{p}.mlp.c_proj.bias"))?,
+                &config,
+                group_size,
+                registry,
+            )?;
+            blocks.push(block);
+        }
+
+        let ln_f = LayerNorm::new(
+            w("ln_f.weight")?,
+            w("ln_f.bias")?,
+            config.layer_norm_epsilon,
+            registry,
+        )?;
+
+        let lm_head = Linear::new(
+            w("wte.weight")?,
+            None,
+            config.n_embd,
+            config.vocab_size,
+            registry,
+        )?;
+
+        Ok(Self {
+            embedding,
+            blocks,
+            ln_f,
+            lm_head,
+            config,
+            group_size,
+            registry: Arc::clone(registry),
+        })
+    }
+
+    /// Reference to model config.
+    pub fn config(&self) -> &Gpt2Config {
+        &self.config
+    }
+
+    /// Quantization group size.
+    pub fn group_size(&self) -> usize {
+        self.group_size
+    }
+
+    /// Forward pass: token_ids → logits `[seq_len, vocab_size]`.
+    pub fn forward(
+        &self,
+        token_ids: &cudarc::driver::CudaSlice<u32>,
+        seq_len: usize,
+    ) -> Result<GpuTensor> {
+        let mut hidden = self.embedding.forward_tokens(token_ids, seq_len)?;
+        for block in &self.blocks {
+            hidden = block.forward(&hidden)?;
+        }
+        hidden = self.ln_f.forward(&hidden)?;
+        self.lm_head.forward(&hidden)
+    }
+
+    /// Greedy generation: generate `max_new_tokens` tokens from a prompt.
+    pub fn generate(&self, prompt_tokens: &[u32], max_new_tokens: usize) -> Result<Vec<u32>> {
+        let dev = self.registry.device();
+        let mut tokens = prompt_tokens.to_vec();
+
+        for _ in 0..max_new_tokens {
+            let seq_len = tokens.len();
+            let token_ids = dev
+                .htod_sync_copy(&tokens)
+                .map_err(crate::nn::error::NnError::Cuda)?;
+
+            let logits = self.forward(&token_ids, seq_len)?;
+            let logits_host = logits.to_host()?;
+
+            let vocab_size = self.config.vocab_size;
+            let last_pos_logits = &logits_host[(seq_len - 1) * vocab_size..seq_len * vocab_size];
+
+            let next_token = argmax(last_pos_logits);
+            if next_token == 50256 {
+                break;
+            }
+            tokens.push(next_token);
+        }
+
+        Ok(tokens)
+    }
+
+    /// Approximate weight memory in bytes (INT4 packed weights + scales).
+    ///
+    /// Excludes embeddings (f32) and LM head (f32).
+    pub fn quantized_memory_bytes(&self) -> usize {
+        self.blocks
+            .iter()
+            .map(|b| {
+                b.ffn_up.memory_bytes()
+                    + b.ffn_down.memory_bytes()
+                    + b.attn.qkv_proj.memory_bytes()
+                    + b.attn.out_proj.memory_bytes()
+            })
+            .sum()
     }
 }
 

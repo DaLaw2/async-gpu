@@ -4,8 +4,8 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 480     # Monotonic counter, incremented after each completed phase
-completed_tasks = 588
+total_cycles = 482     # Monotonic counter, incremented after each completed phase
+completed_tasks = 591
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
@@ -785,7 +785,8 @@ depends = ["onnx-breadth.1"]
 [[epics]]
 id = "kernel-fusion-v2"
 title = "Kernel Fusion v2 — integrate fused GEMM+activation into nn API + GPT-2 speedup"
-status = "active"
+status = "completed"
+# matmul_fused + Linear::forward_fused work. GPT-2 reverted: pre-padded B path is faster. Needs fused_prepadded_b for actual speedup.
 priority = "high"
 depends_on = "kernel-fusion"
 success_criteria = [
@@ -799,7 +800,7 @@ success_criteria = [
 id = "fuse-nn-api"
 epic = "kernel-fusion-v2"
 title = "Wire fused kernels into nn Linear layer + GPT-2 model"
-status = "active"
+status = "completed"
 goal = "Automatic fusion detection in the nn API forward path"
 success_criteria = [
     "Linear::forward_fused(activation) uses gemm_bias_gelu/relu",
@@ -821,7 +822,8 @@ id = "fuse-nn-api.2"
 theme = "fuse-nn-api"
 title = "Wire fused matmul into GPT-2 FFN forward path"
 kind = "experiment"
-status = "active"
+status = "done"
+# REVERTED: fused loses pre-padded B optimization (87ms/tok vs 79ms baseline). Needs matmul_fused_prepadded_b.
 depends = ["fuse-nn-api.1"]
 
 [[tasks]]
@@ -829,7 +831,8 @@ id = "fuse-nn-api.3"
 theme = "fuse-nn-api"
 title = "Benchmark GPT-2 fused vs unfused: measure per-token latency reduction"
 kind = "experiment"
-status = "pending"
+status = "done"
+# Fused 87ms/tok vs unfused 79ms/tok (prepadded). Need fused_prepadded_b variant for actual speedup.
 depends = ["fuse-nn-api.2"]
 
 # ============================================================

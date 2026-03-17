@@ -109,6 +109,48 @@ impl Linear {
     }
 }
 
+impl Linear {
+    /// Fused forward: matmul + bias + activation in a single kernel launch.
+    ///
+    /// Saves 2 kernel launches vs `forward()` + `activation()`.
+    pub fn forward_fused(
+        &self,
+        input: &GpuTensor,
+        activation: ops::FusedActivation,
+    ) -> Result<GpuTensor> {
+        let ndim = input.ndim();
+        let in_features = input.shape()[ndim - 1];
+        let batch: usize = input.shape()[..ndim - 1].iter().product();
+
+        let input_2d = if ndim == 2 {
+            input.clone_tensor()?
+        } else {
+            input.reshape(&[batch, in_features])?
+        };
+
+        // Use fused matmul (always non-prepadded path — fused kernel handles padding)
+        let output = if let Some(ref bias) = self.bias {
+            ops::matmul_fused(&input_2d, &self.weight_t, bias, activation, &self.registry)?
+        } else {
+            // No bias → fall back to unfused
+            let mut out = ops::matmul(&input_2d, &self.weight_t, &self.registry)?;
+            match activation {
+                ops::FusedActivation::Gelu => return ops::gelu(&out, &self.registry),
+                ops::FusedActivation::Relu => return ops::relu(&out, &self.registry),
+            }
+        };
+
+        if ndim > 2 {
+            let out_features = self.weight_t.shape()[1];
+            let mut out_shape: Vec<usize> = input.shape()[..ndim - 1].to_vec();
+            out_shape.push(out_features);
+            output.reshape(&out_shape)
+        } else {
+            Ok(output)
+        }
+    }
+}
+
 impl Module for Linear {
     /// Forward pass: input `[*, in_features]` → output `[*, out_features]`.
     fn forward(&self, input: &GpuTensor) -> Result<GpuTensor> {

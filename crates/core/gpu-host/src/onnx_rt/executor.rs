@@ -175,9 +175,7 @@ fn execute_nodes(
             NodeOutput::Single(t) => {
                 if let Some(name) = node.outputs.first() {
                     if !name.is_empty() {
-                        if debug_onnx
-                            && (idx < 15 || idx == 92 || idx == 93 || idx == 94 || idx == 95)
-                        {
+                        if debug_onnx && (idx < 15 || (idx >= 70 && idx <= 105)) {
                             let h = t.to_host().unwrap_or_default();
                             let first4: Vec<f32> = h.iter().take(4).copied().collect();
                             eprintln!(
@@ -627,9 +625,23 @@ fn dispatch_elementwise(
             let a_numel: usize = a.shape().iter().product();
             let b_numel: usize = b.shape().iter().product();
 
-            if a_numel == b_numel {
+            if a_numel == b_numel && a.shape() == b.shape() {
+                // Same shape: GPU elementwise add
                 let mut out = a.clone_tensor().map_err(map_nn_err)?;
                 crate::nn::ops::elementwise_add(&mut out, b, registry).map_err(map_nn_err)?;
+                Ok(NodeOutput::Single(out))
+            } else if a_numel == b_numel && a.ndim() < b.ndim() {
+                // Same numel but different rank: reshape a to match b, then add
+                let mut out = b.clone_tensor().map_err(map_nn_err)?;
+                let a_reshaped = a.reshape(b.shape()).map_err(map_nn_err)?;
+                crate::nn::ops::elementwise_add(&mut out, &a_reshaped, registry)
+                    .map_err(map_nn_err)?;
+                Ok(NodeOutput::Single(out))
+            } else if a_numel == b_numel && a.ndim() > b.ndim() {
+                let mut out = a.clone_tensor().map_err(map_nn_err)?;
+                let b_reshaped = b.reshape(a.shape()).map_err(map_nn_err)?;
+                crate::nn::ops::elementwise_add(&mut out, &b_reshaped, registry)
+                    .map_err(map_nn_err)?;
                 Ok(NodeOutput::Single(out))
             } else if b.ndim() == 1 && b.shape()[0] == a.shape()[a.ndim() - 1] {
                 // Bias add: b is 1D, broadcasts over last dim of a

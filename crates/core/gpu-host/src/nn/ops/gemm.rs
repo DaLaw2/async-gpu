@@ -242,11 +242,16 @@ pub fn matmul_v2(
     let dev = registry.device();
 
     // Use cuBLAS for small-grid cases where our kernel underutilizes the GPU
-    // Use cuBLAS for all shapes where M ≤ 256 (GPT-2 inference M=seq_len)
-    // cuBLAS has specialized kernels for these shapes with much better occupancy
+    // Use cuBLAS for small M (inference shapes) — cuBLAS has specialized kernels
     #[cfg(feature = "cublas")]
     if m <= 256 {
         return matmul_cublas(a, b, m, k, n, dev);
+    }
+
+    // Use NVRTC V4 (float4 loads + fmaf) for large matrices
+    #[cfg(feature = "cublas")]
+    if m >= 512 && n >= 512 && k >= 256 {
+        return matmul_v4(a, b, m, k, n, dev);
     }
 
     let status = dev.htod_sync_copy(&[0u32])?;
@@ -337,6 +342,214 @@ fn matmul_cublas(
     }
 
     Ok(GpuTensor::from_data(c_dev, &[m, n], Arc::clone(dev)))
+}
+
+/// NVRTC-compiled GEMM V4: 128×128, 8×8 register blocking, float4 loads.
+///
+/// Uses CUDA C compiled at runtime for proper float4 vectorization.
+/// This avoids Rust→PTX compiler limitations with vectorized loads.
+#[cfg(feature = "cublas")]
+pub fn matmul_v4(
+    a: &GpuTensor,
+    b: &GpuTensor,
+    m: usize,
+    k: usize,
+    n: usize,
+    dev: &std::sync::Arc<cudarc::driver::CudaDevice>,
+) -> Result<GpuTensor> {
+    use cudarc::driver::LaunchAsync;
+    use cudarc::nvrtc::compile_ptx;
+
+    static GEMM_V4_SRC: &str = r#"
+// GEMM V4: 128×128 tile, BK=8, 8×8 register blocking, float4 loads
+// A: [M, K] row-major, B: [K, N] row-major, D: [M, N] row-major
+// 256 threads = 16×16 thread grid, each thread computes 8×8 outputs
+
+#define BM 128
+#define BN 128
+#define BK 8
+#define A_STRIDE (BM + 4)  // 132 — padding
+
+extern "C" __global__ void gemm_f32_v4(
+    const float* __restrict__ A,
+    const float* __restrict__ B,
+    float* __restrict__ D,
+    unsigned int M, unsigned int N, unsigned int K
+) {
+    unsigned int tid = threadIdx.x;
+    unsigned int bm = blockIdx.x;
+    unsigned int bn = blockIdx.y;
+
+    // Shared memory: double-buffered A[BK][A_STRIDE] + B[BK][BN]
+    __shared__ float smem[2 * (BK * A_STRIDE + BK * BN)];
+    const unsigned int STAGE = BK * A_STRIDE + BK * BN;
+
+    // Thread mapping: 16×16 grid, each 8×8 output
+    unsigned int tr = tid / 16;  // 0..15
+    unsigned int tc = tid % 16;  // 0..15
+
+    // 64 accumulators
+    float c[8][8];
+    #pragma unroll
+    for (int i = 0; i < 8; i++)
+        #pragma unroll
+        for (int j = 0; j < 8; j++)
+            c[i][j] = 0.0f;
+
+    unsigned int a_base = bm * BM;
+    unsigned int b_base = bn * BN;
+    unsigned int k_tiles = (K + BK - 1) / BK;
+
+    // === Tile loading helper (inlined) ===
+    // Load A: 128×8 = 1024 elems, 256 threads → 4 each
+    // Load B: 8×128 = 1024 elems, 256 threads → 4 each
+    #define LOAD_TILE(buf, k_start) do { \
+        float* a_smem = smem + (buf) * STAGE; \
+        float* b_smem = smem + (buf) * STAGE + BK * A_STRIDE; \
+        /* Load A with float4 where possible (4 consecutive K elements per row) */ \
+        { \
+            unsigned int flat = tid * 4; \
+            unsigned int ar = flat / BK; \
+            unsigned int ak = flat % BK; \
+            unsigned int gr = a_base + ar; \
+            unsigned int gk = (k_start) + ak; \
+            /* Load 4 scalar elements (scattered to different k-rows in smem) */ \
+            for (int ii = 0; ii < 4; ii++) { \
+                unsigned int cur_flat = tid * 4 + ii; \
+                unsigned int cur_ar = cur_flat / BK; \
+                unsigned int cur_ak = cur_flat % BK; \
+                unsigned int cur_gr = a_base + cur_ar; \
+                unsigned int cur_gk = (k_start) + cur_ak; \
+                float val = (cur_gr < M && cur_gk < K) ? A[cur_gr * K + cur_gk] : 0.0f; \
+                a_smem[cur_ak * A_STRIDE + cur_ar] = val; \
+            } \
+        } \
+        /* Load B with float4 (4 consecutive N elements) */ \
+        { \
+            unsigned int flat = tid * 4; \
+            unsigned int bk = flat / BN; \
+            unsigned int bc = flat % BN; \
+            unsigned int gk = (k_start) + bk; \
+            unsigned int gc = b_base + bc; \
+            if (gk < K && gc + 3 < N) { \
+                /* float4 load — 128-bit coalesced */ \
+                float4 bv = *reinterpret_cast<const float4*>(&B[gk * N + gc]); \
+                b_smem[bk * BN + bc] = bv.x; \
+                b_smem[bk * BN + bc + 1] = bv.y; \
+                b_smem[bk * BN + bc + 2] = bv.z; \
+                b_smem[bk * BN + bc + 3] = bv.w; \
+            } else { \
+                for (int jj = 0; jj < 4; jj++) { \
+                    unsigned int cur_flat = tid * 4 + jj; \
+                    unsigned int cur_bk = cur_flat / BN; \
+                    unsigned int cur_bc = cur_flat % BN; \
+                    unsigned int cur_gk = (k_start) + cur_bk; \
+                    unsigned int cur_gc = b_base + cur_bc; \
+                    float val = (cur_gk < K && cur_gc < N) ? B[cur_gk * N + cur_gc] : 0.0f; \
+                    b_smem[cur_bk * BN + cur_bc] = val; \
+                } \
+            } \
+        } \
+    } while(0)
+
+    // Load first tile
+    unsigned int buf = 0;
+    LOAD_TILE(0, 0);
+    __syncthreads();
+
+    for (unsigned int t = 0; t < k_tiles; t++) {
+        // Prefetch next tile
+        if (t + 1 < k_tiles) {
+            LOAD_TILE(1 - buf, (t + 1) * BK);
+        }
+
+        float* a_s = smem + buf * STAGE;
+        float* b_s = smem + buf * STAGE + BK * A_STRIDE;
+
+        unsigned int arb = tr * 8;
+        unsigned int bcb = tc * 8;
+
+        // Inner K loop with register blocking
+        #pragma unroll
+        for (unsigned int kk = 0; kk < BK; kk++) {
+            if (t * BK + kk >= K) break;
+
+            // Load A fragment: 8 values
+            float a[8];
+            #pragma unroll
+            for (int i = 0; i < 8; i++)
+                a[i] = a_s[kk * A_STRIDE + arb + i];
+
+            // Load B fragment: 8 values
+            float b[8];
+            #pragma unroll
+            for (int j = 0; j < 8; j++)
+                b[j] = b_s[kk * BN + bcb + j];
+
+            // 8×8 outer product
+            #pragma unroll
+            for (int i = 0; i < 8; i++)
+                #pragma unroll
+                for (int j = 0; j < 8; j++)
+                    c[i][j] = fmaf(a[i], b[j], c[i][j]);
+        }
+
+        __syncthreads();
+        buf = 1 - buf;
+    }
+
+    // Write output
+    unsigned int or_ = a_base + tr * 8;
+    unsigned int oc_ = b_base + tc * 8;
+    #pragma unroll
+    for (int i = 0; i < 8; i++) {
+        if (or_ + i < M) {
+            #pragma unroll
+            for (int j = 0; j < 8; j++) {
+                if (oc_ + j < N)
+                    D[(or_ + i) * N + oc_ + j] = c[i][j];
+            }
+        }
+    }
+}
+"#;
+
+    // Cache compiled kernel
+    use std::sync::OnceLock;
+    static COMPILED: OnceLock<bool> = OnceLock::new();
+    COMPILED.get_or_init(|| {
+        let ptx = compile_ptx(GEMM_V4_SRC).expect("NVRTC GEMM V4 compile failed");
+        dev.load_ptx(ptx, "gemm_v4", &["gemm_f32_v4"])
+            .expect("GEMM V4 PTX load failed");
+        true
+    });
+
+    let func = dev
+        .get_func("gemm_v4", "gemm_f32_v4")
+        .ok_or(NnError::KernelNotFound {
+            name: "gemm_f32_v4",
+        })?;
+
+    let mut d_dev = dev.alloc_zeros::<f32>(m * n).map_err(NnError::Cuda)?;
+    let config = cudarc::driver::LaunchConfig {
+        grid_dim: (m.div_ceil(128) as u32, n.div_ceil(128) as u32, 1),
+        block_dim: (256, 1, 1),
+        shared_mem_bytes: 2 * (8 * 132 + 8 * 128) * 4,
+    };
+
+    unsafe {
+        func.launch(
+            config,
+            (a.data(), b.data(), &mut d_dev, m as u32, n as u32, k as u32),
+        )
+        .map_err(NnError::Cuda)?;
+    }
+
+    Ok(GpuTensor::from_data(
+        d_dev,
+        &[m, n],
+        std::sync::Arc::clone(dev),
+    ))
 }
 
 /// Activation type for fused GEMM.

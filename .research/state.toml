@@ -10,8 +10,8 @@ status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.select"
-current_task_id = ""
+current_step = "do.execute"
+current_task_id = "perf-gemm-v4.1"
 last_summary = "Epic criteria updated: ALL kernels must reach ≥70% of CUDA/cuDNN. New themes: perf-fusion, perf-gemm-v4, perf-attn-v3, perf-conv-wino, perf-elem-fix. Starting Tier 1: fusion + GEMM float4 + elem fix."
 
 # Sequence counters for unique file naming across iterations
@@ -1816,7 +1816,7 @@ id = "perf-gemm-v4.1"
 theme = "perf-gemm-v4"
 title = "Experiment: add float4 global loads to V3 kernel (ld.global.v4.f32)"
 kind = "experiment"
-status = "pending"
+status = "active"
 depends = []
 
 [[tasks]]

@@ -656,8 +656,16 @@ fn dispatch_elementwise(
             }
         }
         "Mul" => {
-            let a = get_input(&node.inputs[0], tensor_map)?;
-            let b = get_input(&node.inputs[1], tensor_map)?;
+            let raw_a = get_input(&node.inputs[0], tensor_map)?;
+            let raw_b = get_input(&node.inputs[1], tensor_map)?;
+            let raw_a_numel: usize = raw_a.shape().iter().product();
+            let raw_b_numel: usize = raw_b.shape().iter().product();
+            // Normalize: ensure a is the larger tensor for consistent broadcasting
+            let (a, b) = if raw_a_numel >= raw_b_numel {
+                (raw_a, raw_b)
+            } else {
+                (raw_b, raw_a)
+            };
             let a_numel: usize = a.shape().iter().product();
             let b_numel: usize = b.shape().iter().product();
 
@@ -691,22 +699,6 @@ fn dispatch_elementwise(
                     .map_err(map_cuda_err)?;
                 }
                 let out = GpuTensor::from_data(out_buf, a.shape(), Arc::clone(dev));
-                Ok(NodeOutput::Single(out))
-            } else if a_numel == 1 {
-                // Scalar multiply: a is scalar, output = b * scalar
-                let a_val = a.to_host().map_err(map_nn_err)?[0];
-                let n = b_numel as u32;
-                let out_buf = dev.alloc_zeros::<f32>(b_numel).map_err(map_cuda_err)?;
-                let status = dev.htod_sync_copy(&[0u32]).map_err(map_cuda_err)?;
-                let func = registry.get("scalar_mul").map_err(map_nn_err)?;
-                unsafe {
-                    func.launch(
-                        crate::nn::KernelRegistry::config_1d(n),
-                        (b.data(), &out_buf, a_val, n, &status),
-                    )
-                    .map_err(map_cuda_err)?;
-                }
-                let out = GpuTensor::from_data(out_buf, b.shape(), Arc::clone(dev));
                 Ok(NodeOutput::Single(out))
             } else {
                 // Broadcast: CPU fallback — use larger tensor's shape

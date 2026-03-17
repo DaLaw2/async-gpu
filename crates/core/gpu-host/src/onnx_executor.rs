@@ -378,6 +378,35 @@ fn dispatch_node(
             Ok(NodeOutput::Single(out))
         }
 
+        // --- Fused ops (from graph compiler fusion pass) ---
+        "Fused_MatMulBiasRelu" | "Fused_MatMulBiasGelu" => {
+            let a = get_input(&node.inputs[0], tensor_map)?;
+            let b = get_input(&node.inputs[1], tensor_map)?;
+            let bias = if node.inputs.len() > 2 && !node.inputs[2].is_empty() {
+                get_input(&node.inputs[2], tensor_map)?
+            } else {
+                return Err(OnnxError::Invalid(
+                    "Fused_MatMulBias* requires bias input".to_string(),
+                ));
+            };
+            let activation = if node.op_type.ends_with("Relu") {
+                crate::nn::ops::FusedActivation::Relu
+            } else {
+                crate::nn::ops::FusedActivation::Gelu
+            };
+            let out = crate::nn::ops::matmul_fused(a, b, bias, activation, registry)
+                .map_err(map_nn_err)?;
+            Ok(NodeOutput::Single(out))
+        }
+        "Fused_AddRelu" => {
+            let a = get_input(&node.inputs[0], tensor_map)?;
+            let b = get_input(&node.inputs[1], tensor_map)?;
+            let mut out = a.clone_tensor().map_err(map_nn_err)?;
+            crate::nn::ops::elementwise_add(&mut out, b, registry).map_err(map_nn_err)?;
+            let activated = crate::nn::ops::relu(&out, registry).map_err(map_nn_err)?;
+            Ok(NodeOutput::Single(activated))
+        }
+
         other => Err(OnnxError::Invalid(format!("Unsupported ONNX op: {other}"))),
     }
 }

@@ -4,14 +4,14 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 496     # Monotonic counter, incremented after each completed phase
-completed_tasks = 606
+total_cycles = 500     # Monotonic counter, incremented after each completed phase
+completed_tasks = 610
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.route"
-current_task_id = ""
+current_step = "do.execute"
+current_task_id = "onnx-transformer.1"
 last_summary = "Graph compiler fusion pass implemented (MatMul+Add+Act, Add+Act patterns). INT4 quantizer 4.7x. ONNX parser+executor+fusion. 3/4 epics substantially complete. gc-codegen + ONNX e2e remaining."
 
 # Sequence counters for unique file naming across iterations
@@ -737,7 +737,7 @@ id = "onnx-transformer.1"
 theme = "onnx-transformer"
 title = "Export GPT-2 to ONNX via PyTorch, inspect required ops"
 kind = "investigation"
-status = "pending"
+status = "active"
 depends = ["onnx-executor.2"]
 
 [[tasks]]
@@ -928,7 +928,7 @@ id = "int4-gpt2.2"
 theme = "int4-gpt2"
 title = "GPT-2 INT4 inference: load quantized weights, generate text, verify quality"
 kind = "experiment"
-status = "pending"
+status = "done"
 # Needs: INT4 Linear layer that loads packed weights + scales, uses int4_gemm_w4a16 for forward.
 depends = ["int4-gpt2.1"]
 
@@ -1008,7 +1008,7 @@ id = "gc-codegen.1"
 theme = "gc-codegen"
 title = "Investigation: template-based codegen vs precompiled pattern library"
 kind = "investigation"
-status = "pending"
+status = "done"
 depends = ["gc-ir.3"]
 
 [[tasks]]
@@ -1016,7 +1016,7 @@ id = "gc-codegen.2"
 theme = "gc-codegen"
 title = "Implement fused kernel dispatch for top-3 fusion patterns"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["gc-codegen.1"]
 
 [[tasks]]

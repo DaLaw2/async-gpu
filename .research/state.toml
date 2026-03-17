@@ -12,7 +12,7 @@ status = "running"     # ready | running | blocked | completed
 current_mode = "do"
 current_step = "do.execute"
 current_task_id = "onnx-gpt2-debug.1"
-last_summary = "GPT-2 ONNX: weights match PyTorch, logits off by ~7 from ORT reference. Embedding correct to 5 decimals. Accumulated numerical error across 12 layers. Architecture correct (ln_f+lm_head verified). 668 tasks."
+last_summary = "GPT-2 ONNX GENERATES COHERENT TEXT! 'The capital of France is the capital of the French Republic, and the capital' — matches native. All 12+ ONNX bugs fixed. 668 tasks."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 109

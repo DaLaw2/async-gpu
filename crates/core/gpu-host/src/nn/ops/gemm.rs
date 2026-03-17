@@ -406,23 +406,15 @@ extern "C" __global__ void gemm_f32_v4(
     #define LOAD_TILE(buf, k_start) do { \
         float* a_smem = smem + (buf) * STAGE; \
         float* b_smem = smem + (buf) * STAGE + BK * A_STRIDE; \
-        /* Load A with float4 where possible (4 consecutive K elements per row) */ \
-        { \
-            unsigned int flat = tid * 4; \
-            unsigned int ar = flat / BK; \
-            unsigned int ak = flat % BK; \
-            unsigned int gr = a_base + ar; \
-            unsigned int gk = (k_start) + ak; \
-            /* Load 4 scalar elements (scattered to different k-rows in smem) */ \
-            for (int ii = 0; ii < 4; ii++) { \
-                unsigned int cur_flat = tid * 4 + ii; \
-                unsigned int cur_ar = cur_flat / BK; \
-                unsigned int cur_ak = cur_flat % BK; \
-                unsigned int cur_gr = a_base + cur_ar; \
-                unsigned int cur_gk = (k_start) + cur_ak; \
-                float val = (cur_gr < M && cur_gk < K) ? A[cur_gr * K + cur_gk] : 0.0f; \
-                a_smem[cur_ak * A_STRIDE + cur_ar] = val; \
-            } \
+        /* Load A: 4 elements per thread, stored transposed */ \
+        for (int ii = 0; ii < 4; ii++) { \
+            unsigned int cur_flat = tid * 4 + ii; \
+            unsigned int cur_ar = cur_flat / BK; \
+            unsigned int cur_ak = cur_flat % BK; \
+            unsigned int cur_gr = a_base + cur_ar; \
+            unsigned int cur_gk = (k_start) + cur_ak; \
+            float val = (cur_gr < M && cur_gk < K) ? A[cur_gr * K + cur_gk] : 0.0f; \
+            a_smem[cur_ak * A_STRIDE + cur_ar] = val; \
         } \
         /* Load B with float4 (4 consecutive N elements) */ \
         { \
@@ -431,8 +423,7 @@ extern "C" __global__ void gemm_f32_v4(
             unsigned int bc = flat % BN; \
             unsigned int gk = (k_start) + bk; \
             unsigned int gc = b_base + bc; \
-            if (gk < K && gc + 3 < N) { \
-                /* float4 load — 128-bit coalesced */ \
+            if (gk < K && gc + 3 < N && (bc % 4) == 0) { \
                 float4 bv = *reinterpret_cast<const float4*>(&B[gk * N + gc]); \
                 b_smem[bk * BN + bc] = bv.x; \
                 b_smem[bk * BN + bc + 1] = bv.y; \
@@ -458,7 +449,7 @@ extern "C" __global__ void gemm_f32_v4(
     __syncthreads();
 
     for (unsigned int t = 0; t < k_tiles; t++) {
-        // Prefetch next tile
+        // Prefetch next tile into other buffer
         if (t + 1 < k_tiles) {
             LOAD_TILE(1 - buf, (t + 1) * BK);
         }
@@ -474,17 +465,23 @@ extern "C" __global__ void gemm_f32_v4(
         for (unsigned int kk = 0; kk < BK; kk++) {
             if (t * BK + kk >= K) break;
 
-            // Load A fragment: 8 values
+            // Load A fragment: 8 values via 2×float4 shared loads
             float a[8];
-            #pragma unroll
-            for (int i = 0; i < 8; i++)
-                a[i] = a_s[kk * A_STRIDE + arb + i];
+            {
+                float4 av0 = *reinterpret_cast<float4*>(&a_s[kk * A_STRIDE + arb]);
+                float4 av1 = *reinterpret_cast<float4*>(&a_s[kk * A_STRIDE + arb + 4]);
+                a[0] = av0.x; a[1] = av0.y; a[2] = av0.z; a[3] = av0.w;
+                a[4] = av1.x; a[5] = av1.y; a[6] = av1.z; a[7] = av1.w;
+            }
 
-            // Load B fragment: 8 values
+            // Load B fragment: 8 values via 2×float4 shared loads
             float b[8];
-            #pragma unroll
-            for (int j = 0; j < 8; j++)
-                b[j] = b_s[kk * BN + bcb + j];
+            {
+                float4 bv0 = *reinterpret_cast<float4*>(&b_s[kk * BN + bcb]);
+                float4 bv1 = *reinterpret_cast<float4*>(&b_s[kk * BN + bcb + 4]);
+                b[0] = bv0.x; b[1] = bv0.y; b[2] = bv0.z; b[3] = bv0.w;
+                b[4] = bv1.x; b[5] = bv1.y; b[6] = bv1.z; b[7] = bv1.w;
+            }
 
             // 8×8 outer product
             #pragma unroll
@@ -534,7 +531,7 @@ extern "C" __global__ void gemm_f32_v4(
     let config = cudarc::driver::LaunchConfig {
         grid_dim: (m.div_ceil(128) as u32, n.div_ceil(128) as u32, 1),
         block_dim: (256, 1, 1),
-        shared_mem_bytes: 2 * (8 * 132 + 8 * 128) * 4,
+        shared_mem_bytes: 2 * (8 * 132 + 8 * 128) * 4, // BK=8
     };
 
     unsafe {

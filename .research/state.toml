@@ -11,8 +11,8 @@ status = "running"     # ready | running | blocked | completed
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "refactor-quality.1"
-last_summary = "Refactor + ONNX perf done. Zero clippy, dispatch_node split, init_default migration, OnnxSession caching (43ms). 635 tasks."
+current_task_id = "rv2-unwrap.1"
+last_summary = "Refactor v2 started: 11 tasks covering unwrap fix, quantize utils, pub audit, dead code, magic numbers, GPU elementwise, weight prepadding, GPT-2 forward, unit tests."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 108
@@ -853,3 +853,143 @@ title = "Run GPT-2 ONNX full forward pass, benchmark latency"
 kind = "experiment"
 status = "done"
 depends = ["onnx-cache.1", "onnx-gpu-ops.1"]
+
+# ============================================================
+# Refactor v2 — 做完上次跳過的所有項目
+# ============================================================
+
+[[epics]]
+id = "refactor-v2"
+title = "Refactor v2 — 完成所有跳過的重構項目 + ONNX 效能優化"
+status = "active"
+priority = "highest"
+success_criteria = [
+    "resnet.rs 的 5 個 Option::unwrap() 改成 ok_or(NnError)",
+    "INT8/INT4 quantization pack/unpack 提取到 nn/ops/quantize.rs 共用模組",
+    "pub(crate) 審計：所有非公開 API 的 helper 標為 pub(crate)",
+    "dead code 清理：移除未使用的函式和 import",
+    "magic number 常量化：所有 magic number 提取為 named constant",
+    "ONNX executor CPU-fallback ops 改為 GPU 路徑 (Mul/Sub/Div/Pow/Sqrt/Exp/Neg)",
+    "ONNX Conv2d weight prepadding cache (最大效能改善)",
+    "ResNet-18 ONNX < 25ms (目前 43ms, native 15.7ms)",
+    "GPT-2 ONNX single forward pass 實際執行並計時",
+    "新增 unit test: Int4Linear, OnnxSession, quantize utils",
+]
+
+[[themes]]
+id = "refactor-v2-code"
+epic = "refactor-v2"
+title = "代碼品質 — unwrap, pub(crate), dead code, magic numbers, quantize utils"
+status = "active"
+goal = "徹底清理代碼品質問題"
+success_criteria = [
+    "unwrap() 修復",
+    "pub(crate) 審計完成",
+    "quantization utils 提取",
+    "magic numbers 常量化",
+]
+
+[[tasks]]
+id = "rv2-unwrap.1"
+theme = "refactor-v2-code"
+title = "Fix resnet.rs Option::unwrap() → ok_or(NnError) + backward.rs + optim.rs"
+kind = "experiment"
+status = "active"
+depends = []
+
+[[tasks]]
+id = "rv2-quant.1"
+theme = "refactor-v2-code"
+title = "Extract INT8+INT4 pack/unpack into nn/ops/quantize.rs shared module"
+kind = "experiment"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "rv2-pub.1"
+theme = "refactor-v2-code"
+title = "pub(crate) audit: scan all pub fn/struct in nn/ and onnx_rt/, mark internal ones"
+kind = "experiment"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "rv2-dead.1"
+theme = "refactor-v2-code"
+title = "Dead code cleanup: unused functions, imports, variables across gpu-host"
+kind = "experiment"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "rv2-magic.1"
+theme = "refactor-v2-code"
+title = "Extract all magic numbers to named constants"
+kind = "experiment"
+status = "pending"
+depends = []
+
+[[themes]]
+id = "refactor-v2-perf"
+epic = "refactor-v2"
+title = "ONNX 效能 — GPU-side ops + weight prepadding + GPT-2 forward"
+status = "active"
+goal = "ResNet-18 ONNX < 25ms, GPT-2 forward pass 實際執行"
+success_criteria = [
+    "CPU-fallback elementwise ops 改 GPU",
+    "Conv2d weight prepadding cache",
+    "ResNet-18 < 25ms",
+    "GPT-2 forward pass 計時",
+]
+
+[[tasks]]
+id = "rv2-gpu-elem.1"
+theme = "refactor-v2-perf"
+title = "GPU elementwise kernels for Mul/Sub/Div/Neg (replace to_host round-trips)"
+kind = "experiment"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "rv2-prepad.1"
+theme = "refactor-v2-perf"
+title = "OnnxSession: pre-transpose+pad Conv/Gemm weights at session creation"
+kind = "experiment"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "rv2-bench.1"
+theme = "refactor-v2-perf"
+title = "Benchmark ResNet-18 ONNX with all optimizations, target < 25ms"
+kind = "experiment"
+status = "pending"
+depends = ["rv2-gpu-elem.1", "rv2-prepad.1"]
+
+[[tasks]]
+id = "rv2-gpt2.1"
+theme = "refactor-v2-perf"
+title = "Run GPT-2 ONNX forward pass end-to-end, measure latency"
+kind = "experiment"
+status = "pending"
+depends = ["rv2-gpu-elem.1"]
+
+[[themes]]
+id = "refactor-v2-test"
+epic = "refactor-v2"
+title = "Unit tests — Int4Linear, OnnxSession, quantize utils"
+status = "active"
+goal = "新增缺失的 unit test"
+success_criteria = [
+    "Int4Linear forward test",
+    "OnnxSession run test",
+    "quantize pack/unpack test",
+]
+
+[[tasks]]
+id = "rv2-test.1"
+theme = "refactor-v2-test"
+title = "Add unit tests for Int4Linear, OnnxSession, quantize pack/unpack"
+kind = "experiment"
+status = "pending"
+depends = ["rv2-quant.1"]

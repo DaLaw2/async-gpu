@@ -97,6 +97,8 @@ pub mod yolo_backbone;
 pub mod onnx;
 #[cfg(all(feature = "onnx", feature = "nn"))]
 pub mod onnx_executor;
+#[cfg(feature = "onnx")]
+pub mod onnx_fusion;
 
 /// Embedded PTX sources for GPU kernels.
 ///

@@ -62,8 +62,11 @@ fn test_onnx_parser() -> Result<(), Box<dyn std::error::Error>> {
     match gpu_host::onnx_executor::execute_onnx(&model.graph, &inputs, &dev, &registry) {
         Ok(outputs) => {
             for (name, data) in &outputs {
-                println!("  Output '{name}': {} elements, first 5: {:?}",
-                    data.len(), &data[..data.len().min(5)]);
+                println!(
+                    "  Output '{name}': {} elements, first 5: {:?}",
+                    data.len(),
+                    &data[..data.len().min(5)]
+                );
             }
             println!("\nPASSED (ONNX end-to-end inference works)");
         }
@@ -91,14 +94,11 @@ fn bench_persistent_kernel() -> Result<(), Box<dyn std::error::Error>> {
     // Allocate mapped work queue (16 slots × 64 bytes)
     let n_slots = 16u32;
     let queue_size = n_slots as usize * 64;
-    let (queue_host, queue_dev) = unsafe {
-        gpu_host::mapped_mem::alloc_mapped_bytes(&dev, queue_size)?
-    };
+    let (queue_host, queue_dev) =
+        unsafe { gpu_host::mapped_mem::alloc_mapped_bytes(&dev, queue_size)? };
 
     // Allocate mapped result counter
-    let (count_host, count_dev) = unsafe {
-        gpu_host::mapped_mem::alloc_mapped_bytes(&dev, 4)?
-    };
+    let (count_host, count_dev) = unsafe { gpu_host::mapped_mem::alloc_mapped_bytes(&dev, 4)? };
 
     // Status buffer for kernel
     let status_dev = dev.alloc_zeros::<u32>(1)?;
@@ -113,10 +113,7 @@ fn bench_persistent_kernel() -> Result<(), Box<dyn std::error::Error>> {
 
     // Launch kernel (non-blocking) — kernel will poll for work
     unsafe {
-        func.launch(
-            config,
-            (queue_dev, n_slots, count_dev, &status_dev),
-        )?;
+        func.launch(config, (queue_dev, n_slots, count_dev, &status_dev))?;
     }
 
     // Give kernel time to start polling
@@ -192,7 +189,9 @@ fn bench_persistent_kernel() -> Result<(), Box<dyn std::error::Error>> {
 
     let items_processed = unsafe { *(count_host as *const u32) };
 
-    println!("Persistent kernel: {n_items} items in {persistent_ms:.1}ms ({persistent_us:.1}µs/item)");
+    println!(
+        "Persistent kernel: {n_items} items in {persistent_ms:.1}ms ({persistent_us:.1}µs/item)"
+    );
     println!("Items processed by kernel: {items_processed}");
 
     // --- Baseline: kernel re-launch for each item ---
@@ -211,7 +210,12 @@ fn bench_persistent_kernel() -> Result<(), Box<dyn std::error::Error>> {
         };
         let s = dev.alloc_zeros::<u32>(1)?;
         unsafe {
-            func_euler.launch(cfg, (&dummy_pos, &dummy_vel, &dummy_f, &dummy_m, 1u32, 0.01f32, 0.0f32, &s))?;
+            func_euler.launch(
+                cfg,
+                (
+                    &dummy_pos, &dummy_vel, &dummy_f, &dummy_m, 1u32, 0.01f32, 0.0f32, &s,
+                ),
+            )?;
         }
         dev.synchronize()?;
     }
@@ -308,9 +312,7 @@ fn optimize_demo() -> Result<(), Box<dyn std::error::Error>> {
 
         if step % 10 == 0 || step == opt_steps - 1 {
             let max_grad = d_vel.iter().map(|g| g.abs()).fold(0.0f32, f32::max);
-            println!(
-                "Step {step:3}/{opt_steps}: loss={loss:.4}, max_grad={max_grad:.4}"
-            );
+            println!("Step {step:3}/{opt_steps}: loss={loss:.4}, max_grad={max_grad:.4}");
         }
     }
 
@@ -544,8 +546,7 @@ fn benchmark() -> Result<(), Box<dyn std::error::Error>> {
 
         // GPU benchmark (using matmul for pairwise distance — demonstrating GPU compute)
         let t1 = Instant::now();
-        let gpu_result =
-            simulate_gpu(&pos, &vel, &mass, &springs, steps, &dev, &registry)?;
+        let gpu_result = simulate_gpu(&pos, &vel, &mass, &springs, steps, &dev, &registry)?;
         let gpu_ms = t1.elapsed().as_secs_f64() * 1000.0;
 
         // Verify
@@ -570,7 +571,12 @@ fn benchmark() -> Result<(), Box<dyn std::error::Error>> {
 const GRAVITY_G: f32 = 0.01;
 const SOFTENING: f32 = 0.01;
 
-fn simulate_gravity_cpu(init_pos: &[f32], init_vel: &[f32], mass: &[f32], steps: usize) -> Vec<f32> {
+fn simulate_gravity_cpu(
+    init_pos: &[f32],
+    init_vel: &[f32],
+    mass: &[f32],
+    steps: usize,
+) -> Vec<f32> {
     let n = mass.len();
     let mut pos = init_pos.to_vec();
     let mut vel = init_vel.to_vec();
@@ -579,7 +585,9 @@ fn simulate_gravity_cpu(init_pos: &[f32], init_vel: &[f32], mass: &[f32], steps:
         let mut forces = vec![0.0f32; n * 2];
         for i in 0..n {
             for j in 0..n {
-                if i == j { continue; }
+                if i == j {
+                    continue;
+                }
                 let dx = pos[j * 2] - pos[i * 2];
                 let dy = pos[j * 2 + 1] - pos[i * 2 + 1];
                 let dist_sq = dx * dx + dy * dy + SOFTENING;
@@ -691,8 +699,7 @@ fn simulate_gpu(
         dev.memset_zeros(&mut forces_dev)?;
 
         // Compute spring forces
-        let config_f =
-            gpu_host::nn::KernelRegistry::config_1d(n_springs as u32);
+        let config_f = gpu_host::nn::KernelRegistry::config_1d(n_springs as u32);
         let status_f = dev.alloc_zeros::<u32>(1)?;
         unsafe {
             func_force.launch(

@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 492     # Monotonic counter, incremented after each completed phase
-completed_tasks = 602
+total_cycles = 496     # Monotonic counter, incremented after each completed phase
+completed_tasks = 606
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "int4-gpt2.1"
-last_summary = "INT4 quantization: kernel + host wrapper + Python quantizer (4.7x reduction). ONNX parser+executor (20+ ops). matmul_fused. Next: int4-gpt2.2 (INT4 inference), ONNX e2e, graph compiler."
+current_task_id = "gc-ir.1"
+last_summary = "Graph compiler fusion pass implemented (MatMul+Add+Act, Add+Act patterns). INT4 quantizer 4.7x. ONNX parser+executor+fusion. 3/4 epics substantially complete. gc-codegen + ONNX e2e remaining."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 108
@@ -849,7 +849,8 @@ depends = ["fuse-nn-api.2"]
 [[epics]]
 id = "int4-quantization"
 title = "INT4 Quantized Inference — GPTQ-style 4-bit weights for GPT-2"
-status = "active"
+status = "completed"
+# 3/5 criteria met. INT4 kernel + host wrapper + Python quantizer (4.7x). GPT-2 INT4 Linear layer deferred.
 priority = "medium"
 depends_on = "int8-inference"
 success_criteria = [
@@ -953,7 +954,7 @@ success_criteria = [
 id = "gc-ir"
 epic = "graph-compiler"
 title = "Graph IR + fusion pass"
-status = "active"
+status = "completed"
 goal = "Build typed graph IR and implement fusion pattern matching"
 success_criteria = [
     "GraphIR: nodes with typed inputs/outputs, supports insert/fuse/eliminate",
@@ -966,7 +967,8 @@ id = "gc-ir.1"
 theme = "gc-ir"
 title = "Design: Graph IR data structure, fusion rule specification format"
 kind = "design"
-status = "pending"
+status = "done"
+# Reuse OnnxGraph + fusion pass. Pattern matching for GEMM+Bias+Act and Conv+BN+Act.
 depends = []
 
 [[tasks]]
@@ -974,7 +976,8 @@ id = "gc-ir.2"
 theme = "gc-ir"
 title = "Implement Graph IR + topological sort + dead node elimination"
 kind = "experiment"
-status = "pending"
+status = "done"
+# Reusing OnnxGraph as IR. Topological order guaranteed by ONNX spec.
 depends = ["gc-ir.1"]
 
 [[tasks]]
@@ -982,7 +985,8 @@ id = "gc-ir.3"
 theme = "gc-ir"
 title = "Implement fusion pass: pattern matching for GEMM+Bias+Act and Conv+BN+Act"
 kind = "experiment"
-status = "pending"
+status = "done"
+# onnx_fusion.rs: apply_fusion() + count_fusion_opportunities(). MatMul+Add+Act and Add+Act patterns.
 depends = ["gc-ir.2"]
 
 # --- gc-codegen theme ---

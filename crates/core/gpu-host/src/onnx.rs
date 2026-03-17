@@ -244,6 +244,7 @@ pub struct OnnxGraph {
 }
 
 /// A single computation node.
+#[derive(Clone)]
 pub struct OnnxNode {
     /// ONNX operator type (e.g., "Conv", "MatMul", "Relu").
     pub op_type: String,

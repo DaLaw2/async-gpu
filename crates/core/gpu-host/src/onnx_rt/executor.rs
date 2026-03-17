@@ -6,11 +6,27 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use cudarc::driver::{CudaDevice, LaunchAsync};
+use cudarc::driver::{CudaDevice, CudaSlice, LaunchAsync};
 
 use crate::nn::registry::KernelRegistry;
 use crate::nn::tensor::GpuTensor;
 use crate::onnx_rt::proto::{OnnxError, OnnxGraph, OnnxNode};
+
+/// Pre-transposed+padded weight for fast GEMM (skips B transpose+pad per inference).
+///
+/// Layout: `[N_pad, K_pad]` row-major = `[K_pad, N_pad]` col-major, ready for
+/// the `gemm_f32` kernel.
+struct PrePaddedWeight {
+    data: CudaSlice<f32>,
+    /// Original K dimension (inner dim of matmul).
+    k: usize,
+    /// Original N dimension (output columns).
+    n: usize,
+    /// Padded K (rounded up to multiple of 16).
+    k_pad: usize,
+    /// Padded N (rounded up to multiple of 16).
+    n_pad: usize,
+}
 
 /// Persistent ONNX execution session with cached initializer weights.
 ///
@@ -20,6 +36,12 @@ use crate::onnx_rt::proto::{OnnxError, OnnxGraph, OnnxNode};
 pub struct OnnxSession {
     /// Initializer weights pre-uploaded to GPU (immutable after construction).
     cached_tensors: HashMap<String, GpuTensor>,
+    /// Pre-transposed+padded weights for Gemm/MatMul nodes (keyed by initializer name).
+    ///
+    /// When a Gemm/MatMul node uses an initializer as its B input, we pre-compute
+    /// the column-major padded form at session construction, saving 2 kernel launches
+    /// (transpose + pad) per inference.
+    prepadded_weights: HashMap<String, PrePaddedWeight>,
     /// The ONNX computation graph.
     graph: OnnxGraph,
     /// CUDA device handle.
@@ -42,8 +64,13 @@ impl OnnxSession {
             })?;
             cached_tensors.insert(name.clone(), t);
         }
+        // Pre-transpose+pad initializer weights used as B in Gemm/MatMul nodes.
+        // This saves 2 kernel launches (transpose + pad) per matmul during inference.
+        let prepadded_weights = precompute_gemm_weights(&graph, &cached_tensors, dev, registry)?;
+
         Ok(Self {
             cached_tensors,
+            prepadded_weights,
             graph,
             dev: Arc::clone(dev),
             registry: Arc::clone(registry),
@@ -77,7 +104,13 @@ impl OnnxSession {
         }
 
         // Execute nodes in order
-        execute_nodes(&self.graph, &mut tensor_map, &self.dev, &self.registry)
+        execute_nodes(
+            &self.graph,
+            &mut tensor_map,
+            &self.dev,
+            &self.registry,
+            &self.prepadded_weights,
+        )
     }
 }
 
@@ -111,8 +144,9 @@ pub fn execute_onnx(
         tensor_map.insert(name.clone(), t);
     }
 
-    // Execute nodes and collect outputs
-    execute_nodes(graph, &mut tensor_map, dev, registry)
+    // Execute nodes and collect outputs (no prepadded weights for one-shot execution)
+    let no_prepadded = HashMap::new();
+    execute_nodes(graph, &mut tensor_map, dev, registry, &no_prepadded)
 }
 
 /// Execute graph nodes and collect outputs (shared by `OnnxSession::run` and `execute_onnx`).
@@ -121,16 +155,18 @@ fn execute_nodes(
     tensor_map: &mut HashMap<String, GpuTensor>,
     dev: &Arc<CudaDevice>,
     registry: &Arc<KernelRegistry>,
+    prepadded_weights: &HashMap<String, PrePaddedWeight>,
 ) -> Result<HashMap<String, Vec<f32>>, OnnxError> {
     // Execute nodes in order
     for (idx, node) in graph.nodes.iter().enumerate() {
-        let result = dispatch_node(node, tensor_map, dev, registry).map_err(|e| {
-            OnnxError::Invalid(format!(
-                "Node {idx} ({} '{}'): {e}",
-                node.op_type,
-                node.outputs.first().unwrap_or(&String::new())
-            ))
-        })?;
+        let result =
+            dispatch_node(node, tensor_map, dev, registry, prepadded_weights).map_err(|e| {
+                OnnxError::Invalid(format!(
+                    "Node {idx} ({} '{}'): {e}",
+                    node.op_type,
+                    node.outputs.first().unwrap_or(&String::new())
+                ))
+            })?;
 
         // Store outputs
         match result {
@@ -186,12 +222,13 @@ fn dispatch_node(
     tensor_map: &HashMap<String, GpuTensor>,
     dev: &Arc<CudaDevice>,
     registry: &Arc<KernelRegistry>,
+    prepadded_weights: &HashMap<String, PrePaddedWeight>,
 ) -> Result<NodeOutput, OnnxError> {
     match node.op_type.as_str() {
         "Relu" | "Sigmoid" | "Gelu" | "Tanh" => {
             dispatch_activation(node, tensor_map, dev, registry)
         }
-        "MatMul" | "Gemm" => dispatch_gemm(node, tensor_map, dev, registry),
+        "MatMul" | "Gemm" => dispatch_gemm(node, tensor_map, dev, registry, prepadded_weights),
         "Conv" | "BatchNormalization" => dispatch_conv(node, tensor_map, dev, registry),
         "MaxPool" | "GlobalAveragePool" | "ReduceMean" => {
             dispatch_pool(node, tensor_map, dev, registry)
@@ -256,18 +293,45 @@ fn dispatch_gemm(
     tensor_map: &HashMap<String, GpuTensor>,
     _dev: &Arc<CudaDevice>,
     registry: &Arc<KernelRegistry>,
+    prepadded_weights: &HashMap<String, PrePaddedWeight>,
 ) -> Result<NodeOutput, OnnxError> {
     match node.op_type.as_str() {
         "MatMul" => {
             let a = get_input(&node.inputs[0], tensor_map)?;
-            let b = get_input(&node.inputs[1], tensor_map)?;
+            let b_name = &node.inputs[1];
+            // Fast path: use pre-transposed+padded weight if available
+            if let Some(pp) = prepadded_weights.get(b_name) {
+                let m = a.shape()[0];
+                let out = crate::nn::ops::matmul_prepadded_b(
+                    a, &pp.data, m, pp.k, pp.n, pp.k_pad, pp.n_pad, registry,
+                )
+                .map_err(map_nn_err)?;
+                return Ok(NodeOutput::Single(out));
+            }
+            let b = get_input(b_name, tensor_map)?;
             let out = crate::nn::ops::matmul(a, b, registry).map_err(map_nn_err)?;
             Ok(NodeOutput::Single(out))
         }
         "Gemm" => {
             let a = get_input(&node.inputs[0], tensor_map)?;
-            let b = get_input(&node.inputs[1], tensor_map)?;
+            let b_name = &node.inputs[1];
             let trans_b = node.attr_int("transB", 0);
+            // Fast path: use pre-transposed+padded weight if available
+            // The prepadded key is the original initializer name (before any transB handling).
+            if let Some(pp) = prepadded_weights.get(b_name) {
+                let m = a.shape()[0];
+                let mut out = crate::nn::ops::matmul_prepadded_b(
+                    a, &pp.data, m, pp.k, pp.n, pp.k_pad, pp.n_pad, registry,
+                )
+                .map_err(map_nn_err)?;
+                // Optional bias (C input)
+                if node.inputs.len() > 2 && !node.inputs[2].is_empty() {
+                    let c = get_input(&node.inputs[2], tensor_map)?;
+                    crate::nn::ops::bias_add(&mut out, c, registry).map_err(map_nn_err)?;
+                }
+                return Ok(NodeOutput::Single(out));
+            }
+            let b = get_input(b_name, tensor_map)?;
             let b_for_matmul = if trans_b != 0 && b.ndim() == 2 {
                 b.transpose(0, 1).map_err(map_nn_err)?
             } else {
@@ -1004,6 +1068,156 @@ fn dispatch_misc(
         }
         _ => unreachable!(),
     }
+}
+
+/// Scan Gemm/MatMul nodes and pre-transpose+pad initializer weights used as B.
+///
+/// For each qualifying node, the weight (originally `[K, N]` row-major for MatMul,
+/// or `[N, K]` for Gemm with transB=1) is converted to `[N_pad, K_pad]` row-major
+/// (= `[K_pad, N_pad]` col-major), which is the format the `gemm_f32` kernel expects.
+fn precompute_gemm_weights(
+    graph: &OnnxGraph,
+    cached_tensors: &HashMap<String, GpuTensor>,
+    dev: &Arc<CudaDevice>,
+    registry: &Arc<KernelRegistry>,
+) -> Result<HashMap<String, PrePaddedWeight>, OnnxError> {
+    let mut result = HashMap::new();
+
+    for node in &graph.nodes {
+        let (b_name, is_transb) = match node.op_type.as_str() {
+            "MatMul" => {
+                if node.inputs.len() < 2 {
+                    continue;
+                }
+                (&node.inputs[1], false)
+            }
+            "Gemm" => {
+                if node.inputs.len() < 2 {
+                    continue;
+                }
+                let trans_b = node.attr_int("transB", 0) != 0;
+                (&node.inputs[1], trans_b)
+            }
+            _ => continue,
+        };
+
+        // Only prepad initializer weights (not dynamic activations)
+        if result.contains_key(b_name) || !graph.initializers.contains_key(b_name) {
+            continue;
+        }
+
+        let b_tensor = match cached_tensors.get(b_name) {
+            Some(t) if t.ndim() == 2 => t,
+            _ => continue,
+        };
+
+        // Determine K, N for the matmul A[M,K] x B_logical[K,N] = C[M,N].
+        // MatMul: B is already [K, N], so k = shape[0], n = shape[1].
+        // Gemm with transB=1: B is stored as [N, K], logical B is [K, N].
+        let (k, n) = if is_transb {
+            // B stored as [out, in] = [N, K], logical [K, N]
+            (b_tensor.shape()[1], b_tensor.shape()[0])
+        } else {
+            // B stored as [K, N]
+            (b_tensor.shape()[0], b_tensor.shape()[1])
+        };
+
+        let k_pad = k.div_ceil(16) * 16;
+        let n_pad = n.div_ceil(16) * 16;
+
+        // We need B in [K, N] row-major first, then transpose to [N, K] and pad to [N_pad, K_pad].
+        // For transB=1: B is stored as [N, K], which IS the transposed form already.
+        //   So we just need to pad [N, K] → [N_pad, K_pad].
+        // For MatMul: B is [K, N], we transpose to [N, K], then pad to [N_pad, K_pad].
+
+        let status = dev.htod_sync_copy(&[0u32]).map_err(map_cuda_err)?;
+
+        let prepadded = if is_transb {
+            // B is already [N, K] — just pad to [N_pad, K_pad]
+            if n == n_pad && k == k_pad {
+                let mut buf = dev.alloc_zeros::<f32>(n * k).map_err(map_cuda_err)?;
+                dev.dtod_copy(b_tensor.data(), &mut buf)
+                    .map_err(map_cuda_err)?;
+                buf
+            } else {
+                let mut buf = dev
+                    .alloc_zeros::<f32>(n_pad * k_pad)
+                    .map_err(map_cuda_err)?;
+                let f_pad = registry.get("matrix_pad").map_err(map_nn_err)?;
+                let cfg = KernelRegistry::config_1d((n_pad * k_pad) as u32);
+                unsafe {
+                    f_pad
+                        .launch(
+                            cfg,
+                            (
+                                b_tensor.data(),
+                                &mut buf,
+                                n as u32,
+                                k as u32,
+                                n_pad as u32,
+                                k_pad as u32,
+                                &status,
+                            ),
+                        )
+                        .map_err(map_cuda_err)?;
+                }
+                buf
+            }
+        } else {
+            // B is [K, N] — transpose to [N, K], then pad to [N_pad, K_pad]
+            let mut b_t = dev.alloc_zeros::<f32>(n * k).map_err(map_cuda_err)?;
+            let f_transpose = registry.get("matrix_transpose").map_err(map_nn_err)?;
+            let cfg_t = KernelRegistry::config_1d((k * n) as u32);
+            unsafe {
+                f_transpose
+                    .launch(
+                        cfg_t,
+                        (b_tensor.data(), &mut b_t, k as u32, n as u32, &status),
+                    )
+                    .map_err(map_cuda_err)?;
+            }
+
+            if n == n_pad && k == k_pad {
+                b_t
+            } else {
+                let mut buf = dev
+                    .alloc_zeros::<f32>(n_pad * k_pad)
+                    .map_err(map_cuda_err)?;
+                let f_pad = registry.get("matrix_pad").map_err(map_nn_err)?;
+                let cfg_p = KernelRegistry::config_1d((n_pad * k_pad) as u32);
+                unsafe {
+                    f_pad
+                        .launch(
+                            cfg_p,
+                            (
+                                &b_t,
+                                &mut buf,
+                                n as u32,
+                                k as u32,
+                                n_pad as u32,
+                                k_pad as u32,
+                                &status,
+                            ),
+                        )
+                        .map_err(map_cuda_err)?;
+                }
+                buf
+            }
+        };
+
+        result.insert(
+            b_name.clone(),
+            PrePaddedWeight {
+                data: prepadded,
+                k,
+                n,
+                k_pad,
+                n_pad,
+            },
+        );
+    }
+
+    Ok(result)
 }
 
 fn map_nn_err(e: crate::nn::error::NnError) -> OnnxError {

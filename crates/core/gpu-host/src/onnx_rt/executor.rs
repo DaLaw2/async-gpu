@@ -343,18 +343,42 @@ fn dispatch_gemm(
             }
 
             let b_name = &node.inputs[1];
-            // Fast path: use pre-transposed+padded weight if available
-            if let Some(pp) = prepadded_weights.get(b_name) {
-                let m = a.shape()[0];
-                let out = crate::nn::ops::matmul_prepadded_b(
-                    a, &pp.data, m, pp.k, pp.n, pp.k_pad, pp.n_pad, registry,
+            // Reshape ND input to 2D for matmul, preserve batch dims
+            let orig_shape = a.shape().to_vec();
+            let a_2d = if a.ndim() > 2 {
+                let k = orig_shape[a.ndim() - 1];
+                let m: usize = orig_shape[..a.ndim() - 1].iter().product();
+                a.reshape(&[m, k]).map_err(map_nn_err)?
+            } else {
+                a.clone_tensor().map_err(map_nn_err)?
+            };
+
+            let result = if let Some(pp) = prepadded_weights.get(b_name) {
+                let m = a_2d.shape()[0];
+                crate::nn::ops::matmul_prepadded_b(
+                    &a_2d, &pp.data, m, pp.k, pp.n, pp.k_pad, pp.n_pad, registry,
                 )
-                .map_err(map_nn_err)?;
-                return Ok(NodeOutput::Single(out));
+                .map_err(map_nn_err)?
+            } else {
+                let b = get_input(b_name, tensor_map)?;
+                if b.ndim() > 2 {
+                    // Both >2D: use batched path (handled above)
+                    crate::nn::ops::matmul(&a_2d, b, registry).map_err(map_nn_err)?
+                } else {
+                    crate::nn::ops::matmul(&a_2d, b, registry).map_err(map_nn_err)?
+                }
+            };
+
+            // Reshape output back to ND if input was ND
+            if orig_shape.len() > 2 {
+                let n = result.shape()[result.ndim() - 1];
+                let mut out_shape = orig_shape[..orig_shape.len() - 1].to_vec();
+                out_shape.push(n);
+                let out = result.reshape(&out_shape).map_err(map_nn_err)?;
+                Ok(NodeOutput::Single(out))
+            } else {
+                Ok(NodeOutput::Single(result))
             }
-            let b = get_input(b_name, tensor_map)?;
-            let out = crate::nn::ops::matmul(a, b, registry).map_err(map_nn_err)?;
-            Ok(NodeOutput::Single(out))
         }
         "Gemm" => {
             let a = get_input(&node.inputs[0], tensor_map)?;

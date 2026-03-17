@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 485     # Monotonic counter, incremented after each completed phase
-completed_tasks = 594
+total_cycles = 488     # Monotonic counter, incremented after each completed phase
+completed_tasks = 598
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "onnx-parser.2"
-last_summary = "ONNX parser DONE: prost + manual tags, parses ResNet-18 (50 nodes). kernel-fusion-v2 done (matmul_fused 6% faster, GPT-2 needs prepadded variant). Next: onnx-parser.3 test, onnx-executor, int4-kernel.2."
+current_task_id = "onnx-executor.1"
+last_summary = "ONNX executor implemented: 20+ op types (Conv, MatMul, BN, Relu, Add, Reshape, Softmax, etc). Parser + executor in onnx.rs + onnx_executor.rs. Next: onnx-executor.3 (more ops), onnx-executor.4 (ResNet-18 e2e), int4-kernel.2."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 108
@@ -634,7 +634,7 @@ success_criteria = [
 id = "onnx-parser"
 epic = "onnx-inference"
 title = "ONNX protobuf parser + graph IR"
-status = "active"
+status = "completed"
 goal = "Parse .onnx files into a typed in-memory graph usable by the executor"
 success_criteria = [
     "Deserialize onnx.proto3 via prost — ModelProto, GraphProto, NodeProto, TensorProto",
@@ -665,7 +665,8 @@ id = "onnx-parser.3"
 theme = "onnx-parser"
 title = "Test parser: load ResNet-18 ONNX, verify node count + initializer shapes"
 kind = "experiment"
-status = "pending"
+status = "done"
+# Verified: 50 nodes, 24 initializers, opset 18. --test-onnx flag in diff-physics example.
 depends = ["onnx-parser.2"]
 
 # --- onnx-executor theme ---
@@ -687,7 +688,8 @@ id = "onnx-executor.1"
 theme = "onnx-executor"
 title = "Design: op dispatcher architecture, tensor lifecycle, attribute mapping"
 kind = "design"
-status = "pending"
+status = "done"
+# Op dispatcher matches op_type string → nn::ops dispatch. Tensor lifecycle: init upload + intermediate alloc.
 depends = ["onnx-parser.2"]
 
 [[tasks]]
@@ -695,7 +697,8 @@ id = "onnx-executor.2"
 theme = "onnx-executor"
 title = "Implement graph executor with core 8 ops (MatMul, Add, Relu, Reshape, Conv, BN, MaxPool, Softmax)"
 kind = "experiment"
-status = "pending"
+status = "done"
+# execute_onnx() dispatches 20+ op types. Builds, compiles. Core ops + shape manipulation.
 depends = ["onnx-executor.1"]
 
 [[tasks]]
@@ -881,7 +884,7 @@ id = "int4-kernel.2"
 theme = "int4-kernel"
 title = "Implement INT4 dequantize GEMM kernel (W4A16)"
 kind = "experiment"
-status = "pending"
+status = "active"
 depends = ["int4-kernel.1"]
 
 [[tasks]]

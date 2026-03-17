@@ -630,13 +630,64 @@ fn dispatch_node(
         }
         "ReduceMean" => {
             let x = get_input(&node.inputs[0], tensor_map)?;
-            let axes = node.attr_ints("axes");
+            let mut axes = node.attr_ints("axes");
+            // ONNX opset 18+: axes may be a second input instead of attribute
+            if axes.is_empty() && node.inputs.len() > 1 && !node.inputs[1].is_empty() {
+                let axes_t = get_input(&node.inputs[1], tensor_map)?;
+                let axes_h = axes_t.to_host().map_err(map_nn_err)?;
+                axes = axes_h.iter().map(|&v| v as i64).collect();
+            }
+            let keepdims = node.attr_int("keepdims", 1);
             let x_h = x.to_host().map_err(map_nn_err)?;
-            // Simplified: reduce all elements to mean
-            let mean = x_h.iter().sum::<f32>() / x_h.len() as f32;
-            let out = GpuTensor::from_host(&[mean], &[1], dev).map_err(map_nn_err)?;
-            let _ = axes; // TODO: proper axis handling
-            Ok(NodeOutput::Single(out))
+            let shape = x.shape();
+
+            if axes.is_empty() {
+                // Reduce all
+                let mean = x_h.iter().sum::<f32>() / x_h.len() as f32;
+                let out = GpuTensor::from_host(&[mean], &[1], dev).map_err(map_nn_err)?;
+                Ok(NodeOutput::Single(out))
+            } else {
+                // Normalize negative axes
+                let ndim = shape.len() as i64;
+                let norm_axes: Vec<usize> = axes
+                    .iter()
+                    .map(|&a| {
+                        if a < 0 {
+                            (ndim + a) as usize
+                        } else {
+                            a as usize
+                        }
+                    })
+                    .collect();
+
+                // For 4D [N,C,H,W] reducing axes [2,3] → [N,C]
+                if shape.len() == 4 && norm_axes.contains(&2) && norm_axes.contains(&3) {
+                    let (n, c, h, w) = (shape[0], shape[1], shape[2], shape[3]);
+                    let spatial = h * w;
+                    let mut out_data = vec![0.0f32; n * c];
+                    for bi in 0..n {
+                        for ci in 0..c {
+                            let sum: f32 = (0..spatial)
+                                .map(|s| x_h[bi * c * spatial + ci * spatial + s])
+                                .sum();
+                            out_data[bi * c + ci] = sum / spatial as f32;
+                        }
+                    }
+                    let out_shape = if keepdims != 0 {
+                        vec![n, c, 1, 1]
+                    } else {
+                        vec![n, c]
+                    };
+                    let out =
+                        GpuTensor::from_host(&out_data, &out_shape, dev).map_err(map_nn_err)?;
+                    Ok(NodeOutput::Single(out))
+                } else {
+                    // Generic fallback: reduce all
+                    let mean = x_h.iter().sum::<f32>() / x_h.len() as f32;
+                    let out = GpuTensor::from_host(&[mean], &[1], dev).map_err(map_nn_err)?;
+                    Ok(NodeOutput::Single(out))
+                }
+            }
         }
         "Neg" => {
             let x = get_input(&node.inputs[0], tensor_map)?;

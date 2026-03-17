@@ -44,10 +44,18 @@ fn test_onnx_parser() -> Result<(), Box<dyn std::error::Error>> {
     )?);
 
     // Try simple_mlp.onnx first (small, all weights embedded), then resnet
-    let mlp_path = gpu_host::model_dir(Some(env!("CARGO_MANIFEST_DIR"))).join("simple_mlp.onnx");
+    // Prefer ResNet ONNX if available (42.7 MB with inline weights), else MLP
     let resnet_path =
         gpu_host::model_dir(Some(env!("CARGO_MANIFEST_DIR"))).join("resnet18_cifar10.onnx");
-    let path = if mlp_path.exists() { mlp_path } else { resnet_path };
+    let mlp_path =
+        gpu_host::model_dir(Some(env!("CARGO_MANIFEST_DIR"))).join("simple_mlp.onnx");
+    let path = if resnet_path.exists()
+        && std::fs::metadata(&resnet_path).map(|m| m.len() > 1_000_000).unwrap_or(false)
+    {
+        resnet_path
+    } else {
+        mlp_path
+    };
     if !path.exists() {
         return Err(format!("ONNX file not found: {}", path.display()).into());
     }
@@ -60,14 +68,20 @@ fn test_onnx_parser() -> Result<(), Box<dyn std::error::Error>> {
         println!("  Init '{name}': shape={shape:?}, data.len()={}", data.len());
     }
 
-    // Try to execute with a dummy input
-    let input_shape: Vec<usize> = if model.graph.nodes.first().map(|n| n.op_type.as_str())
-        == Some("Gemm")
-        || model.graph.nodes.first().map(|n| n.op_type.as_str()) == Some("MatMul")
-    {
-        vec![1, 4] // MLP input
+    // Determine input shape from graph
+    let has_conv = model.graph.nodes.iter().any(|n| n.op_type == "Conv");
+    let input_shape: Vec<usize> = if has_conv {
+        vec![1, 3, 32, 32] // CNN input (ResNet)
     } else {
-        vec![1, 3, 32, 32] // CNN input
+        // MLP — infer from first weight shape
+        let first_weight = model
+            .graph
+            .initializers
+            .values()
+            .next()
+            .map(|(_, s)| s.last().copied().unwrap_or(4))
+            .unwrap_or(4);
+        vec![1, first_weight]
     };
     let input_size: usize = input_shape.iter().product();
     println!(
@@ -80,6 +94,17 @@ fn test_onnx_parser() -> Result<(), Box<dyn std::error::Error>> {
     let mut inputs = std::collections::HashMap::new();
     inputs.insert("input".to_string(), (input_data, input_shape));
 
+    // Warmup
+    let _ = gpu_host::onnx_executor::execute_onnx(&model.graph, &inputs, &dev, &registry);
+
+    // Benchmark
+    let n_iter = 10;
+    let t_start = Instant::now();
+    for _ in 0..n_iter {
+        let _ = gpu_host::onnx_executor::execute_onnx(&model.graph, &inputs, &dev, &registry);
+    }
+    let onnx_ms = t_start.elapsed().as_secs_f64() * 1000.0 / n_iter as f64;
+
     match gpu_host::onnx_executor::execute_onnx(&model.graph, &inputs, &dev, &registry) {
         Ok(outputs) => {
             for (name, data) in &outputs {
@@ -89,6 +114,7 @@ fn test_onnx_parser() -> Result<(), Box<dyn std::error::Error>> {
                     &data[..data.len().min(5)]
                 );
             }
+            println!("  ONNX latency: {onnx_ms:.1}ms/inference ({n_iter} runs)");
             println!("\nPASSED (ONNX end-to-end inference works)");
         }
         Err(e) => {

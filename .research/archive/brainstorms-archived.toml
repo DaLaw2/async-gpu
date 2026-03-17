@@ -347,3 +347,29 @@ new_epics_spawned = ["ml-framework"]
 themes_parked = []
 themes_completed = []
 key_insight = "87+ GPU kernels scattered in test code need refactoring into reusable nn API. Architecture: GpuTensor (N-dim SmallVec), KernelRegistry (auto launch config), stateless ops, Module trait layers, then GPT-2 + YOLOv8 as standalone examples. 7 themes, 57 tasks, 5 phases."
+
+# --- Archived at cycle 510 ---
+
+[[brainstorms]]
+seq = 101
+at_cycle = 407
+trigger = "User asked for brainstorm on new epics and reopens"
+level = "standard"
+new_tasks_spawned = []
+new_themes_spawned = []
+new_epics_spawned = []
+themes_parked = []
+themes_completed = []
+key_insight = "22 epics have breadth but need depth. Top candidates: testing-infra (#1), kernel-fusion (#2), autograd (#3), gpu-safety (#4). User chose testing-infra → autograd → gpu-safety path."
+
+[[brainstorms]]
+seq = 102
+at_cycle = 408
+trigger = "User chose roadmap: verify-examples → testing-infra → autograd → gpu-safety"
+level = "deep"
+new_tasks_spawned = ["ti-harness.1", "ti-harness.2", "ti-golden.1", "ti-golden.2", "ti-golden.3", "ti-golden.4", "ti-cpu-ref.1", "ti-cpu-ref.2", "ti-cpu-ref.3", "ti-cpu-ref.4", "ti-cpu-ref.5", "ag-tape.1", "ag-tape.2", "ag-tape.3", "ag-tape.4", "ag-tape.5", "ag-tape.6", "ag-tape.7", "ag-elemwise-bwd.1", "ag-elemwise-bwd.2", "ag-elemwise-bwd.3", "ag-elemwise-bwd.4", "ag-elemwise-bwd.5", "ag-gemm-bwd.1", "ag-gemm-bwd.2", "ag-gemm-bwd.3", "ag-gemm-bwd.4", "ag-norm-bwd.1", "ag-norm-bwd.2", "ag-norm-bwd.3", "ag-optim.1", "ag-optim.2", "ag-optim.3", "ag-loss.1", "ag-loss.2", "ag-loss.3", "ag-demo.1", "gs-spike.1", "gs-spike.2"]
+new_themes_spawned = ["ti-harness", "ti-golden", "ti-cpu-ref", "ag-tape", "ag-elemwise-bwd", "ag-gemm-bwd", "ag-norm-bwd", "ag-optim", "ag-loss", "ag-demo", "gs-spike"]
+new_epics_spawned = ["testing-infra", "autograd-v1", "gpu-safety-spike", "autograd-v2"]
+themes_parked = []
+themes_completed = []
+key_insight = "Split autograd into v1 (linear models, ~22 tasks) and v2 (conv/attention, future). gpu-safety needs a 2-task spike first to determine if GpuRef is safety or performance. Golden-file tests > property tests for GPU ops. Roadmap: VE → TI → AG-v1 → spike → decide."

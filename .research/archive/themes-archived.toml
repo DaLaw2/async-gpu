@@ -924,3 +924,59 @@ id = "persist-kernel"
 epic = "persistent-kernel"
 title = "Persistent kernel with work queue"
 status = "completed"
+
+# --- Archived at cycle 510 ---
+
+[[themes]]
+id = "onnx-parser"
+epic = "onnx-inference"
+title = "ONNX protobuf parser + graph IR"
+status = "completed"
+
+[[themes]]
+id = "onnx-executor"
+epic = "onnx-inference"
+title = "Graph executor — dispatch ONNX nodes to GPU kernels"
+status = "completed"
+
+[[themes]]
+id = "onnx-transformer"
+epic = "onnx-inference"
+title = "Transformer ONNX support — GPT-2 + attention ops"
+status = "completed"
+
+[[themes]]
+id = "onnx-breadth"
+epic = "onnx-inference"
+title = "Broaden ONNX operator coverage to 30+"
+status = "completed"
+
+[[themes]]
+id = "fuse-nn-api"
+epic = "kernel-fusion-v2"
+title = "Wire fused kernels into nn Linear layer + GPT-2 model"
+status = "completed"
+
+[[themes]]
+id = "int4-kernel"
+epic = "int4-quantization"
+title = "INT4 dequantize + GEMM kernel"
+status = "completed"
+
+[[themes]]
+id = "int4-gpt2"
+epic = "int4-quantization"
+title = "GPT-2 INT4 inference"
+status = "completed"
+
+[[themes]]
+id = "gc-ir"
+epic = "graph-compiler"
+title = "Graph IR + fusion pass"
+status = "completed"
+
+[[themes]]
+id = "gc-codegen"
+epic = "graph-compiler"
+title = "Fused kernel code generation"
+status = "completed"

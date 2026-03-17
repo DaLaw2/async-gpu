@@ -2606,3 +2606,231 @@ theme = "persist-kernel"
 title = "Benchmark: persistent dispatch latency vs kernel re-launch"
 kind = "experiment"
 status = "done"
+
+# --- Archived at cycle 510 ---
+
+# --- onnx-parser (onnx-inference) ---
+
+[[tasks]]
+id = "onnx-parser.1"
+theme = "onnx-parser"
+title = "Investigation: ONNX protobuf schema, prost codegen, key data structures"
+kind = "investigation"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "onnx-parser.2"
+theme = "onnx-parser"
+title = "Implement ONNX protobuf parser with prost + build typed OnnxGraph"
+kind = "experiment"
+status = "done"
+depends = ["onnx-parser.1"]
+
+[[tasks]]
+id = "onnx-parser.3"
+theme = "onnx-parser"
+title = "Test parser: load ResNet-18 ONNX, verify node count + initializer shapes"
+kind = "experiment"
+status = "done"
+depends = ["onnx-parser.2"]
+
+# --- onnx-executor (onnx-inference) ---
+
+[[tasks]]
+id = "onnx-executor.1"
+theme = "onnx-executor"
+title = "Design: op dispatcher architecture, tensor lifecycle, attribute mapping"
+kind = "design"
+status = "done"
+depends = ["onnx-parser.2"]
+
+[[tasks]]
+id = "onnx-executor.2"
+theme = "onnx-executor"
+title = "Implement graph executor with core 8 ops (MatMul, Add, Relu, Reshape, Conv, BN, MaxPool, Softmax)"
+kind = "experiment"
+status = "done"
+depends = ["onnx-executor.1"]
+
+[[tasks]]
+id = "onnx-executor.3"
+theme = "onnx-executor"
+title = "Add remaining Phase 1 ops (Concat, Flatten, Gather, Unsqueeze, Squeeze, Clip, Transpose)"
+kind = "experiment"
+status = "done"
+depends = ["onnx-executor.2"]
+
+[[tasks]]
+id = "onnx-executor.4"
+theme = "onnx-executor"
+title = "ResNet-18 ONNX end-to-end: export from PyTorch, load, infer, verify >90% CIFAR-10"
+kind = "experiment"
+status = "done"
+depends = ["onnx-executor.3"]
+
+# --- onnx-transformer (onnx-inference) ---
+
+[[tasks]]
+id = "onnx-transformer.1"
+theme = "onnx-transformer"
+title = "Export GPT-2 to ONNX via PyTorch, inspect required ops"
+kind = "investigation"
+status = "done"
+depends = ["onnx-executor.2"]
+
+[[tasks]]
+id = "onnx-transformer.2"
+theme = "onnx-transformer"
+title = "Implement transformer ops: Where, Cast, Slice, Split, Expand, LayerNorm, Erf"
+kind = "experiment"
+status = "done"
+depends = ["onnx-transformer.1"]
+
+[[tasks]]
+id = "onnx-transformer.3"
+theme = "onnx-transformer"
+title = "GPT-2 ONNX end-to-end inference + verify output quality"
+kind = "experiment"
+status = "done"
+depends = ["onnx-transformer.2"]
+
+# --- onnx-breadth (onnx-inference) ---
+
+[[tasks]]
+id = "onnx-breadth.1"
+theme = "onnx-breadth"
+title = "Investigate MobileNetV2 ONNX: list missing ops, implement them"
+kind = "experiment"
+status = "done"
+depends = ["onnx-executor.4"]
+
+[[tasks]]
+id = "onnx-breadth.2"
+theme = "onnx-breadth"
+title = "MobileNetV2 ONNX end-to-end inference + verify top-5 accuracy"
+kind = "experiment"
+status = "done"
+depends = ["onnx-breadth.1"]
+
+# --- fuse-nn-api (kernel-fusion-v2) ---
+
+[[tasks]]
+id = "fuse-nn-api.1"
+theme = "fuse-nn-api"
+title = "Add matmul_fused() op that calls gemm_bias_gelu/relu with proper padding"
+kind = "experiment"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "fuse-nn-api.2"
+theme = "fuse-nn-api"
+title = "Wire fused matmul into GPT-2 FFN forward path"
+kind = "experiment"
+status = "done"
+depends = ["fuse-nn-api.1"]
+
+[[tasks]]
+id = "fuse-nn-api.3"
+theme = "fuse-nn-api"
+title = "Benchmark GPT-2 fused vs unfused: measure per-token latency reduction"
+kind = "experiment"
+status = "done"
+depends = ["fuse-nn-api.2"]
+
+# --- int4-kernel (int4-quantization) ---
+
+[[tasks]]
+id = "int4-kernel.1"
+theme = "int4-kernel"
+title = "Investigation: INT4 packing format, per-group quantization, GPTQ algorithm"
+kind = "investigation"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "int4-kernel.2"
+theme = "int4-kernel"
+title = "Implement INT4 dequantize GEMM kernel (W4A16)"
+kind = "experiment"
+status = "done"
+depends = ["int4-kernel.1"]
+
+[[tasks]]
+id = "int4-kernel.3"
+theme = "int4-kernel"
+title = "Benchmark INT4 GEMM: throughput + accuracy vs f32 and INT8"
+kind = "experiment"
+status = "done"
+depends = ["int4-kernel.2"]
+
+# --- int4-gpt2 (int4-quantization) ---
+
+[[tasks]]
+id = "int4-gpt2.1"
+theme = "int4-gpt2"
+title = "Python quantization script: GPT-2 f32 → INT4 with per-group scales"
+kind = "experiment"
+status = "done"
+depends = ["int4-kernel.2"]
+
+[[tasks]]
+id = "int4-gpt2.2"
+theme = "int4-gpt2"
+title = "GPT-2 INT4 inference: load quantized weights, generate text, verify quality"
+kind = "experiment"
+status = "done"
+depends = ["int4-gpt2.1"]
+
+# --- gc-ir (graph-compiler) ---
+
+[[tasks]]
+id = "gc-ir.1"
+theme = "gc-ir"
+title = "Design: Graph IR data structure, fusion rule specification format"
+kind = "design"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "gc-ir.2"
+theme = "gc-ir"
+title = "Implement Graph IR + topological sort + dead node elimination"
+kind = "experiment"
+status = "done"
+depends = ["gc-ir.1"]
+
+[[tasks]]
+id = "gc-ir.3"
+theme = "gc-ir"
+title = "Implement fusion pass: pattern matching for GEMM+Bias+Act and Conv+BN+Act"
+kind = "experiment"
+status = "done"
+depends = ["gc-ir.2"]
+
+# --- gc-codegen (graph-compiler) ---
+
+[[tasks]]
+id = "gc-codegen.1"
+theme = "gc-codegen"
+title = "Investigation: template-based codegen vs precompiled pattern library"
+kind = "investigation"
+status = "done"
+depends = ["gc-ir.3"]
+
+[[tasks]]
+id = "gc-codegen.2"
+theme = "gc-codegen"
+title = "Implement fused kernel dispatch for top-3 fusion patterns"
+kind = "experiment"
+status = "done"
+depends = ["gc-codegen.1"]
+
+[[tasks]]
+id = "gc-codegen.3"
+theme = "gc-codegen"
+title = "Benchmark: ONNX inference with graph compiler vs without"
+kind = "experiment"
+status = "done"
+depends = ["gc-codegen.2"]

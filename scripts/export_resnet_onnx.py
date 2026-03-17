@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""Export ResNet-18 CIFAR-10 variant to ONNX format.
+"""Export ResNet-18 CIFAR-10 variant to ONNX with all weights inline.
 
 Usage:
-    uv run --with torch --with torchvision --with onnx scripts/export_resnet_onnx.py
+    uv run --with torch --with torchvision --with onnx --with packaging --with onnxscript scripts/export_resnet_onnx.py
 """
-import os
+import os, tempfile
 import torch
 import torch.nn as nn
+import onnx
 
 class BasicBlock(nn.Module):
     def __init__(self, in_ch, out_ch, stride=1):
@@ -49,25 +50,55 @@ class ResNet18CIFAR(nn.Module):
         return self.fc(out)
 
 def main():
+    torch.manual_seed(42)
     model = ResNet18CIFAR(num_classes=10)
     model.eval()
 
     dummy = torch.randn(1, 3, 32, 32)
     out_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models")
-    os.makedirs(out_dir, exist_ok=True)
     out_path = os.path.join(out_dir, "resnet18_cifar10.onnx")
 
-    # Use opset 13, embed all weights (no external data)
+    # Export to temp first (may create external data)
+    tmp = tempfile.NamedTemporaryFile(suffix=".onnx", delete=False)
+    tmp.close()
     torch.onnx.export(
-        model, dummy, out_path,
+        model, dummy, tmp.name,
         input_names=["input"],
         output_names=["output"],
         opset_version=13,
         do_constant_folding=True,
     )
 
+    # Load and save with all data inline
+    onnx_model = onnx.load(tmp.name, load_external_data=True)
+    onnx.save(onnx_model, out_path)
+
+    # Clean up temp
+    os.unlink(tmp.name)
+    data_file = tmp.name + ".data"
+    if os.path.exists(data_file):
+        os.unlink(data_file)
+
+    # Verify initializers
+    total_params = 0
+    for init in onnx_model.graph.initializer:
+        n = 1
+        for d in init.dims:
+            n *= d
+        total_params += n
+
     size_mb = os.path.getsize(out_path) / 1024 / 1024
-    print(f"Exported: {out_path} ({size_mb:.1f} MB)")
+    print(f"Exported: {out_path}")
+    print(f"Size: {size_mb:.1f} MB, {total_params:,} params, {len(onnx_model.graph.initializer)} initializers")
+    print(f"Nodes: {len(onnx_model.graph.node)}")
+
+    # Print unique op types
+    ops = set(n.op_type for n in onnx_model.graph.node)
+    print(f"Ops: {sorted(ops)}")
+
+    # Reference output
+    ref = model(dummy).detach()
+    print(f"Ref output (first 5): {ref[0, :5].tolist()}")
 
 if __name__ == "__main__":
     main()

@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 542     # Monotonic counter, incremented after each completed phase
-completed_tasks = 652
+total_cycles = 545     # Monotonic counter, incremented after each completed phase
+completed_tasks = 655
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
 current_task_id = "onnx-gpt2-gen.1"
-last_summary = "GPT-2 ONNX TEXT GENERATION WORKS: 10 tokens autoregressive, 150ms/forward. All ONNX op fixes: Constant tensor, Gather embed, Split ND, Unsqueeze, Where+Add broadcast, batched MatMul, 3D→2D reshape."
+last_summary = "GPT-2 ONNX generates text (10 tokens, 150ms/fwd). Trained ResNet ONNX exported. 41 ops, all broadcasting fixed. Continuing with Conv prepad + accuracy test."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 109

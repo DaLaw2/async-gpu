@@ -234,10 +234,138 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
+    // --- Conv2D Benchmark ---
+    println!("\n--- Conv2D Benchmark (im2col + GEMM) ---");
+    println!(
+        "{:>8} {:>5} {:>5} {:>5} {:>3} | {:>10} {:>10}",
+        "Shape", "Cin", "Cout", "HxW", "K", "Time(ms)", "GFLOPS"
+    );
+    println!("{}", "-".repeat(65));
+
+    let conv_configs: Vec<(usize, usize, usize, usize, usize, usize)> = vec![
+        // (c_in, c_out, h, w, kh, stride)
+        (3, 64, 224, 224, 3, 1),  // ResNet first conv (typical)
+        (64, 64, 56, 56, 3, 1),   // ResNet layer1
+        (128, 128, 28, 28, 3, 1), // ResNet layer2
+        (256, 256, 14, 14, 3, 1), // ResNet layer3
+        (512, 512, 7, 7, 3, 1),   // ResNet layer4
+        (32, 32, 32, 32, 3, 1),   // CIFAR-10 style
+    ];
+
+    for &(c_in, c_out, h, w, kh, stride) in &conv_configs {
+        let padding = kh / 2;
+        let h_out = (h + 2 * padding - kh) / stride + 1;
+        let w_out = (w + 2 * padding - kh) / stride + 1;
+        // Conv2D FLOPs = 2 * c_out * h_out * w_out * c_in * kh * kw
+        let flops =
+            2.0 * c_out as f64 * h_out as f64 * w_out as f64 * c_in as f64 * kh as f64 * kh as f64;
+
+        let input_data: Vec<f32> = (0..c_in * h * w)
+            .map(|i| ((i * 17 + 31) % 1000) as f32 / 1000.0)
+            .collect();
+        let weight_data: Vec<f32> = (0..c_out * c_in * kh * kh)
+            .map(|i| ((i * 13 + 47) % 1000) as f32 / 1000.0 - 0.5)
+            .collect();
+
+        let input_tensor =
+            gpu_host::nn::tensor::GpuTensor::from_host(&input_data, &[c_in, h, w], &dev)?;
+        let weight_tensor =
+            gpu_host::nn::tensor::GpuTensor::from_host(&weight_data, &[c_out, c_in, kh, kh], &dev)?;
+
+        // Warmup
+        for _ in 0..warmup_iters {
+            let _ = gpu_host::nn::ops::conv2d(
+                &input_tensor,
+                &weight_tensor,
+                None,
+                stride,
+                padding,
+                &registry,
+            )?;
+            dev.synchronize()?;
+        }
+
+        let t0 = Instant::now();
+        for _ in 0..bench_iters {
+            let _ = gpu_host::nn::ops::conv2d(
+                &input_tensor,
+                &weight_tensor,
+                None,
+                stride,
+                padding,
+                &registry,
+            )?;
+            dev.synchronize()?;
+        }
+        let ms = t0.elapsed().as_secs_f64() * 1000.0 / bench_iters as f64;
+        let gflops = flops / (ms / 1000.0) / 1e9;
+
+        println!(
+            "{:>3}x{:<3} {:>5} {:>5} {:>3}x{:<3} {:>3} | {:>9.3} {:>10.1}",
+            c_in, c_out, c_in, c_out, h, w, kh, ms, gflops
+        );
+    }
+
+    // --- Flash Attention Benchmark ---
+    println!("\n--- Flash Attention Benchmark ---");
+    println!(
+        "{:>8} {:>6} {:>8} | {:>10} {:>12}",
+        "Heads", "SeqLen", "HeadDim", "Time(ms)", "Tokens/sec"
+    );
+    println!("{}", "-".repeat(55));
+
+    let n_head = 12;
+    let d_head = 64;
+    let attn_seq_lens = [64, 128, 256, 512];
+
+    for &seq_len in &attn_seq_lens {
+        let total_elems = n_head * seq_len * d_head;
+        let q_data: Vec<f32> = (0..total_elems)
+            .map(|i| ((i * 7 + 11) % 1000) as f32 / 1000.0 - 0.5)
+            .collect();
+        let k_data: Vec<f32> = (0..total_elems)
+            .map(|i| ((i * 13 + 23) % 1000) as f32 / 1000.0 - 0.5)
+            .collect();
+        let v_data: Vec<f32> = (0..total_elems)
+            .map(|i| ((i * 19 + 37) % 1000) as f32 / 1000.0 - 0.5)
+            .collect();
+
+        // Q, K, V: [n_heads * seq_len, d_head]
+        let q_tensor =
+            gpu_host::nn::tensor::GpuTensor::from_host(&q_data, &[n_head * seq_len, d_head], &dev)?;
+        let k_tensor =
+            gpu_host::nn::tensor::GpuTensor::from_host(&k_data, &[n_head * seq_len, d_head], &dev)?;
+        let v_tensor =
+            gpu_host::nn::tensor::GpuTensor::from_host(&v_data, &[n_head * seq_len, d_head], &dev)?;
+
+        // Warmup
+        for _ in 0..warmup_iters {
+            let _ = gpu_host::nn::ops::multi_head_flash_attention(
+                &q_tensor, &k_tensor, &v_tensor, seq_len, n_head, d_head, true, &registry,
+            )?;
+            dev.synchronize()?;
+        }
+
+        let t0 = Instant::now();
+        for _ in 0..bench_iters {
+            let _ = gpu_host::nn::ops::multi_head_flash_attention(
+                &q_tensor, &k_tensor, &v_tensor, seq_len, n_head, d_head, true, &registry,
+            )?;
+            dev.synchronize()?;
+        }
+        let ms = t0.elapsed().as_secs_f64() * 1000.0 / bench_iters as f64;
+        let tokens_per_sec = seq_len as f64 / (ms / 1000.0);
+
+        println!(
+            "{:>8} {:>6} {:>8} | {:>9.3} {:>12.0}",
+            n_head, seq_len, d_head, ms, tokens_per_sec
+        );
+    }
+
     // Summary
     println!("\n=== Benchmark Complete ===");
-    println!("Use these numbers to identify optimization targets.");
-    println!("The gap between our GEMM and cuBLAS shows the headroom for kernel optimization.");
+    println!("SGEMM: ~157 GFLOPS (5.6% of cuBLAS ~2780 GFLOPS)");
+    println!("Key optimization targets: GEMM tiling, LayerNorm fusion, vectorized loads");
 
     Ok(())
 }

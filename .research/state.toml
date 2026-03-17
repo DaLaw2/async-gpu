@@ -4,8 +4,8 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 566     # Monotonic counter, incremented after each completed phase
-completed_tasks = 676
+total_cycles = 569     # Monotonic counter, incremented after each completed phase
+completed_tasks = 679
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
@@ -1421,7 +1421,7 @@ id = "bench-kernels.2"
 theme = "bench-kernels"
 title = "Experiment: Conv2D benchmark — GFLOPS for ResNet/YOLO shapes, compare cuDNN"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = []
 
 [[tasks]]
@@ -1429,7 +1429,7 @@ id = "bench-kernels.3"
 theme = "bench-kernels"
 title = "Experiment: Flash Attention benchmark — throughput at GPT-2 shapes"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = []
 
 [[tasks]]
@@ -1437,7 +1437,7 @@ id = "bench-kernels.4"
 theme = "bench-kernels"
 title = "Experiment: Memory-bound ops (LayerNorm, GELU, elementwise) — GB/s measurement"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = []
 
 # --- Theme: end-to-end model profiling ---
@@ -1459,7 +1459,7 @@ id = "bench-e2e.1"
 theme = "bench-e2e"
 title = "Experiment: GPT-2 inference per-layer profiling — identify bottleneck ops"
 kind = "experiment"
-status = "pending"
+status = "active"
 depends = ["bench-kernels.1"]
 
 [[tasks]]

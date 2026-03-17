@@ -256,7 +256,7 @@ fn dispatch_node(
 fn dispatch_activation(
     node: &OnnxNode,
     tensor_map: &HashMap<String, GpuTensor>,
-    _dev: &Arc<CudaDevice>,
+    dev: &Arc<CudaDevice>,
     registry: &Arc<KernelRegistry>,
 ) -> Result<NodeOutput, OnnxError> {
     match node.op_type.as_str() {
@@ -279,7 +279,7 @@ fn dispatch_activation(
             let x = get_input(&node.inputs[0], tensor_map)?;
             let x_h = x.to_host().map_err(map_nn_err)?;
             let out_data: Vec<f32> = x_h.iter().map(|v| v.tanh()).collect();
-            let out = GpuTensor::from_host(&out_data, x.shape(), _dev).map_err(map_nn_err)?;
+            let out = GpuTensor::from_host(&out_data, x.shape(), dev).map_err(map_nn_err)?;
             Ok(NodeOutput::Single(out))
         }
         _ => unreachable!(),
@@ -291,13 +291,50 @@ fn dispatch_activation(
 fn dispatch_gemm(
     node: &OnnxNode,
     tensor_map: &HashMap<String, GpuTensor>,
-    _dev: &Arc<CudaDevice>,
+    dev: &Arc<CudaDevice>,
     registry: &Arc<KernelRegistry>,
     prepadded_weights: &HashMap<String, PrePaddedWeight>,
 ) -> Result<NodeOutput, OnnxError> {
     match node.op_type.as_str() {
         "MatMul" => {
             let a = get_input(&node.inputs[0], tensor_map)?;
+            let b = get_input(&node.inputs[1], tensor_map)?;
+
+            // Handle batched matmul for ND tensors (attention patterns)
+            if a.ndim() > 2 && b.ndim() > 2 {
+                let a_h = a.to_host().map_err(map_nn_err)?;
+                let b_h = b.to_host().map_err(map_nn_err)?;
+                let a_shape = a.shape();
+                let b_shape = b.shape();
+                let ndim = a_shape.len();
+
+                let m = a_shape[ndim - 2];
+                let k = a_shape[ndim - 1];
+                let n = b_shape[ndim - 1];
+                let batch: usize = a_shape[..ndim - 2].iter().product();
+
+                let mut out_data = vec![0.0f32; batch * m * n];
+                for bi in 0..batch {
+                    let a_off = bi * m * k;
+                    let b_off = bi * k * n;
+                    let c_off = bi * m * n;
+                    for i in 0..m {
+                        for j in 0..n {
+                            let mut sum = 0.0f32;
+                            for p in 0..k {
+                                sum += a_h[a_off + i * k + p] * b_h[b_off + p * n + j];
+                            }
+                            out_data[c_off + i * n + j] = sum;
+                        }
+                    }
+                }
+                let mut out_shape = a_shape[..ndim - 2].to_vec();
+                out_shape.push(m);
+                out_shape.push(n);
+                let out = GpuTensor::from_host(&out_data, &out_shape, dev).map_err(map_nn_err)?;
+                return Ok(NodeOutput::Single(out));
+            }
+
             let b_name = &node.inputs[1];
             // Fast path: use pre-transposed+padded weight if available
             if let Some(pp) = prepadded_weights.get(b_name) {
@@ -354,7 +391,7 @@ fn dispatch_gemm(
 fn dispatch_conv(
     node: &OnnxNode,
     tensor_map: &HashMap<String, GpuTensor>,
-    _dev: &Arc<CudaDevice>,
+    dev: &Arc<CudaDevice>,
     registry: &Arc<KernelRegistry>,
 ) -> Result<NodeOutput, OnnxError> {
     match node.op_type.as_str() {
@@ -974,6 +1011,7 @@ fn dispatch_shape(
             }
 
             // General split along any axis for any ndim
+            let axis_usize = axis_usize.min(shape.len() - 1);
             let axis_dim = shape[axis_usize];
             let outer: usize = shape[..axis_usize].iter().product::<usize>().max(1);
             let inner: usize = shape[axis_usize + 1..].iter().product::<usize>().max(1);

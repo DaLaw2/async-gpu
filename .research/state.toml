@@ -4,8 +4,8 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 490     # Monotonic counter, incremented after each completed phase
-completed_tasks = 600
+total_cycles = 491     # Monotonic counter, incremented after each completed phase
+completed_tasks = 601
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
@@ -864,7 +864,7 @@ success_criteria = [
 id = "int4-kernel"
 epic = "int4-quantization"
 title = "INT4 dequantize + GEMM kernel"
-status = "active"
+status = "completed"
 goal = "W4A16 matmul: 4-bit packed weights dequantized during GEMM"
 success_criteria = [
     "Pack/unpack INT4 (2 values per byte, 8 per u32)",
@@ -895,7 +895,8 @@ id = "int4-kernel.3"
 theme = "int4-kernel"
 title = "Benchmark INT4 GEMM: throughput + accuracy vs f32 and INT8"
 kind = "experiment"
-status = "pending"
+status = "done"
+# INT4 8-11% rel err. Throughput similar to INT8 (CPU quant dominated). Memory 8x less than f32.
 depends = ["int4-kernel.2"]
 
 # --- int4-gpt2 theme ---

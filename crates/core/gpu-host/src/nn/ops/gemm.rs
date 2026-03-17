@@ -576,3 +576,98 @@ pub fn int8_matmul(
 
     Ok(GpuTensor::from_data(out_dev, &[m, n], Arc::clone(dev)))
 }
+
+/// INT4 (W4A16) matrix multiplication: C = A_f32 × dequant(W_int4).
+///
+/// Quantizes B from f32 to INT4 per-group, packs into u32 (8 values per u32),
+/// runs dequantize-on-the-fly GEMM kernel.
+///
+/// A: `[M, K]`, B: `[K, N]` → output: `[M, N]` f32.
+/// K must be divisible by 8. group_size default: 128.
+pub fn int4_matmul(
+    a: &GpuTensor,
+    b: &GpuTensor,
+    registry: &Arc<KernelRegistry>,
+) -> Result<GpuTensor> {
+    if a.ndim() != 2 || b.ndim() != 2 {
+        return Err(NnError::ShapeMismatch {
+            expected: "2D tensors".to_string(),
+            actual: format!("a.ndim={}, b.ndim={}", a.ndim(), b.ndim()),
+        });
+    }
+    let m = a.shape()[0];
+    let k = a.shape()[1];
+    let n = b.shape()[1];
+    if k % 8 != 0 {
+        return Err(NnError::ShapeMismatch {
+            expected: "K divisible by 8 for INT4 packing".to_string(),
+            actual: format!("K={k}"),
+        });
+    }
+
+    let group_size = 128usize;
+    let n_groups = k.div_ceil(group_size);
+    let k_packed = k / 8;
+
+    // Download B for quantization
+    let b_host = b.to_host()?;
+
+    // Quantize B to INT4 per-group: packed [K/8, N] + scales [n_groups, N]
+    let mut packed = vec![0u32; k_packed * n];
+    let mut scales = vec![0.0f32; n_groups * n];
+
+    for col in 0..n {
+        for g in 0..n_groups {
+            let start = g * group_size;
+            let end = (start + group_size).min(k);
+            // Find max absolute value in group
+            let mut max_abs = 0.0f32;
+            for row in start..end {
+                max_abs = max_abs.max(b_host[row * n + col].abs());
+            }
+            let scale = if max_abs < 1e-12 { 1.0 } else { max_abs / 7.0 }; // INT4 signed range [-8,7]
+            scales[g * n + col] = scale;
+
+            // Quantize and pack
+            for row in start..end {
+                let val = b_host[row * n + col];
+                let q = ((val / scale).round() as i32).clamp(-8, 7);
+                let q_unsigned = (q + 8) as u32; // shift to [0, 15]
+                let byte_idx = row / 8;
+                let bit_pos = (row % 8) * 4;
+                packed[byte_idx * n + col] |= (q_unsigned & 0xF) << bit_pos;
+            }
+        }
+    }
+
+    let dev = registry.device();
+    let a_dev = a.data();
+    let w_dev = dev.htod_copy(packed)?;
+    let scales_dev = dev.htod_copy(scales)?;
+    let c_dev = dev.alloc_zeros::<f32>(m * n)?;
+    let status = dev.htod_sync_copy(&[0u32])?;
+
+    let func = registry.get("int4_gemm_w4a16")?;
+    let total = (m * n) as u32;
+    let config = KernelRegistry::config_1d(total);
+    unsafe {
+        func.launch(
+            config,
+            (
+                a_dev,
+                &w_dev,
+                &scales_dev,
+                &c_dev,
+                m as u32,
+                n as u32,
+                k as u32,
+                group_size as u32,
+                &status,
+            ),
+        )
+        .map_err(NnError::Cuda)?;
+    }
+    dev.synchronize().map_err(NnError::Cuda)?;
+
+    Ok(GpuTensor::from_data(c_dev, &[m, n], Arc::clone(dev)))
+}

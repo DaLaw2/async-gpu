@@ -198,11 +198,24 @@ fn bench_int8() -> Result<(), Box<dyn std::error::Error>> {
         };
 
         println!("{label} [{m}×{k}×{n}]:");
+        // INT4
+        let t_i4 = Instant::now();
+        for _ in 0..n_iter {
+            let _ = gpu_host::nn::ops::int4_matmul(&a, &b, &reg)?;
+        }
+        dev.synchronize()?;
+        let int4_ms = t_i4.elapsed().as_secs_f64() * 1000.0 / n_iter as f64;
+
+        let int4_out = gpu_host::nn::ops::int4_matmul(&a, &b, &reg)?.to_host()?;
+        let i4_max_err = ref_out.iter().zip(int4_out.iter())
+            .map(|(r, i)| (r - i).abs()).fold(0.0f32, f32::max);
+        let i4_rel = if max_val > 1e-6 { i4_max_err / max_val } else { 0.0 };
+
         println!(
-            "  f32: {f32_ms:.2}ms, INT8: {int8_ms:.2}ms, speedup: {:.2}x",
-            f32_ms / int8_ms
+            "  f32: {f32_ms:.2}ms, INT8: {int8_ms:.2}ms ({:.2}x), INT4: {int4_ms:.2}ms ({:.2}x)",
+            f32_ms / int8_ms, f32_ms / int4_ms
         );
-        println!("  max_err: {max_err:.4}, rel_err: {rel_err:.4}");
+        println!("  INT8 err: {max_err:.4} ({rel_err:.4}), INT4 err: {i4_max_err:.4} ({i4_rel:.4})");
     }
 
     println!("\nDone.");

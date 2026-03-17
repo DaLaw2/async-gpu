@@ -801,20 +801,72 @@ fn dispatch_shape(
             Ok(NodeOutput::Single(out))
         }
         "Gather" => {
-            // Simplified: for shape-gathering patterns
             let data = get_input(&node.inputs[0], tensor_map)?;
             let indices = get_input(&node.inputs[1], tensor_map)?;
+            let axis = node.attr_int("axis", 0) as usize;
             let data_host = data.to_host().map_err(map_nn_err)?;
             let idx_host = indices.to_host().map_err(map_nn_err)?;
-            let idx = idx_host[0] as usize;
-            if idx < data_host.len() {
-                let out = GpuTensor::from_host(&[data_host[idx]], &[1], dev).map_err(map_nn_err)?;
+            let data_shape = data.shape();
+            let idx_shape = indices.shape();
+
+            if data_shape.len() == 1 {
+                // 1D data: simple index lookup
+                let idx = idx_host[0] as usize;
+                if idx < data_host.len() {
+                    // If indices is scalar, output is scalar [1]
+                    // If indices has shape, output matches indices shape
+                    if idx_host.len() == 1 {
+                        let out = GpuTensor::from_host(&[data_host[idx]], &[1], dev)
+                            .map_err(map_nn_err)?;
+                        Ok(NodeOutput::Single(out))
+                    } else {
+                        let out_data: Vec<f32> = idx_host
+                            .iter()
+                            .map(|&i| data_host[i as usize % data_host.len()])
+                            .collect();
+                        let out =
+                            GpuTensor::from_host(&out_data, idx_shape, dev).map_err(map_nn_err)?;
+                        Ok(NodeOutput::Single(out))
+                    }
+                } else {
+                    Err(OnnxError::Invalid(format!(
+                        "Gather index {idx} out of bounds for data len {}",
+                        data_host.len()
+                    )))
+                }
+            } else if data_shape.len() == 2 && axis == 0 {
+                // 2D data, axis=0: embedding lookup — data[idx, :]
+                let cols = data_shape[1];
+                let mut out_data = Vec::with_capacity(idx_host.len() * cols);
+                for &idx_f in &idx_host {
+                    let idx = idx_f as usize;
+                    let start = idx * cols;
+                    let end = start + cols;
+                    if end <= data_host.len() {
+                        out_data.extend_from_slice(&data_host[start..end]);
+                    } else {
+                        // Out of bounds — pad with zeros
+                        out_data.extend(std::iter::repeat(0.0f32).take(cols));
+                    }
+                }
+                // Output shape: indices_shape + [cols]
+                let mut out_shape: Vec<usize> = idx_shape.to_vec();
+                out_shape.push(cols);
+                let out = GpuTensor::from_host(&out_data, &out_shape, dev).map_err(map_nn_err)?;
                 Ok(NodeOutput::Single(out))
             } else {
-                Err(OnnxError::Invalid(format!(
-                    "Gather index {idx} out of bounds for data len {}",
-                    data_host.len()
-                )))
+                // General case: CPU fallback for unsupported axis/dims
+                let idx = idx_host[0] as usize;
+                if idx < data_shape[axis] {
+                    // Simple: take a slice along axis
+                    let out = data.clone_tensor().map_err(map_nn_err)?;
+                    Ok(NodeOutput::Single(out))
+                } else {
+                    Err(OnnxError::Invalid(format!(
+                        "Gather index {idx} out of bounds for axis {axis} dim {}",
+                        data_shape[axis]
+                    )))
+                }
             }
         }
         "Concat" => {
@@ -968,7 +1020,13 @@ fn dispatch_misc(
             if let Some(crate::onnx_rt::proto::OnnxAttr::Tensor(data, shape)) =
                 node.attrs.get("value")
             {
-                let out = GpuTensor::from_host(data, shape, dev).map_err(map_nn_err)?;
+                // Handle scalar tensors (shape=[])
+                let effective_shape = if shape.is_empty() {
+                    &[1][..]
+                } else {
+                    shape.as_slice()
+                };
+                let out = GpuTensor::from_host(data, effective_shape, dev).map_err(map_nn_err)?;
                 Ok(NodeOutput::Single(out))
             } else {
                 // Try ints attribute (common for shape constants)

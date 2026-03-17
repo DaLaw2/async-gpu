@@ -402,9 +402,21 @@ fn parse_attributes(attrs: &[AttributeProto]) -> HashMap<String, OnnxAttr> {
             1 => OnnxAttr::Float(a.f),                                        // FLOAT
             2 => OnnxAttr::Int(a.i),                                          // INT
             3 => OnnxAttr::String(String::from_utf8_lossy(&a.s).to_string()), // STRING
-            6 => OnnxAttr::Floats(a.floats.clone()),                          // FLOATS
-            7 => OnnxAttr::Ints(a.ints.clone()),                              // INTS
-            _ => continue, // Skip unsupported attribute types
+            4 => {
+                // TENSOR
+                if let Some(ref t) = a.t {
+                    let shape: Vec<usize> = t.dims.iter().map(|&d| d as usize).collect();
+                    match extract_f32_data(t) {
+                        Ok(data) => OnnxAttr::Tensor(data, shape),
+                        Err(_) => continue,
+                    }
+                } else {
+                    continue;
+                }
+            }
+            6 => OnnxAttr::Floats(a.floats.clone()), // FLOATS
+            7 => OnnxAttr::Ints(a.ints.clone()),     // INTS
+            _ => continue,                           // Skip unsupported attribute types
         };
         map.insert(a.name.clone(), val);
     }

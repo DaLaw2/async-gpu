@@ -11,11 +11,11 @@ status = "running"     # ready | running | blocked | completed
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "rv2-unwrap.1"
-last_summary = "Refactor-v2 DONE: all 11 tasks complete. unwrap fix, quantize utils+tests, GPU elementwise, weight prepadding, pub audit. ResNet ONNX 43ms, GPT-2 parsed 391ms."
+current_task_id = "onnx-gpt2-gen.1"
+last_summary = "bs109: GPT-2 ONNX text gen + Conv prepad. Brainstormed 3 new tasks for unmet ONNX criteria. Starting GPT-2 forward pass."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 108
+brainstorm_seq = 109
 review_seq = 5
 
 # Brainstorm trigger control (event-driven, no fixed interval)
@@ -993,3 +993,66 @@ title = "Add unit tests for Int4Linear, OnnxSession, quantize pack/unpack"
 kind = "experiment"
 status = "done"
 depends = ["rv2-quant.1"]
+
+# ============================================================
+# ONNX inference — remaining unmet criteria
+# ============================================================
+
+[[themes]]
+id = "onnx-gpt2-gen"
+epic = "onnx-inference"
+title = "GPT-2 ONNX text generation"
+status = "active"
+goal = "Run GPT-2 ONNX and generate coherent text"
+success_criteria = [
+    "GPT-2 ONNX forward pass runs without errors",
+    "Generate at least 10 tokens of coherent text",
+    "Benchmark single forward pass latency",
+]
+
+[[tasks]]
+id = "onnx-gpt2-gen.1"
+theme = "onnx-gpt2-gen"
+title = "Run GPT-2 ONNX single forward pass, fix any op errors"
+kind = "experiment"
+status = "active"
+depends = []
+
+[[tasks]]
+id = "onnx-gpt2-gen.2"
+theme = "onnx-gpt2-gen"
+title = "GPT-2 ONNX autoregressive generation (10+ tokens)"
+kind = "experiment"
+status = "pending"
+depends = ["onnx-gpt2-gen.1"]
+
+[[themes]]
+id = "onnx-conv-prepad"
+epic = "onnx-inference"
+title = "Conv2d weight prepadding in OnnxSession"
+status = "active"
+goal = "Reduce ResNet ONNX from 43ms toward 25ms"
+success_criteria = [
+    "Conv2d weights pre-im2col'd at session creation",
+    "ResNet-18 ONNX < 30ms",
+]
+
+[[tasks]]
+id = "onnx-conv-prepad.1"
+theme = "onnx-conv-prepad"
+title = "Pre-compute im2col column matrix for Conv weights in OnnxSession"
+kind = "experiment"
+status = "pending"
+depends = []
+
+[[brainstorms]]
+seq = 109
+at_cycle = 535
+trigger = "All tasks done, active epics have unmet criteria"
+level = "quick"
+new_tasks_spawned = ["onnx-gpt2-gen.1", "onnx-gpt2-gen.2", "onnx-conv-prepad.1"]
+new_themes_spawned = ["onnx-gpt2-gen", "onnx-conv-prepad"]
+new_epics_spawned = []
+themes_parked = []
+themes_completed = []
+key_insight = "ONNX epic has 3 unmet criteria: GPT-2 text gen, Conv prepad perf, MobileNet. GPT-2 forward pass is the highest priority — proves the 41-op executor works on a real transformer."

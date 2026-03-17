@@ -57,9 +57,45 @@ fn test_onnx_parser() -> Result<(), Box<dyn std::error::Error>> {
             println!("Loading custom ONNX: {}", custom_path.display());
             let t0 = Instant::now();
             let model = gpu_host::onnx::load_onnx(&custom_path)?;
-            println!("Parsed in {:.1}ms", t0.elapsed().as_secs_f64() * 1000.0);
+            let parse_ms = t0.elapsed().as_secs_f64() * 1000.0;
+            println!("Parsed in {parse_ms:.1}ms");
             model.summary();
-            println!("\nPARSED OK (inference skipped for large models)");
+
+            // For GPT-2: try a single forward pass with a small input
+            if model.graph.nodes.iter().any(|n| n.op_type == "LayerNormalization") {
+                println!("\nAttempting GPT-2 ONNX forward pass...");
+                let session =
+                    gpu_host::onnx::OnnxSession::new(model.graph, &dev, &registry)?;
+                // Input: single token position (batch=1, seq_len=1)
+                // GPT-2 input is typically "input_ids" as int64
+                let mut inputs = std::collections::HashMap::new();
+                // Use token ID 50256 (endoftext) as a simple test
+                inputs.insert(
+                    "input_ids".to_string(),
+                    (vec![50256.0f32], vec![1, 1]),
+                );
+                let t1 = Instant::now();
+                match session.run(&inputs) {
+                    Ok(outputs) => {
+                        let fwd_ms = t1.elapsed().as_secs_f64() * 1000.0;
+                        for (name, data) in &outputs {
+                            println!(
+                                "  Output '{name}': {} elements, first 5: {:?}",
+                                data.len(),
+                                &data[..data.len().min(5)]
+                            );
+                        }
+                        println!("  Forward pass: {fwd_ms:.0}ms");
+                        println!("\nPASSED (GPT-2 ONNX forward pass works)");
+                    }
+                    Err(e) => {
+                        println!("Forward pass error: {e}");
+                        println!("(Some ops may need fixing for GPT-2)");
+                    }
+                }
+            } else {
+                println!("\nPARSED OK");
+            }
             return Ok(());
         }
     }

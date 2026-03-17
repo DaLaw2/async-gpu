@@ -50,6 +50,7 @@ const ML_KERNELS: &[&str] = &[
     // INT8 GEMM ops (compute_gemm.rs)
     "int8_gemm_dp4a",
     "int8_dequantize",
+    "int4_gemm_w4a16",
     // Physics simulation ops (compute_physics.rs)
     "spring_forces",
     "gravity_forces",

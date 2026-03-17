@@ -2090,3 +2090,77 @@ pub unsafe extern "ptx-kernel" fn int8_dequantize(
         *status = 0;
     }
 }
+
+// ============================================================
+// INT4 (W4A16) GEMM — 4-bit weights, f32 activations
+// ============================================================
+
+/// INT4 dequantize-on-the-fly GEMM: C[M,N] = A_f32[M,K] × dequant(W_int4[K,N]).
+///
+/// W_packed: [K/8, N] u32 (8 INT4 values per u32 along K, unsigned [0,15], zero_point=8).
+/// scales: [K/group_size, N] f32.
+///
+/// Grid: (ceil(M*N / 256), 1, 1), Block: (256, 1, 1).
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn int4_gemm_w4a16(
+    a: *const f32,
+    w_packed: *const u32,
+    scales: *const f32,
+    c_out: *mut f32,
+    m: u32,
+    n: u32,
+    k: u32,
+    group_size: u32,
+    status: *mut u32,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let block_x = nvptx::_block_idx_x() as u32;
+        let global_id = block_x * 256 + tid;
+        let total = m * n;
+
+        if global_id < total {
+            let row = global_id / n;
+            let col = global_id % n;
+            let k_packed = k / 8;
+            let mut acc: f32 = 0.0;
+
+            for kp in 0..k_packed {
+                let packed = *w_packed.add((kp * n + col) as usize);
+
+                for bit in 0..8u32 {
+                    let ki = kp * 8 + bit;
+                    if ki >= k {
+                        break;
+                    }
+                    let nibble = (packed >> (bit * 4)) & 0xF;
+                    let w_signed = nibble as i32 - 8;
+                    let group = ki / group_size;
+                    let scale = *scales.add((group * n + col) as usize);
+                    let w_f32 = w_signed as f32 * scale;
+                    let a_val = *a.add((row * k + ki) as usize);
+
+                    core::arch::asm!(
+                        "fma.rn.f32 {d}, {a}, {b}, {c};",
+                        d = out(reg32) acc,
+                        a = in(reg32) a_val,
+                        b = in(reg32) w_f32,
+                        c = in(reg32) acc,
+                    );
+                }
+            }
+
+            *c_out.add((row * n + col) as usize) = acc;
+        }
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (a, w_packed, scales, c_out, m, n, k, group_size);
+    }
+
+    if tid == 0 {
+        *status = 0;
+    }
+}

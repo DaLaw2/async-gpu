@@ -4,14 +4,14 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 489     # Monotonic counter, incremented after each completed phase
-completed_tasks = 599
+total_cycles = 490     # Monotonic counter, incremented after each completed phase
+completed_tasks = 600
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "onnx-executor.4"
+current_task_id = "int4-kernel.2"
 last_summary = "ONNX parser + executor DONE (20+ ops). kernel-fusion-v2 done (matmul_fused). onnx-executor.4 pending (PyTorch ONNX export embeds weights externally). Next: fix ONNX export, INT4 kernel, transformer ops."
 
 # Sequence counters for unique file naming across iterations
@@ -886,7 +886,8 @@ id = "int4-kernel.2"
 theme = "int4-kernel"
 title = "Implement INT4 dequantize GEMM kernel (W4A16)"
 kind = "experiment"
-status = "active"
+status = "done"
+# int4_gemm_w4a16 kernel: packed u32 (8 INT4 values), per-group scale, dequantize-on-the-fly FMA.
 depends = ["int4-kernel.1"]
 
 [[tasks]]

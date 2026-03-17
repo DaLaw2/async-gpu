@@ -44,6 +44,30 @@ fn test_onnx_parser() -> Result<(), Box<dyn std::error::Error>> {
     )?);
 
     // Try simple_mlp.onnx first (small, all weights embedded), then resnet
+    // Check for CLI-specified ONNX file: --test-onnx <path>
+    let args: Vec<String> = std::env::args().collect();
+    let onnx_idx = args.iter().position(|a| a == "--test-onnx");
+    let cli_onnx = onnx_idx.and_then(|i| args.get(i + 1)).cloned();
+    if let Some(ref p) = cli_onnx {
+        // Try: absolute → relative to CWD → relative to models/
+        let candidates = [
+            std::path::PathBuf::from(p),
+            gpu_host::model_dir(Some(env!("CARGO_MANIFEST_DIR"))).join(p),
+            gpu_host::model_dir(Some(env!("CARGO_MANIFEST_DIR")))
+                .join(std::path::Path::new(p).file_name().unwrap_or_default()),
+        ];
+        let custom_path = candidates.iter().find(|c| c.exists()).cloned().unwrap_or(candidates[0].clone());
+        if custom_path.exists() {
+            println!("Loading custom ONNX: {}", custom_path.display());
+            let t0 = Instant::now();
+            let model = gpu_host::onnx::load_onnx(&custom_path)?;
+            println!("Parsed in {:.1}ms", t0.elapsed().as_secs_f64() * 1000.0);
+            model.summary();
+            println!("\nPARSED OK (inference skipped for large models)");
+            return Ok(());
+        }
+    }
+
     // Prefer ResNet ONNX if available (42.7 MB with inline weights), else MLP
     let resnet_path =
         gpu_host::model_dir(Some(env!("CARGO_MANIFEST_DIR"))).join("resnet18_cifar10.onnx");

@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 589     # Monotonic counter, incremented after each completed phase
-completed_tasks = 700
+total_cycles = 590     # Monotonic counter, incremented after each completed phase
+completed_tasks = 701
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
 current_task_id = "perf-gemm.6"
-last_summary = "GEMM V3 1172 GFLOPS (42.4%), Attn V2 1.77x, LN V2 80 GB/s. GPT-2 221→52.4ms (4.2x). 700 tasks done. Next: GPT-2 specific GEMM tuning for M=128 shapes."
+last_summary = "GPT-2 TARGET MET: 221→32.6ms (6.8x)! cuBLAS fallback for M≤256. GEMM V3 1172 GFLOPS (42.4%). perf-gemm.6 done. Continue: remaining perf themes (attention, conv, LN, elem)."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 110
@@ -1614,7 +1614,7 @@ depends = ["perf-attention.3"]
 id = "perf-conv"
 epic = "kernel-perf"
 title = "High-performance Conv2D — Winograd + direct conv"
-status = "pending"
+status = "active"
 goal = "Conv2D >= 60% of cuDNN for common shapes"
 success_criteria = [
     "Winograd F(4×4, 3×3) for 3×3 convolutions (2.25x FLOPs reduction)",
@@ -1629,7 +1629,7 @@ id = "perf-conv.1"
 theme = "perf-conv"
 title = "Investigation: study Winograd F(4×4, 3×3) — transform matrices, tile layout, numerical stability"
 kind = "investigation"
-status = "pending"
+status = "active"
 depends = []
 
 [[tasks]]
@@ -1693,7 +1693,7 @@ id = "perf-layernorm.2"
 theme = "perf-layernorm"
 title = "Experiment: float4 vectorized loads + fused residual-add variant"
 kind = "experiment"
-status = "pending"
+status = "active"
 depends = ["perf-layernorm.1"]
 
 [[tasks]]

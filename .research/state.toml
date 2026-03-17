@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 535     # Monotonic counter, incremented after each completed phase
-completed_tasks = 645
+total_cycles = 540     # Monotonic counter, incremented after each completed phase
+completed_tasks = 650
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
 current_task_id = "onnx-gpt2-gen.1"
-last_summary = "bs109: GPT-2 ONNX text gen + Conv prepad. Brainstormed 3 new tasks for unmet ONNX criteria. Starting GPT-2 forward pass."
+last_summary = "GPT-2 ONNX forward pass WORKS: 150ms, 50257 logits. Fixed Constant tensor attrs, Gather embedding, Split ND, Unsqueeze, Where+Add broadcasting, batched MatMul."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 109
@@ -1015,7 +1015,7 @@ id = "onnx-gpt2-gen.1"
 theme = "onnx-gpt2-gen"
 title = "Run GPT-2 ONNX single forward pass, fix any op errors"
 kind = "experiment"
-status = "active"
+status = "done"
 depends = []
 
 [[tasks]]

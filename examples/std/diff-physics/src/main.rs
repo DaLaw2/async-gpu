@@ -86,6 +86,53 @@ fn test_onnx_parser() -> Result<(), Box<dyn std::error::Error>> {
                             );
                         }
                         println!("  Forward pass: {fwd_ms:.0}ms");
+
+                        // Autoregressive generation: pick argmax, feed back
+                        if let Some(logits) = outputs.get("logits") {
+                            let tokenizer = gpu_host::tokenizer::Gpt2Tokenizer::new()?;
+                            let mut tokens = vec![50256u32]; // start with endoftext
+                            let mut gen_tokens = Vec::new();
+
+                            for _ in 0..10 {
+                                let input_data: Vec<f32> = tokens.iter().map(|&t| t as f32).collect();
+                                let seq_len = tokens.len();
+                                let mut run_inputs = std::collections::HashMap::new();
+                                run_inputs.insert(
+                                    "input_ids".to_string(),
+                                    (input_data, vec![1, seq_len]),
+                                );
+                                let out = session.run(&run_inputs)?;
+                                if let Some(logits_data) = out.get("logits") {
+                                    // Get logits for the last token position
+                                    let vocab = 50257;
+                                    let last_pos_start = (seq_len - 1) * vocab;
+                                    if last_pos_start + vocab <= logits_data.len() {
+                                        let last_logits = &logits_data[last_pos_start..last_pos_start + vocab];
+                                        let next_token = last_logits
+                                            .iter()
+                                            .enumerate()
+                                            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+                                            .map(|(i, _)| i as u32)
+                                            .unwrap_or(0);
+                                        if next_token == 50256 {
+                                            break;
+                                        }
+                                        tokens.push(next_token);
+                                        gen_tokens.push(next_token);
+                                    } else {
+                                        break;
+                                    }
+                                } else {
+                                    break;
+                                }
+                            }
+
+                            if !gen_tokens.is_empty() {
+                                let text = tokenizer.decode(&gen_tokens).unwrap_or_default();
+                                println!("  Generated ({} tokens): {text}", gen_tokens.len());
+                            }
+                        }
+
                         println!("\nPASSED (GPT-2 ONNX forward pass works)");
                     }
                     Err(e) => {

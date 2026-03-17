@@ -1814,13 +1814,13 @@ pub unsafe extern "ptx-kernel" fn gemm_f32(
 /// B: [K, N] row-major f32.  (NO transpose needed — both row-major)
 /// D: [M, N] row-major f32.
 ///
-/// CTA tile: 128×64, BK=8.
+/// CTA tile: 128×64, BK=8 (or 64×128 for wide-N shapes).
 /// 256 threads, each thread computes 4×8 = 32 output elements.
 /// A stored transposed in smem with padding for bank conflict avoidance.
 /// Double-buffered shared memory.
 ///
 /// grid_dim = (ceil(M/128), ceil(N/64), 1), block_dim = (256, 1, 1).
-/// shared_mem_bytes = 2 * (8 * 132 + 8 * 64) * 4 = 11264.
+/// shared_mem_bytes = 2 * (8 * 132 + 8 * 64) * 4 = 12544.
 #[no_mangle]
 pub unsafe extern "ptx-kernel" fn gemm_f32_v2(
     a_global: *const f32,

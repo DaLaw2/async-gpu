@@ -35,6 +35,39 @@ pub fn matmul(a: &GpuTensor, b: &GpuTensor, registry: &Arc<KernelRegistry>) -> R
         });
     }
 
+    // Use V2 kernel (128×64 tile, 4×8 register blocking, row-major B) for
+    // matrices large enough. V2 handles bounds checking internally — no
+    // padding or transpose needed.
+    if m >= 4 && n >= 4 && k >= 4 {
+        let mut result = matmul_v2(a, b, registry)?;
+        // Record on autograd tape
+        if a.requires_grad() || b.requires_grad() {
+            if let Some(out_id) = crate::nn::autograd::alloc_tensor_id() {
+                result.set_tensor_id(out_id);
+                result.set_requires_grad(true);
+                crate::nn::autograd::record_op(crate::nn::autograd::TapeEntry {
+                    op: crate::nn::autograd::OpKind::Matmul,
+                    inputs: vec![
+                        a.tensor_id()
+                            .unwrap_or(crate::nn::autograd::TensorId(u32::MAX)),
+                        b.tensor_id()
+                            .unwrap_or(crate::nn::autograd::TensorId(u32::MAX)),
+                    ],
+                    output: out_id,
+                    saved: vec![
+                        a.tensor_id()
+                            .unwrap_or(crate::nn::autograd::TensorId(u32::MAX)),
+                        b.tensor_id()
+                            .unwrap_or(crate::nn::autograd::TensorId(u32::MAX)),
+                    ],
+                    meta: crate::nn::autograd::OpMeta::Matmul { m, k, n },
+                });
+            }
+        }
+        return Ok(result);
+    }
+
+    // Fallback: V1 kernel for tiny matrices (M<4 or N<4)
     let m_pad = m.div_ceil(32) * 32;
     let k_pad = k.div_ceil(16) * 16;
     let n_pad = n.div_ceil(16) * 16;

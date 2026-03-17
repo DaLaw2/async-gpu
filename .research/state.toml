@@ -4,14 +4,14 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 581     # Monotonic counter, incremented after each completed phase
-completed_tasks = 692
+total_cycles = 582     # Monotonic counter, incremented after each completed phase
+completed_tasks = 693
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "perf-gemm.3"
+current_task_id = "perf-gemm.5"
 last_summary = "GEMM V2: 128×64+4×8 = 998 GFLOPS (36.8% cuBLAS), 6.4x over v1. Next: perf-gemm.4 float4 vectorized loads."
 
 # Sequence counters for unique file naming across iterations
@@ -1539,17 +1539,17 @@ depends = ["perf-gemm.2"]
 [[tasks]]
 id = "perf-gemm.4"
 theme = "perf-gemm"
-title = "Experiment: float4 vectorized loads + software pipeline (cp.async if SM80+)"
+title = "Experiment: BK=16 attempt (reverted — numerical issues) + float4 deferred"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["perf-gemm.3"]
 
 [[tasks]]
 id = "perf-gemm.5"
 theme = "perf-gemm"
-title = "Experiment: benchmark new GEMM at all sizes, integrate into nn::ops::matmul"
+title = "Experiment: integrate V2 GEMM into nn API, benchmark GPT-2 end-to-end"
 kind = "experiment"
-status = "pending"
+status = "active"
 depends = ["perf-gemm.4"]
 
 # --- Theme 2: Flash Attention (P1 — MMA-based rewrite) ---

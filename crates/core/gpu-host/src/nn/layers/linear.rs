@@ -166,23 +166,8 @@ impl Module for Linear {
         };
 
         // matmul: [batch, in_features] x [in_features, out_features] = [batch, out_features]
-        let mut output = if let Some(ref prepadded) = self.weight_prepadded {
-            // Fast path: skip B transpose+pad (pre-computed in constructor)
-            let in_f = self.weight_t.shape()[0];
-            let out_f = self.weight_t.shape()[1];
-            ops::matmul_prepadded_b(
-                &input_2d,
-                prepadded,
-                batch,
-                in_f,
-                out_f,
-                self.k_pad,
-                self.n_pad,
-                &self.registry,
-            )?
-        } else {
-            ops::matmul(&input_2d, &self.weight_t, &self.registry)?
-        };
+        // V2 kernel: both A and B row-major, handles bounds internally (no pad/transpose)
+        let mut output = ops::matmul(&input_2d, &self.weight_t, &self.registry)?;
 
         // Add bias
         if let Some(ref bias) = self.bias {

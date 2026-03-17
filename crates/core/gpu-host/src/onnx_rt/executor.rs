@@ -310,19 +310,26 @@ fn dispatch_gemm(
 
                 let m = a_shape[ndim - 2];
                 let k = a_shape[ndim - 1];
-                let n = b_shape[ndim - 1];
-                let batch: usize = a_shape[..ndim - 2].iter().product();
+                let b_ndim = b_shape.len();
+                let n = b_shape[b_ndim - 1];
+                let a_batch: usize = a_shape[..ndim - 2].iter().product::<usize>().max(1);
+                let b_batch: usize = b_shape[..b_ndim - 2].iter().product::<usize>().max(1);
+                let batch = a_batch.max(b_batch);
 
                 let mut out_data = vec![0.0f32; batch * m * n];
                 for bi in 0..batch {
-                    let a_off = bi * m * k;
-                    let b_off = bi * k * n;
+                    let a_off = (bi % a_batch) * m * k;
+                    let b_off = (bi % b_batch) * k * n;
                     let c_off = bi * m * n;
                     for i in 0..m {
                         for j in 0..n {
                             let mut sum = 0.0f32;
                             for p in 0..k {
-                                sum += a_h[a_off + i * k + p] * b_h[b_off + p * n + j];
+                                let ai = a_off + i * k + p;
+                                let bi_idx = b_off + p * n + j;
+                                if ai < a_h.len() && bi_idx < b_h.len() {
+                                    sum += a_h[ai] * b_h[bi_idx];
+                                }
                             }
                             out_data[c_off + i * n + j] = sum;
                         }

@@ -36,6 +36,16 @@ impl LayerNorm {
             registry: Arc::clone(registry),
         })
     }
+
+    /// Reference to gamma (scale) tensor.
+    pub fn gamma(&self) -> &GpuTensor {
+        &self.gamma
+    }
+
+    /// Reference to beta (bias) tensor.
+    pub fn beta(&self) -> &GpuTensor {
+        &self.beta
+    }
 }
 
 impl Module for LayerNorm {

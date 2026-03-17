@@ -25,6 +25,8 @@ pub use conv::{conv2d, conv2d_backward};
 pub use gemm::{
     int4_matmul, int8_matmul, matmul, matmul_fused, matmul_prepadded_b, matmul_v2, FusedActivation,
 };
+#[cfg(feature = "cublas")]
+pub use norm::layer_norm_residual;
 pub use norm::{batch_norm, batch_norm_silu, layer_norm};
 pub use pool::max_pool2d;
 pub use reshape::{bias_add, bias_add_chw, concat_channels, elementwise_add, embedding_lookup};

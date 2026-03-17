@@ -102,6 +102,7 @@ pub struct TransformerBlock {
     ffn_up: Linear,   // [n_embd → 4*n_embd]
     ffn_down: Linear, // [4*n_embd → n_embd]
     gelu: GELU,
+    layer_norm_eps: f32,
     registry: Arc<KernelRegistry>,
 }
 
@@ -157,20 +158,25 @@ impl TransformerBlock {
                 registry,
             )?,
             gelu: GELU::new(registry),
+            layer_norm_eps: eps,
             registry: Arc::clone(registry),
         })
     }
 
     /// Forward pass: input `[seq_len, n_embd]` → output `[seq_len, n_embd]`.
     pub fn forward(&self, input: &GpuTensor) -> Result<GpuTensor> {
-        // LN1 → MHA → residual
+        // LN1 → MHA
         let ln1_out = self.ln_1.forward(input)?;
         let attn_out = self.attn.forward_causal(&ln1_out)?;
+
+        // residual = input + attn_out
         let mut residual = input.clone_tensor()?;
         ops::elementwise_add(&mut residual, &attn_out, &self.registry)?;
 
-        // LN2 → FFN → residual
+        // Fused: ln2_out = LN2(residual) — but residual is already computed
         let ln2_out = self.ln_2.forward(&residual)?;
+
+        // FFN
         let ffn_hidden = self.ffn_up.forward(&ln2_out)?;
         let ffn_act = self.gelu.forward(&ffn_hidden)?;
         let ffn_out = self.ffn_down.forward(&ffn_act)?;
@@ -1119,6 +1125,7 @@ pub struct Int4TransformerBlock {
     ffn_up: Int4Linear,
     ffn_down: Int4Linear,
     gelu: GELU,
+    layer_norm_eps: f32,
     registry: Arc<KernelRegistry>,
 }
 
@@ -1190,6 +1197,7 @@ impl Int4TransformerBlock {
                 registry,
             )?,
             gelu: GELU::new(registry),
+            layer_norm_eps: eps,
             registry: Arc::clone(registry),
         })
     }

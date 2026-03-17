@@ -11,8 +11,8 @@ status = "running"     # ready | running | blocked | completed
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "perf-gemm-v4.1"
-last_summary = "Epic criteria updated: ALL kernels must reach ≥70% of CUDA/cuDNN. New themes: perf-fusion, perf-gemm-v4, perf-attn-v3, perf-conv-wino, perf-elem-fix. Starting Tier 1: fusion + GEMM float4 + elem fix."
+current_task_id = "perf-fusion.1"
+last_summary = "GEMM V4 (NVRTC) = 1760 GFLOPS (63% cuBLAS). Next: perf-fusion.1 (fused LN+residual), perf-attn-v3 (warp-cooperative), perf-conv-wino. Target: all ≥70%."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 110
@@ -1786,7 +1786,7 @@ id = "perf-fusion.1"
 theme = "perf-fusion"
 title = "Experiment: fused LayerNorm + residual add kernel"
 kind = "experiment"
-status = "pending"
+status = "active"
 depends = []
 
 [[tasks]]
@@ -1814,9 +1814,9 @@ success_criteria = [
 [[tasks]]
 id = "perf-gemm-v4.1"
 theme = "perf-gemm-v4"
-title = "Experiment: add float4 global loads to V3 kernel (ld.global.v4.f32)"
+title = "Experiment: NVRTC V4 kernel with float4 loads — achieved 63% cuBLAS"
 kind = "experiment"
-status = "active"
+status = "done"
 depends = []
 
 [[tasks]]

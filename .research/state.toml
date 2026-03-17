@@ -4,8 +4,8 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 525     # Monotonic counter, incremented after each completed phase
-completed_tasks = 635
+total_cycles = 532     # Monotonic counter, incremented after each completed phase
+completed_tasks = 642
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
@@ -894,7 +894,7 @@ id = "rv2-unwrap.1"
 theme = "refactor-v2-code"
 title = "Fix resnet.rs Option::unwrap() → ok_or(NnError) + backward.rs + optim.rs"
 kind = "experiment"
-status = "active"
+status = "done"
 depends = []
 
 [[tasks]]
@@ -902,7 +902,7 @@ id = "rv2-quant.1"
 theme = "refactor-v2-code"
 title = "Extract INT8+INT4 pack/unpack into nn/ops/quantize.rs shared module"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = []
 
 [[tasks]]
@@ -910,7 +910,7 @@ id = "rv2-pub.1"
 theme = "refactor-v2-code"
 title = "pub(crate) audit: scan all pub fn/struct in nn/ and onnx_rt/, mark internal ones"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = []
 
 [[tasks]]
@@ -918,7 +918,7 @@ id = "rv2-dead.1"
 theme = "refactor-v2-code"
 title = "Dead code cleanup: unused functions, imports, variables across gpu-host"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = []
 
 [[tasks]]
@@ -926,7 +926,7 @@ id = "rv2-magic.1"
 theme = "refactor-v2-code"
 title = "Extract all magic numbers to named constants"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = []
 
 [[themes]]
@@ -947,7 +947,7 @@ id = "rv2-gpu-elem.1"
 theme = "refactor-v2-perf"
 title = "GPU elementwise kernels for Mul/Sub/Div/Neg (replace to_host round-trips)"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = []
 
 [[tasks]]
@@ -991,5 +991,5 @@ id = "rv2-test.1"
 theme = "refactor-v2-test"
 title = "Add unit tests for Int4Linear, OnnxSession, quantize pack/unpack"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["rv2-quant.1"]

@@ -787,10 +787,66 @@ fn dispatch_shape(
                 Ok(NodeOutput::Single(out))
             }
         }
-        "Squeeze" | "Unsqueeze" => {
+        "Unsqueeze" => {
             let x = get_input(&node.inputs[0], tensor_map)?;
-            // For now, pass through (shape info tracked externally)
-            let out = x.clone_tensor().map_err(map_nn_err)?;
+            let x_h = x.to_host().map_err(map_nn_err)?;
+            let mut new_shape = x.shape().to_vec();
+            // Get axes from second input (opset 13+) or attribute
+            let axes = if node.inputs.len() > 1 && !node.inputs[1].is_empty() {
+                let axes_t = get_input(&node.inputs[1], tensor_map)?;
+                let axes_h = axes_t.to_host().map_err(map_nn_err)?;
+                axes_h.iter().map(|&v| v as i64).collect::<Vec<_>>()
+            } else {
+                node.attr_ints("axes")
+            };
+            // Insert dimensions (process in reverse order for correct indexing)
+            let mut sorted_axes: Vec<i64> = axes;
+            sorted_axes.sort();
+            for &axis in sorted_axes.iter().rev() {
+                let pos = if axis < 0 {
+                    (new_shape.len() as i64 + axis + 1) as usize
+                } else {
+                    axis as usize
+                };
+                new_shape.insert(pos.min(new_shape.len()), 1);
+            }
+            let out = GpuTensor::from_host(&x_h, &new_shape, dev).map_err(map_nn_err)?;
+            Ok(NodeOutput::Single(out))
+        }
+        "Squeeze" => {
+            let x = get_input(&node.inputs[0], tensor_map)?;
+            let x_h = x.to_host().map_err(map_nn_err)?;
+            let mut new_shape: Vec<usize> = x.shape().to_vec();
+            let axes = if node.inputs.len() > 1 && !node.inputs[1].is_empty() {
+                let axes_t = get_input(&node.inputs[1], tensor_map)?;
+                let axes_h = axes_t.to_host().map_err(map_nn_err)?;
+                axes_h.iter().map(|&v| v as i64).collect::<Vec<_>>()
+            } else {
+                node.attr_ints("axes")
+            };
+            if axes.is_empty() {
+                // Remove all dims of size 1
+                new_shape.retain(|&d| d != 1);
+            } else {
+                let mut to_remove: Vec<usize> = axes
+                    .iter()
+                    .map(|&a| {
+                        if a < 0 {
+                            (new_shape.len() as i64 + a) as usize
+                        } else {
+                            a as usize
+                        }
+                    })
+                    .collect();
+                to_remove.sort();
+                for (i, &pos) in to_remove.iter().enumerate() {
+                    new_shape.remove(pos - i);
+                }
+            }
+            if new_shape.is_empty() {
+                new_shape.push(1);
+            }
+            let out = GpuTensor::from_host(&x_h, &new_shape, dev).map_err(map_nn_err)?;
             Ok(NodeOutput::Single(out))
         }
         "Shape" => {
@@ -886,44 +942,59 @@ fn dispatch_shape(
         }
         "Split" => {
             let x = get_input(&node.inputs[0], tensor_map)?;
-            let axis = node.attr_int("axis", 0) as usize;
+            let mut axis = node.attr_int("axis", 0);
             let x_h = x.to_host().map_err(map_nn_err)?;
             let shape = x.shape();
-            let split_sizes = node.attr_ints("split");
-            let n_outputs = if !split_sizes.is_empty() {
-                split_sizes.len()
-            } else {
-                node.outputs.len()
-            };
-            // Simple split along last axis for 2D tensors
-            if shape.len() == 2 && axis == 1 {
-                let cols = shape[1];
-                let chunk = cols / n_outputs;
-                let mut tensors = Vec::new();
-                for i in 0..n_outputs {
-                    let start = i * chunk;
-                    let end = if i == n_outputs - 1 {
-                        cols
-                    } else {
-                        start + chunk
-                    };
-                    let mut out_data = Vec::new();
-                    for row in 0..shape[0] {
-                        out_data.extend_from_slice(&x_h[row * cols + start..row * cols + end]);
-                    }
-                    let t = GpuTensor::from_host(&out_data, &[shape[0], end - start], dev)
-                        .map_err(map_nn_err)?;
-                    tensors.push(t);
-                }
-                Ok(NodeOutput::Multiple(tensors))
-            } else {
-                // Fallback: return clones
-                let mut tensors = Vec::new();
-                for _ in 0..n_outputs {
-                    tensors.push(x.clone_tensor().map_err(map_nn_err)?);
-                }
-                Ok(NodeOutput::Multiple(tensors))
+            let ndim = shape.len() as i64;
+
+            // Normalize negative axis
+            if axis < 0 {
+                axis += ndim;
             }
+            let axis_usize = axis as usize;
+
+            // Get split sizes: from 'split' attribute or second input (opset 13+)
+            let mut split_sizes: Vec<usize> = node
+                .attr_ints("split")
+                .iter()
+                .map(|&v| v as usize)
+                .collect();
+            if split_sizes.is_empty() && node.inputs.len() > 1 && !node.inputs[1].is_empty() {
+                if let Ok(split_t) = get_input(&node.inputs[1], tensor_map) {
+                    let sh = split_t.to_host().map_err(map_nn_err)?;
+                    split_sizes = sh.iter().map(|&v| v as usize).collect();
+                }
+            }
+
+            let n_outputs = node.outputs.len();
+            if split_sizes.is_empty() {
+                // Equal split
+                let chunk = shape[axis_usize] / n_outputs;
+                split_sizes = vec![chunk; n_outputs];
+            }
+
+            // General split along any axis for any ndim
+            let axis_dim = shape[axis_usize];
+            let outer: usize = shape[..axis_usize].iter().product::<usize>().max(1);
+            let inner: usize = shape[axis_usize + 1..].iter().product::<usize>().max(1);
+
+            let mut tensors = Vec::new();
+            let mut offset = 0usize;
+            for &sz in &split_sizes {
+                let mut out_data = Vec::with_capacity(outer * sz * inner);
+                for o in 0..outer {
+                    for a in 0..sz {
+                        let src_start = (o * axis_dim + offset + a) * inner;
+                        out_data.extend_from_slice(&x_h[src_start..src_start + inner]);
+                    }
+                }
+                let mut out_shape = shape.to_vec();
+                out_shape[axis_usize] = sz;
+                let t = GpuTensor::from_host(&out_data, &out_shape, dev).map_err(map_nn_err)?;
+                tensors.push(t);
+                offset += sz;
+            }
+            Ok(NodeOutput::Multiple(tensors))
         }
         "Slice" => {
             // Simplified Slice for 1D/2D

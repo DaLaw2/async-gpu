@@ -133,11 +133,7 @@ fn bench_fused() -> Result<(), Box<dyn std::error::Error>> {
 
 /// Benchmark INT8 dp4a GEMM vs f32 GEMM.
 fn bench_int8() -> Result<(), Box<dyn std::error::Error>> {
-    let dev = cudarc::driver::CudaDevice::new(0)?;
-    let reg = Arc::new(gpu_host::nn::KernelRegistry::new(
-        Arc::clone(&dev),
-        gpu_host::ptx::KERNEL,
-    )?);
+    let (dev, reg) = gpu_host::nn::KernelRegistry::init_default()?;
 
     let tests = vec![
         (1, 768, 768, "Linear 768→768"),
@@ -219,11 +215,7 @@ fn bench_int8() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn run(query: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let dev = cudarc::driver::CudaDevice::new(0)?;
-    let registry = Arc::new(gpu_host::nn::KernelRegistry::new(
-        Arc::clone(&dev),
-        gpu_host::ptx::KERNEL,
-    )?);
+    let (dev, registry) = gpu_host::nn::KernelRegistry::init_default()?;
 
     println!("=== GPU-Autonomous RAG Demo ===\n");
 

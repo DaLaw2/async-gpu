@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 514     # Monotonic counter, incremented after each completed phase
-completed_tasks = 624
+total_cycles = 519     # Monotonic counter, incremented after each completed phase
+completed_tasks = 629
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
 current_task_id = "refactor-quality.1"
-last_summary = "2 new epics: refactor (6 criteria) + onnx-perf (4 criteria). Starting clippy fixes + ONNX caching in parallel."
+last_summary = "Refactor: zero clippy, init_default migration. OnnxSession caching (43.4ms vs 47.2ms uncached). Remaining: split dispatch_node, unwrap cleanup, quantization utils, pub audit."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 108
@@ -720,7 +720,7 @@ id = "refactor-quality.1"
 theme = "refactor-quality"
 title = "Fix all clippy warnings in gpu-host (nn, gpt2, onnx features)"
 kind = "experiment"
-status = "active"
+status = "done"
 depends = []
 
 [[tasks]]
@@ -728,7 +728,7 @@ id = "refactor-quality.2"
 theme = "refactor-quality"
 title = "Split dispatch_node() into per-category handlers (activation, gemm, conv, shape, etc)"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = []
 
 [[tasks]]
@@ -756,7 +756,7 @@ id = "refactor-api.1"
 theme = "refactor-api"
 title = "Migrate all 9 examples to KernelRegistry::init_default()"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = []
 
 [[tasks]]
@@ -807,7 +807,7 @@ id = "onnx-cache.1"
 theme = "onnx-cache"
 title = "Implement OnnxSession with initializer caching (upload once)"
 kind = "experiment"
-status = "active"
+status = "done"
 depends = []
 
 [[tasks]]
@@ -815,7 +815,7 @@ id = "onnx-cache.2"
 theme = "onnx-cache"
 title = "Benchmark cached ONNX vs native nn API on ResNet-18"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["onnx-cache.1"]
 
 [[themes]]

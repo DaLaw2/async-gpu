@@ -37,11 +37,7 @@ fn main() {
 // --- ONNX Parser Test ---
 
 fn test_onnx_parser() -> Result<(), Box<dyn std::error::Error>> {
-    let dev = cudarc::driver::CudaDevice::new(0)?;
-    let registry = Arc::new(gpu_host::nn::KernelRegistry::new(
-        Arc::clone(&dev),
-        gpu_host::ptx::KERNEL,
-    )?);
+    let (dev, registry) = gpu_host::nn::KernelRegistry::init_default()?;
 
     // Try simple_mlp.onnx first (small, all weights embedded), then resnet
     // Check for CLI-specified ONNX file: --test-onnx <path>
@@ -156,11 +152,7 @@ fn test_onnx_parser() -> Result<(), Box<dyn std::error::Error>> {
 fn bench_persistent_kernel() -> Result<(), Box<dyn std::error::Error>> {
     use cudarc::driver::sys::lib as cuda_lib;
 
-    let dev = cudarc::driver::CudaDevice::new(0)?;
-    let registry = Arc::new(gpu_host::nn::KernelRegistry::new(
-        Arc::clone(&dev),
-        gpu_host::ptx::KERNEL,
-    )?);
+    let (dev, registry) = gpu_host::nn::KernelRegistry::init_default()?;
 
     println!("=== Persistent Kernel Dispatch Latency Benchmark ===\n");
 
@@ -544,11 +536,7 @@ fn backward_cpu(
 // --- GPU vs CPU Benchmark ---
 
 fn benchmark() -> Result<(), Box<dyn std::error::Error>> {
-    let dev = cudarc::driver::CudaDevice::new(0)?;
-    let registry = Arc::new(gpu_host::nn::KernelRegistry::new(
-        Arc::clone(&dev),
-        gpu_host::ptx::KERNEL,
-    )?);
+    let (dev, registry) = gpu_host::nn::KernelRegistry::init_default()?;
 
     println!("=== Differentiable Physics: GPU vs CPU Benchmark ===\n");
 

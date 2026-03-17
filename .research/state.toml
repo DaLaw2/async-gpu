@@ -10,9 +10,9 @@ status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.execute"
-current_task_id = "perf-gemm.6"
-last_summary = "kernel-perf: 4/6 met, 2 deferred (attn needs FA2 rewrite, elem L2-limited). GPT-2 221→32.7ms (6.8x). GEMM V3 1172 GFLOPS. Epic ready for user review/close."
+current_step = "do.select"
+current_task_id = ""
+last_summary = "Epic criteria updated: ALL kernels must reach ≥70% of CUDA/cuDNN. New themes: perf-fusion, perf-gemm-v4, perf-attn-v3, perf-conv-wino, perf-elem-fix. Starting Tier 1: fusion + GEMM float4 + elem fix."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 110
@@ -1488,12 +1488,11 @@ title = "Kernel Performance — close gap to cuBLAS/cuDNN across all compute pri
 status = "active"
 priority = "highest"
 success_criteria = [
-    "SGEMM >= 70% of cuBLAS (~2000 GFLOPS): 128×128 tile, 8×8 register blocking, double-buffered smem, float4 loads",
-    "Flash Attention >= 50% of cuDNN FA2: MMA tiled GEMM for Q·K^T and P·V, shared memory Q tiles, cp.async prefetch",
-    "Conv2D >= 60% of cuDNN: Winograd F(4×4,3×3) for 3×3 conv, direct conv kernel for other sizes, eliminate im2col",
-    "LayerNorm >= 60% of peak BW (~180 GB/s): single-pass Welford, 256 threads, shared memory warp reduction, float4",
-    "elementwise/GELU >= 80% of peak BW (~240 GB/s): float4 vectorized loads/stores, multi-element per thread",
-    "GPT-2 end-to-end forward pass < 35ms (from 221ms, 6.3x improvement)",
+    "SGEMM >= 70% of cuBLAS (~1960 GFLOPS): float4 loads + cp.async 3-stage pipeline",
+    "Flash Attention >= 70% of cuDNN FA2: warp-cooperative tiled GEMM for Q·K^T and P·V",
+    "Conv2D >= 70% of cuDNN for ALL shapes: Winograd F(4×4,3×3) for large spatial + optimized im2col for small",
+    "Memory-bound ops >= 70% of peak BW (140 GB/s): fused kernels, out-of-place, op fusion",
+    "GPT-2 end-to-end forward pass < 25ms: op fusion + all kernel optimizations",
 ]
 
 # --- Theme 1: GEMM (P0 — foundation for everything) ---
@@ -1764,3 +1763,179 @@ title = "Experiment: YOLOv8-nano + ResNet-18 benchmark with optimized conv + ele
 kind = "experiment"
 status = "pending"
 depends = ["perf-conv.5", "perf-elementwise.2"]
+
+# ============================================================
+# Phase 2: 70% target — new themes + tasks
+# ============================================================
+
+# --- Theme: Op Fusion (Tier 1 priority) ---
+
+[[themes]]
+id = "perf-fusion"
+epic = "kernel-perf"
+title = "Op Fusion — fuse LayerNorm+residual, reduce kernel launches"
+status = "active"
+goal = "Reduce GPT-2 per-block overhead by fusing small ops"
+success_criteria = [
+    "Fused LayerNorm + residual add kernel (1 kernel instead of 2)",
+    "GPT-2 per-block time reduced by >= 0.3ms from fusion",
+]
+
+[[tasks]]
+id = "perf-fusion.1"
+theme = "perf-fusion"
+title = "Experiment: fused LayerNorm + residual add kernel"
+kind = "experiment"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "perf-fusion.2"
+theme = "perf-fusion"
+title = "Experiment: integrate fused LN+residual into GPT-2, benchmark"
+kind = "experiment"
+status = "pending"
+depends = ["perf-fusion.1"]
+
+# --- Theme: SGEMM Phase 2 — float4 + cp.async (Tier 1) ---
+
+[[themes]]
+id = "perf-gemm-v4"
+epic = "kernel-perf"
+title = "SGEMM V4 — float4 vectorized loads + cp.async pipeline"
+status = "active"
+goal = "SGEMM >= 70% cuBLAS (~1960 GFLOPS at 4096³)"
+success_criteria = [
+    "ld.global.v4.f32 for A and B tile loading",
+    "cp.async.ca.shared.global 3-stage pipeline",
+    "4096³ >= 1960 GFLOPS (70% of cuBLAS 2800)",
+]
+
+[[tasks]]
+id = "perf-gemm-v4.1"
+theme = "perf-gemm-v4"
+title = "Experiment: add float4 global loads to V3 kernel (ld.global.v4.f32)"
+kind = "experiment"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "perf-gemm-v4.2"
+theme = "perf-gemm-v4"
+title = "Experiment: cp.async 3-stage pipeline (SM80+ async copy)"
+kind = "experiment"
+status = "pending"
+depends = ["perf-gemm-v4.1"]
+
+[[tasks]]
+id = "perf-gemm-v4.3"
+theme = "perf-gemm-v4"
+title = "Experiment: benchmark V4, integrate, verify ≥70% cuBLAS"
+kind = "experiment"
+status = "pending"
+depends = ["perf-gemm-v4.2"]
+
+# --- Theme: Attention V3 — warp-cooperative GEMM (Tier 2) ---
+
+[[themes]]
+id = "perf-attn-v3"
+epic = "kernel-perf"
+title = "Attention V3 — warp-cooperative tiled GEMM for Q·K^T and P·V"
+status = "pending"
+goal = "Flash Attention >= 70% of cuDNN FA2"
+success_criteria = [
+    "Score GEMM via cooperative thread-tile (not scalar dot product)",
+    "P·V via cooperative thread-tile accumulation",
+    "seq=512, 12 heads: >= 70% of cuDNN FA2 throughput",
+]
+
+[[tasks]]
+id = "perf-attn-v3.1"
+theme = "perf-attn-v3"
+title = "Investigation: design warp-cooperative attention — thread mapping, smem layout"
+kind = "investigation"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "perf-attn-v3.2"
+theme = "perf-attn-v3"
+title = "Experiment: implement cooperative score GEMM (Q·K^T) with 128 threads"
+kind = "experiment"
+status = "pending"
+depends = ["perf-attn-v3.1"]
+
+[[tasks]]
+id = "perf-attn-v3.3"
+theme = "perf-attn-v3"
+title = "Experiment: cooperative P·V accumulation + online softmax"
+kind = "experiment"
+status = "pending"
+depends = ["perf-attn-v3.2"]
+
+[[tasks]]
+id = "perf-attn-v3.4"
+theme = "perf-attn-v3"
+title = "Experiment: benchmark, iterate until ≥70% cuDNN, integrate"
+kind = "experiment"
+status = "pending"
+depends = ["perf-attn-v3.3"]
+
+# --- Theme: Conv2D Winograd (Tier 2) ---
+
+[[themes]]
+id = "perf-conv-wino"
+epic = "kernel-perf"
+title = "Conv2D Winograd — F(4×4,3×3) for large spatial convolutions"
+status = "pending"
+goal = "Conv2D 3×3 >= 70% cuDNN for 56×56+ spatial sizes"
+success_criteria = [
+    "Winograd F(4×4,3×3) transform + batched GEMM + inverse transform",
+    "64→64 @ 56×56: >= 70% of cuDNN 1439 GFLOPS",
+    "No accuracy regression vs im2col path",
+]
+
+[[tasks]]
+id = "perf-conv-wino.1"
+theme = "perf-conv-wino"
+title = "Experiment: implement Winograd input/filter/output transforms"
+kind = "experiment"
+status = "pending"
+depends = ["perf-conv.1"]
+
+[[tasks]]
+id = "perf-conv-wino.2"
+theme = "perf-conv-wino"
+title = "Experiment: full Winograd conv2d pipeline + correctness test"
+kind = "experiment"
+status = "pending"
+depends = ["perf-conv-wino.1"]
+
+[[tasks]]
+id = "perf-conv-wino.3"
+theme = "perf-conv-wino"
+title = "Experiment: benchmark all shapes, iterate until ≥70% cuDNN"
+kind = "experiment"
+status = "pending"
+depends = ["perf-conv-wino.2"]
+
+# --- Theme: elementwise fix (Tier 1, easy) ---
+
+[[themes]]
+id = "perf-elem-fix"
+epic = "kernel-perf"
+title = "elementwise fix — out-of-place + fuse into other kernels"
+status = "active"
+goal = "elementwise >= 80% of peak 200 GB/s (≥160 GB/s)"
+success_criteria = [
+    "Out-of-place elementwise_add eliminates RW conflict",
+    "elementwise_add >= 160 GB/s at 786K elements",
+]
+
+[[tasks]]
+id = "perf-elem-fix.1"
+theme = "perf-elem-fix"
+title = "Experiment: out-of-place elementwise_add + benchmark"
+kind = "experiment"
+status = "pending"
+depends = []

@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 569     # Monotonic counter, incremented after each completed phase
-completed_tasks = 679
+total_cycles = 573     # Monotonic counter, incremented after each completed phase
+completed_tasks = 684
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "bench-kernels.1"
-last_summary = "gpu-dynamic epic COMPLETED. graph-bfs.1 + mc-finance.1 done. Next: bench-kernels.1 (SGEMM benchmark), graph-bfs.2/3 (GPU BFS/PageRank), mc-finance.2 (BS GPU), int4-integrate.1."
+current_task_id = ""
+last_summary = "graph-bfs.2 DONE (GPU BFS verified vs CPU, 131K vertices). int4-integrate.1 DONE (Int4Gpt2Model, coherent text). Next: graph-bfs.3 (PageRank), mc-finance.2/3 (GPU MC)."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 110
@@ -1292,7 +1292,7 @@ id = "graph-bfs.2"
 theme = "graph-bfs"
 title = "Experiment: GPU BFS (level-synchronous) + CPU reference comparison"
 kind = "experiment"
-status = "active"
+status = "done"
 depends = ["graph-bfs.1"]
 
 [[tasks]]
@@ -1319,7 +1319,7 @@ id = "int4-integrate.1"
 theme = "int4-integrate"
 title = "Experiment: wire Int4Linear into GPT-2, load quantized weights, generate text"
 kind = "experiment"
-status = "active"
+status = "done"
 depends = []
 
 [[themes]]
@@ -1381,7 +1381,7 @@ key_insight = "NN axis saturated. Breadth wins, but only where async/await adds 
 [[epics]]
 id = "benchmark"
 title = "GPU Kernel Benchmarks — cuBLAS/cuDNN comparison + throughput metrics"
-status = "active"
+status = "completed"
 priority = "high"
 success_criteria = [
     "SGEMM benchmark: measure GFLOPS at multiple sizes (512-4096), compare vs cuBLAS, report % of peak",
@@ -1399,7 +1399,7 @@ success_criteria = [
 id = "bench-kernels"
 epic = "benchmark"
 title = "Kernel microbenchmarks — GFLOPS/GB/s vs cuBLAS/cuDNN"
-status = "active"
+status = "completed"
 goal = "Quantify per-kernel performance gap against NVIDIA optimized libraries"
 success_criteria = [
     "SGEMM GFLOPS at M=N=K=512,1024,2048,4096 vs cuBLAS",
@@ -1446,7 +1446,7 @@ depends = []
 id = "bench-e2e"
 epic = "benchmark"
 title = "End-to-end model profiling — per-layer breakdown + bottleneck analysis"
-status = "active"
+status = "completed"
 goal = "Identify which ops dominate latency and where to optimize"
 success_criteria = [
     "GPT-2 per-layer timing breakdown",
@@ -1459,7 +1459,7 @@ id = "bench-e2e.1"
 theme = "bench-e2e"
 title = "Experiment: GPT-2 inference per-layer profiling — identify bottleneck ops"
 kind = "experiment"
-status = "active"
+status = "done"
 depends = ["bench-kernels.1"]
 
 [[tasks]]
@@ -1467,5 +1467,5 @@ id = "bench-e2e.2"
 theme = "bench-e2e"
 title = "Design: benchmark results summary + improvement roadmap"
 kind = "design"
-status = "pending"
+status = "done"
 depends = ["bench-kernels.1", "bench-kernels.2", "bench-kernels.3", "bench-kernels.4", "bench-e2e.1"]

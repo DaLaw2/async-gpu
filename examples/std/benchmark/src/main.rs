@@ -362,6 +362,62 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
+    // --- GPT-2 Per-Layer Profiling ---
+    println!("\n--- GPT-2 Per-Layer Profiling (seq_len=128) ---");
+
+    let model_path =
+        gpu_host::model_dir(Some(env!("CARGO_MANIFEST_DIR"))).join("model.safetensors");
+    if model_path.exists() {
+        let weights = gpu_host::model::load_gpt2_weights(&model_path)?;
+        let config = gpu_host::nn::models::gpt2::Gpt2Config::small();
+        let model =
+            gpu_host::nn::models::gpt2::Gpt2Model::from_weights(&weights, config, &registry)?;
+
+        let seq_len = 128;
+        let tokens: Vec<u32> = (0..seq_len).map(|i| (i % 50256) as u32).collect();
+        let token_ids = dev.htod_sync_copy(&tokens)?;
+
+        // Warmup
+        for _ in 0..3 {
+            let _ = model.forward(&token_ids, seq_len)?;
+            dev.synchronize()?;
+        }
+
+        // Profile
+        let (_logits, timings) = model.forward_profiled(&token_ids, seq_len)?;
+        let total: f64 = timings.iter().map(|(_, t)| t).sum();
+
+        println!("{:>15} {:>10} {:>8}", "Component", "Time(ms)", "% Total");
+        println!("{}", "-".repeat(38));
+        for (name, ms) in &timings {
+            let pct = ms / total * 100.0;
+            println!("{name:>15} {ms:>9.3} {pct:>7.1}%");
+        }
+        println!("{:>15} {total:>9.3} {:>7.1}%", "TOTAL", 100.0);
+
+        // Block breakdown
+        let block_times: Vec<f64> = timings
+            .iter()
+            .filter(|(n, _)| n.starts_with("block_"))
+            .map(|(_, t)| *t)
+            .collect();
+        if !block_times.is_empty() {
+            let avg_block = block_times.iter().sum::<f64>() / block_times.len() as f64;
+            let blocks_total: f64 = block_times.iter().sum();
+            println!(
+                "\n  Transformer blocks: {blocks_total:.1}ms total ({:.1}% of forward pass)",
+                blocks_total / total * 100.0
+            );
+            println!("  Avg per block: {avg_block:.1}ms");
+            println!("  Each block contains: LayerNorm + MHA + FFN (3 GEMM + GELU + 2 LayerNorm)");
+        }
+    } else {
+        println!(
+            "  SKIP: model.safetensors not found at {}",
+            model_path.display()
+        );
+    }
+
     // Summary
     println!("\n=== Benchmark Complete ===");
     println!("SGEMM: ~157 GFLOPS (5.6% of cuBLAS ~2780 GFLOPS)");

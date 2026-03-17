@@ -84,7 +84,7 @@ cargo run --manifest-path examples/vector-math/host/Cargo.toml
 | `cifar-train` | CIFAR-10 tiny CNN training with loss convergence | Stock nightly |
 | `gpt2-lora` | GPT-2 LoRA fine-tuning on WikiText-2 (ppl 128→16, rank=8) | Stock nightly |
 | `mnist-cnn` | MNIST CNN training (96.4% accuracy, 2.62x GPU speedup) | Stock nightly |
-| `resnet-cifar` | ResNet-18 pretrained inference (91.3% CIFAR-10) + full conv training | Stock nightly |
+| `resnet-cifar` | ResNet-18 pretrained inference (91.3% CIFAR-10) + ONNX inference (91.2%) + full conv training | Stock nightly |
 | `gpu-rag` | GPU-Autonomous RAG: 1030-chunk vector search + GPT-2 generation | Stock nightly |
 | `diff-physics` | Differentiable 2D spring-mass / N-body gravity (47.1x GPU speedup) | Stock nightly |
 
@@ -245,10 +245,12 @@ let tokens = model.generate(&prompt_tokens, 50)?;
 
 **ONNX Runtime** (`gpu_host::onnx_rt`):
 - Load any `.onnx` file via prost protobuf parser (no protoc needed)
-- 41 ONNX operators: Conv, MatMul, Gemm, Relu, BatchNorm, LayerNorm, Softmax, Add, Mul, Sub, Reshape, Transpose, Gather, Split, Where, Concat, and more
+- 43 ONNX operators: Conv (incl. grouped/depthwise), MatMul, Gemm, Relu, BatchNorm, LayerNorm, Softmax, Add, Mul, Sub, Reshape, Transpose, Gather, Split, Where, Concat, Identity, GlobalAveragePool, ReduceMean, and more
 - `OnnxSession`: initializer caching + weight prepadding for repeated inference
 - Graph fusion pass: MatMul+Add+Activation pattern matching
 - GPT-2 ONNX text generation verified (150ms/forward, 1107 nodes)
+- ResNet-18 ONNX: 91.2% CIFAR-10 accuracy (matches ORT exactly)
+- MobileNetV2 ONNX: 209 nodes, 1000-class output, end-to-end verified
 
 **Autograd** (tape-based reverse-mode AD):
 - Forward ops automatically record on a thread-local tape when `requires_grad = true`
@@ -269,7 +271,7 @@ crates/
         models/        GPT-2, YOLOv8-nano, and ResNet-18 model implementations
         ops/quantize/  INT8/INT4 quantization pack/unpack utilities
         test_utils/    Numerical comparison harness, CPU f64 references, golden files
-      onnx_rt/         ONNX Runtime: protobuf parser (prost), graph executor (41 ops), fusion pass
+      onnx_rt/         ONNX Runtime: protobuf parser (prost), graph executor (43 ops), fusion pass
     gpu-protocol/      Shared constants: packet layout, service IDs, error codes
     gpu-runtime/       GPU-side runtime: index, math, warp, block, nn, executor, channels
     gpu-atomics/       System-scope GPU atomics via inline PTX (CAS, shfl, activemask)
@@ -303,8 +305,9 @@ RTX 3060, SM 86:
 | ResNet-18 pretrained (CIFAR-10) | 91.3% accuracy, 16.0ms/image |
 | Compute pipeline speedup | 1.91x vs multi-launch |
 | N-body gravity (4096 particles) | 47.1x GPU vs CPU |
-| **ONNX Runtime** (ResNet-18, 48 nodes) | 43ms/inference (native: 15.7ms) |
+| **ONNX Runtime** (ResNet-18, 48 nodes) | 42ms/inference, 91.2% CIFAR-10 (matches ORT) |
 | **ONNX Runtime** (GPT-2, 1107 nodes) | 150ms/forward pass, text generation works |
+| **ONNX Runtime** (MobileNetV2, 209 nodes) | 409ms/inference, 1000-class output verified |
 
 **Training** (GPU matmul + autograd tape):
 

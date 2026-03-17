@@ -8,4 +8,4 @@ description = "GPU kernel benchmarks — GFLOPS/GB/s vs cuBLAS/cuDNN"
 
 [dependencies]
 cudarc = { version = "0.12", features = ["cuda-12060", "cublas"] }
-gpu-host = { path = "../../../crates/core/gpu-host", features = ["nn"], default-features = false }
+gpu-host = { path = "../../../crates/core/gpu-host", features = ["nn", "gpt2"], default-features = false }

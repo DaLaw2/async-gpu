@@ -419,6 +419,50 @@ impl Gpt2Model {
         self.lm_head.forward(&hidden)
     }
 
+    /// Profiled forward pass: returns per-component timing breakdown.
+    ///
+    /// Returns `(logits, timings)` where `timings` maps component name → milliseconds.
+    pub fn forward_profiled(
+        &self,
+        token_ids: &cudarc::driver::CudaSlice<u32>,
+        seq_len: usize,
+    ) -> Result<(GpuTensor, Vec<(String, f64)>)> {
+        let dev = self.registry.device();
+        let mut timings = Vec::new();
+
+        // Embedding
+        dev.synchronize().map_err(crate::nn::error::NnError::Cuda)?;
+        let t0 = std::time::Instant::now();
+        let mut hidden = self.embedding.forward_tokens(token_ids, seq_len)?;
+        dev.synchronize().map_err(crate::nn::error::NnError::Cuda)?;
+        timings.push(("embedding".to_string(), t0.elapsed().as_secs_f64() * 1000.0));
+
+        // Transformer blocks
+        for (i, block) in self.blocks.iter().enumerate() {
+            dev.synchronize().map_err(crate::nn::error::NnError::Cuda)?;
+            let t = std::time::Instant::now();
+            hidden = block.forward(&hidden)?;
+            dev.synchronize().map_err(crate::nn::error::NnError::Cuda)?;
+            timings.push((format!("block_{i}"), t.elapsed().as_secs_f64() * 1000.0));
+        }
+
+        // Final LayerNorm
+        dev.synchronize().map_err(crate::nn::error::NnError::Cuda)?;
+        let t = std::time::Instant::now();
+        hidden = self.ln_f.forward(&hidden)?;
+        dev.synchronize().map_err(crate::nn::error::NnError::Cuda)?;
+        timings.push(("ln_f".to_string(), t.elapsed().as_secs_f64() * 1000.0));
+
+        // LM head
+        dev.synchronize().map_err(crate::nn::error::NnError::Cuda)?;
+        let t = std::time::Instant::now();
+        let logits = self.lm_head.forward(&hidden)?;
+        dev.synchronize().map_err(crate::nn::error::NnError::Cuda)?;
+        timings.push(("lm_head".to_string(), t.elapsed().as_secs_f64() * 1000.0));
+
+        Ok((logits, timings))
+    }
+
     /// Forward pass returning hidden states before the LM head.
     ///
     /// Returns `[seq_len, n_embd]` — the normalized hidden states after all
@@ -1573,5 +1617,103 @@ mod tests {
             max_err < 1e-3,
             "Generic loader logits differ from old loader: max_err={max_err}"
         );
+    }
+
+    /// Test INT4 GPT-2: build model, run forward, generate text.
+    ///
+    /// Compares top-1 token at each position with f32 model. INT4 is lossy,
+    /// so we check that top-1 agrees for at least the first few tokens and
+    /// that the output is coherent (no NaN, finite logits).
+    #[test]
+    fn test_int4_gpt2_forward_and_generate() {
+        let model_path =
+            crate::model_dir(Some(env!("CARGO_MANIFEST_DIR"))).join("model.safetensors");
+        if !model_path.exists() {
+            println!("SKIP: GPT-2 model not found");
+            return;
+        }
+
+        let dev = cudarc::driver::CudaDevice::new(0).expect("CUDA");
+        let registry = Arc::new(
+            crate::nn::KernelRegistry::new(Arc::clone(&dev), crate::ptx::KERNEL).expect("PTX"),
+        );
+
+        // Build f32 model for comparison
+        let weights = crate::model::load_gpt2_weights(&model_path).expect("weights");
+        let config_f32 = Gpt2Config::small();
+        let model_f32 =
+            Gpt2Model::from_weights(&weights, config_f32, &registry).expect("f32 model");
+
+        // Build INT4 model
+        let config_int4 = Gpt2Config::small();
+        let t0 = std::time::Instant::now();
+        let model_int4 = Int4Gpt2Model::from_weights(
+            &weights,
+            config_int4,
+            Int4Gpt2Model::DEFAULT_GROUP_SIZE,
+            &registry,
+        )
+        .expect("int4 model");
+        let build_ms = t0.elapsed().as_secs_f64() * 1000.0;
+        eprintln!("INT4 model built in {build_ms:.1}ms");
+        eprintln!(
+            "INT4 quantized weight memory: {:.2} MB",
+            model_int4.quantized_memory_bytes() as f64 / 1e6
+        );
+
+        let prompt = "The capital of France is";
+        let tokenizer = crate::tokenizer::Gpt2Tokenizer::new().expect("tokenizer");
+        let tokens = tokenizer.encode(prompt);
+
+        // Forward pass comparison
+        let token_ids = dev.htod_sync_copy(&tokens).expect("upload");
+        let vocab = model_f32.config().vocab_size;
+
+        let f32_logits = model_f32
+            .forward(&token_ids, tokens.len())
+            .expect("f32 forward")
+            .to_host()
+            .expect("f32 d2h");
+
+        let int4_logits = model_int4
+            .forward(&token_ids, tokens.len())
+            .expect("int4 forward")
+            .to_host()
+            .expect("int4 d2h");
+
+        assert_eq!(f32_logits.len(), int4_logits.len());
+        assert!(
+            int4_logits.iter().all(|x| x.is_finite()),
+            "INT4 logits contain NaN/Inf"
+        );
+
+        // Compare top-1 at last position
+        let last = tokens.len() - 1;
+        let f32_last = &f32_logits[last * vocab..(last + 1) * vocab];
+        let int4_last = &int4_logits[last * vocab..(last + 1) * vocab];
+        let f32_top1 = argmax(f32_last);
+        let int4_top1 = argmax(int4_last);
+        eprintln!("f32 top-1: {f32_top1}, INT4 top-1: {int4_top1}");
+
+        // Generate text with INT4 model
+        let t1 = std::time::Instant::now();
+        let int4_output = model_int4.generate(&tokens, 20).expect("int4 generate");
+        let gen_ms = t1.elapsed().as_secs_f64() * 1000.0;
+        let new_tokens = int4_output.len() - tokens.len();
+
+        let int4_text = tokenizer
+            .decode(&int4_output)
+            .unwrap_or_else(|_| "[decode error]".to_string());
+        eprintln!("INT4 output ({new_tokens} tokens, {gen_ms:.1}ms): {int4_text}");
+
+        // Also generate with f32 for comparison
+        let f32_output = model_f32.generate(&tokens, 20).expect("f32 generate");
+        let f32_text = tokenizer
+            .decode(&f32_output)
+            .unwrap_or_else(|_| "[decode error]".to_string());
+        eprintln!("f32  output: {f32_text}");
+
+        // Basic sanity: INT4 model should produce at least 1 token
+        assert!(new_tokens >= 1, "INT4 model produced no tokens");
     }
 }

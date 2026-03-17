@@ -157,6 +157,8 @@ fn execute_nodes(
     registry: &Arc<KernelRegistry>,
     prepadded_weights: &HashMap<String, PrePaddedWeight>,
 ) -> Result<HashMap<String, Vec<f32>>, OnnxError> {
+    let debug_onnx = std::env::var("ONNX_DEBUG").is_ok();
+
     // Execute nodes in order
     for (idx, node) in graph.nodes.iter().enumerate() {
         let result =
@@ -173,6 +175,19 @@ fn execute_nodes(
             NodeOutput::Single(t) => {
                 if let Some(name) = node.outputs.first() {
                     if !name.is_empty() {
+                        if debug_onnx
+                            && (idx < 15 || idx == 92 || idx == 93 || idx == 94 || idx == 95)
+                        {
+                            let h = t.to_host().unwrap_or_default();
+                            let first4: Vec<f32> = h.iter().take(4).copied().collect();
+                            eprintln!(
+                                "[ONNX] Node {idx} {} '{}': shape={:?}, first4={:?}",
+                                node.op_type,
+                                name,
+                                t.shape(),
+                                first4
+                            );
+                        }
                         tensor_map.insert(name.clone(), t);
                     }
                 }
@@ -662,7 +677,7 @@ fn dispatch_elementwise(
                 let out = GpuTensor::from_data(out_buf, a.shape(), Arc::clone(dev));
                 Ok(NodeOutput::Single(out))
             } else if b_numel == 1 {
-                // Scalar multiply: GPU scalar_mul kernel
+                // Scalar multiply: b is scalar, output = a * scalar
                 let b_val = b.to_host().map_err(map_nn_err)?[0];
                 let n = a_numel as u32;
                 let out_buf = dev.alloc_zeros::<f32>(a_numel).map_err(map_cuda_err)?;
@@ -677,16 +692,36 @@ fn dispatch_elementwise(
                 }
                 let out = GpuTensor::from_data(out_buf, a.shape(), Arc::clone(dev));
                 Ok(NodeOutput::Single(out))
+            } else if a_numel == 1 {
+                // Scalar multiply: a is scalar, output = b * scalar
+                let a_val = a.to_host().map_err(map_nn_err)?[0];
+                let n = b_numel as u32;
+                let out_buf = dev.alloc_zeros::<f32>(b_numel).map_err(map_cuda_err)?;
+                let status = dev.htod_sync_copy(&[0u32]).map_err(map_cuda_err)?;
+                let func = registry.get("scalar_mul").map_err(map_nn_err)?;
+                unsafe {
+                    func.launch(
+                        crate::nn::KernelRegistry::config_1d(n),
+                        (b.data(), &out_buf, a_val, n, &status),
+                    )
+                    .map_err(map_cuda_err)?;
+                }
+                let out = GpuTensor::from_data(out_buf, b.shape(), Arc::clone(dev));
+                Ok(NodeOutput::Single(out))
             } else {
-                // Broadcast: CPU fallback
+                // Broadcast: CPU fallback — use larger tensor's shape
                 let a_h = a.to_host().map_err(map_nn_err)?;
                 let b_h = b.to_host().map_err(map_nn_err)?;
-                let out_data: Vec<f32> = a_h
-                    .iter()
-                    .enumerate()
-                    .map(|(i, x)| x * b_h[i % b_h.len()])
+                let out_len = a_h.len().max(b_h.len());
+                let out_data: Vec<f32> = (0..out_len)
+                    .map(|i| a_h[i % a_h.len()] * b_h[i % b_h.len()])
                     .collect();
-                let out = GpuTensor::from_host(&out_data, a.shape(), dev).map_err(map_nn_err)?;
+                let out_shape = if a_numel >= b_numel {
+                    a.shape().to_vec()
+                } else {
+                    b.shape().to_vec()
+                };
+                let out = GpuTensor::from_host(&out_data, &out_shape, dev).map_err(map_nn_err)?;
                 Ok(NodeOutput::Single(out))
             }
         }

@@ -51,7 +51,13 @@ pub fn backward(
                 let d_out_clone = d_out.clone_tensor()?;
                 accumulate_grad(&mut grads, entry.inputs[0], d_out_clone, registry)?;
                 if entry.inputs.len() > 1 {
-                    let d_out_clone2 = grads.get(&entry.output).unwrap().clone_tensor()?;
+                    let d_out_clone2 = grads
+                        .get(&entry.output)
+                        .ok_or_else(|| NnError::ShapeMismatch {
+                            expected: "gradient exists for output".to_string(),
+                            actual: format!("no gradient for {:?}", entry.output),
+                        })?
+                        .clone_tensor()?;
                     accumulate_grad(&mut grads, entry.inputs[1], d_out_clone2, registry)?;
                 }
             }

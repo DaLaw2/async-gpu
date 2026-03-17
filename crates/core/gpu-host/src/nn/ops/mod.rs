@@ -12,6 +12,7 @@ pub mod conv;
 pub mod gemm;
 pub mod norm;
 pub mod pool;
+pub mod quantize;
 pub mod reshape;
 pub mod upsample;
 

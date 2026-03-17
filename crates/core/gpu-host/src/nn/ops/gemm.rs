@@ -8,6 +8,7 @@ use std::sync::Arc;
 use cudarc::driver::LaunchAsync;
 
 use crate::nn::error::{NnError, Result};
+use crate::nn::ops::quantize;
 use crate::nn::registry::KernelRegistry;
 use crate::nn::tensor::GpuTensor;
 
@@ -474,50 +475,28 @@ pub fn int8_matmul(
     let a_host = a.to_host()?;
     let b_host = b.to_host()?;
 
-    // Quantize A: per-tensor symmetric
-    let a_max = a_host.iter().fold(0.0f32, |mx, &v| mx.max(v.abs()));
-    let a_scale = if a_max < 1e-12 { 1.0 } else { a_max / 127.0 };
-
-    // Pack A into u32: [M, K/4]
+    // Quantize A: per-tensor symmetric, then pack rows into u32 [M, K/4]
+    let (a_q, a_scale) = quantize::quantize_int8_per_tensor(&a_host);
     let mut a_packed = vec![0u32; m * k_div4];
     for row in 0..m {
-        for j in 0..k_div4 {
-            let mut packed = 0u32;
-            for b_idx in 0..4 {
-                let val = a_host[row * k + j * 4 + b_idx];
-                let q = (val / a_scale).round().clamp(-128.0, 127.0) as i8;
-                packed |= (q as u8 as u32) << (b_idx * 8);
-            }
-            a_packed[row * k_div4 + j] = packed;
-        }
+        let row_slice = &a_q[row * k..(row + 1) * k];
+        let row_packed = quantize::pack_int8_to_u32(row_slice);
+        a_packed[row * k_div4..(row + 1) * k_div4].copy_from_slice(&row_packed);
     }
 
     // Quantize B: per-column symmetric, stored column-major [N, K/4]
     let mut b_scales = vec![0.0f32; n];
-    for col in 0..n {
-        let mut col_max = 0.0f32;
-        for row in 0..k {
-            col_max = col_max.max(b_host[row * n + col].abs());
-        }
-        b_scales[col] = if col_max < 1e-12 {
-            1.0
-        } else {
-            col_max / 127.0
-        };
-    }
-
-    // Pack B column-major: [N, K/4]
     let mut b_packed = vec![0u32; n * k_div4];
     for col in 0..n {
-        let inv_scale = 1.0 / b_scales[col];
+        // Extract column
+        let col_data: Vec<f32> = (0..k).map(|row| b_host[row * n + col]).collect();
+        let (col_q, col_scale) = quantize::quantize_int8_per_column(&col_data);
+        b_scales[col] = col_scale;
+
+        // Pack column into u32
+        let col_packed = quantize::pack_int8_to_u32(&col_q);
         for j in 0..k_div4 {
-            let mut packed = 0u32;
-            for b_idx in 0..4 {
-                let val = b_host[(j * 4 + b_idx) * n + col];
-                let q = (val * inv_scale).round().clamp(-128.0, 127.0) as i8;
-                packed |= (q as u8 as u32) << (b_idx * 8);
-            }
-            b_packed[col * k_div4 + j] = packed;
+            b_packed[col * k_div4 + j] = col_packed[j];
         }
     }
 
@@ -605,7 +584,9 @@ pub fn int4_matmul(
         });
     }
 
-    let group_size = 128usize;
+    /// Default group size for INT4 per-group quantization.
+    const INT4_GROUP_SIZE: usize = 128;
+    let group_size = INT4_GROUP_SIZE;
     let n_groups = k.div_ceil(group_size);
     let k_packed = k / 8;
 
@@ -613,30 +594,22 @@ pub fn int4_matmul(
     let b_host = b.to_host()?;
 
     // Quantize B to INT4 per-group: packed [K/8, N] + scales [n_groups, N]
+    // We quantize each column independently, then interleave into row-major packed layout.
     let mut packed = vec![0u32; k_packed * n];
     let mut scales = vec![0.0f32; n_groups * n];
 
     for col in 0..n {
-        for g in 0..n_groups {
-            let start = g * group_size;
-            let end = (start + group_size).min(k);
-            // Find max absolute value in group
-            let mut max_abs = 0.0f32;
-            for row in start..end {
-                max_abs = max_abs.max(b_host[row * n + col].abs());
-            }
-            let scale = if max_abs < 1e-12 { 1.0 } else { max_abs / 7.0 }; // INT4 signed range [-8,7]
-            scales[g * n + col] = scale;
+        // Extract column
+        let col_data: Vec<f32> = (0..k).map(|row| b_host[row * n + col]).collect();
+        let (col_packed, col_scales) = quantize::quantize_int4_per_group(&col_data, group_size);
 
-            // Quantize and pack
-            for row in start..end {
-                let val = b_host[row * n + col];
-                let q = ((val / scale).round() as i32).clamp(-8, 7);
-                let q_unsigned = (q + 8) as u32; // shift to [0, 15]
-                let byte_idx = row / 8;
-                let bit_pos = (row % 8) * 4;
-                packed[byte_idx * n + col] |= (q_unsigned & 0xF) << bit_pos;
-            }
+        // Scatter column's packed u32 values into row-major layout [K/8, N]
+        for j in 0..k_packed {
+            packed[j * n + col] = col_packed[j];
+        }
+        // Scatter column's scales into [n_groups, N]
+        for g in 0..n_groups {
+            scales[g * n + col] = col_scales[g];
         }
     }
 

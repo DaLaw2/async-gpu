@@ -7,7 +7,7 @@
 
 use std::sync::Arc;
 
-use crate::nn::error::Result;
+use crate::nn::error::{NnError, Result};
 use crate::nn::layers::{BatchNorm2d, Conv2d, Linear, Module};
 use crate::nn::ops;
 use crate::nn::registry::KernelRegistry;
@@ -86,8 +86,17 @@ impl BasicBlock {
 
         let need_shortcut = stride != 1 || in_channels != out_channels;
         let (shortcut_conv, shortcut_bn) = if need_shortcut {
+            let missing = |name: &str| {
+                NnError::ShapeMismatch {
+                expected: format!("shortcut weights present (stride={stride}, in={in_channels}, out={out_channels})"),
+                actual: format!("{name} is None"),
+            }
+            };
             let sc = Conv2d::new(
-                weights.shortcut_conv_w.as_ref().unwrap(),
+                weights
+                    .shortcut_conv_w
+                    .as_ref()
+                    .ok_or_else(|| missing("shortcut_conv_w"))?,
                 None,
                 out_channels,
                 in_channels,
@@ -98,10 +107,22 @@ impl BasicBlock {
                 registry,
             )?;
             let sbn = BatchNorm2d::new(
-                weights.shortcut_bn_gamma.as_ref().unwrap(),
-                weights.shortcut_bn_beta.as_ref().unwrap(),
-                weights.shortcut_bn_mean.as_ref().unwrap(),
-                weights.shortcut_bn_var.as_ref().unwrap(),
+                weights
+                    .shortcut_bn_gamma
+                    .as_ref()
+                    .ok_or_else(|| missing("shortcut_bn_gamma"))?,
+                weights
+                    .shortcut_bn_beta
+                    .as_ref()
+                    .ok_or_else(|| missing("shortcut_bn_beta"))?,
+                weights
+                    .shortcut_bn_mean
+                    .as_ref()
+                    .ok_or_else(|| missing("shortcut_bn_mean"))?,
+                weights
+                    .shortcut_bn_var
+                    .as_ref()
+                    .ok_or_else(|| missing("shortcut_bn_var"))?,
                 1e-5,
                 false,
                 registry,

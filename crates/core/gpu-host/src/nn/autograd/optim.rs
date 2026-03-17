@@ -41,10 +41,12 @@ impl Sgd {
                     // Momentum SGD: still CPU for now (needs momentum buffer on GPU)
                     let grad_host = grad.to_host()?;
                     let mut param_host = param.to_host()?;
-                    let vel = self.velocity.entry(*id).or_insert_with(|| {
+                    if !self.velocity.contains_key(id) {
                         let zeros = vec![0.0f32; param_host.len()];
-                        GpuTensor::from_host(&zeros, param.shape(), registry.device()).unwrap()
-                    });
+                        let v = GpuTensor::from_host(&zeros, param.shape(), registry.device())?;
+                        self.velocity.insert(*id, v);
+                    }
+                    let vel = self.velocity.get_mut(id).expect("just inserted");
                     let mut vel_host = vel.to_host()?;
                     for i in 0..param_host.len() {
                         vel_host[i] = self.momentum * vel_host[i] + grad_host[i];

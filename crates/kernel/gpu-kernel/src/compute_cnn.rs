@@ -430,6 +430,121 @@ pub unsafe extern "ptx-kernel" fn bias_add_chw(
     }
 }
 
+/// Elementwise multiply: output[i] = a[i] * b[i].
+///
+/// Grid: `(ceil(n / 256), 1, 1)`, Block: `(256, 1, 1)`.
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn elementwise_mul(
+    a: *const f32,
+    b: *const f32,
+    output: *mut f32,
+    n: u32,
+    status: *mut u32,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let global_id = nvptx::_block_idx_x() as u32 * 256 + tid;
+        if global_id < n {
+            *output.add(global_id as usize) =
+                *a.add(global_id as usize) * *b.add(global_id as usize);
+        }
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (a, b, output, n);
+    }
+
+    if tid == 0 {
+        *status = 0;
+    }
+}
+
+/// Elementwise subtract: output[i] = a[i] - b[i].
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn elementwise_sub(
+    a: *const f32,
+    b: *const f32,
+    output: *mut f32,
+    n: u32,
+    status: *mut u32,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let global_id = nvptx::_block_idx_x() as u32 * 256 + tid;
+        if global_id < n {
+            *output.add(global_id as usize) =
+                *a.add(global_id as usize) - *b.add(global_id as usize);
+        }
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (a, b, output, n);
+    }
+
+    if tid == 0 {
+        *status = 0;
+    }
+}
+
+/// Elementwise negate: output[i] = -input[i].
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn elementwise_neg(
+    input: *const f32,
+    output: *mut f32,
+    n: u32,
+    status: *mut u32,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let global_id = nvptx::_block_idx_x() as u32 * 256 + tid;
+        if global_id < n {
+            *output.add(global_id as usize) = -*input.add(global_id as usize);
+        }
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (input, output, n);
+    }
+
+    if tid == 0 {
+        *status = 0;
+    }
+}
+
+/// Scalar multiply: output[i] = input[i] * scalar.
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn scalar_mul(
+    input: *const f32,
+    output: *mut f32,
+    scalar: f32,
+    n: u32,
+    status: *mut u32,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let global_id = nvptx::_block_idx_x() as u32 * 256 + tid;
+        if global_id < n {
+            *output.add(global_id as usize) = *input.add(global_id as usize) * scalar;
+        }
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (input, output, scalar, n);
+    }
+
+    if tid == 0 {
+        *status = 0;
+    }
+}
+
 /// Per-channel multiplicative scale for CHW tensors.
 ///
 /// `output[ch * hw + i] = input[ch * hw + i] * scale[ch]`

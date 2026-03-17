@@ -41,6 +41,10 @@ const ML_KERNELS: &[&str] = &[
     "concat_channels",
     "sigmoid_forward",
     "bias_add_chw",
+    "elementwise_mul",
+    "elementwise_sub",
+    "elementwise_neg",
+    "scalar_mul",
     "channel_scale_chw",
     // Persistent kernel (compute_persistent.rs)
     "persistent_worker",

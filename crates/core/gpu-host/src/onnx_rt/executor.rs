@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use cudarc::driver::CudaDevice;
+use cudarc::driver::{CudaDevice, LaunchAsync};
 
 use crate::nn::registry::KernelRegistry;
 use crate::nn::tensor::GpuTensor;
@@ -479,40 +479,87 @@ fn dispatch_elementwise(
             Ok(NodeOutput::Single(out))
         }
         "Mul" => {
-            // Element-wise multiply (CPU-side for now)
             let a = get_input(&node.inputs[0], tensor_map)?;
             let b = get_input(&node.inputs[1], tensor_map)?;
-            let a_h = a.to_host().map_err(map_nn_err)?;
-            let b_h = b.to_host().map_err(map_nn_err)?;
-            let out_data: Vec<f32> = if a_h.len() == b_h.len() {
-                a_h.iter().zip(b_h.iter()).map(|(x, y)| x * y).collect()
-            } else if b_h.len() == 1 {
-                a_h.iter().map(|x| x * b_h[0]).collect()
+            let a_numel: usize = a.shape().iter().product();
+            let b_numel: usize = b.shape().iter().product();
+
+            if a_numel == b_numel {
+                // Same shape: GPU elementwise multiply
+                let n = a_numel as u32;
+                let out_buf = dev.alloc_zeros::<f32>(a_numel).map_err(map_cuda_err)?;
+                let status = dev.htod_sync_copy(&[0u32]).map_err(map_cuda_err)?;
+                let func = registry.get("elementwise_mul").map_err(map_nn_err)?;
+                unsafe {
+                    func.launch(
+                        crate::nn::KernelRegistry::config_1d(n),
+                        (a.data(), b.data(), &out_buf, n, &status),
+                    )
+                    .map_err(map_cuda_err)?;
+                }
+                let out = GpuTensor::from_data(out_buf, a.shape(), Arc::clone(dev));
+                Ok(NodeOutput::Single(out))
+            } else if b_numel == 1 {
+                // Scalar multiply: GPU scalar_mul kernel
+                let b_val = b.to_host().map_err(map_nn_err)?[0];
+                let n = a_numel as u32;
+                let out_buf = dev.alloc_zeros::<f32>(a_numel).map_err(map_cuda_err)?;
+                let status = dev.htod_sync_copy(&[0u32]).map_err(map_cuda_err)?;
+                let func = registry.get("scalar_mul").map_err(map_nn_err)?;
+                unsafe {
+                    func.launch(
+                        crate::nn::KernelRegistry::config_1d(n),
+                        (a.data(), &out_buf, b_val, n, &status),
+                    )
+                    .map_err(map_cuda_err)?;
+                }
+                let out = GpuTensor::from_data(out_buf, a.shape(), Arc::clone(dev));
+                Ok(NodeOutput::Single(out))
             } else {
-                // Broadcast: b is smaller, assume it broadcasts over the last dim
-                a_h.iter()
+                // Broadcast: CPU fallback
+                let a_h = a.to_host().map_err(map_nn_err)?;
+                let b_h = b.to_host().map_err(map_nn_err)?;
+                let out_data: Vec<f32> = a_h
+                    .iter()
                     .enumerate()
                     .map(|(i, x)| x * b_h[i % b_h.len()])
-                    .collect()
-            };
-            let out = GpuTensor::from_host(&out_data, a.shape(), dev).map_err(map_nn_err)?;
-            Ok(NodeOutput::Single(out))
+                    .collect();
+                let out = GpuTensor::from_host(&out_data, a.shape(), dev).map_err(map_nn_err)?;
+                Ok(NodeOutput::Single(out))
+            }
         }
         "Sub" => {
             let a = get_input(&node.inputs[0], tensor_map)?;
             let b = get_input(&node.inputs[1], tensor_map)?;
-            let a_h = a.to_host().map_err(map_nn_err)?;
-            let b_h = b.to_host().map_err(map_nn_err)?;
-            let out_data: Vec<f32> = if b_h.len() == 1 {
-                a_h.iter().map(|x| x - b_h[0]).collect()
+            let a_numel: usize = a.shape().iter().product();
+            let b_numel: usize = b.shape().iter().product();
+
+            if a_numel == b_numel {
+                let n = a_numel as u32;
+                let out_buf = dev.alloc_zeros::<f32>(a_numel).map_err(map_cuda_err)?;
+                let status = dev.htod_sync_copy(&[0u32]).map_err(map_cuda_err)?;
+                let func = registry.get("elementwise_sub").map_err(map_nn_err)?;
+                unsafe {
+                    func.launch(
+                        crate::nn::KernelRegistry::config_1d(n),
+                        (a.data(), b.data(), &out_buf, n, &status),
+                    )
+                    .map_err(map_cuda_err)?;
+                }
+                let out = GpuTensor::from_data(out_buf, a.shape(), Arc::clone(dev));
+                Ok(NodeOutput::Single(out))
             } else {
-                a_h.iter()
+                // Broadcast: CPU fallback
+                let a_h = a.to_host().map_err(map_nn_err)?;
+                let b_h = b.to_host().map_err(map_nn_err)?;
+                let out_data: Vec<f32> = a_h
+                    .iter()
                     .enumerate()
                     .map(|(i, x)| x - b_h[i % b_h.len()])
-                    .collect()
-            };
-            let out = GpuTensor::from_host(&out_data, a.shape(), dev).map_err(map_nn_err)?;
-            Ok(NodeOutput::Single(out))
+                    .collect();
+                let out = GpuTensor::from_host(&out_data, a.shape(), dev).map_err(map_nn_err)?;
+                Ok(NodeOutput::Single(out))
+            }
         }
         "Div" => {
             let a = get_input(&node.inputs[0], tensor_map)?;
@@ -556,9 +603,18 @@ fn dispatch_elementwise(
         }
         "Neg" => {
             let x = get_input(&node.inputs[0], tensor_map)?;
-            let x_h = x.to_host().map_err(map_nn_err)?;
-            let out_data: Vec<f32> = x_h.iter().map(|v| -v).collect();
-            let out = GpuTensor::from_host(&out_data, x.shape(), dev).map_err(map_nn_err)?;
+            let n: usize = x.shape().iter().product();
+            let out_buf = dev.alloc_zeros::<f32>(n).map_err(map_cuda_err)?;
+            let status = dev.htod_sync_copy(&[0u32]).map_err(map_cuda_err)?;
+            let func = registry.get("elementwise_neg").map_err(map_nn_err)?;
+            unsafe {
+                func.launch(
+                    crate::nn::KernelRegistry::config_1d(n as u32),
+                    (x.data(), &out_buf, n as u32, &status),
+                )
+                .map_err(map_cuda_err)?;
+            }
+            let out = GpuTensor::from_data(out_buf, x.shape(), Arc::clone(dev));
             Ok(NodeOutput::Single(out))
         }
         "Erf" => {
@@ -952,4 +1008,8 @@ fn dispatch_misc(
 
 fn map_nn_err(e: crate::nn::error::NnError) -> OnnxError {
     OnnxError::Invalid(format!("NN op error: {e}"))
+}
+
+fn map_cuda_err(e: cudarc::driver::DriverError) -> OnnxError {
+    OnnxError::Invalid(format!("CUDA error: {e}"))
 }

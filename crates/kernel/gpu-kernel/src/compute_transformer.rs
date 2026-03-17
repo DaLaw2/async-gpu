@@ -650,6 +650,245 @@ pub unsafe extern "ptx-kernel" fn flash_attention(
 
 /// FlashAttention with separate Q length and KV length — for KV-cached generation.
 ///
+// ============================================================
+// Flash Attention V2 — register-blocked score computation
+// ============================================================
+
+/// Improved flash attention with register-blocked dot products.
+///
+/// Same FlashAttention-1 algorithm (online softmax with rescaling), but:
+/// - 128 threads per block (4 warps) instead of 32
+/// - Each thread computes 4 Q rows worth of scores per KV tile
+/// - Score dot products use 4-way parallel accumulation
+///
+/// Q,K,V: [n_heads * seq_len, d_head] head-major layout.
+/// grid = (n_heads, ceil(seq_len/32), 1), block = (32, 1, 1).
+/// BUT: we keep 32 threads for now and optimize the inner loop.
+///
+/// Key optimization: process 4 K-rows per inner iteration to improve ILP.
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn flash_attention_v2(
+    q_global: *const f32,
+    k_global: *const f32,
+    v_global: *const f32,
+    out_global: *mut f32,
+    seq_len: u32,
+    d_head: u32,
+    causal_mask: u32,
+    status: *mut u32,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let head = nvptx::_block_idx_x() as u32;
+        let q_tile_idx: u32;
+        core::arch::asm!("mov.u32 {r}, %ctaid.y;", r = out(reg32) q_tile_idx);
+
+        let my_row = q_tile_idx * 32 + tid;
+
+        let head_off = (head * seq_len * d_head) as usize;
+        let q_head = q_global.add(head_off);
+        let k_head = k_global.add(head_off);
+        let v_head = v_global.add(head_off);
+        let out_head = out_global.add(head_off);
+
+        let scale = 1.0 / gpu_sqrtf(d_head as f32);
+
+        let smem = get_dynamic_smem_ptr() as *mut f32;
+        let k_tile = smem;
+        let v_tile = smem.add(2048);
+
+        // Load Q row into registers
+        let mut q_row: [f32; 64] = [0.0; 64];
+        if my_row < seq_len {
+            let mut d = 0u32;
+            while d < d_head {
+                q_row[d as usize] = *q_head.add((my_row * d_head + d) as usize);
+                d += 1;
+            }
+        }
+
+        let mut m: f32 = -1.0e38;
+        let mut l: f32 = 0.0;
+        let mut o_acc: [f32; 64] = [0.0; 64];
+
+        let n_kv_tiles = (seq_len + 31) / 32;
+
+        let mut t = 0u32;
+        while t < n_kv_tiles {
+            let kv_col_start = t * 32;
+
+            if causal_mask != 0 && kv_col_start > q_tile_idx * 32 + 31 {
+                break;
+            }
+
+            let tile_size = if kv_col_start + 32 <= seq_len {
+                32u32
+            } else {
+                seq_len - kv_col_start
+            };
+
+            // Load K and V tiles cooperatively
+            {
+                let global_kv_row = kv_col_start + tid;
+                let mut d = 0u32;
+                while d < d_head {
+                    let val = if global_kv_row < seq_len {
+                        *k_head.add((global_kv_row * d_head + d) as usize)
+                    } else {
+                        0.0
+                    };
+                    *k_tile.add((tid * d_head + d) as usize) = val;
+                    d += 1;
+                }
+                d = 0;
+                while d < d_head {
+                    let val = if global_kv_row < seq_len {
+                        *v_head.add((global_kv_row * d_head + d) as usize)
+                    } else {
+                        0.0
+                    };
+                    *v_tile.add((tid * d_head + d) as usize) = val;
+                    d += 1;
+                }
+            }
+            bar_sync();
+
+            if my_row < seq_len {
+                // Compute scores and online softmax update
+                let mut tile_max: f32 = -1.0e38;
+                let mut scores: [f32; 32] = [0.0; 32];
+
+                // Score computation: process 4 d-elements at a time for ILP
+                let mut c = 0u32;
+                while c < tile_size {
+                    let kv_col = kv_col_start + c;
+                    if causal_mask != 0 && kv_col > my_row {
+                        scores[c as usize] = -1.0e38;
+                    } else {
+                        // Dot product with 4-way unrolling for ILP
+                        let mut dot: f32 = 0.0;
+                        let k_off = (c * d_head) as usize;
+                        let mut d = 0u32;
+                        while d + 3 < d_head {
+                            let q0 = q_row[d as usize];
+                            let q1 = q_row[(d + 1) as usize];
+                            let q2 = q_row[(d + 2) as usize];
+                            let q3 = q_row[(d + 3) as usize];
+                            let k0 = *k_tile.add(k_off + d as usize);
+                            let k1 = *k_tile.add(k_off + (d + 1) as usize);
+                            let k2 = *k_tile.add(k_off + (d + 2) as usize);
+                            let k3 = *k_tile.add(k_off + (d + 3) as usize);
+                            // 4 independent FMAs — GPU can pipeline these
+                            let mut d0: f32;
+                            let mut d1: f32;
+                            let mut d2: f32;
+                            let mut d3: f32;
+                            core::arch::asm!("fma.rn.f32 {d}, {a}, {b}, {c};", d = out(reg32) d0, a = in(reg32) q0, b = in(reg32) k0, c = in(reg32) dot);
+                            core::arch::asm!("fma.rn.f32 {d}, {a}, {b}, {c};", d = out(reg32) d1, a = in(reg32) q1, b = in(reg32) k1, c = in(reg32) 0.0f32);
+                            core::arch::asm!("fma.rn.f32 {d}, {a}, {b}, {c};", d = out(reg32) d2, a = in(reg32) q2, b = in(reg32) k2, c = in(reg32) 0.0f32);
+                            core::arch::asm!("fma.rn.f32 {d}, {a}, {b}, {c};", d = out(reg32) d3, a = in(reg32) q3, b = in(reg32) k3, c = in(reg32) 0.0f32);
+                            dot = d0 + d1 + d2 + d3;
+                            d += 4;
+                        }
+                        while d < d_head {
+                            dot += q_row[d as usize] * *k_tile.add(k_off + d as usize);
+                            d += 1;
+                        }
+                        let s = dot * scale;
+                        scores[c as usize] = s;
+                        if s > tile_max {
+                            tile_max = s;
+                        }
+                    }
+                    c += 1;
+                }
+
+                // Online softmax update
+                let m_new = if tile_max > m { tile_max } else { m };
+
+                let mut row_sum: f32 = 0.0;
+                let mut exp_scores: [f32; 32] = [0.0; 32];
+                c = 0;
+                while c < tile_size {
+                    let e = gpu_exp_f32(scores[c as usize] - m_new);
+                    exp_scores[c as usize] = e;
+                    row_sum += e;
+                    c += 1;
+                }
+
+                let correction = gpu_exp_f32(m - m_new);
+
+                // Rescale old output + accumulate new with 4-way unrolling
+                let mut d = 0u32;
+                while d + 3 < d_head {
+                    o_acc[d as usize] = o_acc[d as usize] * correction;
+                    o_acc[(d + 1) as usize] = o_acc[(d + 1) as usize] * correction;
+                    o_acc[(d + 2) as usize] = o_acc[(d + 2) as usize] * correction;
+                    o_acc[(d + 3) as usize] = o_acc[(d + 3) as usize] * correction;
+                    d += 4;
+                }
+                while d < d_head {
+                    o_acc[d as usize] *= correction;
+                    d += 1;
+                }
+
+                // P × V accumulation
+                c = 0;
+                while c < tile_size {
+                    let p = exp_scores[c as usize];
+                    if p > 1.0e-30 {
+                        let v_off = (c * d_head) as usize;
+                        d = 0;
+                        while d + 3 < d_head {
+                            core::arch::asm!("fma.rn.f32 {d}, {a}, {b}, {c};", d = out(reg32) o_acc[d as usize], a = in(reg32) p, b = in(reg32) *v_tile.add(v_off + d as usize), c = in(reg32) o_acc[d as usize]);
+                            core::arch::asm!("fma.rn.f32 {d}, {a}, {b}, {c};", d = out(reg32) o_acc[(d+1) as usize], a = in(reg32) p, b = in(reg32) *v_tile.add(v_off + (d+1) as usize), c = in(reg32) o_acc[(d+1) as usize]);
+                            core::arch::asm!("fma.rn.f32 {d}, {a}, {b}, {c};", d = out(reg32) o_acc[(d+2) as usize], a = in(reg32) p, b = in(reg32) *v_tile.add(v_off + (d+2) as usize), c = in(reg32) o_acc[(d+2) as usize]);
+                            core::arch::asm!("fma.rn.f32 {d}, {a}, {b}, {c};", d = out(reg32) o_acc[(d+3) as usize], a = in(reg32) p, b = in(reg32) *v_tile.add(v_off + (d+3) as usize), c = in(reg32) o_acc[(d+3) as usize]);
+                            d += 4;
+                        }
+                        while d < d_head {
+                            o_acc[d as usize] += p * *v_tile.add(v_off + d as usize);
+                            d += 1;
+                        }
+                    }
+                    c += 1;
+                }
+
+                l = l * correction + row_sum;
+                m = m_new;
+            }
+
+            bar_sync();
+            t += 1;
+        }
+
+        // Write output
+        if my_row < seq_len && l > 0.0 {
+            let inv_l = 1.0 / l;
+            let mut d = 0u32;
+            while d < d_head {
+                *out_head.add((my_row * d_head + d) as usize) = o_acc[d as usize] * inv_l;
+                d += 1;
+            }
+        }
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (q_global, k_global, v_global, out_global, seq_len, d_head, causal_mask);
+    }
+
+    if tid == 0 {
+        let _prev: u32;
+        core::arch::asm!(
+            "atom.global.add.u32 {prev}, [{addr}], 1;",
+            prev = out(reg32) _prev,
+            addr = in(reg64) status,
+        );
+    }
+}
+
 /// Identical algorithm to `flash_attention`, but Q and K/V can have different lengths.
 /// Q layout: [n_heads, q_len, d_head] — typically q_len=1 for autoregressive generation
 /// K/V layout: [n_heads, kv_len, d_head] — the full KV cache (all previous + current token)

@@ -164,7 +164,8 @@ pub fn multi_head_flash_attention(
 
     let status_dev = dev.htod_sync_copy(&[0u32]).map_err(NnError::Cuda)?;
 
-    let func = registry.get("flash_attention")?;
+    // Use V2 flash attention (4-way unrolled dot products + FMA for P·V)
+    let func = registry.get("flash_attention_v2")?;
     let n_q_tiles = seq_len.div_ceil(32) as u32;
     let config = cudarc::driver::LaunchConfig {
         grid_dim: (n_heads as u32, n_q_tiles, 1),
@@ -189,8 +190,7 @@ pub fn multi_head_flash_attention(
         .map_err(NnError::Cuda)?;
     }
 
-    // Reshape output metadata (data unchanged)
-    let _ = total; // suppress unused warning
+    let _ = total;
     Ok(output)
 }
 

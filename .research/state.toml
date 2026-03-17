@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 585     # Monotonic counter, incremented after each completed phase
-completed_tasks = 696
+total_cycles = 586     # Monotonic counter, incremented after each completed phase
+completed_tasks = 697
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "perf-elementwise.1"
-last_summary = "GEMM V2 998 GFLOPS (36.8%), LayerNorm V2 80 GB/s (28%). GPT-2 221ms→59.9ms (3.69x). Next: perf-elementwise.1, perf-layernorm.2 (float4+fused), then perf-attention."
+current_task_id = "perf-attention.1"
+last_summary = "GEMM 998 GFLOPS (36.8%), LN 80 GB/s, elem_add V2 done. GPT-2 221→59.9ms (3.69x). Next: perf-attention.1 (FA2 investigation) — biggest remaining gap (2.4% of cuDNN)."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 110
@@ -1558,7 +1558,7 @@ depends = ["perf-gemm.4"]
 id = "perf-attention"
 epic = "kernel-perf"
 title = "FlashAttention-2 — MMA tiled GEMM + online softmax"
-status = "pending"
+status = "active"
 goal = "Attention throughput >= 50% of cuDNN FA2"
 success_criteria = [
     "Q tile in shared memory for cooperative tiled GEMM",
@@ -1573,7 +1573,7 @@ id = "perf-attention.1"
 theme = "perf-attention"
 title = "Investigation: study FlashAttention-2 algorithm — tile schedule, softmax, memory staging"
 kind = "investigation"
-status = "pending"
+status = "active"
 depends = []
 
 [[tasks]]
@@ -1716,7 +1716,7 @@ id = "perf-elementwise.1"
 theme = "perf-elementwise"
 title = "Experiment: float4 vectorized elementwise_add + gelu + sigmoid + relu"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = []
 
 [[tasks]]

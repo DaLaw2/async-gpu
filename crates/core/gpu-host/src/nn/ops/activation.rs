@@ -45,7 +45,17 @@ fn elementwise_activation(
     let status_dev = dev.htod_sync_copy(&[0u32])?;
 
     let func = registry.get(kernel_name)?;
-    let config = KernelRegistry::config_1d(n as u32);
+    // V2 kernels process 4 elements per thread → grid = ceil(n/1024)
+    let is_v2 = kernel_name.ends_with("_v2");
+    let config = if is_v2 {
+        cudarc::driver::LaunchConfig {
+            grid_dim: ((n as u32 + 1023) / 1024, 1, 1),
+            block_dim: (256, 1, 1),
+            shared_mem_bytes: 0,
+        }
+    } else {
+        KernelRegistry::config_1d(n as u32)
+    };
     unsafe {
         func.launch(
             config,
@@ -57,7 +67,7 @@ fn elementwise_activation(
     // Record on autograd tape
     if input.requires_grad() {
         let op = match kernel_name {
-            "gelu_forward" => crate::nn::autograd::OpKind::Gelu,
+            "gelu_forward" | "gelu_forward_v2" => crate::nn::autograd::OpKind::Gelu,
             "silu_forward" => crate::nn::autograd::OpKind::Silu,
             "sigmoid_forward" => crate::nn::autograd::OpKind::Sigmoid,
             _ => crate::nn::autograd::OpKind::Relu,

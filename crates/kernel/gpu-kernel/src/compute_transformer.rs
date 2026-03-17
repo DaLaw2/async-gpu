@@ -991,6 +991,128 @@ pub unsafe extern "ptx-kernel" fn elementwise_add(a: *mut f32, b: *const f32, n:
 }
 
 // ============================================================
+// Vectorized elementwise_add V2 — 4 elements per thread, coalesced
+// ============================================================
+
+/// Vectorized elementwise add: a[i] += b[i], 4 elements per thread.
+///
+/// grid_dim = (ceil(n/1024), 1, 1), block_dim = (256, 1, 1).
+/// Each thread handles 4 consecutive elements for better memory coalescing.
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn elementwise_add_v2(
+    a: *mut f32,
+    b: *const f32,
+    n: u32,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let block_x = nvptx::_block_idx_x() as u32;
+        let base = (block_x * 256 + tid) * 4;
+
+        if base + 3 < n {
+            // Fast path: all 4 elements in bounds
+            let a0 = *a.add(base as usize);
+            let a1 = *a.add((base + 1) as usize);
+            let a2 = *a.add((base + 2) as usize);
+            let a3 = *a.add((base + 3) as usize);
+            let b0 = *b.add(base as usize);
+            let b1 = *b.add((base + 1) as usize);
+            let b2 = *b.add((base + 2) as usize);
+            let b3 = *b.add((base + 3) as usize);
+            *a.add(base as usize) = a0 + b0;
+            *a.add((base + 1) as usize) = a1 + b1;
+            *a.add((base + 2) as usize) = a2 + b2;
+            *a.add((base + 3) as usize) = a3 + b3;
+        } else {
+            // Tail: check each element
+            let mut i = 0u32;
+            while i < 4 {
+                let idx = base + i;
+                if idx < n {
+                    *a.add(idx as usize) = *a.add(idx as usize) + *b.add(idx as usize);
+                }
+                i += 1;
+            }
+        }
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (a, b, n);
+    }
+}
+
+// ============================================================
+// Vectorized GELU V2 — fast sigmoid approximation, 4 elements per thread
+// ============================================================
+
+/// Fast GELU: y = x * sigmoid(1.702 * x), 4 elements per thread.
+///
+/// Uses the SiLU-like approximation instead of tanh formula.
+/// grid_dim = (ceil(n/1024), 1, 1), block_dim = (256, 1, 1).
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn gelu_forward_v2(
+    input: *const f32,
+    output: *mut f32,
+    n: u32,
+    status: *mut u32,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let block_x = nvptx::_block_idx_x() as u32;
+        let base = (block_x * 256 + tid) * 4;
+
+        // Fast GELU: x * sigmoid(1.702 * x) where sigmoid(z) = 1/(1+exp(-z))
+        let coeff: f32 = 1.702;
+
+        if base + 3 < n {
+            let x0 = *input.add(base as usize);
+            let x1 = *input.add((base + 1) as usize);
+            let x2 = *input.add((base + 2) as usize);
+            let x3 = *input.add((base + 3) as usize);
+
+            // sigmoid(1.702 * x) = 1 / (1 + exp(-1.702 * x))
+            let s0 = 1.0 / (1.0 + gpu_exp_f32(-coeff * x0));
+            let s1 = 1.0 / (1.0 + gpu_exp_f32(-coeff * x1));
+            let s2 = 1.0 / (1.0 + gpu_exp_f32(-coeff * x2));
+            let s3 = 1.0 / (1.0 + gpu_exp_f32(-coeff * x3));
+
+            *output.add(base as usize) = x0 * s0;
+            *output.add((base + 1) as usize) = x1 * s1;
+            *output.add((base + 2) as usize) = x2 * s2;
+            *output.add((base + 3) as usize) = x3 * s3;
+        } else {
+            let mut i = 0u32;
+            while i < 4 {
+                let idx = base + i;
+                if idx < n {
+                    let x = *input.add(idx as usize);
+                    let s = 1.0 / (1.0 + gpu_exp_f32(-coeff * x));
+                    *output.add(idx as usize) = x * s;
+                }
+                i += 1;
+            }
+        }
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (input, output, n);
+    }
+
+    if tid == 0 {
+        let _prev: u32;
+        core::arch::asm!(
+            "atom.global.add.u32 {prev}, [{addr}], 1;",
+            prev = out(reg32) _prev,
+            addr = in(reg64) status,
+        );
+    }
+}
+
+// ============================================================
 // QKV split + transpose kernel (transformer-layer.6 helper)
 // ============================================================
 

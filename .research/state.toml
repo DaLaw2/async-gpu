@@ -11,7 +11,7 @@ status = "running"     # ready | running | blocked | completed
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "perf-layernorm.1"
+current_task_id = "perf-elementwise.1"
 last_summary = "GEMM V2 998 GFLOPS (36.8%), LayerNorm V2 80 GB/s (28%). GPT-2 221ms→59.9ms (3.69x). Next: perf-elementwise.1, perf-layernorm.2 (float4+fused), then perf-attention."
 
 # Sequence counters for unique file naming across iterations

@@ -172,8 +172,14 @@ pub fn elementwise_add(
 
     let n = a.numel();
 
-    let func = registry.get("elementwise_add")?;
-    let config = KernelRegistry::config_1d(n as u32);
+    // V2: 4 elements per thread for better throughput
+    let func = registry.get("elementwise_add_v2")?;
+    let grid = ((n as u32 + 1023) / 1024, 1, 1);
+    let config = cudarc::driver::LaunchConfig {
+        grid_dim: grid,
+        block_dim: (256, 1, 1),
+        shared_mem_bytes: 0,
+    };
     unsafe {
         func.launch(config, (a.data_mut(), b.data(), n as u32))
             .map_err(NnError::Cuda)?;

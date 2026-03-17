@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 491     # Monotonic counter, incremented after each completed phase
-completed_tasks = 601
+total_cycles = 492     # Monotonic counter, incremented after each completed phase
+completed_tasks = 602
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "int4-kernel.2"
-last_summary = "ONNX parser + executor DONE (20+ ops). kernel-fusion-v2 done (matmul_fused). onnx-executor.4 pending (PyTorch ONNX export embeds weights externally). Next: fix ONNX export, INT4 kernel, transformer ops."
+current_task_id = "int4-gpt2.1"
+last_summary = "INT4 quantization: kernel + host wrapper + Python quantizer (4.7x reduction). ONNX parser+executor (20+ ops). matmul_fused. Next: int4-gpt2.2 (INT4 inference), ONNX e2e, graph compiler."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 108
@@ -918,7 +918,8 @@ id = "int4-gpt2.1"
 theme = "int4-gpt2"
 title = "Python quantization script: GPT-2 f32 → INT4 with per-group scales"
 kind = "experiment"
-status = "pending"
+status = "done"
+# 522.7 MB → 111.5 MB (4.7x). 50 weight matrices quantized. Per-group scale (group=128).
 depends = ["int4-kernel.2"]
 
 [[tasks]]
@@ -927,6 +928,7 @@ theme = "int4-gpt2"
 title = "GPT-2 INT4 inference: load quantized weights, generate text, verify quality"
 kind = "experiment"
 status = "pending"
+# Needs: INT4 Linear layer that loads packed weights + scales, uses int4_gemm_w4a16 for forward.
 depends = ["int4-gpt2.1"]
 
 # ============================================================

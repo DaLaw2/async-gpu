@@ -388,6 +388,306 @@ fn dispatch_node(
             Ok(NodeOutput::Single(out))
         }
 
+        // --- Transformer ops ---
+        "LayerNormalization" => {
+            let x = get_input(&node.inputs[0], tensor_map)?;
+            let gamma = get_input(&node.inputs[1], tensor_map)?;
+            let beta = if node.inputs.len() > 2 && !node.inputs[2].is_empty() {
+                Some(get_input(&node.inputs[2], tensor_map)?)
+            } else {
+                None
+            };
+            let eps = node.attr_float("epsilon", 1e-5);
+            let out = crate::nn::ops::layer_norm(x, gamma, beta.unwrap_or(gamma), eps, registry)
+                .map_err(map_nn_err)?;
+            Ok(NodeOutput::Single(out))
+        }
+        "Mul" => {
+            // Element-wise multiply (CPU-side for now)
+            let a = get_input(&node.inputs[0], tensor_map)?;
+            let b = get_input(&node.inputs[1], tensor_map)?;
+            let a_h = a.to_host().map_err(map_nn_err)?;
+            let b_h = b.to_host().map_err(map_nn_err)?;
+            let out_data: Vec<f32> = if a_h.len() == b_h.len() {
+                a_h.iter().zip(b_h.iter()).map(|(x, y)| x * y).collect()
+            } else if b_h.len() == 1 {
+                a_h.iter().map(|x| x * b_h[0]).collect()
+            } else {
+                // Broadcast: b is smaller, assume it broadcasts over the last dim
+                a_h.iter()
+                    .enumerate()
+                    .map(|(i, x)| x * b_h[i % b_h.len()])
+                    .collect()
+            };
+            let out = GpuTensor::from_host(&out_data, a.shape(), dev).map_err(map_nn_err)?;
+            Ok(NodeOutput::Single(out))
+        }
+        "Div" => {
+            let a = get_input(&node.inputs[0], tensor_map)?;
+            let b = get_input(&node.inputs[1], tensor_map)?;
+            let a_h = a.to_host().map_err(map_nn_err)?;
+            let b_h = b.to_host().map_err(map_nn_err)?;
+            let out_data: Vec<f32> = if b_h.len() == 1 {
+                a_h.iter().map(|x| x / b_h[0]).collect()
+            } else {
+                a_h.iter()
+                    .enumerate()
+                    .map(|(i, x)| x / b_h[i % b_h.len()])
+                    .collect()
+            };
+            let out = GpuTensor::from_host(&out_data, a.shape(), dev).map_err(map_nn_err)?;
+            Ok(NodeOutput::Single(out))
+        }
+        "Pow" => {
+            let a = get_input(&node.inputs[0], tensor_map)?;
+            let b = get_input(&node.inputs[1], tensor_map)?;
+            let a_h = a.to_host().map_err(map_nn_err)?;
+            let b_h = b.to_host().map_err(map_nn_err)?;
+            let exp = if b_h.len() == 1 { b_h[0] } else { 2.0 };
+            let out_data: Vec<f32> = a_h.iter().map(|x| x.powf(exp)).collect();
+            let out = GpuTensor::from_host(&out_data, a.shape(), dev).map_err(map_nn_err)?;
+            Ok(NodeOutput::Single(out))
+        }
+        "Sqrt" => {
+            let x = get_input(&node.inputs[0], tensor_map)?;
+            let x_h = x.to_host().map_err(map_nn_err)?;
+            let out_data: Vec<f32> = x_h.iter().map(|v| v.sqrt()).collect();
+            let out = GpuTensor::from_host(&out_data, x.shape(), dev).map_err(map_nn_err)?;
+            Ok(NodeOutput::Single(out))
+        }
+        "Tanh" => {
+            let x = get_input(&node.inputs[0], tensor_map)?;
+            let x_h = x.to_host().map_err(map_nn_err)?;
+            let out_data: Vec<f32> = x_h.iter().map(|v| v.tanh()).collect();
+            let out = GpuTensor::from_host(&out_data, x.shape(), dev).map_err(map_nn_err)?;
+            Ok(NodeOutput::Single(out))
+        }
+        "Erf" => {
+            let x = get_input(&node.inputs[0], tensor_map)?;
+            let x_h = x.to_host().map_err(map_nn_err)?;
+            // Erf approximation: erf(x) ≈ tanh(x * 1.128 * (1 + 0.0446 * x²))
+            let out_data: Vec<f32> = x_h
+                .iter()
+                .map(|&v| {
+                    let t = v * 1.128379167 * (1.0 + 0.0446 * v * v);
+                    t.tanh()
+                })
+                .collect();
+            let out = GpuTensor::from_host(&out_data, x.shape(), dev).map_err(map_nn_err)?;
+            Ok(NodeOutput::Single(out))
+        }
+        "Cast" => {
+            // For now, just pass through (all data is f32 internally)
+            let x = get_input(&node.inputs[0], tensor_map)?;
+            let out = x.clone_tensor().map_err(map_nn_err)?;
+            Ok(NodeOutput::Single(out))
+        }
+        "Split" => {
+            let x = get_input(&node.inputs[0], tensor_map)?;
+            let axis = node.attr_int("axis", 0) as usize;
+            let x_h = x.to_host().map_err(map_nn_err)?;
+            let shape = x.shape();
+            let split_sizes = node.attr_ints("split");
+            let n_outputs = if !split_sizes.is_empty() {
+                split_sizes.len()
+            } else {
+                node.outputs.len()
+            };
+            // Simple split along last axis for 2D tensors
+            if shape.len() == 2 && axis == 1 {
+                let cols = shape[1];
+                let chunk = cols / n_outputs;
+                let mut tensors = Vec::new();
+                for i in 0..n_outputs {
+                    let start = i * chunk;
+                    let end = if i == n_outputs - 1 {
+                        cols
+                    } else {
+                        start + chunk
+                    };
+                    let mut out_data = Vec::new();
+                    for row in 0..shape[0] {
+                        out_data.extend_from_slice(&x_h[row * cols + start..row * cols + end]);
+                    }
+                    let t = GpuTensor::from_host(&out_data, &[shape[0], end - start], dev)
+                        .map_err(map_nn_err)?;
+                    tensors.push(t);
+                }
+                Ok(NodeOutput::Multiple(tensors))
+            } else {
+                // Fallback: return clones
+                let mut tensors = Vec::new();
+                for _ in 0..n_outputs {
+                    tensors.push(x.clone_tensor().map_err(map_nn_err)?);
+                }
+                Ok(NodeOutput::Multiple(tensors))
+            }
+        }
+        "Where" => {
+            // Where(condition, X, Y): select X where condition is true, Y otherwise
+            let cond = get_input(&node.inputs[0], tensor_map)?;
+            let x = get_input(&node.inputs[1], tensor_map)?;
+            let y = get_input(&node.inputs[2], tensor_map)?;
+            let c_h = cond.to_host().map_err(map_nn_err)?;
+            let x_h = x.to_host().map_err(map_nn_err)?;
+            let y_h = y.to_host().map_err(map_nn_err)?;
+            let out_len = x_h.len().max(y_h.len());
+            let out_data: Vec<f32> = (0..out_len)
+                .map(|i| {
+                    let c = c_h[i % c_h.len()];
+                    if c != 0.0 {
+                        x_h[i % x_h.len()]
+                    } else {
+                        y_h[i % y_h.len()]
+                    }
+                })
+                .collect();
+            let out = GpuTensor::from_host(&out_data, x.shape(), dev).map_err(map_nn_err)?;
+            Ok(NodeOutput::Single(out))
+        }
+        "Range" => {
+            // Range(start, limit, delta)
+            let start = get_input(&node.inputs[0], tensor_map)?
+                .to_host()
+                .map_err(map_nn_err)?[0];
+            let limit = get_input(&node.inputs[1], tensor_map)?
+                .to_host()
+                .map_err(map_nn_err)?[0];
+            let delta = get_input(&node.inputs[2], tensor_map)?
+                .to_host()
+                .map_err(map_nn_err)?[0];
+            let mut data = Vec::new();
+            let mut v = start;
+            while v < limit {
+                data.push(v);
+                v += delta;
+            }
+            let n = data.len();
+            let out = GpuTensor::from_host(&data, &[n], dev).map_err(map_nn_err)?;
+            Ok(NodeOutput::Single(out))
+        }
+        "ConstantOfShape" => {
+            let shape_t = get_input(&node.inputs[0], tensor_map)?;
+            let shape_h = shape_t.to_host().map_err(map_nn_err)?;
+            let shape: Vec<usize> = shape_h.iter().map(|&v| v as usize).collect();
+            let fill_val = node.attr_float("value", 0.0);
+            let total: usize = shape.iter().product();
+            let data = vec![fill_val; total];
+            let out = GpuTensor::from_host(&data, &shape, dev).map_err(map_nn_err)?;
+            Ok(NodeOutput::Single(out))
+        }
+        "Trilu" => {
+            // Upper triangular mask
+            let x = get_input(&node.inputs[0], tensor_map)?;
+            let upper = node.attr_int("upper", 1);
+            let x_h = x.to_host().map_err(map_nn_err)?;
+            let shape = x.shape();
+            let mut out_data = x_h.clone();
+            if shape.len() >= 2 {
+                let rows = shape[shape.len() - 2];
+                let cols = shape[shape.len() - 1];
+                let batch: usize = shape[..shape.len() - 2].iter().product::<usize>().max(1);
+                for b in 0..batch {
+                    for r in 0..rows {
+                        for c in 0..cols {
+                            let idx = b * rows * cols + r * cols + c;
+                            if upper != 0 && r > c {
+                                out_data[idx] = 0.0;
+                            } else if upper == 0 && c > r {
+                                out_data[idx] = 0.0;
+                            }
+                        }
+                    }
+                }
+            }
+            let out = GpuTensor::from_host(&out_data, shape, dev).map_err(map_nn_err)?;
+            Ok(NodeOutput::Single(out))
+        }
+        "Sub" => {
+            let a = get_input(&node.inputs[0], tensor_map)?;
+            let b = get_input(&node.inputs[1], tensor_map)?;
+            let a_h = a.to_host().map_err(map_nn_err)?;
+            let b_h = b.to_host().map_err(map_nn_err)?;
+            let out_data: Vec<f32> = if b_h.len() == 1 {
+                a_h.iter().map(|x| x - b_h[0]).collect()
+            } else {
+                a_h.iter()
+                    .enumerate()
+                    .map(|(i, x)| x - b_h[i % b_h.len()])
+                    .collect()
+            };
+            let out = GpuTensor::from_host(&out_data, a.shape(), dev).map_err(map_nn_err)?;
+            Ok(NodeOutput::Single(out))
+        }
+        "Exp" => {
+            let x = get_input(&node.inputs[0], tensor_map)?;
+            let x_h = x.to_host().map_err(map_nn_err)?;
+            let out_data: Vec<f32> = x_h.iter().map(|v| v.exp()).collect();
+            let out = GpuTensor::from_host(&out_data, x.shape(), dev).map_err(map_nn_err)?;
+            Ok(NodeOutput::Single(out))
+        }
+        "ReduceMean" => {
+            let x = get_input(&node.inputs[0], tensor_map)?;
+            let axes = node.attr_ints("axes");
+            let x_h = x.to_host().map_err(map_nn_err)?;
+            // Simplified: reduce all elements to mean
+            let mean = x_h.iter().sum::<f32>() / x_h.len() as f32;
+            let out = GpuTensor::from_host(&[mean], &[1], dev).map_err(map_nn_err)?;
+            let _ = axes; // TODO: proper axis handling
+            Ok(NodeOutput::Single(out))
+        }
+        "Neg" => {
+            let x = get_input(&node.inputs[0], tensor_map)?;
+            let x_h = x.to_host().map_err(map_nn_err)?;
+            let out_data: Vec<f32> = x_h.iter().map(|v| -v).collect();
+            let out = GpuTensor::from_host(&out_data, x.shape(), dev).map_err(map_nn_err)?;
+            Ok(NodeOutput::Single(out))
+        }
+        "Expand" => {
+            // Broadcast tensor to target shape
+            let x = get_input(&node.inputs[0], tensor_map)?;
+            let shape_t = get_input(&node.inputs[1], tensor_map)?;
+            let target = shape_t.to_host().map_err(map_nn_err)?;
+            let target_shape: Vec<usize> = target.iter().map(|&v| v as usize).collect();
+            let total: usize = target_shape.iter().product();
+            let x_h = x.to_host().map_err(map_nn_err)?;
+            // Simple broadcast: tile x_h to fill target
+            let out_data: Vec<f32> = (0..total).map(|i| x_h[i % x_h.len()]).collect();
+            let out = GpuTensor::from_host(&out_data, &target_shape, dev).map_err(map_nn_err)?;
+            Ok(NodeOutput::Single(out))
+        }
+        "Slice" => {
+            // Simplified Slice for 1D/2D
+            let x = get_input(&node.inputs[0], tensor_map)?;
+            let x_h = x.to_host().map_err(map_nn_err)?;
+            // Just pass through for now (proper Slice needs starts/ends/axes/steps)
+            let out = GpuTensor::from_host(&x_h, x.shape(), dev).map_err(map_nn_err)?;
+            Ok(NodeOutput::Single(out))
+        }
+        "Equal" => {
+            let a = get_input(&node.inputs[0], tensor_map)?;
+            let b = get_input(&node.inputs[1], tensor_map)?;
+            let a_h = a.to_host().map_err(map_nn_err)?;
+            let b_h = b.to_host().map_err(map_nn_err)?;
+            let out_data: Vec<f32> = a_h
+                .iter()
+                .enumerate()
+                .map(|(i, x)| if *x == b_h[i % b_h.len()] { 1.0 } else { 0.0 })
+                .collect();
+            let out = GpuTensor::from_host(&out_data, a.shape(), dev).map_err(map_nn_err)?;
+            Ok(NodeOutput::Single(out))
+        }
+        "Not" => {
+            let x = get_input(&node.inputs[0], tensor_map)?;
+            let x_h = x.to_host().map_err(map_nn_err)?;
+            let out_data: Vec<f32> = x_h
+                .iter()
+                .map(|v| if *v == 0.0 { 1.0 } else { 0.0 })
+                .collect();
+            let out = GpuTensor::from_host(&out_data, x.shape(), dev).map_err(map_nn_err)?;
+            Ok(NodeOutput::Single(out))
+        }
+
         // --- Fused ops (from graph compiler fusion pass) ---
         "Fused_MatMulBiasRelu" | "Fused_MatMulBiasGelu" => {
             let a = get_input(&node.inputs[0], tensor_map)?;

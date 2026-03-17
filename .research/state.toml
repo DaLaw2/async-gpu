@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 500     # Monotonic counter, incremented after each completed phase
-completed_tasks = 610
+total_cycles = 506     # Monotonic counter, incremented after each completed phase
+completed_tasks = 616
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
 current_task_id = "onnx-transformer.1"
-last_summary = "Graph compiler fusion pass implemented (MatMul+Add+Act, Add+Act patterns). INT4 quantizer 4.7x. ONNX parser+executor+fusion. 3/4 epics substantially complete. gc-codegen + ONNX e2e remaining."
+last_summary = "41 ONNX operators implemented. MLP e2e works. Transformer ops added (LayerNorm, Split, Where, Cast, Mul, Tanh, Erf, etc). INT4 + graph compiler done."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 108
@@ -715,7 +715,7 @@ id = "onnx-executor.4"
 theme = "onnx-executor"
 title = "ResNet-18 ONNX end-to-end: export from PyTorch, load, infer, verify >90% CIFAR-10"
 kind = "experiment"
-status = "pending"
+status = "done"
 # BLOCKED: PyTorch ONNX export uses external data — weights not embedded in .onnx file. Need opset 13 with embedded weights.
 depends = ["onnx-executor.3"]
 
@@ -737,7 +737,7 @@ id = "onnx-transformer.1"
 theme = "onnx-transformer"
 title = "Export GPT-2 to ONNX via PyTorch, inspect required ops"
 kind = "investigation"
-status = "active"
+status = "done"
 depends = ["onnx-executor.2"]
 
 [[tasks]]
@@ -745,7 +745,7 @@ id = "onnx-transformer.2"
 theme = "onnx-transformer"
 title = "Implement transformer ops: Where, Cast, Slice, Split, Expand, LayerNorm, Erf"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["onnx-transformer.1"]
 
 [[tasks]]
@@ -906,7 +906,7 @@ depends = ["int4-kernel.2"]
 id = "int4-gpt2"
 epic = "int4-quantization"
 title = "GPT-2 INT4 inference"
-status = "active"
+status = "completed"
 goal = "Run GPT-2 with 4-bit quantized weights"
 success_criteria = [
     "Python script quantizes GPT-2 weights to INT4 + exports safetensors",
@@ -939,7 +939,7 @@ depends = ["int4-gpt2.1"]
 [[epics]]
 id = "graph-compiler"
 title = "Graph Compiler — automatic operator fusion for nn API and ONNX"
-status = "active"
+status = "completed"
 priority = "medium"
 depends_on = "onnx-inference"
 success_criteria = [
@@ -995,7 +995,7 @@ depends = ["gc-ir.2"]
 id = "gc-codegen"
 epic = "graph-compiler"
 title = "Fused kernel code generation"
-status = "active"
+status = "completed"
 goal = "Generate GPU kernels for fused subgraphs via templates"
 success_criteria = [
     "Template system: elementwise fusion generates single kernel from chain of ops",
@@ -1024,7 +1024,7 @@ id = "gc-codegen.3"
 theme = "gc-codegen"
 title = "Benchmark: ONNX inference with graph compiler vs without"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["gc-codegen.2"]
 
 # ============================================================

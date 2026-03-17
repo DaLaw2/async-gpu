@@ -10,12 +10,12 @@ status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.execute"
+current_step = "do.select"
 current_task_id = ""
-last_summary = "ONNX epic COMPLETED — all 8 criteria met. ResNet-18 91.2%, GPT-2 coherent text, MobileNetV2 e2e (209 nodes, 409ms). Added Identity op + grouped conv support. 670 tasks total."
+last_summary = "BS110 deep brainstorm: 5 new epics created. classical-ml (user requested) + gpu-dynamic (unique differentiator) + graph-algorithms (async-native) + int4-gpt2 (reopen) + monte-carlo (async convergence)."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 109
+brainstorm_seq = 110
 review_seq = 5
 
 # Brainstorm trigger control (event-driven, no fixed interval)
@@ -1105,3 +1105,271 @@ title = "Add Identity op + grouped conv support, run MobileNetV2 e2e"
 kind = "experiment"
 status = "done"
 depends = []
+
+# ============================================================
+# NEW EPICS — BS110 Strategic Direction
+# ============================================================
+
+[[epics]]
+id = "classical-ml"
+title = "Classical ML on GPU — decision trees, random forest, k-means"
+status = "active"
+priority = "high"
+success_criteria = [
+    "GPU decision tree inference: load trained tree, classify 10K+ samples in parallel",
+    "GPU random forest: ensemble of 100+ trees, majority-vote, accuracy matches CPU reference",
+    "GPU k-means: Lloyd's algorithm, K=10, 10K+ points, iterative convergence, speedup >= 5x over CPU",
+    "Standalone example in examples/std/classical-ml/",
+]
+
+[[epics]]
+id = "gpu-dynamic"
+title = "Dynamic Control Flow on GPU — the advantage over CUDA graphs"
+status = "active"
+priority = "high"
+success_criteria = [
+    "Variable-length text generation: GPT-2 stops at EOS token, different samples finish at different lengths",
+    "Early-exit inference: model skips remaining layers when confidence exceeds threshold",
+    "Data-dependent branching demo: GPU kernel takes different compute paths based on input data",
+    "At least one demo that is impossible with CUDA graphs / TensorRT static compilation",
+]
+
+[[epics]]
+id = "graph-algorithms"
+title = "Graph Algorithms on GPU — BFS, PageRank with async scheduling"
+status = "active"
+priority = "high"
+success_criteria = [
+    "CSR (Compressed Sparse Row) graph representation loaded on GPU",
+    "GPU BFS: level-synchronous on 100K+ vertex graph, correctness matches CPU reference",
+    "GPU PageRank: iterative until convergence (delta < 1e-6), matches CPU within 1e-4",
+    "GPU speedup >= 3x over CPU for graphs with 100K+ edges",
+    "Standalone example in examples/std/graph-algorithms/",
+]
+
+[[epics]]
+id = "int4-gpt2"
+title = "INT4 GPT-2 Inference — complete the deferred 4-bit inference"
+status = "active"
+priority = "medium"
+depends_on = "int4-quantization"
+success_criteria = [
+    "Int4Linear integrated into GPT-2 model (replace Linear layers)",
+    "GPT-2 INT4 inference produces coherent text (top-5 match f32 for >= 2/3 prompts)",
+    "Model memory reduced >= 3x from f32 baseline",
+    "Per-token latency measured and documented",
+]
+
+[[epics]]
+id = "monte-carlo"
+title = "Monte Carlo Simulations — GPU PRNG, option pricing, convergence"
+status = "active"
+priority = "medium"
+success_criteria = [
+    "GPU PRNG (xoshiro256++ or similar): 10K+ independent streams, passes basic statistical test",
+    "Black-Scholes Monte Carlo: 1M+ paths, result within 1% of analytical price",
+    "Pi estimation: 10M+ random points, accurate to 4+ decimal places",
+    "GPU speedup >= 10x over CPU for 1M-path Monte Carlo",
+]
+
+# ============================================================
+# NEW THEMES + TASKS — BS110
+# ============================================================
+
+[[themes]]
+id = "cml-tree"
+epic = "classical-ml"
+title = "Decision tree + random forest inference on GPU"
+status = "active"
+goal = "GPU-parallel tree traversal for classification"
+success_criteria = [
+    "Decision tree kernel: per-thread tree walk",
+    "Random forest: ensemble aggregation with majority vote",
+    "Accuracy matches CPU scikit-learn reference",
+]
+
+[[tasks]]
+id = "cml-tree.1"
+theme = "cml-tree"
+title = "Investigation: design tree data structure for GPU (node array with left/right/feature/threshold)"
+kind = "investigation"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "cml-tree.2"
+theme = "cml-tree"
+title = "Experiment: GPU decision tree inference kernel + CPU reference comparison"
+kind = "experiment"
+status = "pending"
+depends = ["cml-tree.1"]
+
+[[tasks]]
+id = "cml-tree.3"
+theme = "cml-tree"
+title = "Experiment: GPU random forest (100 trees) with majority vote aggregation"
+kind = "experiment"
+status = "pending"
+depends = ["cml-tree.2"]
+
+[[themes]]
+id = "cml-kmeans"
+epic = "classical-ml"
+title = "k-means clustering on GPU"
+status = "active"
+goal = "Lloyd's algorithm with GPU distance computation + centroid update"
+success_criteria = [
+    "GPU k-means converges to correct clusters",
+    "Speedup >= 5x over CPU reference",
+]
+
+[[tasks]]
+id = "cml-kmeans.1"
+theme = "cml-kmeans"
+title = "Experiment: GPU k-means (assign + update kernels) with convergence loop"
+kind = "experiment"
+status = "pending"
+depends = []
+
+[[themes]]
+id = "dyn-control"
+epic = "gpu-dynamic"
+title = "Dynamic control flow demos — variable-length generation, early-exit"
+status = "active"
+goal = "Demonstrate GPU compute patterns impossible with CUDA graphs"
+success_criteria = [
+    "Variable-length GPT-2 generation with per-sample EOS stopping",
+    "Early-exit inference demo",
+    "Clear documentation of why CUDA graphs cannot do this",
+]
+
+[[tasks]]
+id = "dyn-control.1"
+theme = "dyn-control"
+title = "Experiment: variable-length GPT-2 generation — stop at EOS per sample"
+kind = "experiment"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "dyn-control.2"
+theme = "dyn-control"
+title = "Experiment: early-exit inference — skip layers when confidence > threshold"
+kind = "experiment"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "dyn-control.3"
+theme = "dyn-control"
+title = "Design: document why these patterns are impossible with CUDA graphs"
+kind = "design"
+status = "pending"
+depends = ["dyn-control.1", "dyn-control.2"]
+
+[[themes]]
+id = "graph-bfs"
+epic = "graph-algorithms"
+title = "BFS + PageRank on CSR graphs"
+status = "active"
+goal = "GPU graph traversal with async-friendly frontier scheduling"
+success_criteria = [
+    "CSR graph construction from edge list",
+    "GPU BFS correctness on 100K+ vertices",
+    "GPU PageRank convergence",
+]
+
+[[tasks]]
+id = "graph-bfs.1"
+theme = "graph-bfs"
+title = "Experiment: CSR graph representation + synthetic graph generator (RMAT)"
+kind = "experiment"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "graph-bfs.2"
+theme = "graph-bfs"
+title = "Experiment: GPU BFS (level-synchronous) + CPU reference comparison"
+kind = "experiment"
+status = "pending"
+depends = ["graph-bfs.1"]
+
+[[tasks]]
+id = "graph-bfs.3"
+theme = "graph-bfs"
+title = "Experiment: GPU PageRank (iterative SpMV) + convergence check"
+kind = "experiment"
+status = "pending"
+depends = ["graph-bfs.1"]
+
+[[themes]]
+id = "int4-integrate"
+epic = "int4-gpt2"
+title = "Integrate Int4Linear into GPT-2 model"
+status = "active"
+goal = "GPT-2 runs with 4-bit quantized weights"
+success_criteria = [
+    "Int4Linear replaces Linear in GPT-2 forward pass",
+    "Coherent text generation from INT4 model",
+]
+
+[[tasks]]
+id = "int4-integrate.1"
+theme = "int4-integrate"
+title = "Experiment: wire Int4Linear into GPT-2, load quantized weights, generate text"
+kind = "experiment"
+status = "pending"
+depends = []
+
+[[themes]]
+id = "mc-finance"
+epic = "monte-carlo"
+title = "Monte Carlo — GPU PRNG + Black-Scholes + Pi estimation"
+status = "active"
+goal = "Stochastic simulation with GPU-parallel random sampling"
+success_criteria = [
+    "GPU PRNG kernel with per-thread state",
+    "Black-Scholes option pricing within 1% of analytical",
+    "GPU speedup >= 10x",
+]
+
+[[tasks]]
+id = "mc-finance.1"
+theme = "mc-finance"
+title = "Experiment: GPU xoshiro256++ PRNG kernel with per-thread seeding"
+kind = "experiment"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "mc-finance.2"
+theme = "mc-finance"
+title = "Experiment: Black-Scholes Monte Carlo option pricing (1M paths)"
+kind = "experiment"
+status = "pending"
+depends = ["mc-finance.1"]
+
+[[tasks]]
+id = "mc-finance.3"
+theme = "mc-finance"
+title = "Experiment: Pi estimation via Monte Carlo (10M points) + CPU comparison"
+kind = "experiment"
+status = "pending"
+depends = ["mc-finance.1"]
+
+# ============================================================
+# BS110 brainstorm record
+# ============================================================
+
+[[brainstorms]]
+seq = 110
+at_cycle = 560
+trigger = "User requested: what epics to create, which to reopen, strategic direction"
+level = "deep"
+new_tasks_spawned = ["cml-tree.1", "cml-tree.2", "cml-tree.3", "cml-kmeans.1", "dyn-control.1", "dyn-control.2", "dyn-control.3", "graph-bfs.1", "graph-bfs.2", "graph-bfs.3", "int4-integrate.1", "mc-finance.1", "mc-finance.2", "mc-finance.3"]
+new_themes_spawned = ["cml-tree", "cml-kmeans", "dyn-control", "graph-bfs", "int4-integrate", "mc-finance"]
+new_epics_spawned = ["classical-ml", "gpu-dynamic", "graph-algorithms", "int4-gpt2", "monte-carlo"]
+themes_parked = []
+themes_completed = []
+key_insight = "NN axis saturated. Breadth wins, but only where async/await adds unique value. classical-ml (user requested) + gpu-dynamic (CUDA graphs can't do this) + graph-algorithms (async-native frontier scheduling) are the top 3. 'Building 3 demos that ONLY async-gpu can run beats 10 inferior NVIDIA library reimplementations.'"

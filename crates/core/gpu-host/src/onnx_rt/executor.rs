@@ -582,9 +582,39 @@ fn dispatch_elementwise(
         "Add" => {
             let a = get_input(&node.inputs[0], tensor_map)?;
             let b = get_input(&node.inputs[1], tensor_map)?;
-            let mut out = a.clone_tensor().map_err(map_nn_err)?;
-            crate::nn::ops::elementwise_add(&mut out, b, registry).map_err(map_nn_err)?;
-            Ok(NodeOutput::Single(out))
+            let a_numel: usize = a.shape().iter().product();
+            let b_numel: usize = b.shape().iter().product();
+
+            if a_numel == b_numel {
+                let mut out = a.clone_tensor().map_err(map_nn_err)?;
+                crate::nn::ops::elementwise_add(&mut out, b, registry).map_err(map_nn_err)?;
+                Ok(NodeOutput::Single(out))
+            } else if b.ndim() == 1 && b.shape()[0] == a.shape()[a.ndim() - 1] {
+                // Bias add: b is 1D, broadcasts over last dim of a
+                let mut out = a.clone_tensor().map_err(map_nn_err)?;
+                crate::nn::ops::bias_add(&mut out, b, registry).map_err(map_nn_err)?;
+                Ok(NodeOutput::Single(out))
+            } else if a.ndim() == 1 && a.shape()[0] == b.shape()[b.ndim() - 1] {
+                // Reversed: a is the bias
+                let mut out = b.clone_tensor().map_err(map_nn_err)?;
+                crate::nn::ops::bias_add(&mut out, a, registry).map_err(map_nn_err)?;
+                Ok(NodeOutput::Single(out))
+            } else {
+                // General broadcast: CPU fallback
+                let a_h = a.to_host().map_err(map_nn_err)?;
+                let b_h = b.to_host().map_err(map_nn_err)?;
+                let out_len = a_h.len().max(b_h.len());
+                let out_data: Vec<f32> = (0..out_len)
+                    .map(|i| a_h[i % a_h.len()] + b_h[i % b_h.len()])
+                    .collect();
+                let out_shape = if a_numel >= b_numel {
+                    a.shape().to_vec()
+                } else {
+                    b.shape().to_vec()
+                };
+                let out = GpuTensor::from_host(&out_data, &out_shape, dev).map_err(map_nn_err)?;
+                Ok(NodeOutput::Single(out))
+            }
         }
         "Mul" => {
             let a = get_input(&node.inputs[0], tensor_map)?;
@@ -1172,7 +1202,7 @@ fn dispatch_misc(
             let c_h = cond.to_host().map_err(map_nn_err)?;
             let x_h = x.to_host().map_err(map_nn_err)?;
             let y_h = y.to_host().map_err(map_nn_err)?;
-            let out_len = x_h.len().max(y_h.len());
+            let out_len = c_h.len().max(x_h.len()).max(y_h.len());
             let out_data: Vec<f32> = (0..out_len)
                 .map(|i| {
                     let c = c_h[i % c_h.len()];
@@ -1183,7 +1213,15 @@ fn dispatch_misc(
                     }
                 })
                 .collect();
-            let out = GpuTensor::from_host(&out_data, x.shape(), dev).map_err(map_nn_err)?;
+            // Output shape: broadcast result — use the largest tensor's shape
+            let out_shape = if c_h.len() >= x_h.len() && c_h.len() >= y_h.len() {
+                cond.shape().to_vec()
+            } else if x_h.len() >= y_h.len() {
+                x.shape().to_vec()
+            } else {
+                y.shape().to_vec()
+            };
+            let out = GpuTensor::from_host(&out_data, &out_shape, dev).map_err(map_nn_err)?;
             Ok(NodeOutput::Single(out))
         }
         "Softmax" => {

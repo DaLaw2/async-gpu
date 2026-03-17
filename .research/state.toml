@@ -10,8 +10,8 @@ status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.execute"
-current_task_id = "gc-ir.1"
+current_step = "do.route"
+current_task_id = ""
 last_summary = "Graph compiler fusion pass implemented (MatMul+Add+Act, Add+Act patterns). INT4 quantizer 4.7x. ONNX parser+executor+fusion. 3/4 epics substantially complete. gc-codegen + ONNX e2e remaining."
 
 # Sequence counters for unique file naming across iterations

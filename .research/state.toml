@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 555     # Monotonic counter, incremented after each completed phase
-completed_tasks = 665
+total_cycles = 558     # Monotonic counter, incremented after each completed phase
+completed_tasks = 668
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
 current_task_id = "onnx-gpt2-debug.1"
-last_summary = "Found and fixed Mul scalar broadcast bug (GPT-2 GELU shape issue). Embedding values match native to 5 decimals. Trilu k param fixed. Still debugging MLP path allocation. 665 tasks."
+last_summary = "Fixed: Mul scalar broadcast, MatMul 1D, Trilu k param, BOOL dtype, ND Transpose, Softmax axis, etc. GPT-2 ONNX forward 150ms, shapes correct, logits diverge from native. Debugging GELU decomposition."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 109

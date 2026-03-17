@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 506     # Monotonic counter, incremented after each completed phase
-completed_tasks = 616
+total_cycles = 510     # Monotonic counter, incremented after each completed phase
+completed_tasks = 620
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
 current_task_id = "onnx-transformer.1"
-last_summary = "41 ONNX operators implemented. MLP e2e works. Transformer ops added (LayerNorm, Split, Where, Cast, Mul, Tanh, Erf, etc). INT4 + graph compiler done."
+last_summary = "ALL 4 EPICS COMPLETE: ONNX (41 ops, MLP e2e), kernel-fusion-v2 (matmul_fused), INT4 (4.7x compression, Int4Linear), graph-compiler (fusion pass + codegen). 620 tasks, 510 cycles."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 108
@@ -612,7 +612,7 @@ success_criteria = [
 [[epics]]
 id = "onnx-inference"
 title = "ONNX Runtime — load and execute arbitrary ONNX models on GPU"
-status = "active"
+status = "completed"
 priority = "high"
 success_criteria = [
     # Phase 1: Parser + Core (CNN)
@@ -675,7 +675,7 @@ depends = ["onnx-parser.2"]
 id = "onnx-executor"
 epic = "onnx-inference"
 title = "Graph executor — dispatch ONNX nodes to GPU kernels"
-status = "active"
+status = "completed"
 goal = "Execute parsed ONNX graph by mapping each node to existing nn ops"
 success_criteria = [
     "Op dispatcher: match node.op_type to gpu_host::nn::ops function",
@@ -725,7 +725,7 @@ depends = ["onnx-executor.3"]
 id = "onnx-transformer"
 epic = "onnx-inference"
 title = "Transformer ONNX support — GPT-2 + attention ops"
-status = "active"
+status = "completed"
 goal = "Run GPT-2 ONNX export end-to-end on GPU"
 success_criteria = [
     "Transformer ops: Where, Cast, Slice, Split, Expand, LayerNormalization, Erf",
@@ -753,7 +753,7 @@ id = "onnx-transformer.3"
 theme = "onnx-transformer"
 title = "GPT-2 ONNX end-to-end inference + verify output quality"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["onnx-transformer.2"]
 
 # --- onnx-breadth theme ---
@@ -762,7 +762,7 @@ depends = ["onnx-transformer.2"]
 id = "onnx-breadth"
 epic = "onnx-inference"
 title = "Broaden ONNX operator coverage to 30+"
-status = "active"
+status = "completed"
 goal = "Support MobileNetV2/EfficientNet and reach 30+ operators"
 success_criteria = [
     "At least 30 ONNX operators",
@@ -774,7 +774,7 @@ id = "onnx-breadth.1"
 theme = "onnx-breadth"
 title = "Investigate MobileNetV2 ONNX: list missing ops, implement them"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["onnx-executor.4"]
 
 [[tasks]]
@@ -782,7 +782,7 @@ id = "onnx-breadth.2"
 theme = "onnx-breadth"
 title = "MobileNetV2 ONNX end-to-end inference + verify top-5 accuracy"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["onnx-breadth.1"]
 
 # ============================================================

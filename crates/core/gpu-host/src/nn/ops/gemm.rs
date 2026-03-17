@@ -515,7 +515,14 @@ extern "C" __global__ void gemm_f32_v4(
     use std::sync::OnceLock;
     static COMPILED: OnceLock<bool> = OnceLock::new();
     COMPILED.get_or_init(|| {
-        let ptx = compile_ptx(GEMM_V4_SRC).expect("NVRTC GEMM V4 compile failed");
+        let opts = cudarc::nvrtc::CompileOptions {
+            arch: Some("sm_86"),
+            fmad: Some(true),
+            use_fast_math: Some(true),
+            ..Default::default()
+        };
+        let ptx = cudarc::nvrtc::compile_ptx_with_opts(GEMM_V4_SRC, opts)
+            .expect("NVRTC GEMM V4 compile failed");
         dev.load_ptx(ptx, "gemm_v4", &["gemm_f32_v4"])
             .expect("GEMM V4 PTX load failed");
         true

@@ -11,11 +11,11 @@ status = "running"     # ready | running | blocked | completed
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "persist-kernel.3"
-last_summary = "All bs107 recommendations addressed. persistent-kernel: 16.1µs/dispatch (re-launch 9.5µs — driver optimized). Session: 7 epics completed across 2 sessions. 40+ total epics, 587 tasks. Only codebase-health (evergreen) active."
+current_task_id = "onnx-parser.1"
+last_summary = "New roadmap: 4 epics (ONNX, kernel-fusion-v2, INT4, graph-compiler), 9 themes, 26 tasks. Starting with ONNX parser."
 
 # Sequence counters for unique file naming across iterations
-brainstorm_seq = 107
+brainstorm_seq = 108
 review_seq = 5
 
 # Brainstorm trigger control (event-driven, no fixed interval)
@@ -377,6 +377,7 @@ success_criteria = [
 
 # (completed themes archived at cycle 365: mma-splitk, yolo-inference, codebase-update, dx-xtask, dx-editor, dx-setup)
 # (archived at cycle 458: ve-nn-unit-tests, ti-cpu-ref, ag-demo, gs-spike, ag2-train-demo, te-cifar, tp-batch-conv, tp-audit, tv-impl, np-mha, ag3-foundation, ag3-lora, lt-mnist-cnn, mp-measure, rn-inference, rn-training, cb-kernels, cb-batched, gl-schema, gl-resnet, gl-yolo, tq-resnet, tq-lora)
+# (archived at cycle 479: rag-embed, rag-pipeline, ag4-batchnorm, ag4-maxpool, ag4-upsample, int8-gemm, int8-gpt2, diffphys-sim, fuse-gemm-act, persist-kernel)
 
 
 [[themes]]
@@ -404,6 +405,7 @@ success_criteria = [
 # (done tasks archived at cycle 349: multi-gpu.1-2, cuda-streams.1-3, gpu-alloc.1, prebuilt-toolchain.1-2)
 # (done tasks archived at cycle 365: mma-splitk.1-5, yolo-inference.1-8, codebase-update.1-3, dx-xtask.1-3, dx-editor.1-2, dx-setup.1-2)
 # (archived at cycle 458: ve-nn-unit-tests.4, ti-cpu-ref.5, ag-demo.1, gs-spike.1-2, ag2-train-demo.2, te-cifar.3, tp-batch-conv.1-2, tp-audit.1-4, tv-impl.1-3, np-mha.1, ag3-foundation.1-5[skipped], ag3-lora.1-3, lt-mnist-cnn.1, mp-measure.1, rn-inference.1-2, rn-training.1-2, cb-kernels.1-3, cb-batched.1-2, gl-schema.1-3, gl-resnet.1-2, gl-yolo.1, tq-resnet.1, tq-lora.1)
+# (archived at cycle 479: rag-embed.1-3, rag-pipeline.1-3, ag4-batchnorm.1-2, ag4-maxpool.1, ag4-upsample.1, int8-gemm.1-2, int8-gpt2.1-2, diffphys-sim.1-4, fuse-gemm-act.1-2, persist-kernel.1-3)
 
 
 [[tasks]]
@@ -437,7 +439,7 @@ depends = ["warp-batch-io.3"]
 # ============================================================
 
 # (brainstorms 89-97 archived at cycle 342/349/356/365/367)
-# (brainstorms 98-99 archived at cycle 458)
+# (brainstorms 98-100 archived at cycle 458/479)
 
 
 [[brainstorms]]
@@ -466,18 +468,6 @@ themes_completed = []
 key_insight = "22 epics have breadth but need depth. Top candidates: testing-infra (#1), kernel-fusion (#2), autograd (#3), gpu-safety (#4). User chose testing-infra → autograd → gpu-safety path."
 
 
-[[brainstorms]]
-seq = 100
-at_cycle = 366
-trigger = "User created ml-framework epic — refactor scattered compute primitives into reusable nn API"
-level = "standard"
-new_tasks_spawned = ["nn-tensor.1", "nn-tensor.2", "nn-tensor.3", "nn-tensor.4", "nn-tensor.5", "nn-tensor.6", "nn-tensor.7", "nn-tensor.8", "nn-registry.1", "nn-registry.2", "nn-registry.3", "nn-registry.4", "nn-ops.1", "nn-ops.2", "nn-ops.3", "nn-ops.4", "nn-ops.5", "nn-ops.6", "nn-ops.7", "nn-ops.8", "nn-ops.9", "nn-ops.10", "nn-ops.11", "nn-ops.12", "nn-ops.13", "nn-layers.1", "nn-layers.2", "nn-layers.3", "nn-layers.4", "nn-layers.5", "nn-layers.6", "nn-layers.7", "nn-layers.8", "nn-layers.9", "nn-layers.10", "nn-layers.11", "nn-gpt2.1", "nn-gpt2.2", "nn-gpt2.3", "nn-gpt2.4", "nn-gpt2.5", "nn-gpt2.6", "nn-gpt2.7", "nn-yolo.1", "nn-yolo.2", "nn-yolo.3", "nn-yolo.4", "nn-yolo.5", "nn-yolo.6", "nn-yolo.7", "nn-yolo.8", "nn-yolo.9", "nn-migrate.1", "nn-migrate.2", "nn-migrate.3", "nn-migrate.4", "nn-migrate.5"]
-new_themes_spawned = ["nn-tensor", "nn-registry", "nn-ops", "nn-layers", "nn-gpt2", "nn-yolo", "nn-migrate"]
-new_epics_spawned = ["ml-framework"]
-themes_parked = []
-themes_completed = []
-key_insight = "87+ GPU kernels scattered in test code need refactoring into reusable nn API. Architecture: GpuTensor (N-dim SmallVec), KernelRegistry (auto launch config), stateless ops, Module trait layers, then GPT-2 + YOLOv8 as standalone examples. 7 themes, 57 tasks, 5 phases."
-
 # ============================================================
 # GPU-Autonomous RAG Epic
 # ============================================================
@@ -496,87 +486,7 @@ success_criteria = [
     "DONE: Standalone example in examples/std/gpu-rag/",
 ]
 
-# --- gpu-rag themes ---
-
-[[themes]]
-id = "rag-embed"
-epic = "gpu-rag"
-title = "Vector embedding + similarity search on GPU"
-status = "completed"
-goal = "GPU-side cosine similarity search over embedded document store"
-success_criteria = [
-    "GPU cosine similarity kernel: compute similarity between query and N stored vectors",
-    "Top-K selection: find K most similar vectors from N candidates",
-    "Vector store API: load pre-embedded chunks into GPU memory",
-]
-
-[[themes]]
-id = "rag-pipeline"
-epic = "gpu-rag"
-title = "Autonomous RAG pipeline in a single kernel"
-status = "completed"
-goal = "Single kernel launch orchestrates query → embed → search → generate → output"
-success_criteria = [
-    "Persistent kernel receives query via hostcall, runs full RAG pipeline",
-    "GPT-2 generation conditioned on retrieved context",
-    "End-to-end demo with meaningful output",
-]
-
-# --- gpu-rag tasks ---
-
-[[tasks]]
-id = "rag-embed.1"
-theme = "rag-embed"
-title = "Investigation: how to embed text chunks for GPU vector search"
-kind = "investigation"
-status = "done"
-# Use wte averaging for fast embeddings, matmul for cosine similarity
-depends = []
-
-[[tasks]]
-id = "rag-embed.2"
-theme = "rag-embed"
-title = "GPU cosine similarity kernel + top-K selection"
-kind = "experiment"
-status = "done"
-# wte averaging + matmul cosine sim + CPU top-K. 0.2ms search over 30 chunks.
-depends = ["rag-embed.1"]
-
-[[tasks]]
-id = "rag-embed.3"
-theme = "rag-embed"
-title = "Vector store: load pre-embedded chunks, benchmark search latency"
-kind = "experiment"
-status = "done"
-# 1030 chunks, 0.8ms GPU matmul search, correct retrieval verified
-depends = ["rag-embed.2"]
-
-[[tasks]]
-id = "rag-pipeline.1"
-theme = "rag-pipeline"
-title = "Investigation: how to orchestrate RAG in a single kernel with hostcall"
-kind = "investigation"
-status = "done"
-# Sync hostcall: query in → GPU embed/search/generate → result out. 2 hostcall round-trips.
-depends = []
-
-[[tasks]]
-id = "rag-pipeline.2"
-theme = "rag-pipeline"
-title = "Implement autonomous RAG kernel: query → search → GPT-2 generate → output"
-kind = "experiment"
-status = "done"
-# Pragmatic: nn API orchestrates compute, demo shows full pipeline with 1030 chunks + GPT-2 gen
-depends = ["rag-embed.3", "rag-pipeline.1"]
-
-[[tasks]]
-id = "rag-pipeline.3"
-theme = "rag-pipeline"
-title = "Standalone gpu-rag example with 1000+ embedded chunks"
-kind = "experiment"
-status = "done"
-# examples/std/gpu-rag/ — 1030 chunks, GPU matmul search, GPT-2 generation, standalone binary
-depends = ["rag-pipeline.2"]
+# (gpu-rag themes+tasks archived at cycle 479: rag-embed, rag-pipeline, rag-embed.1-3, rag-pipeline.1-3)
 
 # ============================================================
 # Brainstorm 107
@@ -611,76 +521,7 @@ success_criteria = [
     "Numerical gradient check passes for each fixed op (finite differences, tolerance < 1e-3)",
 ]
 
-[[themes]]
-id = "ag4-batchnorm"
-epic = "autograd-v4"
-title = "Fix BatchNorm2d backward — GPU kernel"
-status = "completed"
-goal = "Replace CPU-roundtrip BatchNorm backward with GPU kernel"
-success_criteria = [
-    "GPU batchnorm_backward kernel computes dInput, dGamma, dBeta",
-    "Numerical gradient check passes (finite differences vs autograd)",
-    "CIFAR-10 training with BN produces lower loss than without BN",
-]
-
-[[tasks]]
-id = "ag4-batchnorm.1"
-theme = "ag4-batchnorm"
-title = "Implement GPU BatchNorm2d backward kernel + wire into tape"
-kind = "experiment"
-status = "done"
-# channel_scale_chw GPU kernel, no CPU roundtrip. MNIST CNN 96.4% verified.
-depends = []
-
-[[tasks]]
-id = "ag4-batchnorm.2"
-theme = "ag4-batchnorm"
-title = "Numerical gradient check for BatchNorm backward"
-kind = "experiment"
-status = "done"
-# Verified via MNIST CNN 96.4% (exercises BN backward). Analytical formula trivial: d_in = d_out * gamma * inv_std.
-depends = ["ag4-batchnorm.1"]
-
-[[themes]]
-id = "ag4-maxpool"
-epic = "autograd-v4"
-title = "Fix MaxPool2d backward — gradient routing through max indices"
-status = "completed"
-goal = "MaxPool2d backward routes gradients to max positions"
-success_criteria = [
-    "Forward saves max indices",
-    "Backward uses indices to route gradients",
-    "Numerical gradient check passes",
-]
-
-[[tasks]]
-id = "ag4-maxpool.1"
-theme = "ag4-maxpool"
-title = "MaxPool2d forward saves indices, backward routes gradients"
-kind = "experiment"
-status = "done"
-# CPU recompute of max indices + scatter. OpMeta::MaxPool2d added. Needs tape recording in layer.
-depends = []
-
-[[themes]]
-id = "ag4-upsample"
-epic = "autograd-v4"
-title = "Fix UpsampleNearest backward — correct gradient accumulation"
-status = "completed"
-goal = "UpsampleNearest backward accumulates 4 output grads per input element"
-success_criteria = [
-    "Backward accumulates gradients correctly (4-to-1 for 2x upsample)",
-    "Numerical gradient check passes",
-]
-
-[[tasks]]
-id = "ag4-upsample.1"
-theme = "ag4-upsample"
-title = "UpsampleNearest backward: 4-to-1 gradient accumulation"
-kind = "experiment"
-status = "done"
-# Correct 2×2 summation replacing passthrough. CPU-side for now.
-depends = []
+# (autograd-v4 themes+tasks archived at cycle 479: ag4-batchnorm.1-2, ag4-maxpool.1, ag4-upsample.1)
 
 # ============================================================
 # INT8 Quantized Inference Epic
@@ -699,65 +540,7 @@ success_criteria = [
     "DEFERRED: Per-token latency improvement — naive dp4a is 7-10x slower than tiled f32, needs shared memory tiling",
 ]
 
-[[themes]]
-id = "int8-gemm"
-epic = "int8-inference"
-title = "INT8 GEMM kernel using dp4a"
-status = "completed"
-goal = "dp4a-based INT8 matrix multiply with INT32 accumulation"
-success_criteria = [
-    "dp4a PTX kernel: INT8 A × INT8 B → INT32 C with tiling",
-    "Correctness: matches f32 reference within quantization tolerance",
-    "Benchmark: throughput > f32 GEMM",
-]
-
-[[tasks]]
-id = "int8-gemm.1"
-theme = "int8-gemm"
-title = "Investigation: dp4a instruction, quantization scheme, PTX syntax"
-kind = "investigation"
-status = "done"
-# dp4a.s32.s32 compiles to valid PTX. INT8 GEMM + dequantize kernels added.
-depends = []
-
-[[tasks]]
-id = "int8-gemm.2"
-theme = "int8-gemm"
-title = "Implement INT8 GEMM kernel with dp4a + benchmark vs f32"
-kind = "experiment"
-status = "done"
-# Correct (1.3% rel err) but 7-10x slower than tiled f32 due to CPU quantization overhead + naive kernel
-depends = ["int8-gemm.1"]
-
-[[themes]]
-id = "int8-gpt2"
-epic = "int8-inference"
-title = "GPT-2 INT8 inference"
-status = "completed"
-goal = "Run GPT-2 with INT8 quantized weights"
-success_criteria = [
-    "Quantize GPT-2 weights to INT8 with per-channel scales",
-    "INT8 forward pass produces coherent text",
-    "Per-token latency < 50ms",
-]
-
-[[tasks]]
-id = "int8-gpt2.1"
-theme = "int8-gpt2"
-title = "Quantize GPT-2 weights to INT8 + implement INT8 Linear forward"
-kind = "experiment"
-status = "done"
-# int8_matmul works on GPT-2 dims (1.3% error). Full model integration deferred — needs tiled dp4a for perf.
-depends = ["int8-gemm.2"]
-
-[[tasks]]
-id = "int8-gpt2.2"
-theme = "int8-gpt2"
-title = "GPT-2 INT8 inference: benchmark latency + verify output quality"
-kind = "experiment"
-status = "done"
-# DEFERRED: full model INT8 inference needs tiled dp4a. int8_matmul demo at layer level works (bench in gpu-rag).
-depends = ["int8-gpt2.1"]
+# (int8-inference themes+tasks archived at cycle 479: int8-gemm.1-2, int8-gpt2.1-2)
 
 # ============================================================
 # Differentiable Physics Epic
@@ -777,53 +560,7 @@ success_criteria = [
     "Standalone example in examples/std/diff-physics/",
 ]
 
-[[themes]]
-id = "diffphys-sim"
-epic = "diff-physics"
-title = "GPU particle simulation + backward pass"
-status = "completed"
-goal = "Differentiable N-body simulation on GPU"
-success_criteria = [
-    "GPU kernel for N-body force computation (O(N²) pairwise gravity/spring)",
-    "Forward simulation records ops on autograd tape",
-    "Backward propagates gradients through timesteps to initial conditions",
-]
-
-[[tasks]]
-id = "diffphys-sim.1"
-theme = "diffphys-sim"
-title = "Investigation: differentiable simulation design (what ops, how to tape)"
-kind = "investigation"
-status = "done"
-# Spring-mass system, GPU forward kernel, CPU analytical backward, GD on initial velocities
-depends = []
-
-[[tasks]]
-id = "diffphys-sim.2"
-theme = "diffphys-sim"
-title = "GPU N-body force kernel + Euler integrator forward pass"
-kind = "experiment"
-status = "done"
-# gravity_forces + spring_forces + euler_step kernels. GPU 47.1x speedup at N=4096.
-depends = ["diffphys-sim.1"]
-
-[[tasks]]
-id = "diffphys-sim.3"
-theme = "diffphys-sim"
-title = "Backward through simulation + optimize initial conditions"
-kind = "experiment"
-status = "done"
-# CPU analytical backward through Euler steps. Optimization converges (loss 7.07→1.55).
-depends = ["diffphys-sim.2"]
-
-[[tasks]]
-id = "diffphys-sim.4"
-theme = "diffphys-sim"
-title = "Standalone diff-physics example with benchmark"
-kind = "experiment"
-status = "done"
-# examples/std/diff-physics/ — optimization demo + GPU vs CPU benchmark (47.1x speedup)
-depends = ["diffphys-sim.3"]
+# (diff-physics themes+tasks archived at cycle 479: diffphys-sim.1-4)
 
 # ============================================================
 # Kernel Fusion v1 Epic
@@ -842,35 +579,7 @@ success_criteria = [
     "DEFERRED: 15% latency reduction (needs integration first)",
 ]
 
-[[themes]]
-id = "fuse-gemm-act"
-epic = "kernel-fusion"
-title = "Fused GEMM + bias + activation kernels"
-status = "completed"
-goal = "Single-launch fused compute for common Linear+activation patterns"
-success_criteria = [
-    "PTX kernel fuses matmul output write + bias add + activation",
-    "Correctness matches unfused path within f32 tolerance",
-    "Benchmark shows reduced kernel launch overhead",
-]
-
-[[tasks]]
-id = "fuse-gemm-act.1"
-theme = "fuse-gemm-act"
-title = "Implement fused gemm_bias_gelu + gemm_bias_relu PTX kernels"
-kind = "experiment"
-status = "done"
-# gemm_bias_gelu + gemm_bias_relu in compute_fused.rs, same tiling as gemm_f32 + fused bias+activation
-depends = []
-
-[[tasks]]
-id = "fuse-gemm-act.2"
-theme = "fuse-gemm-act"
-title = "Benchmark fused vs unfused on GPT-2 dimensions"
-kind = "experiment"
-status = "done"
-# Unfused baseline: 1.74ms (768→3072). Fused kernel in PTX, needs nn API integration for full benchmark.
-depends = ["fuse-gemm-act.1"]
+# (kernel-fusion themes+tasks archived at cycle 479: fuse-gemm-act.1-2)
 
 # ============================================================
 # Persistent Kernel Epic
@@ -889,41 +598,427 @@ success_criteria = [
     "Clean API: PersistentScheduler::submit(work_item) from host side",
 ]
 
-[[themes]]
-id = "persist-kernel"
-epic = "persistent-kernel"
-title = "Persistent kernel with work queue"
-status = "completed"
-goal = "GPU blocks stay alive consuming work items from shared queue"
+# (persistent-kernel themes+tasks archived at cycle 479: persist-kernel.1-3)
+
+# ============================================================
+# NEW ROADMAP — 4 Epics (user-directed, 2026-03-17)
+# Order: ONNX Runtime → kernel-fusion reopen → INT4 Quantization → Graph Compiler
+# ============================================================
+
+# ============================================================
+# Epic 1: ONNX Runtime
+# ============================================================
+
+[[epics]]
+id = "onnx-inference"
+title = "ONNX Runtime — load and execute arbitrary ONNX models on GPU"
+status = "active"
+priority = "high"
 success_criteria = [
-    "Lock-free work queue between host and persistent GPU blocks",
-    "GPU blocks spin-wait on queue, execute work, signal completion",
-    "Host pushes work items and waits for results",
+    # Phase 1: Parser + Core (CNN)
+    "ONNX protobuf parser: load .onnx file into typed graph IR (nodes, tensors, initializers)",
+    "Graph executor: topological sort nodes, allocate intermediate tensors, dispatch sequentially",
+    "Core 15 ops: Conv, MatMul, Relu, BatchNormalization, MaxPool, Add, Reshape, Transpose, Softmax, Concat, Flatten, Gather, Unsqueeze, Squeeze, Clip",
+    "ResNet-18 ONNX inference matches from_safetensors path (>90% CIFAR-10)",
+    # Phase 2: Transformer
+    "Transformer ops: Where, Cast, Slice, Split, Expand, LayerNormalization, Erf (for GELU)",
+    "GPT-2 ONNX inference produces coherent text (top-5 match safetensors path for ≥2/3 prompts)",
+    # Phase 3: Breadth
+    "At least 30 ONNX operators implemented and tested",
+    "MobileNetV2 or EfficientNet-Lite ONNX runs end-to-end correctly",
+]
+
+# --- onnx-parser theme ---
+
+[[themes]]
+id = "onnx-parser"
+epic = "onnx-inference"
+title = "ONNX protobuf parser + graph IR"
+status = "active"
+goal = "Parse .onnx files into a typed in-memory graph usable by the executor"
+success_criteria = [
+    "Deserialize onnx.proto3 via prost — ModelProto, GraphProto, NodeProto, TensorProto",
+    "OnnxGraph struct: nodes in topological order, initializers as HashMap<String, Vec<f32>>",
+    "Handles f32 and int64 tensor types (covers 95% of ONNX models)",
 ]
 
 [[tasks]]
-id = "persist-kernel.1"
-theme = "persist-kernel"
-title = "Investigation: persistent kernel design, TDR avoidance, work queue protocol"
+id = "onnx-parser.1"
+theme = "onnx-parser"
+title = "Investigation: ONNX protobuf schema, prost codegen, key data structures"
 kind = "investigation"
-status = "done"
-# Mapped memory work queue, 3-state protocol (FREE/READY/DONE), hostcall NOP for TDR heartbeat
+status = "active"
 depends = []
 
 [[tasks]]
-id = "persist-kernel.2"
-theme = "persist-kernel"
-title = "Implement persistent kernel + work queue + host API"
+id = "onnx-parser.2"
+theme = "onnx-parser"
+title = "Implement ONNX protobuf parser with prost + build typed OnnxGraph"
 kind = "experiment"
-status = "done"
-# persistent_worker kernel: polls mapped memory work queue, executes fn_id-dispatched work items
-depends = ["persist-kernel.1"]
+status = "pending"
+depends = ["onnx-parser.1"]
 
 [[tasks]]
-id = "persist-kernel.3"
-theme = "persist-kernel"
-title = "Benchmark: persistent dispatch latency vs kernel re-launch"
+id = "onnx-parser.3"
+theme = "onnx-parser"
+title = "Test parser: load ResNet-18 ONNX, verify node count + initializer shapes"
 kind = "experiment"
-status = "done"
-# Persistent: 16.1µs/item, Re-launch: 9.5µs/item. Re-launch faster for simple dispatch.
-depends = ["persist-kernel.2"]
+status = "pending"
+depends = ["onnx-parser.2"]
+
+# --- onnx-executor theme ---
+
+[[themes]]
+id = "onnx-executor"
+epic = "onnx-inference"
+title = "Graph executor — dispatch ONNX nodes to GPU kernels"
+status = "active"
+goal = "Execute parsed ONNX graph by mapping each node to existing nn ops"
+success_criteria = [
+    "Op dispatcher: match node.op_type to gpu_host::nn::ops function",
+    "Tensor allocation: intermediate buffers managed automatically",
+    "Attribute parsing: kernel_shape, strides, pads, dilations, axis, etc.",
+]
+
+[[tasks]]
+id = "onnx-executor.1"
+theme = "onnx-executor"
+title = "Design: op dispatcher architecture, tensor lifecycle, attribute mapping"
+kind = "design"
+status = "pending"
+depends = ["onnx-parser.2"]
+
+[[tasks]]
+id = "onnx-executor.2"
+theme = "onnx-executor"
+title = "Implement graph executor with core 8 ops (MatMul, Add, Relu, Reshape, Conv, BN, MaxPool, Softmax)"
+kind = "experiment"
+status = "pending"
+depends = ["onnx-executor.1"]
+
+[[tasks]]
+id = "onnx-executor.3"
+theme = "onnx-executor"
+title = "Add remaining Phase 1 ops (Concat, Flatten, Gather, Unsqueeze, Squeeze, Clip, Transpose)"
+kind = "experiment"
+status = "pending"
+depends = ["onnx-executor.2"]
+
+[[tasks]]
+id = "onnx-executor.4"
+theme = "onnx-executor"
+title = "ResNet-18 ONNX end-to-end: export from PyTorch, load, infer, verify >90% CIFAR-10"
+kind = "experiment"
+status = "pending"
+depends = ["onnx-executor.3"]
+
+# --- onnx-transformer theme ---
+
+[[themes]]
+id = "onnx-transformer"
+epic = "onnx-inference"
+title = "Transformer ONNX support — GPT-2 + attention ops"
+status = "active"
+goal = "Run GPT-2 ONNX export end-to-end on GPU"
+success_criteria = [
+    "Transformer ops: Where, Cast, Slice, Split, Expand, LayerNormalization, Erf",
+    "GPT-2 ONNX produces coherent text matching safetensors reference",
+]
+
+[[tasks]]
+id = "onnx-transformer.1"
+theme = "onnx-transformer"
+title = "Export GPT-2 to ONNX via PyTorch, inspect required ops"
+kind = "investigation"
+status = "pending"
+depends = ["onnx-executor.2"]
+
+[[tasks]]
+id = "onnx-transformer.2"
+theme = "onnx-transformer"
+title = "Implement transformer ops: Where, Cast, Slice, Split, Expand, LayerNorm, Erf"
+kind = "experiment"
+status = "pending"
+depends = ["onnx-transformer.1"]
+
+[[tasks]]
+id = "onnx-transformer.3"
+theme = "onnx-transformer"
+title = "GPT-2 ONNX end-to-end inference + verify output quality"
+kind = "experiment"
+status = "pending"
+depends = ["onnx-transformer.2"]
+
+# --- onnx-breadth theme ---
+
+[[themes]]
+id = "onnx-breadth"
+epic = "onnx-inference"
+title = "Broaden ONNX operator coverage to 30+"
+status = "active"
+goal = "Support MobileNetV2/EfficientNet and reach 30+ operators"
+success_criteria = [
+    "At least 30 ONNX operators",
+    "MobileNetV2 or EfficientNet-Lite runs correctly",
+]
+
+[[tasks]]
+id = "onnx-breadth.1"
+theme = "onnx-breadth"
+title = "Investigate MobileNetV2 ONNX: list missing ops, implement them"
+kind = "experiment"
+status = "pending"
+depends = ["onnx-executor.4"]
+
+[[tasks]]
+id = "onnx-breadth.2"
+theme = "onnx-breadth"
+title = "MobileNetV2 ONNX end-to-end inference + verify top-5 accuracy"
+kind = "experiment"
+status = "pending"
+depends = ["onnx-breadth.1"]
+
+# ============================================================
+# Epic 2: Kernel Fusion v2 (reopen) — integrate fused kernels into nn API
+# ============================================================
+
+[[epics]]
+id = "kernel-fusion-v2"
+title = "Kernel Fusion v2 — integrate fused GEMM+activation into nn API + GPT-2 speedup"
+status = "active"
+priority = "high"
+depends_on = "kernel-fusion"
+success_criteria = [
+    "Linear layer detects subsequent activation and dispatches fused kernel (gemm_bias_gelu / gemm_bias_relu)",
+    "GPT-2 nn API per-token latency reduced ≥15% from fusion (baseline: ~79ms/token)",
+    "ONNX executor uses fused dispatch for MatMul+Add+Relu patterns",
+    "No accuracy regression: GPT-2 output identical to unfused path",
+]
+
+[[themes]]
+id = "fuse-nn-api"
+epic = "kernel-fusion-v2"
+title = "Wire fused kernels into nn Linear layer + GPT-2 model"
+status = "active"
+goal = "Automatic fusion detection in the nn API forward path"
+success_criteria = [
+    "Linear::forward_fused(activation) uses gemm_bias_gelu/relu",
+    "Gpt2Model uses fused Linear for FFN layers",
+    "Benchmark confirms ≥15% speedup",
+]
+
+[[tasks]]
+id = "fuse-nn-api.1"
+theme = "fuse-nn-api"
+title = "Add matmul_fused() op that calls gemm_bias_gelu/relu with proper padding"
+kind = "experiment"
+status = "active"
+depends = []
+
+[[tasks]]
+id = "fuse-nn-api.2"
+theme = "fuse-nn-api"
+title = "Wire fused matmul into GPT-2 FFN forward path"
+kind = "experiment"
+status = "pending"
+depends = ["fuse-nn-api.1"]
+
+[[tasks]]
+id = "fuse-nn-api.3"
+theme = "fuse-nn-api"
+title = "Benchmark GPT-2 fused vs unfused: measure per-token latency reduction"
+kind = "experiment"
+status = "pending"
+depends = ["fuse-nn-api.2"]
+
+# ============================================================
+# Epic 3: INT4 Quantization (GPTQ-style)
+# ============================================================
+
+[[epics]]
+id = "int4-quantization"
+title = "INT4 Quantized Inference — GPTQ-style 4-bit weights for GPT-2"
+status = "active"
+priority = "medium"
+depends_on = "int8-inference"
+success_criteria = [
+    "INT4 dequantization kernel: unpack 4-bit weights from u32, scale to f32 per group",
+    "INT4 GEMM: dequantize on-the-fly during matmul (W4A16 — 4-bit weights, 16-bit activations)",
+    "Quantize GPT-2 weights to INT4 with per-group scales (group_size=128)",
+    "GPT-2 INT4 inference produces coherent text (top-5 match f32 for ≥2/3 prompts)",
+    "Model memory reduced ≥3x (from ~500MB f32 to ~170MB INT4+scales)",
+]
+
+[[themes]]
+id = "int4-kernel"
+epic = "int4-quantization"
+title = "INT4 dequantize + GEMM kernel"
+status = "active"
+goal = "W4A16 matmul: 4-bit packed weights dequantized during GEMM"
+success_criteria = [
+    "Pack/unpack INT4 (2 values per byte, 8 per u32)",
+    "Dequantize-on-the-fly GEMM kernel with per-group scale factors",
+    "Correctness within quantization tolerance on GPT-2 dims",
+]
+
+[[tasks]]
+id = "int4-kernel.1"
+theme = "int4-kernel"
+title = "Investigation: INT4 packing format, per-group quantization, GPTQ algorithm"
+kind = "investigation"
+status = "active"
+depends = []
+
+[[tasks]]
+id = "int4-kernel.2"
+theme = "int4-kernel"
+title = "Implement INT4 dequantize GEMM kernel (W4A16)"
+kind = "experiment"
+status = "pending"
+depends = ["int4-kernel.1"]
+
+[[tasks]]
+id = "int4-kernel.3"
+theme = "int4-kernel"
+title = "Benchmark INT4 GEMM: throughput + accuracy vs f32 and INT8"
+kind = "experiment"
+status = "pending"
+depends = ["int4-kernel.2"]
+
+# --- int4-gpt2 theme ---
+
+[[themes]]
+id = "int4-gpt2"
+epic = "int4-quantization"
+title = "GPT-2 INT4 inference"
+status = "active"
+goal = "Run GPT-2 with 4-bit quantized weights"
+success_criteria = [
+    "Python script quantizes GPT-2 weights to INT4 + exports safetensors",
+    "Rust loads INT4 weights, runs inference with dequantize-GEMM",
+    "Coherent text output + 3x memory reduction",
+]
+
+[[tasks]]
+id = "int4-gpt2.1"
+theme = "int4-gpt2"
+title = "Python quantization script: GPT-2 f32 → INT4 with per-group scales"
+kind = "experiment"
+status = "pending"
+depends = ["int4-kernel.2"]
+
+[[tasks]]
+id = "int4-gpt2.2"
+theme = "int4-gpt2"
+title = "GPT-2 INT4 inference: load quantized weights, generate text, verify quality"
+kind = "experiment"
+status = "pending"
+depends = ["int4-gpt2.1"]
+
+# ============================================================
+# Epic 4: Graph Compiler — automatic op fusion
+# ============================================================
+
+[[epics]]
+id = "graph-compiler"
+title = "Graph Compiler — automatic operator fusion for nn API and ONNX"
+status = "active"
+priority = "medium"
+depends_on = "onnx-inference"
+success_criteria = [
+    "Graph IR: represent nn forward pass as a DAG of typed tensor operations",
+    "Fusion passes: detect and fuse elementwise chains (e.g., Add+Relu, GEMM+Bias+GELU)",
+    "Code generation: emit fused GPU kernel from fused subgraph (template-based, not JIT)",
+    "ONNX executor uses graph compiler for automatic fusion",
+    "Measurable speedup: ≥20% on GPT-2 or ResNet-18 ONNX inference",
+]
+
+[[themes]]
+id = "gc-ir"
+epic = "graph-compiler"
+title = "Graph IR + fusion pass"
+status = "active"
+goal = "Build typed graph IR and implement fusion pattern matching"
+success_criteria = [
+    "GraphIR: nodes with typed inputs/outputs, supports insert/fuse/eliminate",
+    "Fusion rules: GEMM+Bias+Activation, Conv+BN+Activation, Add+Activation",
+    "Pattern matcher identifies fusible subgraphs in ONNX/nn graphs",
+]
+
+[[tasks]]
+id = "gc-ir.1"
+theme = "gc-ir"
+title = "Design: Graph IR data structure, fusion rule specification format"
+kind = "design"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "gc-ir.2"
+theme = "gc-ir"
+title = "Implement Graph IR + topological sort + dead node elimination"
+kind = "experiment"
+status = "pending"
+depends = ["gc-ir.1"]
+
+[[tasks]]
+id = "gc-ir.3"
+theme = "gc-ir"
+title = "Implement fusion pass: pattern matching for GEMM+Bias+Act and Conv+BN+Act"
+kind = "experiment"
+status = "pending"
+depends = ["gc-ir.2"]
+
+# --- gc-codegen theme ---
+
+[[themes]]
+id = "gc-codegen"
+epic = "graph-compiler"
+title = "Fused kernel code generation"
+status = "active"
+goal = "Generate GPU kernels for fused subgraphs via templates"
+success_criteria = [
+    "Template system: elementwise fusion generates single kernel from chain of ops",
+    "Dispatch fused kernels from ONNX executor",
+    "Benchmark: ≥20% speedup on representative model",
+]
+
+[[tasks]]
+id = "gc-codegen.1"
+theme = "gc-codegen"
+title = "Investigation: template-based codegen vs precompiled pattern library"
+kind = "investigation"
+status = "pending"
+depends = ["gc-ir.3"]
+
+[[tasks]]
+id = "gc-codegen.2"
+theme = "gc-codegen"
+title = "Implement fused kernel dispatch for top-3 fusion patterns"
+kind = "experiment"
+status = "pending"
+depends = ["gc-codegen.1"]
+
+[[tasks]]
+id = "gc-codegen.3"
+theme = "gc-codegen"
+title = "Benchmark: ONNX inference with graph compiler vs without"
+kind = "experiment"
+status = "pending"
+depends = ["gc-codegen.2"]
+
+# ============================================================
+# Brainstorm 108 — User-directed roadmap
+# ============================================================
+
+[[brainstorms]]
+seq = 108
+at_cycle = 479
+trigger = "User directed: ONNX → kernel-fusion reopen → INT4 → Graph Compiler"
+level = "quick"
+new_tasks_spawned = ["onnx-parser.1", "onnx-parser.2", "onnx-parser.3", "onnx-executor.1", "onnx-executor.2", "onnx-executor.3", "onnx-executor.4", "onnx-transformer.1", "onnx-transformer.2", "onnx-transformer.3", "onnx-breadth.1", "onnx-breadth.2", "fuse-nn-api.1", "fuse-nn-api.2", "fuse-nn-api.3", "int4-kernel.1", "int4-kernel.2", "int4-kernel.3", "int4-gpt2.1", "int4-gpt2.2", "gc-ir.1", "gc-ir.2", "gc-ir.3", "gc-codegen.1", "gc-codegen.2", "gc-codegen.3"]
+new_themes_spawned = ["onnx-parser", "onnx-executor", "onnx-transformer", "onnx-breadth", "fuse-nn-api", "int4-kernel", "int4-gpt2", "gc-ir", "gc-codegen"]
+new_epics_spawned = ["onnx-inference", "kernel-fusion-v2", "int4-quantization", "graph-compiler"]
+themes_parked = []
+themes_completed = []
+key_insight = "4 epics, 9 themes, 26 tasks. ONNX is highest priority (makes framework usable). kernel-fusion-v2 reopens deferred criteria. INT4 builds on INT8 dp4a. Graph compiler is long-term optimization."

@@ -333,3 +333,17 @@ new_epics_spawned = []
 themes_parked = []
 themes_completed = ["mma-splitk"]
 key_insight = "tensor-core-gemm ALL criteria met (2.18x throughput, zero error, 26ms latency, 3/3 prompts). Object-detection next: YOLOv8-nano has 60 layers but only 6 unique ops. Key insight: im2col + existing MMA GEMM reuses proven 2.18x speedup for Conv2D. 8 tasks: investigation → parallel kernel dev → backbone → head → demo."
+
+# --- Archived at cycle 479 (2026-03-17) ---
+
+[[brainstorms]]
+seq = 100
+at_cycle = 366
+trigger = "User created ml-framework epic — refactor scattered compute primitives into reusable nn API"
+level = "standard"
+new_tasks_spawned = ["nn-tensor.1", "nn-tensor.2", "nn-tensor.3", "nn-tensor.4", "nn-tensor.5", "nn-tensor.6", "nn-tensor.7", "nn-tensor.8", "nn-registry.1", "nn-registry.2", "nn-registry.3", "nn-registry.4", "nn-ops.1", "nn-ops.2", "nn-ops.3", "nn-ops.4", "nn-ops.5", "nn-ops.6", "nn-ops.7", "nn-ops.8", "nn-ops.9", "nn-ops.10", "nn-ops.11", "nn-ops.12", "nn-ops.13", "nn-layers.1", "nn-layers.2", "nn-layers.3", "nn-layers.4", "nn-layers.5", "nn-layers.6", "nn-layers.7", "nn-layers.8", "nn-layers.9", "nn-layers.10", "nn-layers.11", "nn-gpt2.1", "nn-gpt2.2", "nn-gpt2.3", "nn-gpt2.4", "nn-gpt2.5", "nn-gpt2.6", "nn-gpt2.7", "nn-yolo.1", "nn-yolo.2", "nn-yolo.3", "nn-yolo.4", "nn-yolo.5", "nn-yolo.6", "nn-yolo.7", "nn-yolo.8", "nn-yolo.9", "nn-migrate.1", "nn-migrate.2", "nn-migrate.3", "nn-migrate.4", "nn-migrate.5"]
+new_themes_spawned = ["nn-tensor", "nn-registry", "nn-ops", "nn-layers", "nn-gpt2", "nn-yolo", "nn-migrate"]
+new_epics_spawned = ["ml-framework"]
+themes_parked = []
+themes_completed = []
+key_insight = "87+ GPU kernels scattered in test code need refactoring into reusable nn API. Architecture: GpuTensor (N-dim SmallVec), KernelRegistry (auto launch config), stateless ops, Module trait layers, then GPT-2 + YOLOv8 as standalone examples. 7 themes, 57 tasks, 5 phases."

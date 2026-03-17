@@ -2423,3 +2423,186 @@ theme = "tq-lora"
 title = "Rewrite gpt2-lora example to use LoraLinear + autograd tape"
 kind = "experiment"
 status = "done"
+
+# --- Archived at cycle 479 (2026-03-17) ---
+
+# --- rag-embed (gpu-rag) ---
+
+[[tasks]]
+id = "rag-embed.1"
+theme = "rag-embed"
+title = "Investigation: how to embed text chunks for GPU vector search"
+kind = "investigation"
+status = "done"
+
+[[tasks]]
+id = "rag-embed.2"
+theme = "rag-embed"
+title = "GPU cosine similarity kernel + top-K selection"
+kind = "experiment"
+status = "done"
+
+[[tasks]]
+id = "rag-embed.3"
+theme = "rag-embed"
+title = "Vector store: load pre-embedded chunks, benchmark search latency"
+kind = "experiment"
+status = "done"
+
+# --- rag-pipeline (gpu-rag) ---
+
+[[tasks]]
+id = "rag-pipeline.1"
+theme = "rag-pipeline"
+title = "Investigation: how to orchestrate RAG in a single kernel with hostcall"
+kind = "investigation"
+status = "done"
+
+[[tasks]]
+id = "rag-pipeline.2"
+theme = "rag-pipeline"
+title = "Implement autonomous RAG kernel: query → search → GPT-2 generate → output"
+kind = "experiment"
+status = "done"
+
+[[tasks]]
+id = "rag-pipeline.3"
+theme = "rag-pipeline"
+title = "Standalone gpu-rag example with 1000+ embedded chunks"
+kind = "experiment"
+status = "done"
+
+# --- ag4-batchnorm (autograd-v4) ---
+
+[[tasks]]
+id = "ag4-batchnorm.1"
+theme = "ag4-batchnorm"
+title = "Implement GPU BatchNorm2d backward kernel + wire into tape"
+kind = "experiment"
+status = "done"
+
+[[tasks]]
+id = "ag4-batchnorm.2"
+theme = "ag4-batchnorm"
+title = "Numerical gradient check for BatchNorm backward"
+kind = "experiment"
+status = "done"
+
+# --- ag4-maxpool (autograd-v4) ---
+
+[[tasks]]
+id = "ag4-maxpool.1"
+theme = "ag4-maxpool"
+title = "MaxPool2d forward saves indices, backward routes gradients"
+kind = "experiment"
+status = "done"
+
+# --- ag4-upsample (autograd-v4) ---
+
+[[tasks]]
+id = "ag4-upsample.1"
+theme = "ag4-upsample"
+title = "UpsampleNearest backward: 4-to-1 gradient accumulation"
+kind = "experiment"
+status = "done"
+
+# --- int8-gemm (int8-inference) ---
+
+[[tasks]]
+id = "int8-gemm.1"
+theme = "int8-gemm"
+title = "Investigation: dp4a instruction, quantization scheme, PTX syntax"
+kind = "investigation"
+status = "done"
+
+[[tasks]]
+id = "int8-gemm.2"
+theme = "int8-gemm"
+title = "Implement INT8 GEMM kernel with dp4a + benchmark vs f32"
+kind = "experiment"
+status = "done"
+
+# --- int8-gpt2 (int8-inference) ---
+
+[[tasks]]
+id = "int8-gpt2.1"
+theme = "int8-gpt2"
+title = "Quantize GPT-2 weights to INT8 + implement INT8 Linear forward"
+kind = "experiment"
+status = "done"
+
+[[tasks]]
+id = "int8-gpt2.2"
+theme = "int8-gpt2"
+title = "GPT-2 INT8 inference: benchmark latency + verify output quality"
+kind = "experiment"
+status = "done"
+
+# --- diffphys-sim (diff-physics) ---
+
+[[tasks]]
+id = "diffphys-sim.1"
+theme = "diffphys-sim"
+title = "Investigation: differentiable simulation design (what ops, how to tape)"
+kind = "investigation"
+status = "done"
+
+[[tasks]]
+id = "diffphys-sim.2"
+theme = "diffphys-sim"
+title = "GPU N-body force kernel + Euler integrator forward pass"
+kind = "experiment"
+status = "done"
+
+[[tasks]]
+id = "diffphys-sim.3"
+theme = "diffphys-sim"
+title = "Backward through simulation + optimize initial conditions"
+kind = "experiment"
+status = "done"
+
+[[tasks]]
+id = "diffphys-sim.4"
+theme = "diffphys-sim"
+title = "Standalone diff-physics example with benchmark"
+kind = "experiment"
+status = "done"
+
+# --- fuse-gemm-act (kernel-fusion) ---
+
+[[tasks]]
+id = "fuse-gemm-act.1"
+theme = "fuse-gemm-act"
+title = "Implement fused gemm_bias_gelu + gemm_bias_relu PTX kernels"
+kind = "experiment"
+status = "done"
+
+[[tasks]]
+id = "fuse-gemm-act.2"
+theme = "fuse-gemm-act"
+title = "Benchmark fused vs unfused on GPT-2 dimensions"
+kind = "experiment"
+status = "done"
+
+# --- persist-kernel (persistent-kernel) ---
+
+[[tasks]]
+id = "persist-kernel.1"
+theme = "persist-kernel"
+title = "Investigation: persistent kernel design, TDR avoidance, work queue protocol"
+kind = "investigation"
+status = "done"
+
+[[tasks]]
+id = "persist-kernel.2"
+theme = "persist-kernel"
+title = "Implement persistent kernel + work queue + host API"
+kind = "experiment"
+status = "done"
+
+[[tasks]]
+id = "persist-kernel.3"
+theme = "persist-kernel"
+title = "Benchmark: persistent dispatch latency vs kernel re-launch"
+kind = "experiment"
+status = "done"

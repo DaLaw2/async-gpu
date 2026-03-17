@@ -862,3 +862,65 @@ id = "tq-lora"
 epic = "training-quality"
 title = "Real GPT-2 LoRA training with autograd"
 status = "completed"
+
+# --- Archived at cycle 479 (2026-03-17) ---
+
+[[themes]]
+id = "rag-embed"
+epic = "gpu-rag"
+title = "Vector embedding + similarity search on GPU"
+status = "completed"
+
+[[themes]]
+id = "rag-pipeline"
+epic = "gpu-rag"
+title = "Autonomous RAG pipeline in a single kernel"
+status = "completed"
+
+[[themes]]
+id = "ag4-batchnorm"
+epic = "autograd-v4"
+title = "Fix BatchNorm2d backward — GPU kernel"
+status = "completed"
+
+[[themes]]
+id = "ag4-maxpool"
+epic = "autograd-v4"
+title = "Fix MaxPool2d backward — gradient routing through max indices"
+status = "completed"
+
+[[themes]]
+id = "ag4-upsample"
+epic = "autograd-v4"
+title = "Fix UpsampleNearest backward — correct gradient accumulation"
+status = "completed"
+
+[[themes]]
+id = "int8-gemm"
+epic = "int8-inference"
+title = "INT8 GEMM kernel using dp4a"
+status = "completed"
+
+[[themes]]
+id = "int8-gpt2"
+epic = "int8-inference"
+title = "GPT-2 INT8 inference"
+status = "completed"
+
+[[themes]]
+id = "diffphys-sim"
+epic = "diff-physics"
+title = "GPU particle simulation + backward pass"
+status = "completed"
+
+[[themes]]
+id = "fuse-gemm-act"
+epic = "kernel-fusion"
+title = "Fused GEMM + bias + activation kernels"
+status = "completed"
+
+[[themes]]
+id = "persist-kernel"
+epic = "persistent-kernel"
+title = "Persistent kernel with work queue"
+status = "completed"

@@ -304,7 +304,7 @@ RTX 3060, SM 86:
 |--------|-------|
 | GPT-2 per-token f32 FMA (KV cache) | ~68ms/token |
 | GPT-2 per-token f16 MMA (Tensor Core) | ~26ms/token (2.18x over f32 FMA) |
-| GPT-2 nn API (non-cached) | ~79ms/token |
+| GPT-2 nn API (non-cached, V3 GEMM) | ~33ms/forward (seq=128), 6.8x over v1 |
 | YOLOv8-nano inference | 374ms, 34 detections on 640x640 |
 | ResNet-18 pretrained (CIFAR-10) | 91.3% accuracy, 16.0ms/image |
 | Compute pipeline speedup | 1.91x vs multi-launch |
@@ -315,7 +315,7 @@ RTX 3060, SM 86:
 | **INT4 GPT-2** (W4A16 quantized) | 43ms/token, 7.5x memory reduction (45MB vs 340MB) |
 | **GPU PageRank** (1M vertices, 16M edges) | 4.3x speedup over CPU (scale=22) |
 | **GPU Monte Carlo** (Black-Scholes, f32) | 129x throughput speedup, 0.004% error |
-| **SGEMM** (custom kernel, 4096³) | 160 GFLOPS (5.7% of cuBLAS) |
+| **SGEMM V3** (custom kernel, 4096³) | 1172 GFLOPS (42.4% of cuBLAS), 7.5x over v1 |
 
 **Training** (GPU matmul + autograd tape):
 

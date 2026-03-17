@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 546     # Monotonic counter, incremented after each completed phase
-completed_tasks = 656
+total_cycles = 550     # Monotonic counter, incremented after each completed phase
+completed_tasks = 660
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
 current_task_id = "onnx-conv-prepad.1"
-last_summary = "GPT-2 ONNX generates text (10 tokens, 150ms/fwd). Trained ResNet ONNX exported. 41 ops, all broadcasting fixed. Continuing with Conv prepad + accuracy test."
+last_summary = "Fixed: Trilu k param, BOOL dtype, ND Transpose, Softmax axis, ConstantOfShape tensor, Gather 2D, Split ND, batched MatMul, Add bias broadcast. GPT-2 ONNX generates tokens (not yet coherent). ResNet 43ms."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 109

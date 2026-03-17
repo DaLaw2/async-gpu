@@ -216,6 +216,8 @@ pub struct TensorShapeProtoDimension {
 pub const ONNX_FLOAT: i32 = 1;
 /// Int64.
 pub const ONNX_INT64: i32 = 7;
+/// Bool.
+pub const ONNX_BOOL: i32 = 9;
 /// Double (f64).
 pub const ONNX_DOUBLE: i32 = 11;
 
@@ -368,6 +370,14 @@ fn extract_f32_data(t: &TensorProto) -> Result<Vec<f32>, OnnxError> {
                     .map(|c| {
                         i64::from_le_bytes([c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]]) as f32
                     })
+                    .collect();
+                Ok(data)
+            }
+            ONNX_BOOL => {
+                let data: Vec<f32> = t
+                    .raw_data
+                    .iter()
+                    .map(|&b| if b != 0 { 1.0 } else { 0.0 })
                     .collect();
                 Ok(data)
             }

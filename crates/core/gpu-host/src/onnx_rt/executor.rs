@@ -1167,7 +1167,14 @@ fn dispatch_shape(
             let shape_t = get_input(&node.inputs[0], tensor_map)?;
             let shape_h = shape_t.to_host().map_err(map_nn_err)?;
             let shape: Vec<usize> = shape_h.iter().map(|&v| v as usize).collect();
-            let fill_val = node.attr_float("value", 0.0);
+            // value attribute can be a tensor (type=4) or float (type=1)
+            let fill_val = if let Some(crate::onnx_rt::proto::OnnxAttr::Tensor(data, _)) =
+                node.attrs.get("value")
+            {
+                data.first().copied().unwrap_or(0.0)
+            } else {
+                node.attr_float("value", 0.0)
+            };
             let total: usize = shape.iter().product();
             let data = vec![fill_val; total];
             let out = GpuTensor::from_host(&data, &shape, dev).map_err(map_nn_err)?;
@@ -1195,9 +1202,17 @@ fn dispatch_shape(
             Ok(NodeOutput::Single(out))
         }
         "Trilu" => {
-            // Upper triangular mask
+            // Triangular mask with k parameter (diagonal offset)
             let x = get_input(&node.inputs[0], tensor_map)?;
             let upper = node.attr_int("upper", 1);
+            // k parameter: from second input (default 0)
+            let k = if node.inputs.len() > 1 && !node.inputs[1].is_empty() {
+                let k_t = get_input(&node.inputs[1], tensor_map)?;
+                let k_h = k_t.to_host().map_err(map_nn_err)?;
+                k_h[0] as i64
+            } else {
+                0
+            };
             let x_h = x.to_host().map_err(map_nn_err)?;
             let shape = x.shape();
             let mut out_data = x_h.clone();
@@ -1209,7 +1224,11 @@ fn dispatch_shape(
                     for r in 0..rows {
                         for c in 0..cols {
                             let idx = b * rows * cols + r * cols + c;
-                            if (upper != 0 && r > c) || (upper == 0 && c > r) {
+                            // upper=1: zero out elements where r > c - k (below the k-th diagonal)
+                            // upper=0: zero out elements where c > r + k (above the k-th diagonal)
+                            let ri = r as i64;
+                            let ci = c as i64;
+                            if (upper != 0 && ri > ci - k) || (upper == 0 && ci > ri + k) {
                                 out_data[idx] = 0.0;
                             }
                         }

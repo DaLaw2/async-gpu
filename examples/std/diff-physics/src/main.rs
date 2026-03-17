@@ -114,7 +114,7 @@ fn test_onnx_parser() -> Result<(), Box<dyn std::error::Error>> {
                                         let next_token = last_logits
                                             .iter()
                                             .enumerate()
-                                            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+                                            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
                                             .map(|(i, _)| i as u32)
                                             .unwrap_or(0);
                                         if next_token == 50256 {

@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 540     # Monotonic counter, incremented after each completed phase
-completed_tasks = 650
+total_cycles = 542     # Monotonic counter, incremented after each completed phase
+completed_tasks = 652
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
 current_task_id = "onnx-gpt2-gen.1"
-last_summary = "GPT-2 ONNX forward pass WORKS: 150ms, 50257 logits. Fixed Constant tensor attrs, Gather embedding, Split ND, Unsqueeze, Where+Add broadcasting, batched MatMul."
+last_summary = "GPT-2 ONNX TEXT GENERATION WORKS: 10 tokens autoregressive, 150ms/forward. All ONNX op fixes: Constant tensor, Gather embed, Split ND, Unsqueeze, Where+Add broadcast, batched MatMul, 3D→2D reshape."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 109
@@ -1002,7 +1002,7 @@ depends = ["rv2-quant.1"]
 id = "onnx-gpt2-gen"
 epic = "onnx-inference"
 title = "GPT-2 ONNX text generation"
-status = "active"
+status = "completed"
 goal = "Run GPT-2 ONNX and generate coherent text"
 success_criteria = [
     "GPT-2 ONNX forward pass runs without errors",
@@ -1023,7 +1023,7 @@ id = "onnx-gpt2-gen.2"
 theme = "onnx-gpt2-gen"
 title = "GPT-2 ONNX autoregressive generation (10+ tokens)"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["onnx-gpt2-gen.1"]
 
 [[themes]]

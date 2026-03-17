@@ -90,8 +90,8 @@ fn test_onnx_parser() -> Result<(), Box<dyn std::error::Error>> {
                         // Autoregressive generation: pick argmax, feed back
                         if let Some(logits) = outputs.get("logits") {
                             let tokenizer = gpu_host::tokenizer::Gpt2Tokenizer::new()?;
-                            // Single token for stable testing
-                            let mut tokens: Vec<u32> = vec![464]; // "The"
+                            // "The capital of France is" = [464, 3139, 286, 4881, 318]
+                            let mut tokens: Vec<u32> = vec![464, 3139, 286, 4881, 318];
                             let mut gen_tokens = Vec::new();
 
                             for _ in 0..10 {

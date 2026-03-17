@@ -175,7 +175,9 @@ fn execute_nodes(
             NodeOutput::Single(t) => {
                 if let Some(name) = node.outputs.first() {
                     if !name.is_empty() {
-                        if debug_onnx && (idx < 15 || (idx >= 70 && idx <= 105)) {
+                        if debug_onnx
+                            && (idx < 15 || (idx >= 23 && idx <= 30) || (idx >= 70 && idx <= 105))
+                        {
                             let h = t.to_host().unwrap_or_default();
                             let first4: Vec<f32> = h.iter().take(4).copied().collect();
                             eprintln!(

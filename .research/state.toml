@@ -11,8 +11,8 @@ status = "running"     # ready | running | blocked | completed
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "onnx-fix.1"
-last_summary = "ONNX fix complete: raw_data OK, ResNet-18 47.2ms, GPT-2 parsed 416ms (1107 nodes). 41 ops. Benchmark done."
+current_task_id = "refactor-quality.1"
+last_summary = "2 new epics: refactor (6 criteria) + onnx-perf (4 criteria). Starting clippy fixes + ONNX caching in parallel."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 108
@@ -684,3 +684,172 @@ title = "Benchmark ONNX executor vs native nn API (latency comparison)"
 kind = "experiment"
 status = "done"
 depends = ["onnx-fix.2", "onnx-fix.3"]
+
+# ============================================================
+# Epic: Codebase Refactor
+# ============================================================
+
+[[epics]]
+id = "refactor"
+title = "Codebase Refactor — dead code, API cleanup, test coverage, code quality"
+status = "active"
+priority = "high"
+success_criteria = [
+    "Zero clippy warnings on `cargo clippy -p gpu-host --features nn,gpt2,onnx`",
+    "dispatch_node() split into per-category handler functions (<80 lines each)",
+    "All unwrap() in library code (nn/, onnx_rt/) replaced with ? or map_err",
+    "Quantization pack/unpack extracted to shared utility (INT8 + INT4 reuse)",
+    "Example boilerplate uses KernelRegistry::init_default() (all 9 examples)",
+    "Public API audit: internal helpers marked pub(crate), not pub",
+]
+
+[[themes]]
+id = "refactor-quality"
+epic = "refactor"
+title = "Code quality — clippy, unwrap, large functions, dead code"
+status = "active"
+goal = "Clean up code quality issues across the codebase"
+success_criteria = [
+    "Zero clippy warnings",
+    "dispatch_node() split into handler functions",
+    "unwrap() → Result in lib code",
+]
+
+[[tasks]]
+id = "refactor-quality.1"
+theme = "refactor-quality"
+title = "Fix all clippy warnings in gpu-host (nn, gpt2, onnx features)"
+kind = "experiment"
+status = "active"
+depends = []
+
+[[tasks]]
+id = "refactor-quality.2"
+theme = "refactor-quality"
+title = "Split dispatch_node() into per-category handlers (activation, gemm, conv, shape, etc)"
+kind = "experiment"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "refactor-quality.3"
+theme = "refactor-quality"
+title = "Replace unwrap() with ? in all nn/ and onnx_rt/ library code"
+kind = "experiment"
+status = "pending"
+depends = []
+
+[[themes]]
+id = "refactor-api"
+epic = "refactor"
+title = "API cleanup — pub(crate), example boilerplate, quantization utils"
+status = "active"
+goal = "Clean public API surface and reduce example duplication"
+success_criteria = [
+    "All 9 examples use init_default()",
+    "Quantization utilities extracted",
+    "Internal helpers marked pub(crate)",
+]
+
+[[tasks]]
+id = "refactor-api.1"
+theme = "refactor-api"
+title = "Migrate all 9 examples to KernelRegistry::init_default()"
+kind = "experiment"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "refactor-api.2"
+theme = "refactor-api"
+title = "Extract shared quantization pack/unpack utilities from gemm.rs"
+kind = "experiment"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "refactor-api.3"
+theme = "refactor-api"
+title = "Audit pub visibility — mark internal helpers as pub(crate)"
+kind = "experiment"
+status = "pending"
+depends = []
+
+# ============================================================
+# Epic: ONNX Performance Optimization
+# ============================================================
+
+[[epics]]
+id = "onnx-perf"
+title = "ONNX Performance — close gap with native nn API"
+status = "active"
+priority = "high"
+success_criteria = [
+    "Initializers cached across inference runs (upload once, reuse)",
+    "ResNet-18 ONNX latency < 25ms (from 47.2ms, target: within 2x of native 15.7ms)",
+    "CPU-fallback ops (ReduceMean, Reshape) replaced with GPU-only paths where possible",
+    "GPT-2 ONNX single forward pass completes in < 5 seconds",
+]
+
+[[themes]]
+id = "onnx-cache"
+epic = "onnx-perf"
+title = "Initializer caching + weight prepadding"
+status = "active"
+goal = "Eliminate per-inference weight upload overhead"
+success_criteria = [
+    "OnnxSession struct caches uploaded initializers across runs",
+    "ResNet-18 ONNX < 25ms with caching",
+]
+
+[[tasks]]
+id = "onnx-cache.1"
+theme = "onnx-cache"
+title = "Implement OnnxSession with initializer caching (upload once)"
+kind = "experiment"
+status = "active"
+depends = []
+
+[[tasks]]
+id = "onnx-cache.2"
+theme = "onnx-cache"
+title = "Benchmark cached ONNX vs native nn API on ResNet-18"
+kind = "experiment"
+status = "pending"
+depends = ["onnx-cache.1"]
+
+[[themes]]
+id = "onnx-gpu-ops"
+epic = "onnx-perf"
+title = "Replace CPU-fallback ops with GPU paths"
+status = "active"
+goal = "Eliminate to_host() round-trips in hot path ops"
+success_criteria = [
+    "ReduceMean uses GPU reduction kernel (no to_host)",
+    "Mul/Sub/Div use GPU elementwise kernels",
+    "GPT-2 ONNX forward pass < 5 seconds",
+]
+
+[[tasks]]
+id = "onnx-gpu-ops.1"
+theme = "onnx-gpu-ops"
+title = "Replace CPU-fallback Mul/Sub/Div/Pow/Sqrt with GPU elementwise ops"
+kind = "experiment"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "onnx-gpu-ops.2"
+theme = "onnx-gpu-ops"
+title = "GPU ReduceMean kernel for 4D tensors"
+kind = "experiment"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "onnx-gpu-ops.3"
+theme = "onnx-gpu-ops"
+title = "Run GPT-2 ONNX full forward pass, benchmark latency"
+kind = "experiment"
+status = "pending"
+depends = ["onnx-cache.1", "onnx-gpu-ops.1"]

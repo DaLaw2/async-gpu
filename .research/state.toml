@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 559     # Monotonic counter, incremented after each completed phase
-completed_tasks = 669
+total_cycles = 560     # Monotonic counter, incremented after each completed phase
+completed_tasks = 670
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "onnx-resnet-acc.1"
-last_summary = "ResNet-18 ONNX accuracy FIXED: 91.2% (matches ORT exactly). Key mapping fix (shortcut.conv→shortcut.0) + GlobalAveragePool batch dim fix. ONNX epic criterion 4 met."
+current_task_id = ""
+last_summary = "ONNX epic COMPLETED — all 8 criteria met. ResNet-18 91.2%, GPT-2 coherent text, MobileNetV2 e2e (209 nodes, 409ms). Added Identity op + grouped conv support. 670 tasks total."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 109
@@ -569,7 +569,8 @@ success_criteria = [
 [[epics]]
 id = "onnx-inference"
 title = "ONNX Runtime — load and execute arbitrary ONNX models on GPU"
-status = "active"
+status = "completed"
+# ALL 8 CRITERIA MET — parser, executor, 41+ ops, ResNet 91.2%, GPT-2 coherent text, MobileNetV2 e2e
 priority = "high"
 success_criteria = [
     # Phase 1: Parser + Core (CNN)
@@ -1081,6 +1082,26 @@ success_criteria = [
 id = "onnx-resnet-acc.1"
 theme = "onnx-resnet-acc"
 title = "Fix ResNet ONNX export key mapping + GlobalAveragePool batch dim"
+kind = "experiment"
+status = "done"
+depends = []
+
+[[themes]]
+id = "onnx-mobilenet"
+epic = "onnx-inference"
+title = "MobileNetV2 ONNX — Identity op + grouped conv"
+status = "completed"
+goal = "MobileNetV2 runs end-to-end through ONNX executor"
+success_criteria = [
+    "Identity op implemented",
+    "Grouped convolution (depthwise separable) supported",
+    "MobileNetV2 produces valid 1000-class output",
+]
+
+[[tasks]]
+id = "onnx-mobilenet.1"
+theme = "onnx-mobilenet"
+title = "Add Identity op + grouped conv support, run MobileNetV2 e2e"
 kind = "experiment"
 status = "done"
 depends = []

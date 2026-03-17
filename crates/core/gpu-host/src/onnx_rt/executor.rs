@@ -256,6 +256,7 @@ fn dispatch_node(
         }
         "Constant"
         | "Cast"
+        | "Identity"
         | "Where"
         | "Softmax"
         | "LayerNormalization"
@@ -440,7 +441,7 @@ fn dispatch_gemm(
 fn dispatch_conv(
     node: &OnnxNode,
     tensor_map: &HashMap<String, GpuTensor>,
-    _dev: &Arc<CudaDevice>,
+    dev: &Arc<CudaDevice>,
     registry: &Arc<KernelRegistry>,
 ) -> Result<NodeOutput, OnnxError> {
     match node.op_type.as_str() {
@@ -464,9 +465,16 @@ fn dispatch_conv(
             } else {
                 1
             };
-            let out = crate::nn::ops::conv2d(x, w, bias, stride, padding, registry)
-                .map_err(map_nn_err)?;
-            Ok(NodeOutput::Single(out))
+            let group = node.attr_int("group", 1) as usize;
+            if group == 1 {
+                let out = crate::nn::ops::conv2d(x, w, bias, stride, padding, registry)
+                    .map_err(map_nn_err)?;
+                Ok(NodeOutput::Single(out))
+            } else {
+                // Grouped convolution: split channels into groups, conv each, concat
+                let out = grouped_conv2d(x, w, bias, stride, padding, group, dev, registry)?;
+                Ok(NodeOutput::Single(out))
+            }
         }
         "BatchNormalization" => {
             let x = get_input(&node.inputs[0], tensor_map)?;
@@ -481,6 +489,110 @@ fn dispatch_conv(
         }
         _ => unreachable!(),
     }
+}
+
+/// Grouped convolution: split input/output channels into `groups`,
+/// run standard conv2d per group, concatenate results.
+///
+/// Supports both 3D [C,H,W] and 4D [N,C,H,W] input.
+fn grouped_conv2d(
+    x: &GpuTensor,
+    w: &GpuTensor,
+    bias: Option<&GpuTensor>,
+    stride: usize,
+    padding: usize,
+    groups: usize,
+    dev: &Arc<CudaDevice>,
+    registry: &Arc<KernelRegistry>,
+) -> Result<GpuTensor, OnnxError> {
+    let x_shape = x.shape().to_vec();
+    let w_shape = w.shape().to_vec();
+    let x_host = x.to_host().map_err(map_nn_err)?;
+    let w_host = w.to_host().map_err(map_nn_err)?;
+    let bias_host = bias.map(|b| b.to_host()).transpose().map_err(map_nn_err)?;
+
+    let (batch, c_in, h, ww) = if x_shape.len() == 4 {
+        (x_shape[0], x_shape[1], x_shape[2], x_shape[3])
+    } else {
+        (1, x_shape[0], x_shape[1], x_shape[2])
+    };
+    let c_out = w_shape[0];
+    let c_in_per_group = c_in / groups;
+    let c_out_per_group = c_out / groups;
+    let kh = w_shape[2];
+    let kw = w_shape[3];
+
+    let h_out = (h + 2 * padding - kh) / stride + 1;
+    let w_out = (ww + 2 * padding - kw) / stride + 1;
+
+    let mut output = vec![0.0f32; batch * c_out * h_out * w_out];
+
+    for b in 0..batch {
+        for g in 0..groups {
+            // Extract group input: [c_in_per_group, h, ww]
+            let mut group_input = vec![0.0f32; c_in_per_group * h * ww];
+            for ci in 0..c_in_per_group {
+                let src_ch = g * c_in_per_group + ci;
+                let src_offset = b * c_in * h * ww + src_ch * h * ww;
+                let dst_offset = ci * h * ww;
+                group_input[dst_offset..dst_offset + h * ww]
+                    .copy_from_slice(&x_host[src_offset..src_offset + h * ww]);
+            }
+
+            // Extract group weight: [c_out_per_group, c_in_per_group, kh, kw]
+            let w_per_filter = c_in_per_group * kh * kw;
+            let mut group_weight = vec![0.0f32; c_out_per_group * w_per_filter];
+            for co in 0..c_out_per_group {
+                let src_filter = g * c_out_per_group + co;
+                let src_offset = src_filter * w_per_filter;
+                let dst_offset = co * w_per_filter;
+                group_weight[dst_offset..dst_offset + w_per_filter]
+                    .copy_from_slice(&w_host[src_offset..src_offset + w_per_filter]);
+            }
+
+            let gi = GpuTensor::from_host(&group_input, &[c_in_per_group, h, ww], dev)
+                .map_err(map_nn_err)?;
+            let gw = GpuTensor::from_host(
+                &group_weight,
+                &[c_out_per_group, c_in_per_group, kh, kw],
+                dev,
+            )
+            .map_err(map_nn_err)?;
+
+            let group_out = crate::nn::ops::conv2d(&gi, &gw, None, stride, padding, registry)
+                .map_err(map_nn_err)?;
+            let group_out_host = group_out.to_host().map_err(map_nn_err)?;
+
+            // Place group output into final output
+            for co in 0..c_out_per_group {
+                let out_ch = g * c_out_per_group + co;
+                let dst_offset = b * c_out * h_out * w_out + out_ch * h_out * w_out;
+                let src_offset = co * h_out * w_out;
+                output[dst_offset..dst_offset + h_out * w_out]
+                    .copy_from_slice(&group_out_host[src_offset..src_offset + h_out * w_out]);
+            }
+        }
+    }
+
+    // Add bias
+    if let Some(ref bias_data) = bias_host {
+        for b in 0..batch {
+            for co in 0..c_out {
+                let offset = b * c_out * h_out * w_out + co * h_out * w_out;
+                let bval = bias_data[co];
+                for i in 0..h_out * w_out {
+                    output[offset + i] += bval;
+                }
+            }
+        }
+    }
+
+    let out_shape = if x_shape.len() == 4 {
+        vec![batch, c_out, h_out, w_out]
+    } else {
+        vec![c_out, h_out, w_out]
+    };
+    GpuTensor::from_host(&output, &out_shape, dev).map_err(map_nn_err)
 }
 
 // --- Pool ops: MaxPool, GlobalAveragePool, ReduceMean ---
@@ -1331,8 +1443,8 @@ fn dispatch_misc(
                 }
             }
         }
-        "Cast" => {
-            // For now, just pass through (all data is f32 internally)
+        "Cast" | "Identity" => {
+            // Pass through (Cast: all data is f32 internally; Identity: no-op)
             let x = get_input(&node.inputs[0], tensor_map)?;
             let out = x.clone_tensor().map_err(map_nn_err)?;
             Ok(NodeOutput::Single(out))

@@ -142,7 +142,50 @@ fn test_onnx_parser() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
             } else {
-                println!("\nPARSED OK");
+                // Generic model: run a single forward pass with random input
+                let has_conv = model.graph.nodes.iter().any(|n| n.op_type == "Conv");
+                let input_shape: Vec<usize> = if has_conv {
+                    // Detect input resolution from first Conv
+                    // Default to ImageNet 224x224 for larger models, CIFAR 32x32 for small
+                    let total_params: usize = model.graph.initializers.values().map(|(d, _)| d.len()).sum();
+                    if total_params > 5_000_000 {
+                        vec![1, 3, 224, 224]
+                    } else {
+                        vec![1, 3, 32, 32]
+                    }
+                } else {
+                    vec![1, 4] // fallback
+                };
+                let input_numel: usize = input_shape.iter().product();
+                println!("\nRunning inference with random input {:?}...", input_shape);
+                let input_data: Vec<f32> = (0..input_numel)
+                    .map(|i| (i as f32 / input_numel as f32) - 0.5)
+                    .collect();
+                let session = gpu_host::onnx::OnnxSession::new(model.graph, &dev, &registry)?;
+                let mut inputs = std::collections::HashMap::new();
+                inputs.insert("input".to_string(), (input_data, input_shape));
+
+                // Warmup
+                let _ = session.run(&inputs);
+
+                let t1 = Instant::now();
+                let n_iter = 5;
+                let mut last_outputs = None;
+                for _ in 0..n_iter {
+                    last_outputs = Some(session.run(&inputs)?);
+                }
+                let avg_ms = t1.elapsed().as_secs_f64() * 1000.0 / n_iter as f64;
+                if let Some(outputs) = last_outputs {
+                    for (name, data) in &outputs {
+                        println!(
+                            "  Output '{name}': {} elements, first 5: {:?}",
+                            data.len(),
+                            &data[..data.len().min(5)]
+                        );
+                    }
+                }
+                println!("  Latency: {avg_ms:.1}ms/inference ({n_iter} runs)");
+                println!("\nPASSED (ONNX end-to-end inference works)");
             }
             return Ok(());
         }

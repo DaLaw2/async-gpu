@@ -12,7 +12,7 @@ status = "running"     # ready | running | blocked | completed
 current_mode = "do"
 current_step = "do.execute"
 current_task_id = "onnx-gpt2-debug.1"
-last_summary = "ONNX debug: single-token logits correct, multi-token diverges. Trilu k=1 fix resolved NaN. Root cause: Transpose or batched MatMul for seq_len>1. Needs careful per-node comparison."
+last_summary = "Fixed 10+ ONNX bugs. GPT-2 ONNX 150ms forward, single-token correct. Next: GPT-2 multi-token debug, ResNet accuracy test."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 109

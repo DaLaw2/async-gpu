@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 560     # Monotonic counter, incremented after each completed phase
-completed_tasks = 670
+total_cycles = 563     # Monotonic counter, incremented after each completed phase
+completed_tasks = 673
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
-current_step = "do.select"
-current_task_id = ""
-last_summary = "BS110 deep brainstorm: 5 new epics created. classical-ml (user requested) + gpu-dynamic (unique differentiator) + graph-algorithms (async-native) + int4-gpt2 (reopen) + monte-carlo (async convergence)."
+current_step = "do.execute"
+current_task_id = "dyn-control.2"
+last_summary = "dyn-control.1 done: variable-length GPT-2 with top-k sampling, dynamic-control example. Next: dyn-control.2 (early-exit inference)."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 110
@@ -1113,7 +1113,7 @@ depends = []
 [[epics]]
 id = "classical-ml"
 title = "Classical ML on GPU — decision trees, random forest, k-means"
-status = "active"
+status = "pending"
 priority = "high"
 success_criteria = [
     "GPU decision tree inference: load trained tree, classify 10K+ samples in parallel",
@@ -1125,7 +1125,7 @@ success_criteria = [
 [[epics]]
 id = "gpu-dynamic"
 title = "Dynamic Control Flow on GPU — the advantage over CUDA graphs"
-status = "active"
+status = "completed"
 priority = "high"
 success_criteria = [
     "Variable-length text generation: GPT-2 stops at EOS token, different samples finish at different lengths",
@@ -1180,7 +1180,7 @@ success_criteria = [
 id = "cml-tree"
 epic = "classical-ml"
 title = "Decision tree + random forest inference on GPU"
-status = "active"
+status = "parked"
 goal = "GPU-parallel tree traversal for classification"
 success_criteria = [
     "Decision tree kernel: per-thread tree walk",
@@ -1216,7 +1216,7 @@ depends = ["cml-tree.2"]
 id = "cml-kmeans"
 epic = "classical-ml"
 title = "k-means clustering on GPU"
-status = "active"
+status = "parked"
 goal = "Lloyd's algorithm with GPU distance computation + centroid update"
 success_criteria = [
     "GPU k-means converges to correct clusters",
@@ -1235,7 +1235,7 @@ depends = []
 id = "dyn-control"
 epic = "gpu-dynamic"
 title = "Dynamic control flow demos — variable-length generation, early-exit"
-status = "active"
+status = "completed"
 goal = "Demonstrate GPU compute patterns impossible with CUDA graphs"
 success_criteria = [
     "Variable-length GPT-2 generation with per-sample EOS stopping",
@@ -1248,7 +1248,7 @@ id = "dyn-control.1"
 theme = "dyn-control"
 title = "Experiment: variable-length GPT-2 generation — stop at EOS per sample"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = []
 
 [[tasks]]
@@ -1256,7 +1256,7 @@ id = "dyn-control.2"
 theme = "dyn-control"
 title = "Experiment: early-exit inference — skip layers when confidence > threshold"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = []
 
 [[tasks]]
@@ -1264,7 +1264,7 @@ id = "dyn-control.3"
 theme = "dyn-control"
 title = "Design: document why these patterns are impossible with CUDA graphs"
 kind = "design"
-status = "pending"
+status = "done"
 depends = ["dyn-control.1", "dyn-control.2"]
 
 [[themes]]
@@ -1284,7 +1284,7 @@ id = "graph-bfs.1"
 theme = "graph-bfs"
 title = "Experiment: CSR graph representation + synthetic graph generator (RMAT)"
 kind = "experiment"
-status = "pending"
+status = "active"
 depends = []
 
 [[tasks]]
@@ -1339,7 +1339,7 @@ id = "mc-finance.1"
 theme = "mc-finance"
 title = "Experiment: GPU xoshiro256++ PRNG kernel with per-thread seeding"
 kind = "experiment"
-status = "pending"
+status = "active"
 depends = []
 
 [[tasks]]
@@ -1373,3 +1373,99 @@ new_epics_spawned = ["classical-ml", "gpu-dynamic", "graph-algorithms", "int4-gp
 themes_parked = []
 themes_completed = []
 key_insight = "NN axis saturated. Breadth wins, but only where async/await adds unique value. classical-ml (user requested) + gpu-dynamic (CUDA graphs can't do this) + graph-algorithms (async-native frontier scheduling) are the top 3. 'Building 3 demos that ONLY async-gpu can run beats 10 inferior NVIDIA library reimplementations.'"
+
+# ============================================================
+# BENCHMARK EPIC — Performance Data + Improvement Targets
+# ============================================================
+
+[[epics]]
+id = "benchmark"
+title = "GPU Kernel Benchmarks — cuBLAS/cuDNN comparison + throughput metrics"
+status = "active"
+priority = "high"
+success_criteria = [
+    "SGEMM benchmark: measure GFLOPS at multiple sizes (512-4096), compare vs cuBLAS, report % of peak",
+    "Conv2D benchmark: measure GFLOPS for common configs (ResNet/YOLO shapes), compare vs cuDNN",
+    "Flash Attention benchmark: measure throughput at GPT-2 shapes, compare vs cuDNN/FlashAttention2",
+    "Memory-bound ops benchmark: LayerNorm, GELU, elementwise — measure GB/s vs theoretical peak",
+    "End-to-end GPT-2 latency breakdown: per-layer timing, identify bottleneck ops",
+    "Benchmark harness in examples/std/benchmark/ with reproducible results",
+    "Results documented with improvement targets (which kernels have most headroom)",
+]
+
+# --- Theme: kernel-level microbenchmarks vs cuBLAS/cuDNN ---
+
+[[themes]]
+id = "bench-kernels"
+epic = "benchmark"
+title = "Kernel microbenchmarks — GFLOPS/GB/s vs cuBLAS/cuDNN"
+status = "active"
+goal = "Quantify per-kernel performance gap against NVIDIA optimized libraries"
+success_criteria = [
+    "SGEMM GFLOPS at M=N=K=512,1024,2048,4096 vs cuBLAS",
+    "Conv2D GFLOPS for 3x3/1x1 kernels at common feature map sizes vs cuDNN",
+    "Attention throughput at seq_len=128,256,512,1024 vs cuDNN",
+    "Bandwidth-bound ops GB/s vs GPU memory bandwidth peak",
+]
+
+[[tasks]]
+id = "bench-kernels.1"
+theme = "bench-kernels"
+title = "Experiment: SGEMM benchmark harness — measure GFLOPS at multiple sizes, compare cuBLAS"
+kind = "experiment"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "bench-kernels.2"
+theme = "bench-kernels"
+title = "Experiment: Conv2D benchmark — GFLOPS for ResNet/YOLO shapes, compare cuDNN"
+kind = "experiment"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "bench-kernels.3"
+theme = "bench-kernels"
+title = "Experiment: Flash Attention benchmark — throughput at GPT-2 shapes"
+kind = "experiment"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "bench-kernels.4"
+theme = "bench-kernels"
+title = "Experiment: Memory-bound ops (LayerNorm, GELU, elementwise) — GB/s measurement"
+kind = "experiment"
+status = "pending"
+depends = []
+
+# --- Theme: end-to-end model profiling ---
+
+[[themes]]
+id = "bench-e2e"
+epic = "benchmark"
+title = "End-to-end model profiling — per-layer breakdown + bottleneck analysis"
+status = "active"
+goal = "Identify which ops dominate latency and where to optimize"
+success_criteria = [
+    "GPT-2 per-layer timing breakdown",
+    "ResNet-18 ONNX per-op timing",
+    "Top-3 bottleneck ops identified with improvement targets",
+]
+
+[[tasks]]
+id = "bench-e2e.1"
+theme = "bench-e2e"
+title = "Experiment: GPT-2 inference per-layer profiling — identify bottleneck ops"
+kind = "experiment"
+status = "pending"
+depends = ["bench-kernels.1"]
+
+[[tasks]]
+id = "bench-e2e.2"
+theme = "bench-e2e"
+title = "Design: benchmark results summary + improvement roadmap"
+kind = "design"
+status = "pending"
+depends = ["bench-kernels.1", "bench-kernels.2", "bench-kernels.3", "bench-kernels.4", "bench-e2e.1"]

@@ -631,6 +631,210 @@ impl Gpt2Model {
 
         Ok(tokens)
     }
+
+    /// Forward pass with early exit: stop processing layers when confidence
+    /// exceeds `threshold`.
+    ///
+    /// After each transformer block, applies the final LayerNorm + LM head to
+    /// the intermediate hidden state and checks if the softmax probability of
+    /// the top token exceeds `threshold`. If so, returns early without
+    /// processing the remaining layers.
+    ///
+    /// Returns `(logits, layers_used)` where `layers_used` is 1..=n_layer.
+    ///
+    /// This is **impossible with CUDA graphs** — the number of kernel launches
+    /// depends on the model's intermediate confidence, which is data-dependent.
+    pub fn forward_early_exit(
+        &self,
+        token_ids: &cudarc::driver::CudaSlice<u32>,
+        seq_len: usize,
+        threshold: f32,
+    ) -> Result<(GpuTensor, usize)> {
+        let mut hidden = self.embedding.forward_tokens(token_ids, seq_len)?;
+        let vocab_size = self.config.vocab_size;
+
+        for (i, block) in self.blocks.iter().enumerate() {
+            hidden = block.forward(&hidden)?;
+
+            // Check confidence after this layer (skip check on last layer)
+            if i < self.blocks.len() - 1 {
+                let probe = self.ln_f.forward(&hidden)?;
+                let logits = self.lm_head.forward(&probe)?;
+                let logits_host = logits.to_host()?;
+
+                // Check confidence at last position only
+                let last_pos = seq_len - 1;
+                let last_logits = &logits_host[last_pos * vocab_size..(last_pos + 1) * vocab_size];
+
+                let confidence = softmax_max_prob(last_logits);
+                if confidence >= threshold {
+                    return Ok((logits, i + 1));
+                }
+            }
+        }
+
+        // All layers processed
+        hidden = self.ln_f.forward(&hidden)?;
+        let logits = self.lm_head.forward(&hidden)?;
+        Ok((logits, self.blocks.len()))
+    }
+
+    /// KV-cached generation with early exit.
+    ///
+    /// Combines KV caching with early-exit inference. Each decode step may use
+    /// a different number of transformer layers depending on how confident the
+    /// model is at intermediate layers.
+    pub fn generate_cached_early_exit(
+        &self,
+        prompt_tokens: &[u32],
+        max_new_tokens: usize,
+        threshold: f32,
+    ) -> Result<(Vec<u32>, Vec<usize>)> {
+        let dev = self.registry.device();
+        let mut cache = KvCache::new(&self.config);
+        let mut tokens = prompt_tokens.to_vec();
+        let mut layers_per_step = Vec::new();
+
+        // Prefill: always use all layers (build complete KV cache)
+        let prompt_ids = dev
+            .htod_sync_copy(prompt_tokens)
+            .map_err(crate::nn::error::NnError::Cuda)?;
+        let logits = self.forward_cached(&prompt_ids, prompt_tokens.len(), &mut cache)?;
+        let logits_host = logits.to_host()?;
+        layers_per_step.push(self.config.n_layer);
+
+        let vocab_size = self.config.vocab_size;
+        let prompt_len = prompt_tokens.len();
+        let last_logits = &logits_host[(prompt_len - 1) * vocab_size..prompt_len * vocab_size];
+        let mut next_token = argmax(last_logits);
+
+        if next_token == 50256 {
+            return Ok((tokens, layers_per_step));
+        }
+        tokens.push(next_token);
+
+        // Decode with early exit
+        for _ in 1..max_new_tokens {
+            let token_id = dev
+                .htod_sync_copy(&[next_token])
+                .map_err(crate::nn::error::NnError::Cuda)?;
+
+            // Run layers with early-exit check
+            let mut hidden =
+                self.embedding
+                    .forward_tokens_with_offset(&token_id, 1, cache.len())?;
+            let kv_len = cache.len();
+            let mut used_layers = self.config.n_layer;
+
+            for (i, block) in self.blocks.iter().enumerate() {
+                let (out, new_k, new_v) =
+                    block.forward_cached(&hidden, &cache.k[i], &cache.v[i], kv_len)?;
+                cache.append(i, &new_k, &new_v);
+                hidden = out;
+
+                // Check confidence after this layer (skip last layer)
+                if i < self.blocks.len() - 1 {
+                    let probe = self.ln_f.forward(&hidden)?;
+                    let logits = self.lm_head.forward(&probe)?;
+                    let logits_host = logits.to_host()?;
+
+                    let confidence = softmax_max_prob(&logits_host[..vocab_size]);
+                    if confidence >= threshold {
+                        // Fill remaining cache entries with zeros for shape consistency
+                        let d_head = self.config.head_dim();
+                        let zero_k = vec![vec![0.0f32; d_head]; self.config.n_head];
+                        let zero_v = vec![vec![0.0f32; d_head]; self.config.n_head];
+                        for j in (i + 1)..self.blocks.len() {
+                            cache.append(j, &zero_k, &zero_v);
+                        }
+                        used_layers = i + 1;
+                        break;
+                    }
+                }
+            }
+
+            cache.advance(1);
+            layers_per_step.push(used_layers);
+
+            // Get final logits
+            hidden = self.ln_f.forward(&hidden)?;
+            let logits = self.lm_head.forward(&hidden)?;
+            let logits_host = logits.to_host()?;
+
+            next_token = argmax(&logits_host[..vocab_size]);
+            if next_token == 50256 {
+                break;
+            }
+            tokens.push(next_token);
+        }
+
+        Ok((tokens, layers_per_step))
+    }
+
+    /// KV-cached generation with top-k sampling and temperature.
+    ///
+    /// Unlike greedy decoding, this produces diverse outputs — each run with a
+    /// different seed generates different text that stops at different lengths.
+    /// This is **dynamic control flow**: the loop count and token choices depend
+    /// on the model's own outputs, which is impossible with CUDA graphs or
+    /// TensorRT static compilation.
+    pub fn generate_cached_sampling(
+        &self,
+        prompt_tokens: &[u32],
+        max_new_tokens: usize,
+        top_k: usize,
+        temperature: f32,
+        rng: &mut SimpleRng,
+    ) -> Result<Vec<u32>> {
+        let dev = self.registry.device();
+        let mut cache = KvCache::new(&self.config);
+        let mut tokens = prompt_tokens.to_vec();
+
+        // Prefill
+        let prompt_ids = dev
+            .htod_sync_copy(prompt_tokens)
+            .map_err(crate::nn::error::NnError::Cuda)?;
+        let logits = self.forward_cached(&prompt_ids, prompt_tokens.len(), &mut cache)?;
+        let logits_host = logits.to_host()?;
+
+        let vocab_size = self.config.vocab_size;
+        let prompt_len = prompt_tokens.len();
+        let last_logits = &logits_host[(prompt_len - 1) * vocab_size..prompt_len * vocab_size];
+        let mut next_token = top_k_sample(last_logits, top_k, temperature, rng);
+
+        if next_token == 50256 {
+            return Ok(tokens);
+        }
+        tokens.push(next_token);
+
+        // Decode with sampling
+        for _ in 1..max_new_tokens {
+            let token_id = dev
+                .htod_sync_copy(&[next_token])
+                .map_err(crate::nn::error::NnError::Cuda)?;
+            let logits = self.forward_cached(&token_id, 1, &mut cache)?;
+            let logits_host = logits.to_host()?;
+
+            next_token = top_k_sample(&logits_host[..vocab_size], top_k, temperature, rng);
+            if next_token == 50256 {
+                break;
+            }
+            tokens.push(next_token);
+        }
+
+        Ok(tokens)
+    }
+}
+
+/// Compute the maximum softmax probability over a logit vector.
+///
+/// Returns the probability of the most likely token after softmax.
+/// Used for early-exit confidence checking.
+fn softmax_max_prob(logits: &[f32]) -> f32 {
+    let max_val = logits.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+    let exp_sum: f32 = logits.iter().map(|&x| (x - max_val).exp()).sum();
+    // max softmax prob = exp(max_val - max_val) / exp_sum = 1.0 / exp_sum
+    1.0 / exp_sum
 }
 
 /// Argmax over a float slice — returns the index of the maximum value.
@@ -640,6 +844,67 @@ fn argmax(data: &[f32]) -> u32 {
         .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
         .map(|(idx, _)| idx as u32)
         .unwrap_or(0)
+}
+
+/// Simple xorshift64 RNG for sampling — no external dependency needed.
+pub struct SimpleRng(u64);
+
+impl SimpleRng {
+    /// Create a new RNG with the given seed.
+    pub fn new(seed: u64) -> Self {
+        Self(if seed == 0 {
+            0xDEAD_BEEF_CAFE_1234
+        } else {
+            seed
+        })
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        self.0 ^= self.0 << 13;
+        self.0 ^= self.0 >> 7;
+        self.0 ^= self.0 << 17;
+        self.0
+    }
+
+    /// Return a random f32 in [0, 1).
+    pub fn next_f32(&mut self) -> f32 {
+        (self.next_u64() >> 40) as f32 / (1u64 << 24) as f32
+    }
+}
+
+/// Top-k sampling with temperature scaling.
+///
+/// Selects from the `k` highest-probability tokens using softmax probabilities
+/// scaled by `temperature`. Higher temperature = more random, lower = more greedy.
+pub fn top_k_sample(logits: &[f32], k: usize, temperature: f32, rng: &mut SimpleRng) -> u32 {
+    let temp = if temperature < 1e-8 {
+        1e-8
+    } else {
+        temperature
+    };
+    let scaled: Vec<f32> = logits.iter().map(|&x| x / temp).collect();
+
+    // Find top-k indices
+    let mut indexed: Vec<(usize, f32)> = scaled.iter().enumerate().map(|(i, &v)| (i, v)).collect();
+    indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    let top = &indexed[..k.min(indexed.len())];
+
+    // Softmax over top-k
+    let max_val = top[0].1;
+    let exps: Vec<f32> = top.iter().map(|(_, v)| (v - max_val).exp()).collect();
+    let exp_sum: f32 = exps.iter().sum();
+    let probs: Vec<f32> = exps.iter().map(|e| e / exp_sum).collect();
+
+    // Sample from distribution
+    let r = rng.next_f32();
+    let mut cumsum = 0.0;
+    for (i, &p) in probs.iter().enumerate() {
+        cumsum += p;
+        if r < cumsum {
+            return top[i].0 as u32;
+        }
+    }
+    top.last().map(|(idx, _)| *idx as u32).unwrap_or(0)
 }
 
 /// Per-layer KV cache for autoregressive decoding.

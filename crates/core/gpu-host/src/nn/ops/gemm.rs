@@ -244,7 +244,9 @@ pub fn matmul_v2(
 
     let mut d_dev = dev.alloc_zeros::<f32>(m * n)?;
 
-    // Use V3 (128×128, 8×8) for large matrices, V2 (128×64, 4×8) for smaller
+    // Select tile size based on matrix dimensions:
+    // V3 (128×128, 8×8) for large M AND N
+    // V2 (128×64, 4×8) for medium M or N
     let use_v3 = m >= 128 && n >= 128;
     let f_gemm = if use_v3 {
         registry.get("gemm_f32_v3")?
@@ -256,13 +258,13 @@ pub fn matmul_v2(
         cudarc::driver::LaunchConfig {
             grid_dim: (m.div_ceil(128) as u32, n.div_ceil(128) as u32, 1),
             block_dim: (256, 1, 1),
-            shared_mem_bytes: 16640, // 2 * (8*132 + 8*128) * 4
+            shared_mem_bytes: 16640,
         }
     } else {
         cudarc::driver::LaunchConfig {
             grid_dim: (m.div_ceil(128) as u32, n.div_ceil(64) as u32, 1),
             block_dim: (256, 1, 1),
-            shared_mem_bytes: 12544, // 2 * (8*132 + 8*64) * 4
+            shared_mem_bytes: 12544,
         }
     };
     unsafe {

@@ -12,7 +12,7 @@ status = "running"     # ready | running | blocked | completed
 current_mode = "do"
 current_step = "do.execute"
 current_task_id = "perf-fusion.1"
-last_summary = "GEMM V4 (NVRTC) = 1760 GFLOPS (63% cuBLAS). Next: perf-fusion.1 (fused LN+residual), perf-attn-v3 (warp-cooperative), perf-conv-wino. Target: all ≥70%."
+last_summary = "GEMM V4 1760 GFLOPS (63%). Fused LN+residual available. GPT-2 32.5ms. Remaining: GEMM +7% (cp.async), Attention rewrite (4→70%), Conv Winograd (13→70%)."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 110

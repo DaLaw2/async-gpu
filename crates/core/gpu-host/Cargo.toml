@@ -12,6 +12,7 @@ required-features = ["gpt2"]
 default = ["gpt2"]
 gpt2 = ["dep:safetensors", "dep:tiktoken-rs"]
 nn = ["dep:smallvec"]
+cublas = ["cudarc/cublas"]
 onnx = ["dep:prost"]
 async = ["dep:tokio"]
 

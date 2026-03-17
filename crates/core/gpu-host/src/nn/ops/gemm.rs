@@ -240,14 +240,22 @@ pub fn matmul_v2(
     }
 
     let dev = registry.device();
+
+    // Use cuBLAS for small-grid cases where our kernel underutilizes the GPU
+    // Use cuBLAS for all shapes where M ≤ 256 (GPT-2 inference M=seq_len)
+    // cuBLAS has specialized kernels for these shapes with much better occupancy
+    #[cfg(feature = "cublas")]
+    if m <= 256 {
+        return matmul_cublas(a, b, m, k, n, dev);
+    }
+
     let status = dev.htod_sync_copy(&[0u32])?;
 
     let mut d_dev = dev.alloc_zeros::<f32>(m * n)?;
 
-    // Select tile size based on matrix dimensions:
-    // V3 (128×128, 8×8) for large M AND N
-    // V2 (128×64, 4×8) for medium M or N
-    let use_v3 = m >= 128 && n >= 128;
+    // V3 (128×128, 8×8) for large grids, V2 (128×64, 4×8) for smaller
+    let v3_blocks = m.div_ceil(128) * n.div_ceil(128);
+    let use_v3 = m >= 128 && n >= 128 && v3_blocks >= 16;
     let f_gemm = if use_v3 {
         registry.get("gemm_f32_v3")?
     } else {
@@ -283,6 +291,52 @@ pub fn matmul_v2(
     }
 
     Ok(GpuTensor::from_data(d_dev, &[m, n], Arc::clone(dev)))
+}
+
+/// cuBLAS-based matmul for small-grid cases where custom kernels underutilize GPU.
+///
+/// A: [M, K] row-major, B: [K, N] row-major → output: [M, N] row-major.
+/// cuBLAS expects column-major, so we compute C^T = B^T × A^T to get row-major result.
+#[cfg(feature = "cublas")]
+fn matmul_cublas(
+    a: &GpuTensor,
+    b: &GpuTensor,
+    m: usize,
+    k: usize,
+    n: usize,
+    dev: &Arc<cudarc::driver::CudaDevice>,
+) -> Result<GpuTensor> {
+    use cudarc::cublas::{CudaBlas, Gemm, GemmConfig};
+
+    let blas = CudaBlas::new(Arc::clone(dev)).map_err(|e| NnError::ShapeMismatch {
+        expected: "cuBLAS init".to_string(),
+        actual: format!("{e:?}"),
+    })?;
+    let mut c_dev = dev.alloc_zeros::<f32>(m * n).map_err(NnError::Cuda)?;
+
+    // Row-major C = A × B is equivalent to column-major C^T = B^T × A^T
+    let cfg = GemmConfig {
+        transa: cudarc::cublas::sys::cublasOperation_t::CUBLAS_OP_N,
+        transb: cudarc::cublas::sys::cublasOperation_t::CUBLAS_OP_N,
+        m: n as i32,
+        n: m as i32,
+        k: k as i32,
+        alpha: 1.0f32,
+        lda: n as i32,
+        ldb: k as i32,
+        beta: 0.0f32,
+        ldc: n as i32,
+    };
+
+    unsafe {
+        blas.gemm(cfg, b.data(), a.data(), &mut c_dev)
+            .map_err(|e| NnError::ShapeMismatch {
+                expected: "cuBLAS gemm".to_string(),
+                actual: format!("{e:?}"),
+            })?;
+    }
+
+    Ok(GpuTensor::from_data(c_dev, &[m, n], Arc::clone(dev)))
 }
 
 /// Activation type for fused GEMM.

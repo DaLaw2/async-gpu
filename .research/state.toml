@@ -1477,3 +1477,282 @@ title = "Design: benchmark results summary + improvement roadmap"
 kind = "design"
 status = "done"
 depends = ["bench-kernels.1", "bench-kernels.2", "bench-kernels.3", "bench-kernels.4", "bench-e2e.1"]
+
+# ============================================================
+# KERNEL PERFORMANCE EPIC — Close the gap to cuBLAS/cuDNN
+# ============================================================
+
+[[epics]]
+id = "kernel-perf"
+title = "Kernel Performance — close gap to cuBLAS/cuDNN across all compute primitives"
+status = "active"
+priority = "highest"
+success_criteria = [
+    "SGEMM >= 70% of cuBLAS (~2000 GFLOPS): 128×128 tile, 8×8 register blocking, double-buffered smem, float4 loads",
+    "Flash Attention >= 50% of cuDNN FA2: MMA tiled GEMM for Q·K^T and P·V, shared memory Q tiles, cp.async prefetch",
+    "Conv2D >= 60% of cuDNN: Winograd F(4×4,3×3) for 3×3 conv, direct conv kernel for other sizes, eliminate im2col",
+    "LayerNorm >= 60% of peak BW (~180 GB/s): single-pass Welford, 256 threads, shared memory warp reduction, float4",
+    "elementwise/GELU >= 80% of peak BW (~240 GB/s): float4 vectorized loads/stores, multi-element per thread",
+    "GPT-2 end-to-end forward pass < 35ms (from 221ms, 6.3x improvement)",
+]
+
+# --- Theme 1: GEMM (P0 — foundation for everything) ---
+
+[[themes]]
+id = "perf-gemm"
+epic = "kernel-perf"
+title = "High-performance GEMM — Cutlass-level tiled matmul"
+status = "active"
+goal = "SGEMM >= 2000 GFLOPS (70% of cuBLAS)"
+success_criteria = [
+    "128×128 output tile per block with 8×8 register blocking per thread",
+    "Double-buffered shared memory K-tile prefetch",
+    "float4 coalesced global loads (128-bit transactions)",
+    "GFLOPS >= 2000 at M=N=K=4096",
+    "GPT-2 shapes (128×768×768 etc.) >= 1500 GFLOPS",
+]
+
+[[tasks]]
+id = "perf-gemm.1"
+theme = "perf-gemm"
+title = "Investigation: study Cutlass SGEMM tile schedule, register mapping, smem layout"
+kind = "investigation"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "perf-gemm.2"
+theme = "perf-gemm"
+title = "Experiment: implement 64×64 tile + 4×4 register blocking GEMM kernel"
+kind = "experiment"
+status = "pending"
+depends = ["perf-gemm.1"]
+
+[[tasks]]
+id = "perf-gemm.3"
+theme = "perf-gemm"
+title = "Experiment: scale to 128×128 tile + 8×8 register blocking + double-buffered smem"
+kind = "experiment"
+status = "pending"
+depends = ["perf-gemm.2"]
+
+[[tasks]]
+id = "perf-gemm.4"
+theme = "perf-gemm"
+title = "Experiment: float4 vectorized loads + software pipeline (cp.async if SM80+)"
+kind = "experiment"
+status = "pending"
+depends = ["perf-gemm.3"]
+
+[[tasks]]
+id = "perf-gemm.5"
+theme = "perf-gemm"
+title = "Experiment: benchmark new GEMM at all sizes, integrate into nn::ops::matmul"
+kind = "experiment"
+status = "pending"
+depends = ["perf-gemm.4"]
+
+# --- Theme 2: Flash Attention (P1 — MMA-based rewrite) ---
+
+[[themes]]
+id = "perf-attention"
+epic = "kernel-perf"
+title = "FlashAttention-2 — MMA tiled GEMM + online softmax"
+status = "pending"
+goal = "Attention throughput >= 50% of cuDNN FA2"
+success_criteria = [
+    "Q tile in shared memory for cooperative tiled GEMM",
+    "Score GEMM (Q·K^T) via MMA or tiled register-blocked matmul",
+    "P·V accumulation via tiled GEMM (not scalar loop)",
+    "Warp-level parallel softmax reduction",
+    "seq=512, 12 heads: throughput >= 1200 GFLOPS",
+]
+
+[[tasks]]
+id = "perf-attention.1"
+theme = "perf-attention"
+title = "Investigation: study FlashAttention-2 algorithm — tile schedule, softmax, memory staging"
+kind = "investigation"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "perf-attention.2"
+theme = "perf-attention"
+title = "Experiment: rewrite attention with Q in shared memory + tiled score GEMM"
+kind = "experiment"
+status = "pending"
+depends = ["perf-attention.1", "perf-gemm.3"]
+
+[[tasks]]
+id = "perf-attention.3"
+theme = "perf-attention"
+title = "Experiment: tiled P·V accumulation + cp.async KV prefetch + warp softmax"
+kind = "experiment"
+status = "pending"
+depends = ["perf-attention.2"]
+
+[[tasks]]
+id = "perf-attention.4"
+theme = "perf-attention"
+title = "Experiment: benchmark + integrate into nn::ops::multi_head_flash_attention"
+kind = "experiment"
+status = "pending"
+depends = ["perf-attention.3"]
+
+# --- Theme 3: Conv2D (P2 — eliminate im2col) ---
+
+[[themes]]
+id = "perf-conv"
+epic = "kernel-perf"
+title = "High-performance Conv2D — Winograd + direct conv"
+status = "pending"
+goal = "Conv2D >= 60% of cuDNN for common shapes"
+success_criteria = [
+    "Winograd F(4×4, 3×3) for 3×3 convolutions (2.25x FLOPs reduction)",
+    "Direct conv kernel for non-3×3 sizes (shared memory tiling)",
+    "im2col completely eliminated from forward path",
+    "GPU-side batch processing (no PCIe round-trips)",
+    "ResNet layer2 (64→128, 32×32, k=3): >= 1200 GFLOPS",
+]
+
+[[tasks]]
+id = "perf-conv.1"
+theme = "perf-conv"
+title = "Investigation: study Winograd F(4×4, 3×3) — transform matrices, tile layout, numerical stability"
+kind = "investigation"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "perf-conv.2"
+theme = "perf-conv"
+title = "Experiment: implement Winograd 3×3 conv kernel with shared memory transforms"
+kind = "experiment"
+status = "pending"
+depends = ["perf-conv.1", "perf-gemm.3"]
+
+[[tasks]]
+id = "perf-conv.3"
+theme = "perf-conv"
+title = "Experiment: direct conv kernel for 1×1, 5×5, 7×7 with register tiling"
+kind = "experiment"
+status = "pending"
+depends = ["perf-gemm.3"]
+
+[[tasks]]
+id = "perf-conv.4"
+theme = "perf-conv"
+title = "Experiment: GPU-side batched conv (eliminate D2H/H2D round-trips)"
+kind = "experiment"
+status = "pending"
+depends = ["perf-conv.2"]
+
+[[tasks]]
+id = "perf-conv.5"
+theme = "perf-conv"
+title = "Experiment: benchmark all conv shapes, integrate into nn::ops::conv2d"
+kind = "experiment"
+status = "pending"
+depends = ["perf-conv.2", "perf-conv.3", "perf-conv.4"]
+
+# --- Theme 4: LayerNorm (P3 — single-pass rewrite) ---
+
+[[themes]]
+id = "perf-layernorm"
+epic = "kernel-perf"
+title = "High-performance LayerNorm — single-pass + vectorized"
+status = "pending"
+goal = "LayerNorm >= 180 GB/s (60% of peak bandwidth)"
+success_criteria = [
+    "Single-pass Welford algorithm (mean + variance in one read)",
+    "256 threads per block with shared memory two-level reduction",
+    "float4 coalesced loads (128-bit transactions)",
+    "Fused LayerNorm + residual add variant",
+    "128×768 matrix: >= 180 GB/s",
+]
+
+[[tasks]]
+id = "perf-layernorm.1"
+theme = "perf-layernorm"
+title = "Experiment: single-pass Welford LayerNorm with 256 threads + shared memory reduction"
+kind = "experiment"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "perf-layernorm.2"
+theme = "perf-layernorm"
+title = "Experiment: float4 vectorized loads + fused residual-add variant"
+kind = "experiment"
+status = "pending"
+depends = ["perf-layernorm.1"]
+
+[[tasks]]
+id = "perf-layernorm.3"
+theme = "perf-layernorm"
+title = "Experiment: benchmark + integrate into nn::ops::layer_norm"
+kind = "experiment"
+status = "pending"
+depends = ["perf-layernorm.2"]
+
+# --- Theme 5: elementwise/GELU (P4 — vectorization) ---
+
+[[themes]]
+id = "perf-elementwise"
+epic = "kernel-perf"
+title = "Vectorized elementwise ops — float4 + multi-element per thread"
+status = "pending"
+goal = "elementwise >= 240 GB/s, GELU >= 200 GB/s (80%+ of peak)"
+success_criteria = [
+    "float4 vectorized loads/stores for all elementwise ops",
+    "4-8 elements per thread for latency hiding",
+    "GELU fast approximation: x * sigmoid(1.702x)",
+    "elementwise_add >= 240 GB/s, gelu >= 200 GB/s",
+]
+
+[[tasks]]
+id = "perf-elementwise.1"
+theme = "perf-elementwise"
+title = "Experiment: float4 vectorized elementwise_add + gelu + sigmoid + relu"
+kind = "experiment"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "perf-elementwise.2"
+theme = "perf-elementwise"
+title = "Experiment: benchmark all elementwise ops, integrate into nn::ops"
+kind = "experiment"
+status = "pending"
+depends = ["perf-elementwise.1"]
+
+# --- Theme 6: End-to-end validation ---
+
+[[themes]]
+id = "perf-e2e"
+epic = "kernel-perf"
+title = "End-to-end validation — GPT-2 < 35ms, YOLO < 80ms"
+status = "pending"
+goal = "Verify all kernel improvements compound to model-level speedup"
+success_criteria = [
+    "GPT-2 forward pass (seq=128) < 35ms (from 221ms)",
+    "YOLOv8-nano inference < 100ms (from 374ms)",
+    "No accuracy regression on any model",
+]
+
+[[tasks]]
+id = "perf-e2e.1"
+theme = "perf-e2e"
+title = "Experiment: GPT-2 end-to-end benchmark with all optimized kernels"
+kind = "experiment"
+status = "pending"
+depends = ["perf-gemm.5", "perf-attention.4", "perf-layernorm.3", "perf-elementwise.2"]
+
+[[tasks]]
+id = "perf-e2e.2"
+theme = "perf-e2e"
+title = "Experiment: YOLOv8-nano + ResNet-18 benchmark with optimized conv + elementwise"
+kind = "experiment"
+status = "pending"
+depends = ["perf-conv.5", "perf-elementwise.2"]

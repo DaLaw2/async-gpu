@@ -1352,6 +1352,79 @@ pub unsafe extern "ptx-kernel" fn gelu_forward_v2(
 }
 
 // ============================================================
+// Vectorized elementwise_add V3 — explicit PTX float4 loads
+// ============================================================
+
+/// Vectorized elementwise add with PTX float4 loads: a[i] += b[i].
+///
+/// Uses ld.global.v4.f32 for 128-bit coalesced loads (4 elements per instruction).
+/// Each thread processes 4 elements. n MUST be divisible by 4.
+///
+/// grid_dim = (ceil(n/1024), 1, 1), block_dim = (256, 1, 1).
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn elementwise_add_v3(
+    a: *mut f32,
+    b: *const f32,
+    n: u32,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let block_x = nvptx::_block_idx_x() as u32;
+        let base = (block_x * 256 + tid) * 4;
+
+        if base + 3 < n {
+            // Float4 load from a
+            let a_ptr = a.add(base as usize) as *const u64;
+            let b_ptr = b.add(base as usize) as *const u64;
+
+            let a0: f32; let a1: f32; let a2: f32; let a3: f32;
+            let b0: f32; let b1: f32; let b2: f32; let b3: f32;
+
+            core::arch::asm!(
+                "ld.global.v4.f32 {{{a0}, {a1}, {a2}, {a3}}}, [{addr}];",
+                a0 = out(reg32) a0, a1 = out(reg32) a1,
+                a2 = out(reg32) a2, a3 = out(reg32) a3,
+                addr = in(reg64) a.add(base as usize),
+            );
+            core::arch::asm!(
+                "ld.global.v4.f32 {{{b0}, {b1}, {b2}, {b3}}}, [{addr}];",
+                b0 = out(reg32) b0, b1 = out(reg32) b1,
+                b2 = out(reg32) b2, b3 = out(reg32) b3,
+                addr = in(reg64) b.add(base as usize),
+            );
+
+            let r0 = a0 + b0;
+            let r1 = a1 + b1;
+            let r2 = a2 + b2;
+            let r3 = a3 + b3;
+
+            core::arch::asm!(
+                "st.global.v4.f32 [{addr}], {{{r0}, {r1}, {r2}, {r3}}};",
+                addr = in(reg64) a.add(base as usize),
+                r0 = in(reg32) r0, r1 = in(reg32) r1,
+                r2 = in(reg32) r2, r3 = in(reg32) r3,
+            );
+        } else {
+            // Tail: scalar fallback
+            let mut i = 0u32;
+            while i < 4 {
+                let idx = base + i;
+                if idx < n {
+                    *a.add(idx as usize) = *a.add(idx as usize) + *b.add(idx as usize);
+                }
+                i += 1;
+            }
+        }
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (a, b, n);
+    }
+}
+
+// ============================================================
 // QKV split + transpose kernel (transformer-layer.6 helper)
 // ============================================================
 

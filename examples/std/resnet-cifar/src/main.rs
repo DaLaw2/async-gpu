@@ -18,7 +18,10 @@ use gpu_host::nn::tensor::GpuTensor;
 fn main() {
     let do_train = std::env::args().any(|a| a == "--train");
     let do_pretrained = std::env::args().any(|a| a == "--pretrained");
-    let result = if do_train {
+    let do_onnx = std::env::args().any(|a| a == "--onnx");
+    let result = if do_onnx {
+        onnx_inference()
+    } else if do_train {
         train()
     } else if do_pretrained {
         pretrained_inference()
@@ -161,6 +164,89 @@ fn pretrained_inference() -> Result<(), Box<dyn std::error::Error>> {
         println!("PASSED (accuracy >= 90%)");
     } else {
         println!("BELOW TARGET (accuracy < 90%, need more training epochs)");
+    }
+    Ok(())
+}
+
+/// ResNet-18 ONNX inference on CIFAR-10 test set via our custom ONNX executor.
+fn onnx_inference() -> Result<(), Box<dyn std::error::Error>> {
+    let (dev, registry) = gpu_host::nn::KernelRegistry::init_default()?;
+
+    let onnx_path = gpu_host::model_dir(Some(env!("CARGO_MANIFEST_DIR")))
+        .join("resnet18_cifar10.onnx");
+    if !onnx_path.exists() {
+        return Err(format!(
+            "ONNX model not found at {}. Export with: uv run scripts/export_resnet_onnx.py",
+            onnx_path.display()
+        )
+        .into());
+    }
+
+    println!("--- ResNet-18 ONNX CIFAR-10 Inference ---");
+    let t0 = Instant::now();
+    let model = gpu_host::onnx::load_onnx(&onnx_path)?;
+    println!("ONNX parsed: {:.1}ms", t0.elapsed().as_secs_f64() * 1000.0);
+    model.summary();
+
+    let session = gpu_host::onnx::OnnxSession::new(model.graph, &dev, &registry)?;
+    println!(
+        "Session created: {:.1}ms",
+        t0.elapsed().as_secs_f64() * 1000.0
+    );
+
+    // Load CIFAR-10 test data
+    let cifar_dir = gpu_host::model_dir(Some(env!("CARGO_MANIFEST_DIR"))).join("cifar10");
+    let (test_imgs, test_lbls) = if cifar_dir.join("test_batch.bin").exists() {
+        load_cifar_batch(&cifar_dir.join("test_batch.bin"))?
+    } else {
+        return Err("CIFAR-10 test data not found. Run: bash scripts/download-cifar10.sh".into());
+    };
+
+    let mean = [0.4914f32, 0.4822, 0.4465];
+    let std_dev = [0.2471f32, 0.2435, 0.2616];
+
+    let n = test_imgs.len().min(1000);
+    println!("Testing on {n} images...");
+
+    // Warmup
+    let norm_img = normalize_cifar(&test_imgs[0], &mean, &std_dev);
+    let mut inputs = std::collections::HashMap::new();
+    inputs.insert("input".to_string(), (norm_img, vec![1, 3, 32, 32]));
+    let _ = session.run(&inputs);
+
+    let t1 = Instant::now();
+    let mut correct = 0;
+    for i in 0..n {
+        let norm_img = normalize_cifar(&test_imgs[i], &mean, &std_dev);
+        let mut inputs = std::collections::HashMap::new();
+        inputs.insert("input".to_string(), (norm_img, vec![1, 3, 32, 32]));
+        let outputs = session.run(&inputs)?;
+        let logits = outputs.get("output").ok_or("No 'output' in ONNX result")?;
+        let pred = logits
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+            .map(|(i, _)| i)
+            .unwrap();
+        if pred == test_lbls[i] as usize {
+            correct += 1;
+        }
+        if (i + 1) % 200 == 0 {
+            let acc = correct as f64 / (i + 1) as f64 * 100.0;
+            println!("  {}/{n}: {correct} correct ({acc:.1}%)", i + 1);
+        }
+    }
+    let elapsed = t1.elapsed().as_secs_f64();
+    let accuracy = correct as f64 / n as f64 * 100.0;
+    println!("\nONNX Accuracy: {correct}/{n} ({accuracy:.1}%)");
+    println!(
+        "Speed: {elapsed:.2}s, {:.1}ms/image",
+        elapsed / n as f64 * 1000.0
+    );
+    if accuracy >= 90.0 {
+        println!("PASSED (ONNX accuracy >= 90%)");
+    } else {
+        println!("BELOW TARGET (ONNX accuracy < 90%)");
     }
     Ok(())
 }

@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 558     # Monotonic counter, incremented after each completed phase
-completed_tasks = 668
+total_cycles = 559     # Monotonic counter, incremented after each completed phase
+completed_tasks = 669
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "onnx-gpt2-debug.1"
-last_summary = "GPT-2 ONNX GENERATES COHERENT TEXT! 'The capital of France is the capital of the French Republic, and the capital' — matches native. All 12+ ONNX bugs fixed. 668 tasks."
+current_task_id = "onnx-resnet-acc.1"
+last_summary = "ResNet-18 ONNX accuracy FIXED: 91.2% (matches ORT exactly). Key mapping fix (shortcut.conv→shortcut.0) + GlobalAveragePool batch dim fix. ONNX epic criterion 4 met."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 109
@@ -1062,5 +1062,25 @@ id = "onnx-gpt2-debug.1"
 theme = "onnx-gpt2-gen"
 title = "Debug GPT-2 ONNX logit divergence — compare node-by-node with native API"
 kind = "investigation"
+status = "done"
+depends = []
+
+[[themes]]
+id = "onnx-resnet-acc"
+epic = "onnx-inference"
+title = "ResNet-18 ONNX accuracy — export key mapping + GAP batch dim"
+status = "completed"
+goal = "ResNet-18 ONNX achieves >90% on CIFAR-10"
+success_criteria = [
+    "Export script maps safetensors keys to PyTorch model keys",
+    "GlobalAveragePool preserves batch dimension for 4D input",
+    "Our ONNX executor matches ORT accuracy (91.2%)",
+]
+
+[[tasks]]
+id = "onnx-resnet-acc.1"
+theme = "onnx-resnet-acc"
+title = "Fix ResNet ONNX export key mapping + GlobalAveragePool batch dim"
+kind = "experiment"
 status = "done"
 depends = []

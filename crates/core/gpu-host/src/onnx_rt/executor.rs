@@ -176,7 +176,7 @@ fn execute_nodes(
                 if let Some(name) = node.outputs.first() {
                     if !name.is_empty() {
                         if debug_onnx
-                            && (idx < 15 || (idx >= 23 && idx <= 30) || (idx >= 70 && idx <= 105))
+                            && (idx < 15 || (idx >= 23 && idx <= 50) || (idx >= 70 && idx <= 105))
                         {
                             let h = t.to_host().unwrap_or_default();
                             let first4: Vec<f32> = h.iter().take(4).copied().collect();
@@ -440,7 +440,7 @@ fn dispatch_gemm(
 fn dispatch_conv(
     node: &OnnxNode,
     tensor_map: &HashMap<String, GpuTensor>,
-    dev: &Arc<CudaDevice>,
+    _dev: &Arc<CudaDevice>,
     registry: &Arc<KernelRegistry>,
 ) -> Result<NodeOutput, OnnxError> {
     match node.op_type.as_str() {
@@ -534,7 +534,8 @@ fn dispatch_pool(
                         out_data[b * c + ch] = sum / spatial as f32;
                     }
                 }
-                let out_shape = if batch > 1 {
+                // Preserve input rank: 4D [N,C,H,W] → [N,C,1,1], 3D [C,H,W] → [C,1,1]
+                let out_shape = if shape.len() >= 4 {
                     vec![batch, c, 1, 1]
                 } else {
                     vec![c, 1, 1]

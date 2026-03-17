@@ -241,7 +241,14 @@ let model = Gpt2Model::from_weights(&weights, config, &registry)?;
 let tokens = model.generate(&prompt_tokens, 50)?;
 ```
 
-**Layers**: `Linear`, `Conv2d`, `LayerNorm`, `BatchNorm2d`, `Embedding`, `MultiHeadAttention`, `GELU`, `SiLU`, `Sigmoid`, `ReLU`, `MaxPool2d`, `Sequential`.
+**Layers**: `Linear`, `Conv2d`, `LayerNorm`, `BatchNorm2d`, `Embedding`, `MultiHeadAttention`, `GELU`, `SiLU`, `Sigmoid`, `ReLU`, `MaxPool2d`, `Sequential`, `Int4Linear`.
+
+**ONNX Runtime** (`gpu_host::onnx_rt`):
+- Load any `.onnx` file via prost protobuf parser (no protoc needed)
+- 41 ONNX operators: Conv, MatMul, Gemm, Relu, BatchNorm, LayerNorm, Softmax, Add, Mul, Sub, Reshape, Transpose, Gather, Split, Where, Concat, and more
+- `OnnxSession`: initializer caching + weight prepadding for repeated inference
+- Graph fusion pass: MatMul+Add+Activation pattern matching
+- GPT-2 ONNX text generation verified (150ms/forward, 1107 nodes)
 
 **Autograd** (tape-based reverse-mode AD):
 - Forward ops automatically record on a thread-local tape when `requires_grad = true`
@@ -260,13 +267,15 @@ crates/
       nn/              Neural network module: GpuTensor, KernelRegistry, ops, layers, models
         autograd/      Tape-based reverse-mode AD: backward, optimizers, losses
         models/        GPT-2, YOLOv8-nano, and ResNet-18 model implementations
+        ops/quantize/  INT8/INT4 quantization pack/unpack utilities
         test_utils/    Numerical comparison harness, CPU f64 references, golden files
+      onnx_rt/         ONNX Runtime: protobuf parser (prost), graph executor (41 ops), fusion pass
     gpu-protocol/      Shared constants: packet layout, service IDs, error codes
     gpu-runtime/       GPU-side runtime: index, math, warp, block, nn, executor, channels
     gpu-atomics/       System-scope GPU atomics via inline PTX (CAS, shfl, activemask)
     gpu-libc/          Minimal libc shim for GPU: routes sys calls to hostcall
   kernel/
-    gpu-kernel/        Main GPU kernel crate (125+ kernels: compute, hostcall, pipeline, backward, fused, physics, persistent)
+    gpu-kernel/        Main GPU kernel crate (130+ kernels: compute, hostcall, pipeline, backward, fused, physics, persistent, elementwise)
     gpu-kernel-std/    GPU kernels using patched Rust std (println!, Vec, File, stdin)
   macro/
     warp-macro/        #[warp_async] proc macro (generates WarpFuture state machines)
@@ -294,6 +303,8 @@ RTX 3060, SM 86:
 | ResNet-18 pretrained (CIFAR-10) | 91.3% accuracy, 16.0ms/image |
 | Compute pipeline speedup | 1.91x vs multi-launch |
 | N-body gravity (4096 particles) | 47.1x GPU vs CPU |
+| **ONNX Runtime** (ResNet-18, 48 nodes) | 43ms/inference (native: 15.7ms) |
+| **ONNX Runtime** (GPT-2, 1107 nodes) | 150ms/forward pass, text generation works |
 
 **Training** (GPU matmul + autograd tape):
 

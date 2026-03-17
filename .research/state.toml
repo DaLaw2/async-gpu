@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 550     # Monotonic counter, incremented after each completed phase
-completed_tasks = 660
+total_cycles = 552     # Monotonic counter, incremented after each completed phase
+completed_tasks = 662
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
 current_task_id = "onnx-gpt2-debug.1"
-last_summary = "Fixed: Trilu k param, BOOL dtype, ND Transpose, Softmax axis, ConstantOfShape tensor, Gather 2D, Split ND, batched MatMul, Add bias broadcast. GPT-2 ONNX generates tokens (not yet coherent). ResNet 43ms."
+last_summary = "ONNX debug: single-token logits correct, multi-token diverges. Trilu k=1 fix resolved NaN. Root cause: Transpose or batched MatMul for seq_len>1. Needs careful per-node comparison."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 109
@@ -1062,5 +1062,5 @@ id = "onnx-gpt2-debug.1"
 theme = "onnx-gpt2-gen"
 title = "Debug GPT-2 ONNX logit divergence — compare node-by-node with native API"
 kind = "investigation"
-status = "active"
+status = "done"
 depends = []

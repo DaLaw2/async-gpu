@@ -1249,17 +1249,48 @@ fn dispatch_misc(
             Ok(NodeOutput::Single(out))
         }
         "Softmax" => {
-            // CPU-side softmax for now
             let x = get_input(&node.inputs[0], tensor_map)?;
             let x_host = x.to_host().map_err(map_nn_err)?;
+            let shape = x.shape();
+            let axis = node.attr_int("axis", -1);
+            let ndim = shape.len() as i64;
+            let norm_axis = if axis < 0 {
+                (ndim + axis) as usize
+            } else {
+                axis as usize
+            };
 
-            let max_val = x_host.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
-            let exp_sum: f32 = x_host.iter().map(|&v| (v - max_val).exp()).sum();
-            let out_data: Vec<f32> = x_host
-                .iter()
-                .map(|&v| (v - max_val).exp() / exp_sum)
-                .collect();
-            let out = GpuTensor::from_host(&out_data, x.shape(), dev).map_err(map_nn_err)?;
+            let mut out_data = x_host.clone();
+            let axis_dim = shape[norm_axis];
+            let outer: usize = shape[..norm_axis].iter().product::<usize>().max(1);
+            let inner: usize = shape[norm_axis + 1..].iter().product::<usize>().max(1);
+
+            // Softmax along axis: for each (outer, inner) slice
+            for o in 0..outer {
+                for i in 0..inner {
+                    // Find max
+                    let mut max_val = f32::NEG_INFINITY;
+                    for a in 0..axis_dim {
+                        let idx = (o * axis_dim + a) * inner + i;
+                        max_val = max_val.max(out_data[idx]);
+                    }
+                    // Exp and sum
+                    let mut exp_sum = 0.0f32;
+                    for a in 0..axis_dim {
+                        let idx = (o * axis_dim + a) * inner + i;
+                        let e = (out_data[idx] - max_val).exp();
+                        out_data[idx] = e;
+                        exp_sum += e;
+                    }
+                    // Normalize
+                    for a in 0..axis_dim {
+                        let idx = (o * axis_dim + a) * inner + i;
+                        out_data[idx] /= exp_sum;
+                    }
+                }
+            }
+
+            let out = GpuTensor::from_host(&out_data, shape, dev).map_err(map_nn_err)?;
             Ok(NodeOutput::Single(out))
         }
         "LayerNormalization" => {

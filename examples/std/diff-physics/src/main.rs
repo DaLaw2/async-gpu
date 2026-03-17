@@ -43,7 +43,11 @@ fn test_onnx_parser() -> Result<(), Box<dyn std::error::Error>> {
         gpu_host::ptx::KERNEL,
     )?);
 
-    let path = gpu_host::model_dir(Some(env!("CARGO_MANIFEST_DIR"))).join("resnet18_cifar10.onnx");
+    // Try simple_mlp.onnx first (small, all weights embedded), then resnet
+    let mlp_path = gpu_host::model_dir(Some(env!("CARGO_MANIFEST_DIR"))).join("simple_mlp.onnx");
+    let resnet_path =
+        gpu_host::model_dir(Some(env!("CARGO_MANIFEST_DIR"))).join("resnet18_cifar10.onnx");
+    let path = if mlp_path.exists() { mlp_path } else { resnet_path };
     if !path.exists() {
         return Err(format!("ONNX file not found: {}", path.display()).into());
     }
@@ -51,13 +55,30 @@ fn test_onnx_parser() -> Result<(), Box<dyn std::error::Error>> {
     let model = gpu_host::onnx::load_onnx(&path)?;
     model.summary();
 
+    // Debug: show initializer data sizes
+    for (name, (data, shape)) in &model.graph.initializers {
+        println!("  Init '{name}': shape={shape:?}, data.len()={}", data.len());
+    }
+
     // Try to execute with a dummy input
-    println!("\nRunning inference with random input [1,3,32,32]...");
-    let input_data: Vec<f32> = (0..3 * 32 * 32)
-        .map(|i| (i as f32 / 3072.0) - 0.5)
+    let input_shape: Vec<usize> = if model.graph.nodes.first().map(|n| n.op_type.as_str())
+        == Some("Gemm")
+        || model.graph.nodes.first().map(|n| n.op_type.as_str()) == Some("MatMul")
+    {
+        vec![1, 4] // MLP input
+    } else {
+        vec![1, 3, 32, 32] // CNN input
+    };
+    let input_size: usize = input_shape.iter().product();
+    println!(
+        "\nRunning inference with random input {:?}...",
+        input_shape
+    );
+    let input_data: Vec<f32> = (0..input_size)
+        .map(|i| (i as f32 / input_size as f32) - 0.5)
         .collect();
     let mut inputs = std::collections::HashMap::new();
-    inputs.insert("input".to_string(), (input_data, vec![1, 3, 32, 32]));
+    inputs.insert("input".to_string(), (input_data, input_shape));
 
     match gpu_host::onnx_executor::execute_onnx(&model.graph, &inputs, &dev, &registry) {
         Ok(outputs) => {

@@ -131,8 +131,18 @@ fn dispatch_node(
         "Gemm" => {
             let a = get_input(&node.inputs[0], tensor_map)?;
             let b = get_input(&node.inputs[1], tensor_map)?;
-            // TODO: handle transA/transB attributes + optional C (bias)
-            let out = crate::nn::ops::matmul(a, b, registry).map_err(map_nn_err)?;
+            let trans_b = node.attr_int("transB", 0);
+            let b_for_matmul = if trans_b != 0 && b.ndim() == 2 {
+                b.transpose(0, 1).map_err(map_nn_err)?
+            } else {
+                b.clone_tensor().map_err(map_nn_err)?
+            };
+            let mut out = crate::nn::ops::matmul(a, &b_for_matmul, registry).map_err(map_nn_err)?;
+            // Optional bias (C input)
+            if node.inputs.len() > 2 && !node.inputs[2].is_empty() {
+                let c = get_input(&node.inputs[2], tensor_map)?;
+                crate::nn::ops::bias_add(&mut out, c, registry).map_err(map_nn_err)?;
+            }
             Ok(NodeOutput::Single(out))
         }
 

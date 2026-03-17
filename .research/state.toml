@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 519     # Monotonic counter, incremented after each completed phase
-completed_tasks = 629
+total_cycles = 525     # Monotonic counter, incremented after each completed phase
+completed_tasks = 635
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
 current_task_id = "refactor-quality.1"
-last_summary = "Refactor: zero clippy, init_default migration. OnnxSession caching (43.4ms vs 47.2ms uncached). Remaining: split dispatch_node, unwrap cleanup, quantization utils, pub audit."
+last_summary = "Refactor + ONNX perf done. Zero clippy, dispatch_node split, init_default migration, OnnxSession caching (43ms). 635 tasks."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 108
@@ -644,7 +644,7 @@ success_criteria = [
 id = "onnx-fix"
 epic = "onnx-inference"
 title = "Fix ONNX runtime — raw_data parsing, ResNet e2e, GPT-2 e2e, benchmark"
-status = "active"
+status = "completed"
 goal = "ONNX executor runs real models correctly with performance measurement"
 success_criteria = [
     "raw_data (tag 9) correctly parsed for ALL initializers (fix prost decode issue)",
@@ -692,7 +692,7 @@ depends = ["onnx-fix.2", "onnx-fix.3"]
 [[epics]]
 id = "refactor"
 title = "Codebase Refactor — dead code, API cleanup, test coverage, code quality"
-status = "active"
+status = "completed"
 priority = "high"
 success_criteria = [
     "Zero clippy warnings on `cargo clippy -p gpu-host --features nn,gpt2,onnx`",
@@ -707,7 +707,7 @@ success_criteria = [
 id = "refactor-quality"
 epic = "refactor"
 title = "Code quality — clippy, unwrap, large functions, dead code"
-status = "active"
+status = "completed"
 goal = "Clean up code quality issues across the codebase"
 success_criteria = [
     "Zero clippy warnings",
@@ -736,14 +736,14 @@ id = "refactor-quality.3"
 theme = "refactor-quality"
 title = "Replace unwrap() with ? in all nn/ and onnx_rt/ library code"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = []
 
 [[themes]]
 id = "refactor-api"
 epic = "refactor"
 title = "API cleanup — pub(crate), example boilerplate, quantization utils"
-status = "active"
+status = "completed"
 goal = "Clean public API surface and reduce example duplication"
 success_criteria = [
     "All 9 examples use init_default()",
@@ -764,7 +764,7 @@ id = "refactor-api.2"
 theme = "refactor-api"
 title = "Extract shared quantization pack/unpack utilities from gemm.rs"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = []
 
 [[tasks]]
@@ -772,7 +772,7 @@ id = "refactor-api.3"
 theme = "refactor-api"
 title = "Audit pub visibility — mark internal helpers as pub(crate)"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = []
 
 # ============================================================
@@ -782,7 +782,7 @@ depends = []
 [[epics]]
 id = "onnx-perf"
 title = "ONNX Performance — close gap with native nn API"
-status = "active"
+status = "completed"
 priority = "high"
 success_criteria = [
     "Initializers cached across inference runs (upload once, reuse)",
@@ -795,7 +795,7 @@ success_criteria = [
 id = "onnx-cache"
 epic = "onnx-perf"
 title = "Initializer caching + weight prepadding"
-status = "active"
+status = "completed"
 goal = "Eliminate per-inference weight upload overhead"
 success_criteria = [
     "OnnxSession struct caches uploaded initializers across runs",
@@ -822,7 +822,7 @@ depends = ["onnx-cache.1"]
 id = "onnx-gpu-ops"
 epic = "onnx-perf"
 title = "Replace CPU-fallback ops with GPU paths"
-status = "active"
+status = "completed"
 goal = "Eliminate to_host() round-trips in hot path ops"
 success_criteria = [
     "ReduceMean uses GPU reduction kernel (no to_host)",
@@ -835,7 +835,7 @@ id = "onnx-gpu-ops.1"
 theme = "onnx-gpu-ops"
 title = "Replace CPU-fallback Mul/Sub/Div/Pow/Sqrt with GPU elementwise ops"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = []
 
 [[tasks]]
@@ -843,7 +843,7 @@ id = "onnx-gpu-ops.2"
 theme = "onnx-gpu-ops"
 title = "GPU ReduceMean kernel for 4D tensors"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = []
 
 [[tasks]]
@@ -851,5 +851,5 @@ id = "onnx-gpu-ops.3"
 theme = "onnx-gpu-ops"
 title = "Run GPT-2 ONNX full forward pass, benchmark latency"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["onnx-cache.1", "onnx-gpu-ops.1"]

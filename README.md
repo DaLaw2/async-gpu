@@ -5,7 +5,7 @@
 
 **What if the GPU could drive its own computation?** Open files, read data, branch on results, loop until convergence, write output — all from GPU code, with zero CPU orchestration between steps.
 
-async_gpu makes this real: **Rust async/await running natively on NVIDIA GPUs**, with a custom rustc MIR pass that turns standard `async fn` into warp-cooperative state machines — and GPU compute kernels powerful enough to run **end-to-end GPT-2 inference** (f32/f16/INT4), **YOLOv8-nano object detection**, **graph algorithms** (BFS, PageRank), and **Monte Carlo simulations** (129x throughput) entirely from Rust inline PTX.
+async_gpu makes this real: **Rust async/await running natively on NVIDIA GPUs**, with a custom rustc MIR pass that turns standard `async fn` into warp-cooperative state machines — and GPU compute kernels powerful enough to run **GPT-2 inference in 25ms** (8.8x optimized), **YOLOv8-nano object detection**, **graph algorithms** (BFS, PageRank), and **Monte Carlo simulations** (129x throughput). Custom SGEMM at **63% of cuBLAS**, Flash Attention at **54% of cuDNN FA2**.
 
 ```rust
 #[warp_cooperative]
@@ -296,15 +296,12 @@ formal/              TLA+ specification and model-checking config
 
 ## Performance
 
-RTX 3060, SM 86:
-
 **Inference** (RTX 3060, SM 86):
 
 | Metric | Value |
 |--------|-------|
 | GPT-2 per-token f32 FMA (KV cache) | ~68ms/token |
 | GPT-2 per-token f16 MMA (Tensor Core) | ~26ms/token (2.18x over f32 FMA) |
-| GPT-2 nn API (non-cached, V3 GEMM) | ~33ms/forward (seq=128), 6.8x over v1 |
 | YOLOv8-nano inference | 374ms, 34 detections on 640x640 |
 | ResNet-18 pretrained (CIFAR-10) | 91.3% accuracy, 16.0ms/image |
 | Compute pipeline speedup | 1.91x vs multi-launch |
@@ -315,7 +312,19 @@ RTX 3060, SM 86:
 | **INT4 GPT-2** (W4A16 quantized) | 43ms/token, 7.5x memory reduction (45MB vs 340MB) |
 | **GPU PageRank** (1M vertices, 16M edges) | 4.3x speedup over CPU (scale=22) |
 | **GPU Monte Carlo** (Black-Scholes, f32) | 129x throughput speedup, 0.004% error |
-| **SGEMM V3** (custom kernel, 4096³) | 1172 GFLOPS (42.4% of cuBLAS), 7.5x over v1 |
+
+**Kernel Performance vs cuBLAS / cuDNN** (NVIDIA A2, SM 86):
+
+| Kernel | async-gpu | cuBLAS/cuDNN | % of Reference | Improvement |
+|--------|-----------|-------------|----------------|-------------|
+| **GPT-2 forward** (seq=128) | **25.1ms** | ~20ms est. | — | **8.8x** over baseline |
+| **SGEMM** (4096³) | 1,760 GFLOPS | 2,800 GFLOPS | **63%** | 11.2x over v1 |
+| **Flash Attention** (seq=64) | 0.056ms | 0.030ms (FA2) | **54%** | 8.2x over v1 |
+| **Flash Attention** (seq=128) | 0.134ms | 0.048ms (FA2) | **36%** | 9.3x over v1 |
+| **Conv2D** (128→128, 28²) | 425 GFLOPS | 522 GFLOPS | **81%** | 3.9x over v1 |
+| **Conv2D** (256→256, 14²) | 556 GFLOPS | 243 GFLOPS | **229%** | 4.9x over v1 |
+| **LayerNorm** (128×768) | 199 GB/s eff. | 200 GB/s peak | **~100%** | 6.6x over v1 |
+| **elementwise_add** | 152 GB/s | 200 GB/s peak | **76%** | 1.5x over PyTorch |
 
 **Training** (GPU matmul + autograd tape):
 

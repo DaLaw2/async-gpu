@@ -32,11 +32,7 @@ fn main() {
 }
 
 fn inference() -> Result<(), Box<dyn std::error::Error>> {
-    let dev = cudarc::driver::CudaDevice::new(0)?;
-    let registry = Arc::new(gpu_host::nn::KernelRegistry::new(
-        Arc::clone(&dev),
-        gpu_host::ptx::KERNEL,
-    )?);
+    let (dev, registry) = gpu_host::nn::KernelRegistry::init_default()?;
 
     println!("--- ResNet-18 CIFAR-10 Inference ---");
 
@@ -91,11 +87,7 @@ fn inference() -> Result<(), Box<dyn std::error::Error>> {
 /// Loads weights from models/resnet18_cifar10.safetensors (trained in PyTorch),
 /// applies ImageNet-style normalization, runs inference on test batch.
 fn pretrained_inference() -> Result<(), Box<dyn std::error::Error>> {
-    let dev = cudarc::driver::CudaDevice::new(0)?;
-    let registry = Arc::new(gpu_host::nn::KernelRegistry::new(
-        Arc::clone(&dev),
-        gpu_host::ptx::KERNEL,
-    )?);
+    let (dev, registry) = gpu_host::nn::KernelRegistry::init_default()?;
 
     let model_path =
         gpu_host::model_dir(Some(env!("CARGO_MANIFEST_DIR"))).join("resnet18_cifar10.safetensors");
@@ -191,11 +183,7 @@ fn normalize_cifar(img: &[f32], mean: &[f32; 3], std_dev: &[f32; 3]) -> Vec<f32>
 /// BB = BasicBlock: conv → relu → conv → residual add → relu
 /// Training: per-sample GPU conv2d forward + GPU conv2d_backward for ALL conv layers.
 fn train() -> Result<(), Box<dyn std::error::Error>> {
-    let dev = cudarc::driver::CudaDevice::new(0)?;
-    let registry = Arc::new(gpu_host::nn::KernelRegistry::new(
-        Arc::clone(&dev),
-        gpu_host::ptx::KERNEL,
-    )?);
+    let (dev, registry) = gpu_host::nn::KernelRegistry::init_default()?;
 
     // Load CIFAR-10 data
     let cifar_dir = gpu_host::model_dir(Some(env!("CARGO_MANIFEST_DIR"))).join("cifar10");

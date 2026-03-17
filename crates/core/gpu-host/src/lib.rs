@@ -94,6 +94,7 @@ pub mod tokenizer;
 pub mod yolo_backbone;
 
 #[cfg(feature = "onnx")]
+#[allow(missing_docs)]
 pub mod onnx_rt;
 
 /// Backwards-compat re-export: `gpu_host::onnx` → `gpu_host::onnx_rt::proto`

@@ -8,7 +8,6 @@
 //!
 //! Requires `models/model.safetensors` in the repository root.
 
-use std::sync::Arc;
 use std::time::Instant;
 
 fn main() {
@@ -19,15 +18,9 @@ fn main() {
 }
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
-    // 1. Initialize CUDA device
-    let dev = cudarc::driver::CudaDevice::new(0)?;
+    // 1. Initialize CUDA device + kernels
+    let (dev, registry) = gpu_host::nn::KernelRegistry::init_default()?;
     println!("CUDA device initialized");
-
-    // 2. Load PTX kernels via KernelRegistry
-    let registry = Arc::new(gpu_host::nn::KernelRegistry::new(
-        Arc::clone(&dev),
-        gpu_host::ptx::KERNEL,
-    )?);
     println!("Kernel registry loaded ({} ML kernels)", 23);
 
     // 3. Load model weights from safetensors

@@ -118,18 +118,20 @@ fn test_onnx_parser() -> Result<(), Box<dyn std::error::Error>> {
     let mut inputs = std::collections::HashMap::new();
     inputs.insert("input".to_string(), (input_data, input_shape));
 
+    // Benchmark: OnnxSession (cached) vs execute_onnx (uncached)
+    let session = gpu_host::onnx::OnnxSession::new(model.graph, &dev, &registry)?;
+
     // Warmup
-    let _ = gpu_host::onnx_executor::execute_onnx(&model.graph, &inputs, &dev, &registry);
+    let _ = session.run(&inputs);
 
-    // Benchmark
-    let n_iter = 10;
-    let t_start = Instant::now();
+    let n_iter = 20;
+    let t_cached = Instant::now();
     for _ in 0..n_iter {
-        let _ = gpu_host::onnx_executor::execute_onnx(&model.graph, &inputs, &dev, &registry);
+        let _ = session.run(&inputs);
     }
-    let onnx_ms = t_start.elapsed().as_secs_f64() * 1000.0 / n_iter as f64;
+    let cached_ms = t_cached.elapsed().as_secs_f64() * 1000.0 / n_iter as f64;
 
-    match gpu_host::onnx_executor::execute_onnx(&model.graph, &inputs, &dev, &registry) {
+    match session.run(&inputs) {
         Ok(outputs) => {
             for (name, data) in &outputs {
                 println!(
@@ -138,7 +140,7 @@ fn test_onnx_parser() -> Result<(), Box<dyn std::error::Error>> {
                     &data[..data.len().min(5)]
                 );
             }
-            println!("  ONNX latency: {onnx_ms:.1}ms/inference ({n_iter} runs)");
+            println!("  ONNX (cached): {cached_ms:.1}ms/inference ({n_iter} runs)");
             println!("\nPASSED (ONNX end-to-end inference works)");
         }
         Err(e) => {

@@ -180,11 +180,7 @@ fn run_gpu() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Initialize GPU
-    let dev = cudarc::driver::CudaDevice::new(0)?;
-    let registry = Arc::new(gpu_host::nn::KernelRegistry::new(
-        Arc::clone(&dev),
-        gpu_host::ptx::KERNEL,
-    )?);
+    let (dev, registry) = gpu_host::nn::KernelRegistry::init_default()?;
     println!("CUDA device initialized (GPU GEMM for matmul)");
 
     // Model: Linear(784→128) → ReLU → Linear(128→10)

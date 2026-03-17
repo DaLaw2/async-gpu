@@ -462,7 +462,7 @@ pub fn int8_matmul(
     let m = a.shape()[0];
     let k = a.shape()[1];
     let n = b.shape()[1];
-    if k % 4 != 0 {
+    if !k.is_multiple_of(4) {
         return Err(NnError::ShapeMismatch {
             expected: "K divisible by 4 for INT8 packing".to_string(),
             actual: format!("K={k}"),
@@ -598,7 +598,7 @@ pub fn int4_matmul(
     let m = a.shape()[0];
     let k = a.shape()[1];
     let n = b.shape()[1];
-    if k % 8 != 0 {
+    if !k.is_multiple_of(8) {
         return Err(NnError::ShapeMismatch {
             expected: "K divisible by 8 for INT4 packing".to_string(),
             actual: format!("K={k}"),

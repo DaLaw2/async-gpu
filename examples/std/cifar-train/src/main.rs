@@ -26,10 +26,7 @@ fn run_gpu() -> Result<(), Box<dyn std::error::Error>> {
     let (test_imgs, test_labels) = load_cifar_batch(&cifar_dir.join("test_batch.bin"), 500)?;
     println!("CIFAR-10 GPU training ({} train, {} test)", train_imgs.len(), test_imgs.len());
 
-    let dev = cudarc::driver::CudaDevice::new(0)?;
-    let registry = Arc::new(gpu_host::nn::KernelRegistry::new(
-        Arc::clone(&dev), gpu_host::ptx::KERNEL,
-    )?);
+    let (dev, registry) = gpu_host::nn::KernelRegistry::init_default()?;
 
     let (c_in, c_out, h, w, kh, kw) = (3, 8, 32, 32, 3, 3);
     let ps = 4;

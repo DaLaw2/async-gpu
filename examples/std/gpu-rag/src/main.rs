@@ -46,11 +46,7 @@ fn main() {
 
 /// Benchmark fused GEMM+bias+GELU vs unfused (3 kernel launches).
 fn bench_fused() -> Result<(), Box<dyn std::error::Error>> {
-    let dev = cudarc::driver::CudaDevice::new(0)?;
-    let reg = Arc::new(gpu_host::nn::KernelRegistry::new(
-        Arc::clone(&dev),
-        gpu_host::ptx::KERNEL,
-    )?);
+    let (dev, reg) = gpu_host::nn::KernelRegistry::init_default()?;
 
     let tests = vec![
         (1, 768, 3072, "GPT-2 FFN up (768→3072)"),

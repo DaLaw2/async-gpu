@@ -27,10 +27,7 @@ fn run(use_cpu: bool) -> Result<(), Box<dyn std::error::Error>> {
     let test_images = load_idx_images(&mnist_dir.join("t10k-images-idx3-ubyte"))?;
     let test_labels = load_idx_labels(&mnist_dir.join("t10k-labels-idx1-ubyte"))?;
 
-    let dev = cudarc::driver::CudaDevice::new(0)?;
-    let registry = Arc::new(gpu_host::nn::KernelRegistry::new(
-        Arc::clone(&dev), gpu_host::ptx::KERNEL,
-    )?);
+    let (dev, registry) = gpu_host::nn::KernelRegistry::init_default()?;
 
     let mode = if use_cpu { "CPU" } else { "GPU" };
     println!("MNIST CNN {mode} ({} train, {} test)", train_images.len(), test_images.len());

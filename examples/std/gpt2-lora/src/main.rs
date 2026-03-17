@@ -6,7 +6,6 @@
 //!
 //! Requires: models/model.safetensors + models/wikitext2/train.txt
 
-use std::sync::Arc;
 use std::time::Instant;
 
 use gpu_host::nn::autograd;
@@ -27,11 +26,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         return Err("Run: bash scripts/download-models.sh".into());
     }
 
-    let dev = cudarc::driver::CudaDevice::new(0)?;
-    let registry = Arc::new(gpu_host::nn::KernelRegistry::new(
-        Arc::clone(&dev),
-        gpu_host::ptx::KERNEL,
-    )?);
+    let (_dev, registry) = gpu_host::nn::KernelRegistry::init_default()?;
 
     let weights = gpu_host::model::load_gpt2_weights(&model_path)?;
     let config = gpu_host::nn::models::gpt2::Gpt2Config::small();

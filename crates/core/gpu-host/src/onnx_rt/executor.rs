@@ -12,10 +12,83 @@ use crate::nn::registry::KernelRegistry;
 use crate::nn::tensor::GpuTensor;
 use crate::onnx_rt::proto::{OnnxError, OnnxGraph, OnnxNode};
 
+/// Persistent ONNX execution session with cached initializer weights.
+///
+/// Uploading model weights (initializers) to GPU is expensive and dominates
+/// inference time when done on every call.  `OnnxSession` uploads them once
+/// at construction and reuses the GPU-resident tensors across `run()` calls.
+pub struct OnnxSession {
+    /// Initializer weights pre-uploaded to GPU (immutable after construction).
+    cached_tensors: HashMap<String, GpuTensor>,
+    /// The ONNX computation graph.
+    graph: OnnxGraph,
+    /// CUDA device handle.
+    dev: Arc<CudaDevice>,
+    /// Kernel registry for GPU ops.
+    registry: Arc<KernelRegistry>,
+}
+
+impl OnnxSession {
+    /// Create a new session, uploading all initializer weights to GPU once.
+    pub fn new(
+        graph: OnnxGraph,
+        dev: &Arc<CudaDevice>,
+        registry: &Arc<KernelRegistry>,
+    ) -> Result<Self, OnnxError> {
+        let mut cached_tensors = HashMap::new();
+        for (name, (data, shape)) in &graph.initializers {
+            let t = GpuTensor::from_host(data, shape, dev).map_err(|e| {
+                OnnxError::Invalid(format!("Failed to upload initializer {name}: {e}"))
+            })?;
+            cached_tensors.insert(name.clone(), t);
+        }
+        Ok(Self {
+            cached_tensors,
+            graph,
+            dev: Arc::clone(dev),
+            registry: Arc::clone(registry),
+        })
+    }
+
+    /// Run inference with the given inputs, reusing cached weights.
+    ///
+    /// Only user-provided inputs are uploaded to GPU; initializer weights
+    /// stay resident from session construction.
+    pub fn run(
+        &self,
+        inputs: &HashMap<String, (Vec<f32>, Vec<usize>)>,
+    ) -> Result<HashMap<String, Vec<f32>>, OnnxError> {
+        // Clone cached tensors into a working map (GPU-side clone, no host round-trip)
+        let mut tensor_map: HashMap<String, GpuTensor> = HashMap::new();
+        for (name, t) in &self.cached_tensors {
+            tensor_map.insert(
+                name.clone(),
+                t.clone_tensor().map_err(|e| {
+                    OnnxError::Invalid(format!("Failed to clone cached tensor {name}: {e}"))
+                })?,
+            );
+        }
+
+        // Upload only user inputs
+        for (name, (data, shape)) in inputs {
+            let t = GpuTensor::from_host(data, shape, &self.dev)
+                .map_err(|e| OnnxError::Invalid(format!("Failed to upload input {name}: {e}")))?;
+            tensor_map.insert(name.clone(), t);
+        }
+
+        // Execute nodes in order
+        execute_nodes(&self.graph, &mut tensor_map, &self.dev, &self.registry)
+    }
+}
+
 /// Execute an ONNX graph on GPU.
 ///
 /// `inputs`: map from ONNX input name → f32 data + shape.
 /// Returns: map from ONNX output name → f32 data.
+///
+/// This is a convenience wrapper that creates a temporary [`OnnxSession`]
+/// internally.  For repeated inference, prefer creating an `OnnxSession`
+/// directly to avoid re-uploading initializer weights every call.
 pub fn execute_onnx(
     graph: &OnnxGraph,
     inputs: &HashMap<String, (Vec<f32>, Vec<usize>)>,
@@ -38,9 +111,20 @@ pub fn execute_onnx(
         tensor_map.insert(name.clone(), t);
     }
 
+    // Execute nodes and collect outputs
+    execute_nodes(graph, &mut tensor_map, dev, registry)
+}
+
+/// Execute graph nodes and collect outputs (shared by `OnnxSession::run` and `execute_onnx`).
+fn execute_nodes(
+    graph: &OnnxGraph,
+    tensor_map: &mut HashMap<String, GpuTensor>,
+    dev: &Arc<CudaDevice>,
+    registry: &Arc<KernelRegistry>,
+) -> Result<HashMap<String, Vec<f32>>, OnnxError> {
     // Execute nodes in order
     for (idx, node) in graph.nodes.iter().enumerate() {
-        let result = dispatch_node(node, &tensor_map, dev, registry).map_err(|e| {
+        let result = dispatch_node(node, tensor_map, dev, registry).map_err(|e| {
             OnnxError::Invalid(format!(
                 "Node {idx} ({} '{}'): {e}",
                 node.op_type,
@@ -471,7 +555,7 @@ fn dispatch_node(
             let out_data: Vec<f32> = x_h
                 .iter()
                 .map(|&v| {
-                    let t = v * 1.128379167 * (1.0 + 0.0446 * v * v);
+                    let t = v * std::f32::consts::FRAC_2_SQRT_PI * (1.0 + 0.0446 * v * v);
                     t.tanh()
                 })
                 .collect();
@@ -593,9 +677,7 @@ fn dispatch_node(
                     for r in 0..rows {
                         for c in 0..cols {
                             let idx = b * rows * cols + r * cols + c;
-                            if upper != 0 && r > c {
-                                out_data[idx] = 0.0;
-                            } else if upper == 0 && c > r {
+                            if (upper != 0 && r > c) || (upper == 0 && c > r) {
                                 out_data[idx] = 0.0;
                             }
                         }

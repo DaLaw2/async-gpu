@@ -11,7 +11,6 @@
 //!   - Input image as PPM (P6 binary), resized/padded to 640x640
 
 use std::path::Path;
-use std::sync::Arc;
 use std::time::Instant;
 
 /// COCO class names (80 classes).
@@ -108,15 +107,9 @@ fn main() {
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
 
-    // 1. Initialize CUDA
-    let dev = cudarc::driver::CudaDevice::new(0)?;
+    // 1. Initialize CUDA + kernels
+    let (_dev, registry) = gpu_host::nn::KernelRegistry::init_default()?;
     println!("CUDA device initialized");
-
-    // 2. Load kernels
-    let registry = Arc::new(gpu_host::nn::KernelRegistry::new(
-        Arc::clone(&dev),
-        gpu_host::ptx::KERNEL,
-    )?);
     println!("Kernel registry loaded");
 
     // 3. Load YOLO weights

@@ -15,6 +15,6 @@ pub mod fusion;
 pub use proto::{load_onnx, parse_onnx, OnnxAttr, OnnxError, OnnxGraph, OnnxModel, OnnxNode};
 
 #[cfg(feature = "nn")]
-pub use executor::execute_onnx;
+pub use executor::{execute_onnx, OnnxSession};
 
 pub use fusion::{apply_fusion, count_fusion_opportunities};

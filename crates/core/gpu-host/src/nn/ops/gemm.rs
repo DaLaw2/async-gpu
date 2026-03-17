@@ -178,6 +178,66 @@ pub fn matmul(a: &GpuTensor, b: &GpuTensor, registry: &Arc<KernelRegistry>) -> R
     Ok(output)
 }
 
+/// High-performance matrix multiplication using `gemm_f32_v2` kernel.
+///
+/// A: `[M, K]`, B: `[K, N]` → output: `[M, N]`.
+///
+/// Both A and B are row-major. No transpose or padding overhead.
+/// Uses 128×128 tile with 8×8 register blocking, 256 threads per block.
+pub fn matmul_v2(
+    a: &GpuTensor,
+    b: &GpuTensor,
+    registry: &Arc<KernelRegistry>,
+) -> Result<GpuTensor> {
+    if a.ndim() != 2 || b.ndim() != 2 {
+        return Err(NnError::ShapeMismatch {
+            expected: "2D tensors".to_string(),
+            actual: format!("a.ndim={}, b.ndim={}", a.ndim(), b.ndim()),
+        });
+    }
+    let m = a.shape()[0];
+    let k = a.shape()[1];
+    let k2 = b.shape()[0];
+    let n = b.shape()[1];
+    if k != k2 {
+        return Err(NnError::ShapeMismatch {
+            expected: format!("a.shape[1]={k} == b.shape[0]"),
+            actual: format!("b.shape[0]={k2}"),
+        });
+    }
+
+    let dev = registry.device();
+    let status = dev.htod_sync_copy(&[0u32])?;
+
+    let mut d_dev = dev.alloc_zeros::<f32>(m * n)?;
+    let f_gemm = registry.get("gemm_f32_v2")?;
+
+    // grid_dim = (ceil(M/64), ceil(N/64), 1)
+    let grid_m = m.div_ceil(64) as u32;
+    let grid_n = n.div_ceil(64) as u32;
+    let gemm_cfg = cudarc::driver::LaunchConfig {
+        grid_dim: (grid_m, grid_n, 1),
+        block_dim: (256, 1, 1),
+        shared_mem_bytes: 8448, // 2 * (8*68 + 8*64) * 4
+    };
+    unsafe {
+        f_gemm.launch(
+            gemm_cfg,
+            (
+                a.data(),
+                b.data(),
+                &mut d_dev,
+                m as u32,
+                n as u32,
+                k as u32,
+                &status,
+            ),
+        )?;
+    }
+
+    Ok(GpuTensor::from_data(d_dev, &[m, n], Arc::clone(dev)))
+}
+
 /// Activation type for fused GEMM.
 #[derive(Copy, Clone, Debug)]
 pub enum FusedActivation {

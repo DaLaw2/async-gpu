@@ -1805,6 +1805,260 @@ pub unsafe extern "ptx-kernel" fn gemm_f32(
 }
 
 // ============================================================
+// High-performance f32 GEMM v2: 128×128 tile, 8×8 register blocking
+// ============================================================
+
+/// High-performance tiled f32 GEMM v2: D = A × B.
+///
+/// A: [M, K] row-major f32.
+/// B: [K, N] row-major f32.  (NO transpose needed — both row-major)
+/// D: [M, N] row-major f32.
+///
+/// CTA tile: 64×64, BK=8.
+/// 256 threads (8 warps), each thread computes 4×4 = 16 output elements.
+/// A stored transposed in smem with padding for bank conflict avoidance.
+/// Double-buffered shared memory.
+///
+/// grid_dim = (ceil(M/64), ceil(N/64), 1), block_dim = (256, 1, 1).
+/// shared_mem_bytes = 2 * (8 * 68 + 8 * 64) * 4 = 8448.
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn gemm_f32_v2(
+    a_global: *const f32,
+    b_global: *const f32,
+    d_global: *mut f32,
+    m_dim: u32,
+    n_dim: u32,
+    k_dim: u32,
+    status: *mut u32,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let block_m: u32;
+        let block_n: u32;
+        core::arch::asm!("mov.u32 {r}, %ctaid.x;", r = out(reg32) block_m);
+        core::arch::asm!("mov.u32 {r}, %ctaid.y;", r = out(reg32) block_n);
+
+        // Tile constants: 64×64 CTA tile, BK=8
+        const BM: u32 = 64;
+        const BN: u32 = 64;
+        const BK: u32 = 8;
+        const A_STRIDE: u32 = BM + 4; // 68 — padding avoids bank conflicts
+        const STAGE_FLOATS: u32 = BK * A_STRIDE + BK * BN; // 8*68 + 8*64 = 544+512 = 1056
+
+        let smem = get_dynamic_smem_ptr() as *mut f32;
+
+        // Thread-to-output mapping: 256 threads over 64×64 = 16 per thread
+        // 16 warps? No, 8 warps in 4×2: each warp = 16×32, each thread = 4×4
+        // Better: arrange 256 threads as 16×16 grid, each computes 4×4
+        let thread_row = tid / 16; // 0..15
+        let thread_col = tid % 16; // 0..15
+
+        // Each thread computes C[thread_row*4..+4][thread_col*4..+4]
+        // 16 accumulators per thread — use named variables to force registers
+        let mut c00: f32 = 0.0;
+        let mut c01: f32 = 0.0;
+        let mut c02: f32 = 0.0;
+        let mut c03: f32 = 0.0;
+        let mut c10: f32 = 0.0;
+        let mut c11: f32 = 0.0;
+        let mut c12: f32 = 0.0;
+        let mut c13: f32 = 0.0;
+        let mut c20: f32 = 0.0;
+        let mut c21: f32 = 0.0;
+        let mut c22: f32 = 0.0;
+        let mut c23: f32 = 0.0;
+        let mut c30: f32 = 0.0;
+        let mut c31: f32 = 0.0;
+        let mut c32: f32 = 0.0;
+        let mut c33: f32 = 0.0;
+
+        let a_base_row = block_m * BM;
+        let b_base_col = block_n * BN;
+        let k_tiles = (k_dim + BK - 1) / BK;
+
+        // Load first tile into buffer 0
+        let mut buf: u32 = 0;
+        gemm_v2_load_tile_64(
+            smem, buf, STAGE_FLOATS, A_STRIDE, a_global, b_global, a_base_row, b_base_col, 0,
+            m_dim, n_dim, k_dim, tid,
+        );
+        bar_sync();
+
+        let mut t: u32 = 0;
+        while t < k_tiles {
+            // Prefetch next tile
+            if t + 1 < k_tiles {
+                let next_buf = 1 - buf;
+                gemm_v2_load_tile_64(
+                    smem, next_buf, STAGE_FLOATS, A_STRIDE, a_global, b_global, a_base_row,
+                    b_base_col, (t + 1) * BK, m_dim, n_dim, k_dim, tid,
+                );
+            }
+
+            let a_smem = (buf * STAGE_FLOATS) as usize;
+            let b_smem = (buf * STAGE_FLOATS + BK * A_STRIDE) as usize;
+
+            let a_row_base = (thread_row * 4) as usize;
+            let b_col_base = (thread_col * 4) as usize;
+
+            let mut k: u32 = 0;
+            while k < BK {
+                if t * BK + k >= k_dim {
+                    break;
+                }
+
+                // Load 4 A values: A_smem[k][a_row_base..+4]
+                let ao = a_smem + (k * A_STRIDE) as usize + a_row_base;
+                let a0 = *smem.add(ao);
+                let a1 = *smem.add(ao + 1);
+                let a2 = *smem.add(ao + 2);
+                let a3 = *smem.add(ao + 3);
+
+                // Load 4 B values: B_smem[k][b_col_base..+4]
+                let bo = b_smem + (k * BN) as usize + b_col_base;
+                let b0 = *smem.add(bo);
+                let b1 = *smem.add(bo + 1);
+                let b2 = *smem.add(bo + 2);
+                let b3 = *smem.add(bo + 3);
+
+                // 16 FMAs (4×4 outer product) with named accumulators
+                core::arch::asm!("fma.rn.f32 {d}, {a}, {b}, {c};", d = out(reg32) c00, a = in(reg32) a0, b = in(reg32) b0, c = in(reg32) c00);
+                core::arch::asm!("fma.rn.f32 {d}, {a}, {b}, {c};", d = out(reg32) c01, a = in(reg32) a0, b = in(reg32) b1, c = in(reg32) c01);
+                core::arch::asm!("fma.rn.f32 {d}, {a}, {b}, {c};", d = out(reg32) c02, a = in(reg32) a0, b = in(reg32) b2, c = in(reg32) c02);
+                core::arch::asm!("fma.rn.f32 {d}, {a}, {b}, {c};", d = out(reg32) c03, a = in(reg32) a0, b = in(reg32) b3, c = in(reg32) c03);
+                core::arch::asm!("fma.rn.f32 {d}, {a}, {b}, {c};", d = out(reg32) c10, a = in(reg32) a1, b = in(reg32) b0, c = in(reg32) c10);
+                core::arch::asm!("fma.rn.f32 {d}, {a}, {b}, {c};", d = out(reg32) c11, a = in(reg32) a1, b = in(reg32) b1, c = in(reg32) c11);
+                core::arch::asm!("fma.rn.f32 {d}, {a}, {b}, {c};", d = out(reg32) c12, a = in(reg32) a1, b = in(reg32) b2, c = in(reg32) c12);
+                core::arch::asm!("fma.rn.f32 {d}, {a}, {b}, {c};", d = out(reg32) c13, a = in(reg32) a1, b = in(reg32) b3, c = in(reg32) c13);
+                core::arch::asm!("fma.rn.f32 {d}, {a}, {b}, {c};", d = out(reg32) c20, a = in(reg32) a2, b = in(reg32) b0, c = in(reg32) c20);
+                core::arch::asm!("fma.rn.f32 {d}, {a}, {b}, {c};", d = out(reg32) c21, a = in(reg32) a2, b = in(reg32) b1, c = in(reg32) c21);
+                core::arch::asm!("fma.rn.f32 {d}, {a}, {b}, {c};", d = out(reg32) c22, a = in(reg32) a2, b = in(reg32) b2, c = in(reg32) c22);
+                core::arch::asm!("fma.rn.f32 {d}, {a}, {b}, {c};", d = out(reg32) c23, a = in(reg32) a2, b = in(reg32) b3, c = in(reg32) c23);
+                core::arch::asm!("fma.rn.f32 {d}, {a}, {b}, {c};", d = out(reg32) c30, a = in(reg32) a3, b = in(reg32) b0, c = in(reg32) c30);
+                core::arch::asm!("fma.rn.f32 {d}, {a}, {b}, {c};", d = out(reg32) c31, a = in(reg32) a3, b = in(reg32) b1, c = in(reg32) c31);
+                core::arch::asm!("fma.rn.f32 {d}, {a}, {b}, {c};", d = out(reg32) c32, a = in(reg32) a3, b = in(reg32) b2, c = in(reg32) c32);
+                core::arch::asm!("fma.rn.f32 {d}, {a}, {b}, {c};", d = out(reg32) c33, a = in(reg32) a3, b = in(reg32) b3, c = in(reg32) c33);
+
+                k += 1;
+            }
+
+            bar_sync();
+            buf = 1 - buf;
+            t += 1;
+        }
+
+        // Write 4×4 output
+        let out_r = a_base_row + thread_row * 4;
+        let out_c = b_base_col + thread_col * 4;
+
+        macro_rules! write_if {
+            ($r:expr, $c:expr, $val:expr) => {
+                if $r < m_dim && $c < n_dim {
+                    *d_global.add(($r * n_dim + $c) as usize) = $val;
+                }
+            };
+        }
+        write_if!(out_r, out_c, c00);
+        write_if!(out_r, out_c + 1, c01);
+        write_if!(out_r, out_c + 2, c02);
+        write_if!(out_r, out_c + 3, c03);
+        write_if!(out_r + 1, out_c, c10);
+        write_if!(out_r + 1, out_c + 1, c11);
+        write_if!(out_r + 1, out_c + 2, c12);
+        write_if!(out_r + 1, out_c + 3, c13);
+        write_if!(out_r + 2, out_c, c20);
+        write_if!(out_r + 2, out_c + 1, c21);
+        write_if!(out_r + 2, out_c + 2, c22);
+        write_if!(out_r + 2, out_c + 3, c23);
+        write_if!(out_r + 3, out_c, c30);
+        write_if!(out_r + 3, out_c + 1, c31);
+        write_if!(out_r + 3, out_c + 2, c32);
+        write_if!(out_r + 3, out_c + 3, c33);
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (a_global, b_global, d_global, m_dim, n_dim, k_dim);
+    }
+
+    if tid == 0 {
+        let _prev: u32;
+        core::arch::asm!(
+            "atom.global.add.u32 {prev}, [{addr}], 1;",
+            prev = out(reg32) _prev,
+            addr = in(reg64) status,
+        );
+    }
+}
+
+/// Load one A+B tile into shared memory for gemm_f32_v2 (64×64 version).
+#[inline(always)]
+#[allow(clippy::too_many_arguments)]
+unsafe fn gemm_v2_load_tile_64(
+    smem: *mut f32,
+    buf: u32,
+    stage_floats: u32,
+    a_stride: u32,
+    a_global: *const f32,
+    b_global: *const f32,
+    a_base_row: u32,
+    b_base_col: u32,
+    k_start: u32,
+    m_dim: u32,
+    n_dim: u32,
+    k_dim: u32,
+    tid: u32,
+) {
+    let a_smem_base = (buf * stage_floats) as usize;
+    let b_smem_base = (buf * stage_floats + 8 * a_stride) as usize;
+
+    const BM: u32 = 64;
+    const BN: u32 = 64;
+    const BK: u32 = 8;
+
+    // Load A: 64×8 = 512 elements, 256 threads → 2 elements each
+    let mut i: u32 = 0;
+    while i < 2 {
+        let flat = tid * 2 + i;
+        let a_row = flat / BK;
+        let a_k = flat % BK;
+
+        let global_row = a_base_row + a_row;
+        let global_k = k_start + a_k;
+
+        let val = if global_row < m_dim && global_k < k_dim {
+            *a_global.add((global_row * k_dim + global_k) as usize)
+        } else {
+            0.0
+        };
+
+        *smem.add(a_smem_base + (a_k * a_stride + a_row) as usize) = val;
+        i += 1;
+    }
+
+    // Load B: 8×64 = 512 elements, 256 threads → 2 elements each
+    let mut j: u32 = 0;
+    while j < 2 {
+        let flat = tid * 2 + j;
+        let b_k = flat / BN;
+        let b_col = flat % BN;
+
+        let global_k = k_start + b_k;
+        let global_col = b_base_col + b_col;
+
+        let val = if global_k < k_dim && global_col < n_dim {
+            *b_global.add((global_k * n_dim + global_col) as usize)
+        } else {
+            0.0
+        };
+
+        *smem.add(b_smem_base + (b_k * BN + b_col) as usize) = val;
+        j += 1;
+    }
+}
+
+// ============================================================
 // MMA Fragment Diagnostic Kernel
 // ============================================================
 

@@ -130,6 +130,99 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
+    // --- SGEMM V2 Benchmark (128×128 tile, 8×8 register blocking) ---
+    println!("\n--- SGEMM V2 Benchmark (128×128 tile, 8×8 register blocking) ---");
+    println!(
+        "{:>6} {:>6} {:>6} | {:>10} {:>12} | {:>10} {:>12} | {:>6}",
+        "M", "N", "K", "v2(ms)", "v2(GFLOPS)", "cuBLAS(ms)", "cuBLAS(GFLOPS)", "ratio"
+    );
+    println!("{}", "-".repeat(90));
+
+    for &(m, n, k) in &sizes {
+        if m < 128 {
+            continue; // Skip single-row for V2 (min tile = 128)
+        }
+        let flops = 2.0 * m as f64 * n as f64 * k as f64;
+
+        let a_host: Vec<f32> = (0..m * k)
+            .map(|i| ((i * 17 + 31) % 1000) as f32 / 1000.0 - 0.5)
+            .collect();
+        let b_host: Vec<f32> = (0..k * n)
+            .map(|i| ((i * 13 + 47) % 1000) as f32 / 1000.0 - 0.5)
+            .collect();
+
+        let a_dev = dev.htod_sync_copy(&a_host)?;
+        let b_dev = dev.htod_sync_copy(&b_host)?;
+        let a_tensor =
+            gpu_host::nn::tensor::GpuTensor::from_data(a_dev, &[m, k], Arc::clone(&dev));
+        let b_tensor =
+            gpu_host::nn::tensor::GpuTensor::from_data(b_dev, &[k, n], Arc::clone(&dev));
+
+        // Warmup
+        for _ in 0..warmup_iters {
+            let _ = gpu_host::nn::ops::matmul_v2(&a_tensor, &b_tensor, &registry)?;
+            dev.synchronize()?;
+        }
+
+        // Benchmark V2
+        let t0 = Instant::now();
+        for _ in 0..bench_iters {
+            let _ = gpu_host::nn::ops::matmul_v2(&a_tensor, &b_tensor, &registry)?;
+            dev.synchronize()?;
+        }
+        let v2_ms = t0.elapsed().as_secs_f64() * 1000.0 / bench_iters as f64;
+        let v2_gflops = flops / (v2_ms / 1000.0) / 1e9;
+
+        // cuBLAS reference
+        let a_cublas = dev.htod_sync_copy(&a_host)?;
+        let b_cublas = dev.htod_sync_copy(&b_host)?;
+        let mut c_cublas = dev.alloc_zeros::<f32>(m * n)?;
+        let cublas_cfg = GemmConfig {
+            transa: cudarc::cublas::sys::cublasOperation_t::CUBLAS_OP_N,
+            transb: cudarc::cublas::sys::cublasOperation_t::CUBLAS_OP_N,
+            m: n as i32,
+            n: m as i32,
+            k: k as i32,
+            alpha: 1.0f32,
+            lda: n as i32,
+            ldb: k as i32,
+            beta: 0.0f32,
+            ldc: n as i32,
+        };
+        for _ in 0..warmup_iters {
+            unsafe { blas.gemm(cublas_cfg, &b_cublas, &a_cublas, &mut c_cublas)?; }
+            dev.synchronize()?;
+        }
+        let t1 = Instant::now();
+        for _ in 0..bench_iters {
+            unsafe { blas.gemm(cublas_cfg, &b_cublas, &a_cublas, &mut c_cublas)?; }
+            dev.synchronize()?;
+        }
+        let cublas_ms = t1.elapsed().as_secs_f64() * 1000.0 / bench_iters as f64;
+        let cublas_gflops = flops / (cublas_ms / 1000.0) / 1e9;
+
+        // Correctness check: compare V2 output vs cuBLAS
+        let v2_result = gpu_host::nn::ops::matmul_v2(&a_tensor, &b_tensor, &registry)?;
+        let v2_host = v2_result.to_host()?;
+        let cublas_host: Vec<f32> = dev.dtoh_sync_copy(&c_cublas)?;
+        let max_err: f32 = v2_host
+            .iter()
+            .zip(cublas_host.iter())
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0f32, f32::max);
+        let status_str = if max_err < 0.01 * k as f32 {
+            "OK"
+        } else {
+            "MISMATCH"
+        };
+
+        let ratio = v2_gflops / cublas_gflops;
+        println!(
+            "{m:>6} {n:>6} {k:>6} | {v2_ms:>9.3} {v2_gflops:>10.1} | {cublas_ms:>9.3} {cublas_gflops:>10.1} | {ratio:>5.1}%  [{status_str}, err={max_err:.2}]",
+            ratio = ratio * 100.0
+        );
+    }
+
     // --- Memory-bound ops benchmark ---
     println!("\n--- Memory-Bound Operations (GB/s) ---");
     println!(

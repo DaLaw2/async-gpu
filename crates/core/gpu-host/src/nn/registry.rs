@@ -75,6 +75,7 @@ const ML_KERNELS: &[&str] = &[
     "kv_cache_append",
     // GEMM (compute_gemm.rs)
     "gemm_f32",
+    "gemm_f32_v2",
     "full_gemm_splitk",
     "sgd_step",
     "im2col_offset",

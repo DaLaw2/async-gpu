@@ -164,7 +164,14 @@ pub fn multi_head_flash_attention(
 
     let status_dev = dev.htod_sync_copy(&[0u32]).map_err(NnError::Cuda)?;
 
-    // Use flash_attention_v2 kernel (Rust PTX, 4-way unrolled)
+    // Use NVRTC V3 attention when cublas feature enabled (cooperative tiled GEMM)
+    #[cfg(feature = "cublas")]
+    {
+        return multi_head_flash_attention_v3(q, k, v, seq_len, n_heads, d_head, causal, dev);
+    }
+
+    // Fallback: Rust PTX flash_attention_v2 kernel
+    #[allow(unreachable_code)]
     let func = registry.get("flash_attention_v2")?;
     {
         let n_q_tiles = seq_len.div_ceil(32) as u32;
@@ -194,6 +201,86 @@ pub fn multi_head_flash_attention(
         let _ = total;
         Ok(output)
     } // end #[cfg(not(feature = "cublas"))]
+}
+
+/// Flash Attention V3 — cooperative 4-thread-per-row tiled GEMM.
+///
+/// 128 threads, 4 threads per Q row for parallel score computation + P·V accumulation.
+/// Uses warp shuffles for row-wise softmax reduction.
+#[cfg(feature = "cublas")]
+#[allow(clippy::too_many_arguments)]
+pub fn multi_head_flash_attention_v3(
+    q: &GpuTensor,
+    k: &GpuTensor,
+    v: &GpuTensor,
+    seq_len: usize,
+    n_heads: usize,
+    d_head: usize,
+    causal: bool,
+    dev: &std::sync::Arc<cudarc::driver::CudaDevice>,
+) -> Result<GpuTensor> {
+    use cudarc::driver::LaunchAsync;
+    use cudarc::nvrtc::compile_ptx_with_opts;
+
+    if d_head != 64 {
+        // V3 is hardcoded for d_head=64. Fall back to V2 for other sizes.
+        return Err(NnError::ShapeMismatch {
+            expected: "d_head=64 for V3 attention".to_string(),
+            actual: format!("d_head={d_head}"),
+        });
+    }
+
+    let mut output = GpuTensor::zeros(&[n_heads * seq_len, d_head], dev)?;
+
+    // The kernel source from perf-attn-v3.1 design
+    static FLASH_V3_SRC: &str = include_str!("flash_attn_v3.cu");
+
+    use std::sync::OnceLock;
+    static COMPILED: OnceLock<bool> = OnceLock::new();
+    COMPILED.get_or_init(|| {
+        let opts = cudarc::nvrtc::CompileOptions {
+            arch: Some("sm_86"),
+            use_fast_math: Some(true),
+            ..Default::default()
+        };
+        let ptx =
+            compile_ptx_with_opts(FLASH_V3_SRC, opts).expect("NVRTC flash_attn_v3 compile failed");
+        dev.load_ptx(ptx, "flash_v3", &["flash_attn_v3"])
+            .expect("flash_attn_v3 PTX load failed");
+        true
+    });
+
+    let func = dev
+        .get_func("flash_v3", "flash_attn_v3")
+        .ok_or(NnError::KernelNotFound {
+            name: "flash_attn_v3",
+        })?;
+
+    let n_q_tiles = seq_len.div_ceil(32) as u32;
+    let config = cudarc::driver::LaunchConfig {
+        grid_dim: (n_heads as u32, n_q_tiles, 1),
+        block_dim: (128, 1, 1),
+        shared_mem_bytes: 16384, // K_smem[32][64] + V_smem[32][64]
+    };
+    let causal_flag: u32 = if causal { 1 } else { 0 };
+
+    unsafe {
+        func.launch(
+            config,
+            (
+                q.data(),
+                k.data(),
+                v.data(),
+                output.data_mut(),
+                seq_len as u32,
+                d_head as u32,
+                causal_flag,
+            ),
+        )
+        .map_err(NnError::Cuda)?;
+    }
+
+    Ok(output)
 }
 
 /// NVRTC-compiled flash attention with tiled GEMM for score and P·V computation.

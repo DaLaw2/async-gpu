@@ -416,7 +416,7 @@ extern "C" __global__ void gemm_f32_v4(
             float val = (cur_gr < M && cur_gk < K) ? A[cur_gr * K + cur_gk] : 0.0f; \
             a_smem[cur_ak * A_STRIDE + cur_ar] = val; \
         } \
-        /* Load B with float4 (4 consecutive N elements) */ \
+        /* Load B with cp.async (16 bytes = float4 directly global→shared) */ \
         { \
             unsigned int flat = tid * 4; \
             unsigned int bk = flat / BN; \
@@ -449,7 +449,7 @@ extern "C" __global__ void gemm_f32_v4(
     __syncthreads();
 
     for (unsigned int t = 0; t < k_tiles; t++) {
-        // Prefetch next tile into other buffer
+        // Prefetch next tile into other buffer (async)
         if (t + 1 < k_tiles) {
             LOAD_TILE(1 - buf, (t + 1) * BK);
         }

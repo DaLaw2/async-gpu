@@ -11,7 +11,7 @@ status = "running"     # ready | running | blocked | completed
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "perf-fusion.1"
+current_task_id = "perf-attn-v3.1"
 last_summary = "GEMM V4 1760 GFLOPS (63%). Fused LN+residual available. GPT-2 32.5ms. Remaining: GEMM +7% (cp.async), Attention rewrite (4→70%), Conv Winograd (13→70%)."
 
 # Sequence counters for unique file naming across iterations
@@ -1841,7 +1841,7 @@ depends = ["perf-gemm-v4.2"]
 id = "perf-attn-v3"
 epic = "kernel-perf"
 title = "Attention V3 — warp-cooperative tiled GEMM for Q·K^T and P·V"
-status = "pending"
+status = "active"
 goal = "Flash Attention >= 70% of cuDNN FA2"
 success_criteria = [
     "Score GEMM via cooperative thread-tile (not scalar dot product)",
@@ -1854,7 +1854,7 @@ id = "perf-attn-v3.1"
 theme = "perf-attn-v3"
 title = "Investigation: design warp-cooperative attention — thread mapping, smem layout"
 kind = "investigation"
-status = "pending"
+status = "active"
 depends = []
 
 [[tasks]]

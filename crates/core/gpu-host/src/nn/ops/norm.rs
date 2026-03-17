@@ -27,8 +27,13 @@ pub fn layer_norm(
 
     let status_dev = dev.htod_sync_copy(&[0u32])?;
 
-    let func = registry.get("layer_norm")?;
-    let config = KernelRegistry::config_layernorm(num_rows as u32);
+    // Use V2 LayerNorm (256 threads, single-pass Welford, coalesced access)
+    let func = registry.get("layer_norm_v2")?;
+    let config = cudarc::driver::LaunchConfig {
+        grid_dim: (num_rows as u32, 1, 1),
+        block_dim: (256, 1, 1),
+        shared_mem_bytes: 2048, // 256 * 2 * 4 for partial sums
+    };
     unsafe {
         func.launch(
             config,

@@ -11,7 +11,7 @@ status = "running"     # ready | running | blocked | completed
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "perf-gemm.5"
+current_task_id = "perf-layernorm.1"
 last_summary = "GEMM V2 INTEGRATED: GPT-2 221ms→60ms (3.67x). GEMM 157→998 GFLOPS (36.8% cuBLAS). perf-gemm theme DONE. Next: perf-attention, perf-layernorm, perf-conv, perf-elementwise."
 
 # Sequence counters for unique file naming across iterations
@@ -1662,7 +1662,7 @@ depends = ["perf-conv.2", "perf-conv.3", "perf-conv.4"]
 id = "perf-layernorm"
 epic = "kernel-perf"
 title = "High-performance LayerNorm — single-pass + vectorized"
-status = "pending"
+status = "active"
 goal = "LayerNorm >= 180 GB/s (60% of peak bandwidth)"
 success_criteria = [
     "Single-pass Welford algorithm (mean + variance in one read)",
@@ -1677,7 +1677,7 @@ id = "perf-layernorm.1"
 theme = "perf-layernorm"
 title = "Experiment: single-pass Welford LayerNorm with 256 threads + shared memory reduction"
 kind = "experiment"
-status = "pending"
+status = "active"
 depends = []
 
 [[tasks]]

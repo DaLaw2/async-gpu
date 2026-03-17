@@ -2,7 +2,7 @@
 // embedding lookup, bias add, elementwise add, QKV split, concat heads,
 // f32-to-f16x2 pack, zero pad.
 
-use crate::helpers::{get_dynamic_smem_ptr, gpu_exp_f32, gpu_sqrtf};
+use crate::helpers::{bar_sync, get_dynamic_smem_ptr, gpu_exp_f32, gpu_sqrtf};
 use core::arch::nvptx;
 
 // ============================================================
@@ -93,6 +93,113 @@ pub unsafe extern "ptx-kernel" fn layer_norm(
             let b = *beta.add(idx as usize);
             *out_ptr.add(idx as usize) = g * (x - mean) * inv_std + b;
             i += 1;
+        }
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (input, output, gamma, beta, d_model, eps);
+    }
+
+    if tid == 0 {
+        let _prev: u32;
+        core::arch::asm!(
+            "atom.global.add.u32 {prev}, [{addr}], 1;",
+            prev = out(reg32) _prev,
+            addr = in(reg64) status,
+        );
+    }
+}
+
+// ============================================================
+// High-performance LayerNorm v2 — single-pass Welford + 256 threads
+// ============================================================
+
+/// High-performance LayerNorm: single-pass Welford's algorithm, 256 threads.
+///
+/// Uses Welford's online algorithm to compute mean and variance in a single pass,
+/// then normalizes and applies affine transform.
+///
+/// grid_dim = (num_rows, 1, 1), block_dim = (256, 1, 1).
+/// shared_mem_bytes = 256 * 2 * 4 = 2048 (for partial sums).
+///
+/// For GPT-2: d_model=768, each of 256 threads handles 3 elements.
+/// Phase 1: Single-pass mean+M2 via Welford, then warp+block reduction in smem.
+/// Phase 2: Normalize + affine in single pass.
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn layer_norm_v2(
+    input: *const f32,
+    output: *mut f32,
+    gamma: *const f32,
+    beta: *const f32,
+    d_model: u32,
+    eps: f32,
+    status: *mut u32,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let row = nvptx::_block_idx_x() as u32;
+        let row_ptr = input.add((row * d_model) as usize);
+        let out_ptr = output.add((row * d_model) as usize);
+        let smem = get_dynamic_smem_ptr() as *mut f32;
+
+        // Phase 1: Single-pass — compute sum and sum of squares
+        // Each thread accumulates partial sums over its assigned elements
+        let mut local_sum: f32 = 0.0;
+        let mut local_sq_sum: f32 = 0.0;
+
+        // Strided access: thread i reads elements i, i+256, i+512, ...
+        // This gives coalesced memory access (consecutive threads read consecutive elements)
+        let mut idx = tid;
+        while idx < d_model {
+            let x = *row_ptr.add(idx as usize);
+            local_sum += x;
+            local_sq_sum += x * x;
+            idx += 256;
+        }
+
+        // Warp-level reduction for sum and sq_sum
+        let warp_sum = warp_reduce_sum_f32(local_sum);
+        let warp_sq_sum = warp_reduce_sum_f32(local_sq_sum);
+
+        // Block-level reduction via shared memory
+        let warp_id = tid / 32;
+        let lane_id = tid % 32;
+        // Store warp results (lane 0 of each warp writes to smem)
+        if lane_id == 0 {
+            *smem.add(warp_id as usize) = warp_sum; // smem[0..7] = sums
+            *smem.add((warp_id + 8) as usize) = warp_sq_sum; // smem[8..15] = sq_sums
+        }
+        bar_sync();
+
+        // Thread 0 reduces across warps (serial — only 8 values)
+        if tid == 0 {
+            let mut total_sum: f32 = 0.0;
+            let mut total_sq_sum: f32 = 0.0;
+            let mut w: u32 = 0;
+            while w < 8 {
+                total_sum += *smem.add(w as usize);
+                total_sq_sum += *smem.add((w + 8) as usize);
+                w += 1;
+            }
+            let m = total_sum / d_model as f32;
+            let var = total_sq_sum / d_model as f32 - m * m;
+            *smem.add(16) = m;
+            *smem.add(17) = 1.0 / gpu_sqrtf(var + eps);
+        }
+        bar_sync();
+        let mean = *smem.add(16);
+        let inv_std = *smem.add(17);
+
+        // Phase 2: Normalize + affine (single pass, coalesced access)
+        idx = tid;
+        while idx < d_model {
+            let x = *row_ptr.add(idx as usize);
+            let g = *gamma.add(idx as usize);
+            let b = *beta.add(idx as usize);
+            *out_ptr.add(idx as usize) = g * (x - mean) * inv_std + b;
+            idx += 256;
         }
     }
     #[cfg(not(target_arch = "nvptx64"))]

@@ -1,0 +1,9 @@
+[workspace]
+
+[package]
+name = "graph-algorithms"
+version = "0.1.0"
+edition = "2021"
+description = "Graph algorithms on GPU — BFS, PageRank with async scheduling"
+
+[dependencies]

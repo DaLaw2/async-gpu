@@ -1,0 +1,9 @@
+[workspace]
+
+[package]
+name = "monte-carlo"
+version = "0.1.0"
+edition = "2021"
+description = "Monte Carlo simulations — GPU PRNG, option pricing, Pi estimation"
+
+[dependencies]

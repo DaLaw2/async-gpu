@@ -4,8 +4,8 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 563     # Monotonic counter, incremented after each completed phase
-completed_tasks = 673
+total_cycles = 565     # Monotonic counter, incremented after each completed phase
+completed_tasks = 675
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
@@ -1284,7 +1284,7 @@ id = "graph-bfs.1"
 theme = "graph-bfs"
 title = "Experiment: CSR graph representation + synthetic graph generator (RMAT)"
 kind = "experiment"
-status = "active"
+status = "done"
 depends = []
 
 [[tasks]]
@@ -1339,7 +1339,7 @@ id = "mc-finance.1"
 theme = "mc-finance"
 title = "Experiment: GPU xoshiro256++ PRNG kernel with per-thread seeding"
 kind = "experiment"
-status = "active"
+status = "done"
 depends = []
 
 [[tasks]]

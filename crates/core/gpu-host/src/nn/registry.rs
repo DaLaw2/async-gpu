@@ -105,6 +105,21 @@ impl KernelRegistry {
         Ok(Self { device })
     }
 
+    /// Create a registry on GPU 0 with the default embedded kernel PTX.
+    ///
+    /// Convenience wrapper that initializes `CudaDevice::new(0)` and loads
+    /// the default `ptx::KERNEL`. Returns `(Arc<CudaDevice>, Arc<KernelRegistry>)`.
+    ///
+    /// # Example
+    /// ```no_run
+    /// let (dev, registry) = gpu_host::nn::KernelRegistry::init_default()?;
+    /// ```
+    pub fn init_default() -> Result<(Arc<CudaDevice>, Arc<Self>)> {
+        let dev = CudaDevice::new(0).map_err(NnError::Cuda)?;
+        let registry = Arc::new(Self::new(Arc::clone(&dev), crate::ptx::KERNEL)?);
+        Ok((dev, registry))
+    }
+
     /// Get a kernel function by name.
     ///
     /// Returns [`NnError::KernelNotFound`] if the function is not in the registry.

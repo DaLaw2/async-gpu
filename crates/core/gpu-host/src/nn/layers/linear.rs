@@ -133,7 +133,7 @@ impl Linear {
             ops::matmul_fused(&input_2d, &self.weight_t, bias, activation, &self.registry)?
         } else {
             // No bias → fall back to unfused
-            let mut out = ops::matmul(&input_2d, &self.weight_t, &self.registry)?;
+            let out = ops::matmul(&input_2d, &self.weight_t, &self.registry)?;
             match activation {
                 ops::FusedActivation::Gelu => return ops::gelu(&out, &self.registry),
                 ops::FusedActivation::Relu => return ops::relu(&out, &self.registry),

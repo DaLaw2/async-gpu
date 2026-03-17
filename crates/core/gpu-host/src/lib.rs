@@ -94,11 +94,19 @@ pub mod tokenizer;
 pub mod yolo_backbone;
 
 #[cfg(feature = "onnx")]
-pub mod onnx;
-#[cfg(all(feature = "onnx", feature = "nn"))]
-pub mod onnx_executor;
+pub mod onnx_rt;
+
+/// Backwards-compat re-export: `gpu_host::onnx` → `gpu_host::onnx_rt::proto`
 #[cfg(feature = "onnx")]
-pub mod onnx_fusion;
+pub use onnx_rt as onnx;
+
+/// Backwards-compat re-export
+#[cfg(all(feature = "onnx", feature = "nn"))]
+pub use onnx_rt::executor as onnx_executor;
+
+/// Backwards-compat re-export
+#[cfg(feature = "onnx")]
+pub use onnx_rt::fusion as onnx_fusion;
 
 /// Embedded PTX sources for GPU kernels.
 ///

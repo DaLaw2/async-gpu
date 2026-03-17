@@ -55,6 +55,7 @@ if "%FROM_SCRATCH%"=="1" (
     if exist "%RUSTC_SRC%" rmdir /s /q "%RUSTC_SRC%"
 )
 
+set "RECLONED=0"
 if not exist "%RUSTC_SRC%\compiler" (
     echo Cloning rust-lang/rust ^(depth 1^)...
     git clone --depth 1 https://github.com/rust-lang/rust.git "%RUSTC_SRC%"
@@ -62,8 +63,22 @@ if not exist "%RUSTC_SRC%\compiler" (
         echo ERROR: git clone failed
         exit /b 1
     )
+    echo Initializing required submodules...
+    pushd "%RUSTC_SRC%"
+    git submodule update --init --depth 1 library/backtrace library/stdarch src/llvm-project
+    popd
+    set "RECLONED=1"
 ) else (
     echo Already present ^(use --from-scratch to reclone^)
+    set "NEED_SUBMODULES=0"
+    if not exist "%RUSTC_SRC%\library\backtrace\src" set "NEED_SUBMODULES=1"
+    if not exist "%RUSTC_SRC%\src\llvm-project\llvm" set "NEED_SUBMODULES=1"
+    if "!NEED_SUBMODULES!"=="1" (
+        echo Initializing missing submodules...
+        pushd "%RUSTC_SRC%"
+        git submodule update --init --depth 1 library/backtrace library/stdarch src/llvm-project
+        popd
+    )
 )
 
 REM ============================================================
@@ -74,6 +89,9 @@ echo.
 echo === Step 3: Compiler patches ===
 
 if "%FROM_SCRATCH%"=="1" (
+    if exist "%PATCHED_RUSTC%" rmdir /s /q "%PATCHED_RUSTC%"
+)
+if "!RECLONED!"=="1" (
     if exist "%PATCHED_RUSTC%" rmdir /s /q "%PATCHED_RUSTC%"
 )
 
@@ -157,7 +175,7 @@ cd /d "%PATCHED_RUSTC%"
     echo codegen-units = 1
     echo.
     echo [llvm]
-    echo download-ci-llvm = true
+    echo download-ci-llvm = false
     echo.
     echo [target.nvptx64-nvidia-cuda]
 )

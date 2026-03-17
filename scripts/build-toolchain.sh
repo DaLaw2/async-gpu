@@ -66,12 +66,31 @@ echo ""
 # Step 1: Ensure rustc-src/ exists
 # ============================================================
 
+RECLONED=false
 if [ "$FROM_SCRATCH" = true ] || [ ! -d "$RUSTC_SRC/compiler" ]; then
     echo "=== Step 1: Cloning rustc source ==="
     rm -rf "$RUSTC_SRC"
     git clone --depth 1 https://github.com/rust-lang/rust.git "$RUSTC_SRC"
+    echo "  Initializing required submodules..."
+    cd "$RUSTC_SRC"
+    git submodule update --init --depth 1 \
+        library/backtrace \
+        library/stdarch \
+        src/llvm-project
+    cd "$REPO_DIR"
+    RECLONED=true
 else
     echo "=== Step 1: rustc-src/ already present (use --from-scratch to reclone) ==="
+    # Ensure submodules are present even for existing clones
+    if [ ! -d "$RUSTC_SRC/library/backtrace/src" ] || [ ! -d "$RUSTC_SRC/src/llvm-project/llvm" ]; then
+        echo "  Initializing missing submodules..."
+        cd "$RUSTC_SRC"
+        git submodule update --init --depth 1 \
+            library/backtrace \
+            library/stdarch \
+            src/llvm-project
+        cd "$REPO_DIR"
+    fi
 fi
 echo "  Version: $(cat "$RUSTC_SRC/src/version" 2>/dev/null || echo "unknown")"
 echo ""
@@ -82,7 +101,7 @@ echo ""
 
 echo "=== Step 2: Applying compiler patches ==="
 
-if [ "$FROM_SCRATCH" = true ] || [ ! -d "$PATCHED_RUSTC/compiler" ]; then
+if [ "$FROM_SCRATCH" = true ] || [ "$RECLONED" = true ] || [ ! -d "$PATCHED_RUSTC/compiler" ]; then
     rm -rf "$PATCHED_RUSTC"
     mkdir -p "$PATCHED_RUSTC"
     rsync -a --exclude='.git' --exclude='build' "$RUSTC_SRC/" "$PATCHED_RUSTC/"
@@ -149,7 +168,7 @@ optimize = 2
 codegen-units = 1
 
 [llvm]
-download-ci-llvm = true
+download-ci-llvm = false
 
 [target.nvptx64-nvidia-cuda]
 EOF

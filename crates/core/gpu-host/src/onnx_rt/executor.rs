@@ -10,7 +10,7 @@ use cudarc::driver::CudaDevice;
 
 use crate::nn::registry::KernelRegistry;
 use crate::nn::tensor::GpuTensor;
-use crate::onnx::{OnnxError, OnnxGraph, OnnxNode};
+use crate::onnx_rt::proto::{OnnxError, OnnxGraph, OnnxNode};
 
 /// Execute an ONNX graph on GPU.
 ///
@@ -356,12 +356,14 @@ fn dispatch_node(
         }
         "Constant" => {
             // Constant tensor embedded in the node's attributes
-            if let Some(crate::onnx::OnnxAttr::Tensor(data, shape)) = node.attrs.get("value") {
+            if let Some(crate::onnx_rt::proto::OnnxAttr::Tensor(data, shape)) =
+                node.attrs.get("value")
+            {
                 let out = GpuTensor::from_host(data, shape, dev).map_err(map_nn_err)?;
                 Ok(NodeOutput::Single(out))
             } else {
                 // Try ints attribute (common for shape constants)
-                if let Some(crate::onnx::OnnxAttr::Ints(ints)) = node.attrs.get("value") {
+                if let Some(crate::onnx_rt::proto::OnnxAttr::Ints(ints)) = node.attrs.get("value") {
                     let data: Vec<f32> = ints.iter().map(|&v| v as f32).collect();
                     let n = data.len();
                     let out = GpuTensor::from_host(&data, &[n], dev).map_err(map_nn_err)?;
@@ -377,7 +379,7 @@ fn dispatch_node(
             // CPU-side softmax for now
             let x = get_input(&node.inputs[0], tensor_map)?;
             let x_host = x.to_host().map_err(map_nn_err)?;
-            let n = x_host.len();
+
             let max_val = x_host.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
             let exp_sum: f32 = x_host.iter().map(|&v| (v - max_val).exp()).sum();
             let out_data: Vec<f32> = x_host

@@ -4,7 +4,7 @@
 //! and replaces them with fused operator nodes that dispatch to
 //! single-launch GPU kernels.
 
-use crate::onnx::{OnnxGraph, OnnxNode};
+use crate::onnx_rt::proto::{OnnxGraph, OnnxNode};
 
 /// Apply fusion passes to an ONNX graph.
 ///

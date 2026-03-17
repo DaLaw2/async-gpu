@@ -212,13 +212,13 @@ pub fn matmul_v2(
     let mut d_dev = dev.alloc_zeros::<f32>(m * n)?;
     let f_gemm = registry.get("gemm_f32_v2")?;
 
-    // grid_dim = (ceil(M/64), ceil(N/64), 1)
-    let grid_m = m.div_ceil(64) as u32;
+    // grid_dim = (ceil(M/128), ceil(N/64), 1)
+    let grid_m = m.div_ceil(128) as u32;
     let grid_n = n.div_ceil(64) as u32;
     let gemm_cfg = cudarc::driver::LaunchConfig {
         grid_dim: (grid_m, grid_n, 1),
         block_dim: (256, 1, 1),
-        shared_mem_bytes: 8448, // 2 * (8*68 + 8*64) * 4
+        shared_mem_bytes: 12544, // 2 * (8*132 + 8*64) * 4
     };
     unsafe {
         f_gemm.launch(

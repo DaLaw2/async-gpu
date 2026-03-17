@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 580     # Monotonic counter, incremented after each completed phase
-completed_tasks = 691
+total_cycles = 581     # Monotonic counter, incremented after each completed phase
+completed_tasks = 692
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "perf-gemm.2"
-last_summary = "GEMM V2: 64×64+4×4 register blocking = 905 GFLOPS (33% cuBLAS), 5.76x over v1. Next: perf-gemm.3 scale to 128×128+8×8 with named accumulators."
+current_task_id = "perf-gemm.3"
+last_summary = "GEMM V2: 128×64+4×8 = 998 GFLOPS (36.8% cuBLAS), 6.4x over v1. Next: perf-gemm.4 float4 vectorized loads."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 110
@@ -1531,9 +1531,9 @@ depends = ["perf-gemm.1"]
 [[tasks]]
 id = "perf-gemm.3"
 theme = "perf-gemm"
-title = "Experiment: scale to 128×128 tile + 8×8 register blocking + double-buffered smem"
+title = "Experiment: scale to 128×64 tile + 4×8 register blocking + double-buffered smem"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["perf-gemm.2"]
 
 [[tasks]]

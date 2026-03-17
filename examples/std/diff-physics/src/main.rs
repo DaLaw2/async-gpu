@@ -18,7 +18,10 @@ use cudarc::driver::LaunchAsync;
 fn main() {
     let bench = std::env::args().any(|a| a == "--bench");
     let bench_persist = std::env::args().any(|a| a == "--bench-persistent");
-    let result = if bench_persist {
+    let test_onnx = std::env::args().any(|a| a == "--test-onnx");
+    let result = if test_onnx {
+        test_onnx_parser()
+    } else if bench_persist {
         bench_persistent_kernel()
     } else if bench {
         benchmark()
@@ -29,6 +32,27 @@ fn main() {
         eprintln!("Error: {e}");
         std::process::exit(1);
     }
+}
+
+// --- ONNX Parser Test ---
+
+fn test_onnx_parser() -> Result<(), Box<dyn std::error::Error>> {
+    let path = gpu_host::model_dir(Some(env!("CARGO_MANIFEST_DIR"))).join("resnet18_cifar10.onnx");
+    if !path.exists() {
+        return Err(format!("ONNX file not found: {}", path.display()).into());
+    }
+    println!("Loading ONNX: {}", path.display());
+    let model = gpu_host::onnx::load_onnx(&path)?;
+    model.summary();
+    println!("\nFirst 5 nodes:");
+    for (i, node) in model.graph.nodes.iter().take(5).enumerate() {
+        println!(
+            "  [{i}] {} {:?} → {:?}",
+            node.op_type, node.inputs, node.outputs
+        );
+    }
+    println!("\nPASSED (ONNX parser works)");
+    Ok(())
 }
 
 // --- Persistent Kernel Benchmark ---

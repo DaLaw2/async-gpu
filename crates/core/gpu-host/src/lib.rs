@@ -93,6 +93,9 @@ pub mod tokenizer;
 #[cfg(feature = "gpt2")]
 pub mod yolo_backbone;
 
+#[cfg(feature = "onnx")]
+pub mod onnx;
+
 /// Embedded PTX sources for GPU kernels.
 ///
 /// These are compiled from the various kernel crates and embedded at build time.

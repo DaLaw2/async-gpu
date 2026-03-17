@@ -11,7 +11,7 @@ status = "running"     # ready | running | blocked | completed
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "onnx-conv-prepad.1"
+current_task_id = "onnx-gpt2-debug.1"
 last_summary = "Fixed: Trilu k param, BOOL dtype, ND Transpose, Softmax axis, ConstantOfShape tensor, Gather 2D, Split ND, batched MatMul, Add bias broadcast. GPT-2 ONNX generates tokens (not yet coherent). ResNet 43ms."
 
 # Sequence counters for unique file naming across iterations
@@ -1002,7 +1002,7 @@ depends = ["rv2-quant.1"]
 id = "onnx-gpt2-gen"
 epic = "onnx-inference"
 title = "GPT-2 ONNX text generation"
-status = "completed"
+status = "active"
 goal = "Run GPT-2 ONNX and generate coherent text"
 success_criteria = [
     "GPT-2 ONNX forward pass runs without errors",
@@ -1056,3 +1056,11 @@ new_epics_spawned = []
 themes_parked = []
 themes_completed = []
 key_insight = "ONNX epic has 3 unmet criteria: GPT-2 text gen, Conv prepad perf, MobileNet. GPT-2 forward pass is the highest priority — proves the 41-op executor works on a real transformer."
+
+[[tasks]]
+id = "onnx-gpt2-debug.1"
+theme = "onnx-gpt2-gen"
+title = "Debug GPT-2 ONNX logit divergence — compare node-by-node with native API"
+kind = "investigation"
+status = "active"
+depends = []

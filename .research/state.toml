@@ -12,7 +12,7 @@ status = "running"     # ready | running | blocked | completed
 current_mode = "do"
 current_step = "do.execute"
 current_task_id = "onnx-gpt2-debug.1"
-last_summary = "Fixed: Mul scalar broadcast, MatMul 1D, Trilu k param, BOOL dtype, ND Transpose, Softmax axis, etc. GPT-2 ONNX forward 150ms, shapes correct, logits diverge from native. Debugging GELU decomposition."
+last_summary = "GPT-2 ONNX: weights match PyTorch, logits off by ~7 from ORT reference. Embedding correct to 5 decimals. Accumulated numerical error across 12 layers. Architecture correct (ln_f+lm_head verified). 668 tasks."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 109

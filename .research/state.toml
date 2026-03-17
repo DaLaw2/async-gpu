@@ -4,15 +4,15 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 586     # Monotonic counter, incremented after each completed phase
-completed_tasks = 697
+total_cycles = 588     # Monotonic counter, incremented after each completed phase
+completed_tasks = 699
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do/Check/Adapt
 current_mode = "do"
 current_step = "do.execute"
 current_task_id = "perf-attention.1"
-last_summary = "GEMM 998 GFLOPS (36.8%), LN 80 GB/s, elem_add V2 done. GPT-2 221→59.9ms (3.69x). Next: perf-attention.1 (FA2 investigation) — biggest remaining gap (2.4% of cuDNN)."
+last_summary = "All V2 kernels integrated: GEMM 998 GFLOPS (36.8%), Attn 1.77x, LN 80 GB/s, elem V2. GPT-2 221→54ms (4.1x). Next: perf-attention.3/4 (deeper optimization), perf-conv."
 
 # Sequence counters for unique file naming across iterations
 brainstorm_seq = 110
@@ -1573,15 +1573,15 @@ id = "perf-attention.1"
 theme = "perf-attention"
 title = "Investigation: study FlashAttention-2 algorithm — tile schedule, softmax, memory staging"
 kind = "investigation"
-status = "active"
+status = "done"
 depends = []
 
 [[tasks]]
 id = "perf-attention.2"
 theme = "perf-attention"
-title = "Experiment: rewrite attention with Q in shared memory + tiled score GEMM"
+title = "Experiment: flash_attention_v2 with 4-way unrolled dots + explicit FMA"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["perf-attention.1", "perf-gemm.3"]
 
 [[tasks]]

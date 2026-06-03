@@ -43,7 +43,7 @@ The `#[warp_cooperative]` attribute is a **custom rustc MIR pass** that inserts 
 - [Rust](https://rustup.rs/) with nightly toolchain: `rustup toolchain install nightly-2026-03-11`
 - nvptx64 target: `rustup target add nvptx64-nvidia-cuda --toolchain nightly-2026-03-11`
 - Rust nightly src (for `-Zbuild-std`): `rustup component add rust-src --toolchain nightly-2026-03-11`
-- NVIDIA GPU (SM 70+) with CUDA 12.x driver
+- NVIDIA GPU (SM 70+) with CUDA driver (runtime driver sufficient; CUDA toolkit optional)
 
 ### Run an Example
 
@@ -106,7 +106,7 @@ bash scripts/build-toolchain.sh
 .\scripts\build-toolchain.bat
 ```
 
-This clones rustc, applies patches from `rustc-patches/`, and builds a stage1 compiler at `patched-rustc/build/`. The `async-pipeline` example's `build.rs` automatically detects and uses it.
+This clones the latest rustc, applies patches from `rustc-patches/` and `std-patches/`, and builds a stage1 compiler at `patched-rustc/build/host/stage1/`. The build requires ~30GB disk, cmake, ninja, and clang/gcc. The `async-pipeline` example's `build.rs` automatically detects and uses it.
 
 ## Real Rust `std` on GPU
 

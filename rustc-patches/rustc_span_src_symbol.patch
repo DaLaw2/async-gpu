@@ -1,10 +1,10 @@
---- a/compiler/rustc_span/src/symbol.rs
-+++ b/compiler/rustc_span/src/symbol.rs
-@@ -2215,6 +2215,7 @@
+--- a/compiler/rustc_span/src/symbol.rs	2026-06-04 00:33:59.152389577 +0800
++++ b/compiler/rustc_span/src/symbol.rs	2026-06-04 00:38:20.019025951 +0800
+@@ -2261,6 +2261,7 @@
          vtable_align,
          vtable_size,
          warn,
 +        warp_cooperative,
          wasip2,
+         wasm,
          wasm32,
-         wasm64,

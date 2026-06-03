@@ -1,6 +1,6 @@
---- a/compiler/rustc_mir_transform/src/lib.rs
-+++ b/compiler/rustc_mir_transform/src/lib.rs
-@@ -137,6 +137,7 @@
+--- a/compiler/rustc_mir_transform/src/lib.rs	2026-06-04 00:33:59.122391180 +0800
++++ b/compiler/rustc_mir_transform/src/lib.rs	2026-06-04 00:38:06.247229695 +0800
+@@ -135,6 +135,7 @@
  
      mod copy_prop : CopyProp;
      mod coroutine : StateTransform;
@@ -8,7 +8,7 @@
      mod coverage : InstrumentCoverage;
      mod ctfe_limit : CtfeLimit;
      mod dataflow_const_prop : DataflowConstProp;
-@@ -653,6 +654,10 @@
+@@ -648,6 +649,10 @@
          &erase_deref_temps::EraseDerefTemps,
          &elaborate_box_derefs::ElaborateBoxDerefs,
          &coroutine::StateTransform,

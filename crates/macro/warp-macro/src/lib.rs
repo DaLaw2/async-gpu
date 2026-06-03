@@ -406,10 +406,10 @@ fn stmts_contain_warp_call(stmts: &[Stmt]) -> bool {
             Stmt::Local(local) => {
                 if let Some(init) = &local.init {
                     match init.expr.as_ref() {
-                        Expr::Macro(ExprMacro { mac, .. }) => {
-                            if ServiceKind::from_name(&macro_name_str(mac)).is_some() {
-                                return true;
-                            }
+                        Expr::Macro(ExprMacro { mac, .. })
+                            if ServiceKind::from_name(&macro_name_str(mac)).is_some() =>
+                        {
+                            return true;
                         }
                         Expr::Await(_) => return true,
                         Expr::Try(expr_try) => {

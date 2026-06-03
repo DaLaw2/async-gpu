@@ -1,11 +1,11 @@
---- a/compiler/rustc_passes/src/check_attr.rs
-+++ b/compiler/rustc_passes/src/check_attr.rs
-@@ -399,6 +399,8 @@
-                             | sym::forbid,
-                             ..
-                         ] => {}
+--- a/compiler/rustc_passes/src/check_attr.rs	2026-06-04 00:33:59.135264585 +0800
++++ b/compiler/rustc_passes/src/check_attr.rs	2026-06-04 00:38:15.850577220 +0800
+@@ -132,6 +132,8 @@
+                     match attr.path().as_slice() {
+                         // ok
+                         [sym::allow | sym::expect | sym::warn | sym::deny | sym::forbid, ..] => {}
 +                        // GPU warp-cooperative attribute — validated by MIR pass, not frontend
 +                        [sym::warp_cooperative] => {}
-                         [name, rest@..] => {
-                             match BUILTIN_ATTRIBUTE_MAP.get(name) {
-                                 Some(_) => {
+ 
+                         [name, rest @ ..] => {
+                             if let Some(_) = BUILTIN_ATTRIBUTE_MAP.get(name) {

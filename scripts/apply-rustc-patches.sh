@@ -24,19 +24,19 @@ echo ""
 
 echo "  [PATCH] compiler/rustc_feature/src/builtin_attrs.rs"
 (cd "$TARGET_DIR" && git apply "$PATCH_DIR/rustc_feature_src_builtin_attrs.patch") || \
-    patch -p0 --binary -d "$TARGET_DIR" < "$PATCH_DIR/rustc_feature_src_builtin_attrs.patch"
+    patch -p1 --binary -d "$TARGET_DIR" < "$PATCH_DIR/rustc_feature_src_builtin_attrs.patch"
 
 echo "  [PATCH] compiler/rustc_mir_transform/src/lib.rs"
 (cd "$TARGET_DIR" && git apply "$PATCH_DIR/rustc_mir_transform_src_lib.patch") || \
-    patch -p0 --binary -d "$TARGET_DIR" < "$PATCH_DIR/rustc_mir_transform_src_lib.patch"
+    patch -p1 --binary -d "$TARGET_DIR" < "$PATCH_DIR/rustc_mir_transform_src_lib.patch"
 
 echo "  [PATCH] compiler/rustc_passes/src/check_attr.rs"
 (cd "$TARGET_DIR" && git apply "$PATCH_DIR/rustc_passes_src_check_attr.patch") || \
-    patch -p0 --binary -d "$TARGET_DIR" < "$PATCH_DIR/rustc_passes_src_check_attr.patch"
+    patch -p1 --binary -d "$TARGET_DIR" < "$PATCH_DIR/rustc_passes_src_check_attr.patch"
 
 echo "  [PATCH] compiler/rustc_span/src/symbol.rs"
 (cd "$TARGET_DIR" && git apply "$PATCH_DIR/rustc_span_src_symbol.patch") || \
-    patch -p0 --binary -d "$TARGET_DIR" < "$PATCH_DIR/rustc_span_src_symbol.patch"
+    patch -p1 --binary -d "$TARGET_DIR" < "$PATCH_DIR/rustc_span_src_symbol.patch"
 
 echo "  [NEW]   compiler/rustc_mir_transform/src/warp_cooperative.rs"
 mkdir -p "$TARGET_DIR/compiler/rustc_mir_transform/src"

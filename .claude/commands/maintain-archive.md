@@ -1,29 +1,31 @@
 # /maintain archive — Archive completed items from state.toml
 
-Move done tasks, completed themes, and old brainstorms out of state.toml to keep it lean.
+Move completed epics, done tasks, completed themes, and old brainstorms out of state.toml.
+Goal: keep state.toml under ~300 lines (active/pending/parked items only).
 
 ## Language
 - Conversation: 繁體中文 | Files: English
 
-## Trigger thresholds
-- Tasks with `status = "done"`: archive when > 10
-- Brainstorms: keep last 3, archive the rest
-- Completed themes where ALL tasks are done: archive
+## What to archive
+- **Epics** with `status = "completed"` → `.research/archive/epics-archived.toml`
+- **Themes** with `status = "completed"` → `.research/archive/themes-archived.toml`
+- **Tasks** with `status = "done"` or `"skipped"` → `.research/archive/tasks-archived.toml`
+- **Brainstorms**: keep last 3, archive the rest → `.research/archive/brainstorms-archived.toml`
 
 ## Steps
 
 1. **Read** `.research/state.toml`
-2. **Count** done tasks and brainstorms
-3. If under thresholds → print `[OK] state.toml is lean` and stop
-4. **Archive**:
-   - Create/append to `.research/archive/tasks-archived.toml` — move done tasks
-   - Create/append to `.research/archive/themes-archived.toml` — move completed themes (only if all their tasks are also archived)
-   - Create/append to `.research/archive/brainstorms-archived.toml` — move old brainstorms (keep last 3)
+2. **Count** archivable items
+3. If nothing to archive → print `[OK] state.toml is lean` and stop
+4. **Archive** — for each type:
+   - Read existing archive file (if any)
+   - Append items with a header comment: `# Archived at cycle {N}`
+   - In state.toml, replace archived items with a one-line comment listing their IDs
 5. **Update** state.toml: remove archived entries, keep `completed_tasks` count accurate
-6. **Report**: `[FIX] Archived N tasks, M themes, K brainstorms`
+6. **Report**: `[FIX] Archived N epics, M themes, K tasks, J brainstorms (state.toml: X lines)`
 
 ## Rules
-- NEVER archive active/pending tasks or active themes
+- NEVER archive active/pending/parked items
 - NEVER modify `[meta]` fields other than counts
-- NEVER archive epics (only user can manage epics)
 - Preserve TOML formatting and comments
+- Add separator comments in archive files between batches

@@ -2834,3 +2834,525 @@ title = "Benchmark: ONNX inference with graph compiler vs without"
 kind = "experiment"
 status = "done"
 depends = ["gc-codegen.2"]
+
+# Archived at cycle 594 (workflow v2 migration)
+
+# --- onnx-fix (onnx-inference) ---
+
+[[tasks]]
+id = "onnx-fix.1"
+theme = "onnx-fix"
+title = "Fix raw_data parsing — diagnose why some TensorProto.raw_data decode as empty"
+kind = "experiment"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "onnx-fix.2"
+theme = "onnx-fix"
+title = "Export ResNet-18 ONNX with all weights embedded, run e2e inference"
+kind = "experiment"
+status = "done"
+depends = ["onnx-fix.1"]
+
+[[tasks]]
+id = "onnx-fix.3"
+theme = "onnx-fix"
+title = "Run GPT-2 ONNX inference, verify coherent text output"
+kind = "experiment"
+status = "done"
+depends = ["onnx-fix.1"]
+
+[[tasks]]
+id = "onnx-fix.4"
+theme = "onnx-fix"
+title = "Benchmark ONNX executor vs native nn API (latency comparison)"
+kind = "experiment"
+status = "done"
+depends = ["onnx-fix.2", "onnx-fix.3"]
+
+# --- refactor-quality (refactor) ---
+
+[[tasks]]
+id = "refactor-quality.1"
+theme = "refactor-quality"
+title = "Fix all clippy warnings in gpu-host (nn, gpt2, onnx features)"
+kind = "experiment"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "refactor-quality.2"
+theme = "refactor-quality"
+title = "Split dispatch_node() into per-category handlers (activation, gemm, conv, shape, etc)"
+kind = "experiment"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "refactor-quality.3"
+theme = "refactor-quality"
+title = "Replace unwrap() with ? in all nn/ and onnx_rt/ library code"
+kind = "experiment"
+status = "done"
+depends = []
+
+# --- refactor-api (refactor) ---
+
+[[tasks]]
+id = "refactor-api.1"
+theme = "refactor-api"
+title = "Migrate all 9 examples to KernelRegistry::init_default()"
+kind = "experiment"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "refactor-api.2"
+theme = "refactor-api"
+title = "Extract shared quantization pack/unpack utilities from gemm.rs"
+kind = "experiment"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "refactor-api.3"
+theme = "refactor-api"
+title = "Audit pub visibility — mark internal helpers as pub(crate)"
+kind = "experiment"
+status = "done"
+depends = []
+
+# --- onnx-cache (onnx-perf) ---
+
+[[tasks]]
+id = "onnx-cache.1"
+theme = "onnx-cache"
+title = "Implement OnnxSession with initializer caching (upload once)"
+kind = "experiment"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "onnx-cache.2"
+theme = "onnx-cache"
+title = "Benchmark cached ONNX vs native nn API on ResNet-18"
+kind = "experiment"
+status = "done"
+depends = ["onnx-cache.1"]
+
+# --- onnx-gpu-ops (onnx-perf) ---
+
+[[tasks]]
+id = "onnx-gpu-ops.1"
+theme = "onnx-gpu-ops"
+title = "Replace CPU-fallback Mul/Sub/Div/Pow/Sqrt with GPU elementwise ops"
+kind = "experiment"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "onnx-gpu-ops.2"
+theme = "onnx-gpu-ops"
+title = "GPU ReduceMean kernel for 4D tensors"
+kind = "experiment"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "onnx-gpu-ops.3"
+theme = "onnx-gpu-ops"
+title = "Run GPT-2 ONNX full forward pass, benchmark latency"
+kind = "experiment"
+status = "done"
+depends = ["onnx-cache.1", "onnx-gpu-ops.1"]
+
+# --- refactor-v2-code (refactor-v2) ---
+
+[[tasks]]
+id = "rv2-unwrap.1"
+theme = "refactor-v2-code"
+title = "Fix resnet.rs Option::unwrap() → ok_or(NnError) + backward.rs + optim.rs"
+kind = "experiment"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "rv2-quant.1"
+theme = "refactor-v2-code"
+title = "Extract INT8+INT4 pack/unpack into nn/ops/quantize.rs shared module"
+kind = "experiment"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "rv2-pub.1"
+theme = "refactor-v2-code"
+title = "pub(crate) audit: scan all pub fn/struct in nn/ and onnx_rt/, mark internal ones"
+kind = "experiment"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "rv2-dead.1"
+theme = "refactor-v2-code"
+title = "Dead code cleanup: unused functions, imports, variables across gpu-host"
+kind = "experiment"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "rv2-magic.1"
+theme = "refactor-v2-code"
+title = "Extract all magic numbers to named constants"
+kind = "experiment"
+status = "done"
+depends = []
+
+# --- refactor-v2-perf (refactor-v2) ---
+
+[[tasks]]
+id = "rv2-gpu-elem.1"
+theme = "refactor-v2-perf"
+title = "GPU elementwise kernels for Mul/Sub/Div/Neg (replace to_host round-trips)"
+kind = "experiment"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "rv2-prepad.1"
+theme = "refactor-v2-perf"
+title = "OnnxSession: pre-transpose+pad Conv/Gemm weights at session creation"
+kind = "experiment"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "rv2-bench.1"
+theme = "refactor-v2-perf"
+title = "Benchmark ResNet-18 ONNX with all optimizations, target < 25ms"
+kind = "experiment"
+status = "done"
+depends = ["rv2-gpu-elem.1", "rv2-prepad.1"]
+
+[[tasks]]
+id = "rv2-gpt2.1"
+theme = "refactor-v2-perf"
+title = "Run GPT-2 ONNX forward pass end-to-end, measure latency"
+kind = "experiment"
+status = "done"
+depends = ["rv2-gpu-elem.1"]
+
+# --- refactor-v2-test (refactor-v2) ---
+
+[[tasks]]
+id = "rv2-test.1"
+theme = "refactor-v2-test"
+title = "Add unit tests for Int4Linear, OnnxSession, quantize pack/unpack"
+kind = "experiment"
+status = "done"
+depends = ["rv2-quant.1"]
+
+# --- onnx-gpt2-gen (onnx-inference) ---
+
+[[tasks]]
+id = "onnx-gpt2-gen.1"
+theme = "onnx-gpt2-gen"
+title = "Run GPT-2 ONNX single forward pass, fix any op errors"
+kind = "experiment"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "onnx-gpt2-gen.2"
+theme = "onnx-gpt2-gen"
+title = "GPT-2 ONNX autoregressive generation (10+ tokens)"
+kind = "experiment"
+status = "done"
+depends = ["onnx-gpt2-gen.1"]
+
+# --- onnx-conv-prepad (onnx-inference) ---
+
+[[tasks]]
+id = "onnx-conv-prepad.1"
+theme = "onnx-conv-prepad"
+title = "Pre-compute im2col column matrix for Conv weights in OnnxSession"
+kind = "experiment"
+status = "done"
+depends = []
+
+# --- onnx-gpt2-debug (onnx-gpt2-gen) ---
+
+[[tasks]]
+id = "onnx-gpt2-debug.1"
+theme = "onnx-gpt2-gen"
+title = "Debug GPT-2 ONNX logit divergence — compare node-by-node with native API"
+kind = "investigation"
+status = "done"
+depends = []
+
+# --- onnx-resnet-acc (onnx-inference) ---
+
+[[tasks]]
+id = "onnx-resnet-acc.1"
+theme = "onnx-resnet-acc"
+title = "Fix ResNet ONNX export key mapping + GlobalAveragePool batch dim"
+kind = "experiment"
+status = "done"
+depends = []
+
+# --- onnx-mobilenet (onnx-inference) ---
+
+[[tasks]]
+id = "onnx-mobilenet.1"
+theme = "onnx-mobilenet"
+title = "Add Identity op + grouped conv support, run MobileNetV2 e2e"
+kind = "experiment"
+status = "done"
+depends = []
+
+# --- dyn-control (gpu-dynamic) ---
+
+[[tasks]]
+id = "dyn-control.1"
+theme = "dyn-control"
+title = "Experiment: variable-length GPT-2 generation — stop at EOS per sample"
+kind = "experiment"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "dyn-control.2"
+theme = "dyn-control"
+title = "Experiment: early-exit inference — skip layers when confidence > threshold"
+kind = "experiment"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "dyn-control.3"
+theme = "dyn-control"
+title = "Design: document why these patterns are impossible with CUDA graphs"
+kind = "design"
+status = "done"
+depends = ["dyn-control.1", "dyn-control.2"]
+
+# --- graph-bfs (graph-algorithms) ---
+
+[[tasks]]
+id = "graph-bfs.1"
+theme = "graph-bfs"
+title = "Experiment: CSR graph representation + synthetic graph generator (RMAT)"
+kind = "experiment"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "graph-bfs.2"
+theme = "graph-bfs"
+title = "Experiment: GPU BFS (level-synchronous) + CPU reference comparison"
+kind = "experiment"
+status = "done"
+depends = ["graph-bfs.1"]
+
+[[tasks]]
+id = "graph-bfs.3"
+theme = "graph-bfs"
+title = "Experiment: GPU PageRank (iterative SpMV) + convergence check"
+kind = "experiment"
+status = "done"
+depends = ["graph-bfs.1"]
+
+# --- int4-integrate (int4-gpt2) ---
+
+[[tasks]]
+id = "int4-integrate.1"
+theme = "int4-integrate"
+title = "Experiment: wire Int4Linear into GPT-2, load quantized weights, generate text"
+kind = "experiment"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "int4-integrate.2"
+theme = "int4-integrate"
+title = "Design: verify top-5 match on 3 prompts + measure per-token latency"
+kind = "design"
+status = "done"
+depends = ["int4-integrate.1"]
+
+# --- mc-finance (monte-carlo) ---
+
+[[tasks]]
+id = "mc-finance.1"
+theme = "mc-finance"
+title = "Experiment: GPU xoshiro256++ PRNG kernel with per-thread seeding"
+kind = "experiment"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "mc-finance.2"
+theme = "mc-finance"
+title = "Experiment: Black-Scholes Monte Carlo option pricing (1M paths)"
+kind = "experiment"
+status = "done"
+depends = ["mc-finance.1"]
+
+[[tasks]]
+id = "mc-finance.3"
+theme = "mc-finance"
+title = "Experiment: Pi estimation via Monte Carlo (10M points) + CPU comparison"
+kind = "experiment"
+status = "done"
+depends = ["mc-finance.1"]
+
+# --- bench-kernels (benchmark) ---
+
+[[tasks]]
+id = "bench-kernels.1"
+theme = "bench-kernels"
+title = "Experiment: SGEMM benchmark harness — measure GFLOPS at multiple sizes, compare cuBLAS"
+kind = "experiment"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "bench-kernels.2"
+theme = "bench-kernels"
+title = "Experiment: Conv2D benchmark — GFLOPS for ResNet/YOLO shapes, compare cuDNN"
+kind = "experiment"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "bench-kernels.3"
+theme = "bench-kernels"
+title = "Experiment: Flash Attention benchmark — throughput at GPT-2 shapes"
+kind = "experiment"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "bench-kernels.4"
+theme = "bench-kernels"
+title = "Experiment: Memory-bound ops (LayerNorm, GELU, elementwise) — GB/s measurement"
+kind = "experiment"
+status = "done"
+depends = []
+
+# --- bench-e2e (benchmark) ---
+
+[[tasks]]
+id = "bench-e2e.1"
+theme = "bench-e2e"
+title = "Experiment: GPT-2 inference per-layer profiling — identify bottleneck ops"
+kind = "experiment"
+status = "done"
+depends = ["bench-kernels.1"]
+
+[[tasks]]
+id = "bench-e2e.2"
+theme = "bench-e2e"
+title = "Design: benchmark results summary + improvement roadmap"
+kind = "design"
+status = "done"
+depends = ["bench-kernels.1", "bench-kernels.2", "bench-kernels.3", "bench-kernels.4", "bench-e2e.1"]
+
+# --- perf-gemm (kernel-perf) ---
+
+[[tasks]]
+id = "perf-gemm.1"
+theme = "perf-gemm"
+title = "Investigation: study Cutlass SGEMM tile schedule, register mapping, smem layout"
+kind = "investigation"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "perf-gemm.2"
+theme = "perf-gemm"
+title = "Experiment: implement 64×64 tile + 4×4 register blocking GEMM kernel"
+kind = "experiment"
+status = "done"
+depends = ["perf-gemm.1"]
+
+[[tasks]]
+id = "perf-gemm.3"
+theme = "perf-gemm"
+title = "Experiment: scale to 128×64 tile + 4×8 register blocking + double-buffered smem"
+kind = "experiment"
+status = "done"
+depends = ["perf-gemm.2"]
+
+[[tasks]]
+id = "perf-gemm.4"
+theme = "perf-gemm"
+title = "Experiment: BK=16 attempt (reverted — numerical issues) + float4 deferred"
+kind = "experiment"
+status = "done"
+depends = ["perf-gemm.3"]
+
+[[tasks]]
+id = "perf-gemm.5"
+theme = "perf-gemm"
+title = "Experiment: integrate V2 GEMM into nn API, benchmark GPT-2 end-to-end"
+kind = "experiment"
+status = "done"
+depends = ["perf-gemm.4"]
+
+[[tasks]]
+id = "perf-gemm.6"
+theme = "perf-gemm"
+title = "Experiment: 128×128 tile + 8×8 register blocking via macro-generated accumulators"
+kind = "experiment"
+status = "done"
+depends = ["perf-gemm.5"]
+
+# --- perf-attention (kernel-perf) ---
+
+[[tasks]]
+id = "perf-attention.1"
+theme = "perf-attention"
+title = "Investigation: study FlashAttention-2 algorithm — tile schedule, softmax, memory staging"
+kind = "investigation"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "perf-attention.2"
+theme = "perf-attention"
+title = "Experiment: flash_attention_v2 with 4-way unrolled dots + explicit FMA"
+kind = "experiment"
+status = "done"
+depends = ["perf-attention.1", "perf-gemm.3"]
+
+# --- perf-layernorm (kernel-perf) ---
+
+[[tasks]]
+id = "perf-layernorm.1"
+theme = "perf-layernorm"
+title = "Experiment: single-pass Welford LayerNorm with 256 threads + shared memory reduction"
+kind = "experiment"
+status = "done"
+depends = []
+
+# --- perf-elementwise (kernel-perf) ---
+
+[[tasks]]
+id = "perf-elementwise.1"
+theme = "perf-elementwise"
+title = "Experiment: float4 vectorized elementwise_add + gelu + sigmoid + relu"
+kind = "experiment"
+status = "done"
+depends = []
+
+# --- perf-gemm-v4 (kernel-perf) ---
+
+[[tasks]]
+id = "perf-gemm-v4.1"
+theme = "perf-gemm-v4"
+title = "Experiment: NVRTC V4 kernel with float4 loads — achieved 63% cuBLAS"
+kind = "experiment"
+status = "done"
+depends = []

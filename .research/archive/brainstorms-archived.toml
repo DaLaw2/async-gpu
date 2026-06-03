@@ -373,3 +373,29 @@ new_epics_spawned = ["testing-infra", "autograd-v1", "gpu-safety-spike", "autogr
 themes_parked = []
 themes_completed = []
 key_insight = "Split autograd into v1 (linear models, ~22 tasks) and v2 (conv/attention, future). gpu-safety needs a 2-task spike first to determine if GpuRef is safety or performance. Golden-file tests > property tests for GPU ops. Roadmap: VE → TI → AG-v1 → spike → decide."
+
+# --- Archived at cycle 594 (workflow v2 migration) ---
+
+[[brainstorms]]
+seq = 107
+at_cycle = 458
+trigger = "All high-priority epics completed, only codebase-health active"
+level = "standard"
+new_tasks_spawned = ["rag-embed.1", "rag-embed.2", "rag-embed.3", "rag-pipeline.1", "rag-pipeline.2", "rag-pipeline.3"]
+new_themes_spawned = ["rag-embed", "rag-pipeline"]
+new_epics_spawned = ["gpu-rag"]
+themes_parked = []
+themes_completed = []
+key_insight = "GPU-Autonomous RAG is the killer app for the async model — combines hostcall I/O + real GPU compute (embedding, search, generation) in a single persistent kernel. Also identified: autograd-v4 (fix backward correctness), kernel fusion, persistent kernels as future epics."
+
+[[brainstorms]]
+seq = 108
+at_cycle = 479
+trigger = "User directed: ONNX → kernel-fusion reopen → INT4 → Graph Compiler"
+level = "quick"
+new_tasks_spawned = ["onnx-parser.1", "onnx-parser.2", "onnx-parser.3", "onnx-executor.1", "onnx-executor.2", "onnx-executor.3", "onnx-executor.4", "onnx-transformer.1", "onnx-transformer.2", "onnx-transformer.3", "onnx-breadth.1", "onnx-breadth.2", "fuse-nn-api.1", "fuse-nn-api.2", "fuse-nn-api.3", "int4-kernel.1", "int4-kernel.2", "int4-kernel.3", "int4-gpt2.1", "int4-gpt2.2", "gc-ir.1", "gc-ir.2", "gc-ir.3", "gc-codegen.1", "gc-codegen.2", "gc-codegen.3"]
+new_themes_spawned = ["onnx-parser", "onnx-executor", "onnx-transformer", "onnx-breadth", "fuse-nn-api", "int4-kernel", "int4-gpt2", "gc-ir", "gc-codegen"]
+new_epics_spawned = ["onnx-inference", "kernel-fusion-v2", "int4-quantization", "graph-compiler"]
+themes_parked = []
+themes_completed = []
+key_insight = "4 epics, 9 themes, 26 tasks. ONNX is highest priority (makes framework usable). kernel-fusion-v2 reopens deferred criteria. INT4 builds on INT8 dp4a. Graph compiler is long-term optimization."

@@ -1,147 +1,219 @@
 # Autonomous Research Loop State File
 # Three-level hierarchy: Epic → Theme → Task
-# Epics are user-defined high-level goals; Themes are research directions; Tasks are actionable items within a theme.
+# ACTIVE/PENDING/PARKED items only — completed items in archive/
 
 [meta]
 created = "2026-03-11"
-total_cycles = 594     # Monotonic counter, incremented after each completed phase
+total_cycles = 594
 completed_tasks = 705
 status = "running"     # ready | running | blocked | completed
 
-# Current cycle position within Think/Do/Check/Adapt
+# Current cycle position within Think/Do
 current_mode = "do"
 current_step = "do.execute"
 current_task_id = "perf-attn-v3.1"
-last_summary = "GEMM V4 1760 GFLOPS (63%). Fused LN+residual available. GPT-2 32.5ms. Remaining: GEMM +7% (cp.async), Attention rewrite (4→70%), Conv Winograd (13→70%)."
 
-# Sequence counters for unique file naming across iterations
+# Sequence counters
 brainstorm_seq = 110
-review_seq = 5
-
-# Brainstorm trigger control (event-driven, no fixed interval)
+tasks_since_brainstorm = 0   # Proactive trigger at >= 10
 
 # ============================================================
-# Epics (active only — completed epics archived in archive/)
+# Epics — Tiered (T0 → T3), sorted by tier then priority
 # ============================================================
+# Completed epics archived: async-std, gpu-error, gpu-debug, native-warp-async,
+# gpu-autonomous, gpu-perf, real-std, std-sysroot, public-api, network-io,
+# formal-verification, gpu-executor, extended-std, compute-utils, compute-demo,
+# gpu-channels, benchmarks, tokio-bridge, production-ready, tensor-core-gemm,
+# object-detection, developer-experience, ml-framework, gpu-rag, autograd-v4,
+# int8-inference, diff-physics, kernel-fusion, persistent-kernel, onnx-inference,
+# kernel-fusion-v2, int4-quantization, graph-compiler, refactor, onnx-perf,
+# refactor-v2, gpu-dynamic, graph-algorithms, int4-gpt2, monte-carlo, benchmark
+
+# --- T0: Foundation (must be done first) ---
 
 [[epics]]
-id = "async-std"
-title = "Async Std on GPU — real async/await with patched rustc + patched std"
-status = "completed"
-priority = "high"
+id = "native-rust-dx"
+title = "Native Rust DX — GPU code looks like normal Rust"
+tier = 0
+status = "active"
+priority = "highest"
+# North Star: A Rust developer who doesn't know GPU programming can read our examples
+#   and not realize they run on a GPU.
+# Litmus Test: Show an example to a Rust dev — can they read it without explanation?
 success_criteria = [
-    "Async hostcall: gpu_hostcall_request returns impl Future — warp yields to scheduler during I/O wait instead of spin-blocking",
-    "PAL async bridge: patched std I/O (write/read/open/close) calls async hostcall under #[warp_cooperative] context",
-    "Practical demo: #[warp_cooperative] async fn runs data pipeline (read file → compute → write file) with I/O yielding",
-    "Codebase reorganized into categorized subdirectories (core/kernel/macro/test)",
+    "Kernel entry uses extern \"gpu-kernel\" fn main(), no custom attribute macros needed",
+    "async fn works without #[warp_cooperative] or #[warp_async] — MIR pass handles it transparently",
+    "Host-side launch is one line: gpu::run(kernel_main) — no GpuRuntime/HostcallSession/KernelRegistry exposed",
+    "All examples/ rewritten in native Rust style — a Rust dev can read them without GPU knowledge",
 ]
-# ALL 4 CRITERIA MET (pragmatically) — closed 2026-03-15
-
 
 [[epics]]
-id = "gpu-error"
-title = "GPU-side error handling — Result propagation from GPU to host"
-status = "completed"
+id = "std-thread-gpu"
+title = "std::thread on GPU — thread::spawn() maps to warp"
+tier = 0
+status = "active"
+priority = "highest"
+depends_on = []
+# North Star: Users write std::thread::spawn() and it just works — each thread is a warp,
+#   join/sleep/yield all behave like CPU Rust.
+# Litmus Test: The VectorWare "threads on GPU" blog example compiles and runs on async-gpu.
+success_criteria = [
+    "Warp 0 runs main(), other warps sleep until thread::spawn() wakes them",
+    "thread::spawn() returns JoinHandle, join() blocks parent warp until child completes",
+    "thread::current(), thread::sleep(), thread::yield_now() all work",
+    "thread::available_parallelism() returns number of available warps",
+    "Example: spawn 2+ threads doing independent work, join results, println! — identical to CPU Rust",
+]
+
+# --- T1: Core pillars ---
+
+[[epics]]
+id = "cooperative-compute"
+title = "Cooperative Compute — GPU-internal all-warp parallel computation"
+tier = 1
+status = "pending"
+priority = "high"
+depends_on = ["native-rust-dx", "std-thread-gpu"]
+# North Star: Users call gpu::cooperative(|| matmul(&a, &b)) from within a kernel,
+#   all warps wake up, cooperate on the computation, then return to sleep.
+# Litmus Test: A kernel that reads a file, runs matmul, writes the result — all in one function.
+success_criteria = [
+    "gpu::cooperative(closure) wakes all warps, executes closure in data-parallel mode, returns result",
+    "Seamless transition: sequential code (1 warp) → cooperative (all warps) → sequential — no manual sync",
+    "Existing nn ops (matmul, attention, conv2d) callable from within a kernel via cooperative",
+    "Demo: read file → matmul → write result, all in one extern \"gpu-kernel\" fn main()",
+]
+
+[[epics]]
+id = "structured-concurrency"
+title = "Structured Concurrency — scope-based parallelism mapped to GPU hardware"
+tier = 1
+status = "pending"
+priority = "high"
+depends_on = ["std-thread-gpu"]
+# North Star: Task scope = hardware scope. BlockScope uses shared memory, GridScope uses global.
+#   Resources auto-reclaim when scope ends. Channels pick the fastest path automatically.
+# Litmus Test: Users never manually choose shared vs global memory — the scope decides.
+success_criteria = [
+    "BlockScope and GridScope types enforce lifetime-bounded task scopes via Rust lifetimes",
+    "Resources allocated within a scope auto-reclaim when scope ends (shared memory for block, global for grid)",
+    "GpuChannel<T> auto-selects transport: shfl.sync (same warp), shared memory (same block), global (cross-block)",
+    "Cancellation propagates down scope hierarchy — parent cancel kills all children",
+    "Demo: producer-consumer pipeline using BlockScope with automatic shared memory channels",
+]
+
+[[epics]]
+id = "kernel-perf"
+title = "Kernel Performance — close gap to cuBLAS/cuDNN across all compute primitives"
+tier = 1
+status = "active"
+priority = "high"
+# North Star: async-gpu's built-in compute ops are fast enough that users don't need to
+#   drop down to cuBLAS/cuDNN. The library is competitive, not just convenient.
+# Litmus Test: GPT-2 inference is within 2x of a hand-optimized CUDA implementation.
+success_criteria = [
+    "SGEMM >= 70% of cuBLAS at 4096³",
+    "Flash Attention >= 70% of cuDNN FA2 at seq=512",
+    "Conv2D >= 70% of cuDNN for common shapes (ResNet, YOLO)",
+    "GPT-2 end-to-end forward pass < 25ms",
+]
+
+# --- T2: Advanced ---
+
+[[epics]]
+id = "cuda-graph-scheduling"
+title = "CUDA Graph Scheduling — static async pipelines compile to CUDA Graphs"
+tier = 2
+status = "pending"
 priority = "medium"
+depends_on = ["cooperative-compute"]
+# North Star: Users write async pipelines, the compiler automatically identifies static
+#   portions and emits CUDA Graphs. No code changes needed for the speedup.
+# Litmus Test: An async pipeline runs faster with zero user-facing API changes.
 success_criteria = [
-    "GPU kernel can use `?` operator and return Result<T, E> to host",
-    "Errors propagate across async boundaries (hostcall errors → Result, not panic)",
-    "Host receives structured error info (error type + message), not just trap/exit code",
-    "std::io and std::fs errors on GPU produce proper std::io::Error, not panic",
+    "MIR pass identifies static vs dynamic branches in async state machines",
+    "Static paths emit CUDA Graph nodes (kernel launch, memcpy, sync)",
+    "Dynamic branches fallback to polling — no correctness regression",
+    "Measurable speedup (>= 20%) on a multi-stage async pipeline vs polling-only baseline",
 ]
-# ALL 4 CRITERIA MET — closed by user 2026-03-14
-
 
 [[epics]]
-id = "gpu-debug"
-title = "GPU Debugging & Observability — structured tracing, assertions, flight recorder"
-status = "completed"
-priority = "high"
+id = "unified-runtime"
+title = "Unified Runtime — one async fn spans CPU and GPU transparently"
+tier = 2
+status = "pending"
+priority = "medium"
+depends_on = ["native-rust-dx", "cooperative-compute"]
+# North Star: Users write one async fn mixing I/O and compute. The runtime decides
+#   what runs where. Data moves automatically. No cudaMemcpy anywhere.
+# Litmus Test: A pipeline that reads a file, does matmul, writes result — user never
+#   mentions "host" or "device."
 success_criteria = [
-    "gpu_trace!() macro emits structured events with thread/block/warp ID + timestamp to host",
-    "gpu_assert!() sends diagnostic message + thread coords to host before trap",
-    "Post-mortem flight recorder dumps last N trace events when kernel crashes",
-    "Conditional compilation: tracing compiles out for zero overhead in release",
+    "Scheduler types (CpuScheduler, GpuScheduler, AutoScheduler) route work by affinity",
+    "Data transfer (host ↔ device) is automatic — no manual cudaMemcpy",
+    "AutoScheduler picks execution location based on work type and hardware capability",
+    "Demo: read → compute → write pipeline with zero explicit memory management",
 ]
-
 
 [[epics]]
-id = "native-warp-async"
-title = "Native Warp-Cooperative Async/Await — compiler-level SIMT async"
-status = "completed"
-priority = "high"
+id = "cross-vendor"
+title = "Cross-Vendor GPU — same code runs on NVIDIA, AMD, Vulkan"
+tier = 2
+status = "pending"
+priority = "low"
+depends_on = ["native-rust-dx"]
+# North Star: Users write Rust GPU code once, it runs on any GPU vendor.
+# Litmus Test: The same example binary runs on both NVIDIA and AMD hardware.
 success_criteria = [
-    "Standard impl Future polled warp-cooperatively (lane 0 polls, shfl broadcast)",
-    "#[warp_async] accepts async fn syntax with .await and ? operator",
-    "#[warp_cooperative] async fn compiles via rustc MIR pass and runs on GPU",
+    "WarpPrimitive trait abstracts barrier sync, shuffle, atomics across vendors",
+    "NVIDIA backend: bar.warp.sync, shfl.sync, PTX atomics",
+    "AMD backend: wavefront barrier, ds_swizzle/dpp_mov, HIP atomics",
+    "At least one non-trivial example runs correctly on both NVIDIA and AMD",
 ]
-# ALL 3 CRITERIA MET — closed by user 2026-03-14
 
+# --- T3: Exploratory ---
 
 [[epics]]
-id = "gpu-autonomous"
-title = "GPU as Autonomous Compute Environment v3 — native warp-cooperative async/await"
-status = "completed"
-priority = "high"
+id = "actor-model"
+title = "GPU Actor Model — warp-as-actor with message passing"
+tier = 3
+status = "pending"
+priority = "low"
+depends_on = ["std-thread-gpu", "structured-concurrency"]
+# North Star: An alternative to async/await for task parallelism — each warp is an actor
+#   with a mailbox, no shared mutable state, fault isolation.
+# Litmus Test: A producer-consumer pipeline written with actors is shorter and clearer
+#   than the equivalent async version.
 success_criteria = [
-    "Multi-command kernel: processes 3+ command types (COMPUTE, PRINT, EXIT) from mapped memory command buffer in a single launch, TDR-safe",
-    "Cross-launch pipeline: two kernels share device buffer (A writes → B reads, zero host copy), with minimal Pipeline API",
-    "Data-dependent iteration: kernel autonomously loops (read → process → check convergence → iterate or finalize), pattern not yet demonstrated",
-    "Hostcall session persistence: HostcallSession keeps listener + fd table + buffer alive across multiple kernel launches, packet pool reinit between launches",
-    "Standard impl Future can be polled warp-cooperatively (lane 0 polls, broadcast result via shfl.sync)",
-    "#[warp_async] accepts async fn syntax with .await and ? operator",
-    "#[warp_cooperative] async fn compiles via rustc MIR pass and runs correctly on GPU",
+    "GpuActor trait with handle_message method",
+    "Mailbox in shared memory (same block) or global memory (cross block) — auto-selected",
+    "Rust Send trait ensures message ownership safety at compile time",
+    "Demo: multi-actor pipeline that's clearer than the async equivalent",
 ]
-# ALL 7 CRITERIA MET — closed by user 2026-03-14
-
 
 [[epics]]
-id = "gpu-perf"
-title = "GPU Inference Performance Optimization"
-status = "completed"
-priority = "high"
+id = "formal-verification"
+title = "Formal Verification — MIR pass correctness for arbitrary async fn"
+tier = 3
+status = "pending"
+priority = "low"
+depends_on = ["native-rust-dx"]
+# North Star: Users can trust that the MIR pass won't generate wrong code for any
+#   valid async fn — proven, not just tested.
+# Litmus Test: A formal proof that sync insertion is sound for all reachable async states.
 success_criteria = [
-    "KV cache eliminates redundant recomputation — only new token passes through model per step",
-    "PARKED: Per-token generation latency < 20ms (down from ~143ms)",
-    "PARKED: BF16/TF32 MMA inference matches f32 FMA output (top-5 agreement for 3+ prompts)",
-    "PARKED: Mixed precision pipeline: GEMM via Tensor Core, everything else f32",
+    "Operational semantics defined for warp-cooperative async",
+    "Soundness proof: MIR pass sync insertion is sufficient for all valid async fn",
+    "Completeness: async fn that would cause warp divergence rejected at compile time",
+    "TLA+ model extended to cover MIR pass state transitions",
 ]
-# Criterion 1 DONE. Criteria 2-4 PARKED (out of scope). Closed by user 2026-03-14.
 
-
-[[epics]]
-id = "real-std"
-title = "Real std on GPU — replace macros with actual Rust std"
-status = "completed"
-priority = "high"
-success_criteria = [
-    "GPU kernel can `use std::io::Write` and call `println!()` without custom macros",
-    "Vec, String, Box work on GPU via #[global_allocator] backed by hostcall-aware allocator",
-    "std::fs::File::create() and write_all() work on GPU via hostcall",
-    "std::io::stdin().read_line() works on GPU via hostcall",
-    "PAL/libc facade routes std sys calls to hostcall framework",
-]
-# ALL 5 CRITERIA MET — closed by user 2026-03-14
-
-
-[[epics]]
-id = "std-sysroot"
-title = "Patched std in sysroot — use std::fs::File directly on GPU"
-status = "completed"
-priority = "high"
-success_criteria = [
-    "Patched toolchain builds std for nvptx64-nvidia-cuda (x.py build succeeds with std patches)",
-    "GPU kernel with `use std::fs::File` compiles to valid PTX via patched sysroot",
-    "std::io::Write on GPU performs hostcall I/O correctly (end-to-end verified)",
-    "At least File, println!, Vec, String, Box work on GPU end-to-end",
-]
-# ALL 4 CRITERIA MET — closed 2026-03-15
-
+# --- Evergreen ---
 
 [[epics]]
 id = "codebase-health"
 title = "Codebase Health — build system, CI, docs, workflow automation"
-type = "evergreen"  # Ongoing quality epic — work on when no other tasks are ready
+type = "evergreen"
 status = "active"
 priority = "low"
 success_criteria = [
@@ -149,855 +221,44 @@ success_criteria = [
     "Nightly toolchain version defined in one place, CI + scripts derive from it",
     "README.md accurately reflects current project state, crate map, and setup instructions",
     "Routine maintenance tasks (new crate → CI, new PTX → stub list) are automated or self-documenting",
-    "Research workflow handles codebase-health tasks (lint fix, doc, CI update) without full Think/Do/Check overhead",
+    "Research workflow handles codebase-health tasks without full Think/Do overhead",
 ]
 
+# --- Parked ---
 
 [[epics]]
-id = "public-api"
-title = "Public API — Host SDK + Reusable GPU Kernel Library"
-status = "completed"
-priority = "high"
-# ALL 4 CRITERIA MET — closed 2026-03-15
-success_criteria = [
-    "gpu-host is a library crate with documented public API (GpuRuntime, HostcallBuffer, HostcallSession)",
-    "A standalone example program uses gpu-host as a dependency to run a GPU kernel",
-    "Build system automated — single cargo command compiles host + kernel",
-    "At least 3 working examples (hello-gpu, async-io, compute) with documentation",
-]
-# Criteria 1 updated 2026-03-15: names match actual API (GpuRuntime not GpuDevice, etc.)
-
-
-[[epics]]
-id = "network-io"
-title = "Network I/O from GPU — TCP hostcall services"
-status = "completed"
+id = "classical-ml"
+title = "Classical ML on GPU — decision trees, random forest, k-means"
+status = "parked"
 priority = "medium"
+# Parked: revisit as showcase example after native-rust-dx is done
 success_criteria = [
-    "SERVICE_TCP_CONNECT / SERVICE_TCP_SEND / SERVICE_TCP_RECV defined in gpu-protocol",
-    "Host-side TCP service handlers implemented (std::net)",
-    "GPU-side Future types (GpuTcpConnectFuture, GpuTcpSendFuture, GpuTcpRecvFuture)",
-    "Demo kernel that connects to a server, sends data, receives response",
-]
-
-
-[[epics]]
-id = "formal-verification"
-title = "Formal Verification — TLA+ model of CAS hostcall protocol"
-status = "completed"
-# ALL 5 CRITERIA MET — closed 2026-03-15. TLC: 367M safety states + 337K liveness states, 0 errors.
-priority = "medium"
-success_criteria = [
-    "TLA+ model covers packet lifecycle (FREE → FILLING → READY → PROCESSING → DONE → FREE)",
-    "Safety invariants verified: no double-allocation, no lost packets, no data races",
-    "Liveness verified: every request eventually receives a response (under fairness)",
-    "Model covers multi-agent contention (at least 2 GPU agents + 1 host agent)",
-    "Findings documented with any discovered edge cases or protocol improvements",
-]
-
-
-[[epics]]
-id = "gpu-executor"
-title = "GPU-Side Async Executor — dynamic task spawning on GPU"
-status = "completed"
-# ALL 4 CRITERIA MET — closed 2026-03-15
-priority = "high"
-success_criteria = [
-    "Lock-free MPMC work queue compiles to valid PTX (tagged CAS, no ABA)",
-    "TaskSlot arena with type-erased poll_fn — spawn() enqueues, executor polls",
-    "Executor loop: warp dequeues task, lane 0 polls, result broadcast via shfl.sync",
-    "Demo kernel: spawn 4+ async tasks dynamically, all complete correctly",
-]
-
-
-[[epics]]
-id = "extended-std"
-title = "Extended std on GPU — sync primitives + collections via hostcall"
-status = "completed"
-priority = "high"
-# ALL 4 CRITERIA MET — closed 2026-03-15
-success_criteria = [
-    "GPU Mutex<T> via atomic CAS — lock/unlock/try_lock work correctly across warps",
-    "GPU-side HashMap or BTreeMap usable with hostcall-backed allocator",
-    "At least 2 new std types beyond current (File, Vec, String, Box, stdin)",
-    "gpu-libc stubs for new primitives (pthread_mutex_* or custom)",
-]
-
-
-[[epics]]
-id = "compute-utils"
-title = "GPU Compute Utils — expose all internal compute functions as public API"
-status = "completed"
-# ALL 5 CRITERIA MET — 46 public functions in 5 modules, all compile to PTX, docs generated
-priority = "high"
-success_criteria = [
-    "Full audit of all compute functions across codebase (compute_*.rs, helpers.rs, etc.)",
-    "gpu_runtime::compute module with public API: reductions, GEMM, activation functions, etc.",
-    "Warp-level primitives exposed: reduce_sum, scan, ballot, shuffle variants",
-    "Block-level primitives: shared memory helpers, bar_sync, parallel reduction",
-    "All exposed functions compile to valid PTX and have documentation",
-]
-
-
-[[epics]]
-id = "compute-demo"
-title = "GPU Compute Demo — prove async GPU is simpler and faster than raw CUDA"
-status = "completed"
-# ALL 4 CRITERIA MET — pipeline demo + benchmark + docs, benchmarked on real GPU
-priority = "high"
-success_criteria = [
-    "At least one multi-stage compute pipeline demo using compute utils + async orchestration",
-    "Demonstrate elimination of kernel launch overhead vs raw CUDA equivalent",
-    "User-facing quality: clean API, good documentation, easy to understand",
-    "Benchmark data comparing async GPU vs sequential kernel launches",
-]
-
-
-[[epics]]
-id = "gpu-channels"
-title = "GPU Async Channels — inter-task communication on GPU"
-status = "completed"
-# ALL 4 CRITERIA MET — closed 2026-03-15. Oneshot + MPSC + waker + demo all verified on GPU.
-priority = "high"
-success_criteria = [
-    "Oneshot<T> channel: sender.send(val) + receiver.await works between GPU async tasks",
-    "Mpsc<T> channel: multiple senders, single receiver, lock-free ring buffer in mapped memory",
-    "Waker integration: receiver future yields (Pending) until data available, sender wakes receiver",
-    "Demo kernel: producer-consumer pipeline using channels with GpuExecutor",
-]
-
-
-[[epics]]
-id = "benchmarks"
-title = "Benchmarks — hostcall latency, throughput, scalability measurements"
-status = "completed"
-# ALL 4 CRITERIA MET — closed 2026-03-15
-priority = "high"
-success_criteria = [
-    "Hostcall throughput benchmark: sustained calls/sec with 1, 32, 1024 threads",
-    "File I/O benchmark: read/write latency and throughput (inline vs sideband)",
-    "Scalability chart data: latency vs thread count (1 to 1024)",
-    "Results documented with analysis and comparison baseline",
-]
-
-
-[[epics]]
-id = "tokio-bridge"
-title = "Tokio Bridge — bidirectional async coordination between host tokio runtime and GPU"
-status = "completed"
-# ALL 4 CRITERIA MET — closed 2026-03-15. GpuTask API + tokio-offload example.
-priority = "high"
-success_criteria = [
-    "GpuRuntime integrates with tokio runtime (hostcall listener runs as tokio task)",
-    "gpu_spawn() returns a tokio::JoinHandle-like future that resolves when GPU task completes",
-    "Host can await GPU kernel results without blocking the tokio runtime",
-    "Demo: tokio server that offloads compute to GPU via async bridge",
-]
-
-
-[[epics]]
-id = "production-ready"
-title = "Production Readiness — multi-GPU, streams, memory management"
-status = "completed"
-priority = "high"
-# ALL 4 CRITERIA MET — multi-gpu, cuda-streams, gpu-alloc, prebuilt-toolchain all done
-success_criteria = [
-    "GpuRuntime supports multiple GPUs (device selection + multi-context management)",
-    "CUDA stream support for overlapping compute and I/O transfers",
-    "GPU memory pool with deallocation (slab or buddy allocator replaces bump-only)",
-    "Pre-built toolchain binaries via CI (reduce first-time setup to < 10 min)",
-]
-
-# ecosystem-launch epic REMOVED — user explicitly prohibited all publishing/docs-site/blog actions
-
-
-[[epics]]
-id = "tensor-core-gemm"
-title = "Tensor Core GEMM — production-quality MMA kernel with correct precision and real speedup"
-status = "completed"
-# ALL 5 CRITERIA MET — closed 2026-03-15. Split-K f16 MMA: 2.18x throughput, 26ms/token, 3/3 prompts match.
-priority = "highest"
-success_criteria = [
-    "Split-K accumulation: large K dimensions (>=1024) chunked into independent f32 partial sums to prevent rounding error accumulation",
-    "Direct f16 weight loading (no f32->f16 conversion), eliminating input truncation as an error source",
-    "GPT-2 Small f16 MMA inference top-5 tokens match f32 FMA reference (at least 2/3 prompts) — WITHOUT model-side QAT/PTQ",
-    "MMA GEMM throughput >= 2x f32 FMA (Tensor Core hardware advantage must be measurable)",
-    "Per-token latency with MMA significantly lower than current f32 FMA baseline of 68ms/token",
-]
-
-
-[[epics]]
-id = "object-detection"
-title = "GPU Object Detection — YOLOv8-nano inference with hostcall result return"
-status = "completed"
-# ALL 5 CRITERIA MET — closed 2026-03-15
-priority = "high"
-depends_on = "tensor-core-gemm"
-success_criteria = [
-    "Conv2D kernel: f32 FMA or Tensor Core MMA, shared memory tiling, correct stride/padding handling",
-    "Complete YOLO backbone: Conv2D + BatchNorm + SiLU + Upsample + Concat",
-    "Detection head + NMS: output bounding boxes, class ID, confidence score",
-    "End-to-end demo: read image -> GPU inference -> hostcall returns detection results, correctly detect >=3 objects in a single image",
-    "All kernels in pure Rust inline PTX, no cuDNN/cuBLAS dependency",
-]
-
-
-[[epics]]
-id = "developer-experience"
-title = "Developer Experience — cargo xtask, rust-analyzer, onboarding"
-status = "completed"
-priority = "low"
-# Closed by user 2026-03-16
-success_criteria = [
-    "cargo xtask gpu-build compiles host + GPU kernel crates, runs PTX post-processing",
-    "rust-analyzer provides completions and type checking for GPU kernel crates",
-    "Setup script (Linux + Windows) downloads pre-built toolchain and configures environment",
-    "New user onboarding time from clone to first kernel run < 15 minutes (with CUDA installed)",
-]
-
-
-[[epics]]
-id = "ml-framework"
-title = "Mini ML Framework — reusable compute API + inference examples"
-status = "completed"
-# ALL 6 CRITERIA MET — closed 2026-03-15
-priority = "high"
-success_criteria = [
-    "Unified GpuTensor type with shape, strides, device memory — usable across all ops",
-    "gpu_host::nn module with composable ops: Linear, Conv2d, BatchNorm, LayerNorm, activations (SiLU, GELU, Sigmoid, Softmax)",
-    "Host-side kernel launch abstracted — user never writes grid/block size or function names",
-    "GPT-2 inference as standalone example (examples/gpt2-inference/) using nn API",
-    "YOLOv8-nano inference as standalone example (examples/yolo-detect/) using nn API",
-    "examples/ split into hostcall/ (old raw API) and std/ (new patched-std + nn API)",
+    "GPU decision tree inference: load trained tree, classify 10K+ samples in parallel",
+    "GPU random forest: ensemble of 100+ trees, majority-vote, accuracy matches CPU reference",
+    "GPU k-means: Lloyd's algorithm, K=10, 10K+ points, iterative convergence, speedup >= 5x over CPU",
+    "Standalone example in examples/std/classical-ml/",
 ]
 
 # ============================================================
-# Themes (active/parked only — completed themes archived in archive/)
+# Themes (active/pending/parked only — completed → archive/)
 # ============================================================
-
-# (completed themes archived at cycle 365: mma-splitk, yolo-inference, codebase-update, dx-xtask, dx-editor, dx-setup)
-# (archived at cycle 458: ve-nn-unit-tests, ti-cpu-ref, ag-demo, gs-spike, ag2-train-demo, te-cifar, tp-batch-conv, tp-audit, tv-impl, np-mha, ag3-foundation, ag3-lora, lt-mnist-cnn, mp-measure, rn-inference, rn-training, cb-kernels, cb-batched, gl-schema, gl-resnet, gl-yolo, tq-resnet, tq-lora)
-# (archived at cycle 479: rag-embed, rag-pipeline, ag4-batchnorm, ag4-maxpool, ag4-upsample, int8-gemm, int8-gpt2, diffphys-sim, fuse-gemm-act, persist-kernel)
-# (archived at cycle 510: onnx-parser, onnx-executor, onnx-transformer, onnx-breadth, fuse-nn-api, int4-kernel, int4-gpt2, gc-ir, gc-codegen)
-
+# Completed themes archived at workflow v2 migration (cycle 594):
+# onnx-fix, refactor-quality, refactor-api, onnx-cache, onnx-gpu-ops,
+# refactor-v2-code, refactor-v2-perf, refactor-v2-test, onnx-conv-prepad,
+# onnx-resnet-acc, onnx-mobilenet, dyn-control, graph-bfs, int4-integrate,
+# mc-finance, bench-kernels, bench-e2e, perf-gemm
 
 [[themes]]
 id = "warp-batch-io"
 epic = "async-std"
 title = "Warp-batched hostcall — 32 lanes share 1 packet"
 status = "parked"
-# PARKED at cycle 350 — user reprioritized: tensor-core-gemm and object-detection come first
 goal = "Lane 0 submits hostcall, result broadcast via shfl.sync to all lanes"
 success_criteria = [
     "GpuOpenFuture with lane-0-submits pattern",
     "Full pipeline with 32 active lanes sharing hostcall",
     "Benchmark: >=10x throughput improvement on uniform I/O vs per-lane",
 ]
-# UNPARKED at cycle 349 — executor + std settled, ready to implement
-
-# (completed themes archived at cycle 342: channel-mpsc, channel-waker, channel-demo, tokio-investigate, tokio-impl, tokio-demo)
-# (completed themes archived at cycle 349: multi-gpu, cuda-streams, gpu-alloc, prebuilt-toolchain)
-
-# ============================================================
-# Tasks (pending/active only — done tasks archived in archive/)
-# ============================================================
-
-# (done tasks archived at cycle 342: tokio-investigate.1-2, tokio-impl.1, tokio-demo.1)
-# (done tasks archived at cycle 349: multi-gpu.1-2, cuda-streams.1-3, gpu-alloc.1, prebuilt-toolchain.1-2)
-# (done tasks archived at cycle 365: mma-splitk.1-5, yolo-inference.1-8, codebase-update.1-3, dx-xtask.1-3, dx-editor.1-2, dx-setup.1-2)
-# (archived at cycle 458: ve-nn-unit-tests.4, ti-cpu-ref.5, ag-demo.1, gs-spike.1-2, ag2-train-demo.2, te-cifar.3, tp-batch-conv.1-2, tp-audit.1-4, tv-impl.1-3, np-mha.1, ag3-foundation.1-5[skipped], ag3-lora.1-3, lt-mnist-cnn.1, mp-measure.1, rn-inference.1-2, rn-training.1-2, cb-kernels.1-3, cb-batched.1-2, gl-schema.1-3, gl-resnet.1-2, gl-yolo.1, tq-resnet.1, tq-lora.1)
-# (archived at cycle 479: rag-embed.1-3, rag-pipeline.1-3, ag4-batchnorm.1-2, ag4-maxpool.1, ag4-upsample.1, int8-gemm.1-2, int8-gpt2.1-2, diffphys-sim.1-4, fuse-gemm-act.1-2, persist-kernel.1-3)
-# (archived at cycle 510: onnx-parser.1-3, onnx-executor.1-4, onnx-transformer.1-3, onnx-breadth.1-2, fuse-nn-api.1-3, int4-kernel.1-3, int4-gpt2.1-2, gc-ir.1-3, gc-codegen.1-3)
-
-
-[[tasks]]
-id = "warp-batch-io.2"
-theme = "warp-batch-io"
-title = "Experiment: implement lane-0-submits pattern in GpuOpenFuture"
-kind = "experiment"
-status = "pending"
-depends = ["warp-batch-io.1"]
-
-
-[[tasks]]
-id = "warp-batch-io.3"
-theme = "warp-batch-io"
-title = "Experiment: full 32-lane pipeline with shared hostcall packets"
-kind = "experiment"
-status = "pending"
-depends = ["warp-batch-io.2"]
-
-
-[[tasks]]
-id = "warp-batch-io.4"
-theme = "warp-batch-io"
-title = "Experiment: benchmark per-lane vs batched hostcall throughput"
-kind = "experiment"
-status = "pending"
-depends = ["warp-batch-io.3"]
-
-# ============================================================
-# Brainstorms (last 3 only — older brainstorms archived)
-# ============================================================
-
-# (brainstorms 89-97 archived at cycle 342/349/356/365/367)
-# (brainstorms 98-100 archived at cycle 458/479)
-# (brainstorms 101-102 archived at cycle 510)
-
-
-[[brainstorms]]
-seq = 107
-at_cycle = 458
-trigger = "All high-priority epics completed, only codebase-health active"
-level = "standard"
-new_tasks_spawned = ["rag-embed.1", "rag-embed.2", "rag-embed.3", "rag-pipeline.1", "rag-pipeline.2", "rag-pipeline.3"]
-new_themes_spawned = ["rag-embed", "rag-pipeline"]
-new_epics_spawned = ["gpu-rag"]
-themes_parked = []
-themes_completed = []
-key_insight = "GPU-Autonomous RAG is the killer app for the async model — combines hostcall I/O + real GPU compute (embedding, search, generation) in a single persistent kernel. Also identified: autograd-v4 (fix backward correctness), kernel fusion, persistent kernels as future epics."
-
-
-[[brainstorms]]
-seq = 108
-at_cycle = 479
-trigger = "User directed: ONNX → kernel-fusion reopen → INT4 → Graph Compiler"
-level = "quick"
-new_tasks_spawned = ["onnx-parser.1", "onnx-parser.2", "onnx-parser.3", "onnx-executor.1", "onnx-executor.2", "onnx-executor.3", "onnx-executor.4", "onnx-transformer.1", "onnx-transformer.2", "onnx-transformer.3", "onnx-breadth.1", "onnx-breadth.2", "fuse-nn-api.1", "fuse-nn-api.2", "fuse-nn-api.3", "int4-kernel.1", "int4-kernel.2", "int4-kernel.3", "int4-gpt2.1", "int4-gpt2.2", "gc-ir.1", "gc-ir.2", "gc-ir.3", "gc-codegen.1", "gc-codegen.2", "gc-codegen.3"]
-new_themes_spawned = ["onnx-parser", "onnx-executor", "onnx-transformer", "onnx-breadth", "fuse-nn-api", "int4-kernel", "int4-gpt2", "gc-ir", "gc-codegen"]
-new_epics_spawned = ["onnx-inference", "kernel-fusion-v2", "int4-quantization", "graph-compiler"]
-themes_parked = []
-themes_completed = []
-key_insight = "4 epics, 9 themes, 26 tasks. ONNX is highest priority (makes framework usable). kernel-fusion-v2 reopens deferred criteria. INT4 builds on INT8 dp4a. Graph compiler is long-term optimization."
-
-# ============================================================
-# Completed epics kept inline (not archived per user policy)
-# ============================================================
-
-[[epics]]
-id = "gpu-rag"
-title = "GPU-Autonomous RAG — retrieval + generation in a single pipeline"
-status = "completed"
-# 4/5 criteria met. Criterion 3 (hostcall round-trips) deferred — demo uses nn API orchestration
-priority = "high"
-success_criteria = [
-    "DONE: Vector store: 1030 text chunks embedded via wte averaging, stored on GPU",
-    "DONE: Full pipeline: query → wte embedding → GPU matmul cosine similarity → top-K → GPT-2 generation → output",
-    "DEFERRED: hostcall round-trips — pipeline uses nn API (host-orchestrated GPU kernels), not raw hostcall kernel",
-    "DONE: Search 0.8ms + generation 237ms/tok — latency dominated by GPT-2 generation, no overhead from pipeline",
-    "DONE: Standalone example in examples/std/gpu-rag/",
-]
-
-# (gpu-rag themes+tasks archived at cycle 479: rag-embed, rag-pipeline, rag-embed.1-3, rag-pipeline.1-3)
-
-[[epics]]
-id = "autograd-v4"
-title = "Autograd v4 — GPU-native backward passes for all ops"
-status = "completed"
-# ALL 4 CRITERIA MET — BN GPU kernel, MaxPool2d gradient routing, UpsampleNearest 4-to-1 accumulation
-priority = "high"
-success_criteria = [
-    "BatchNorm2d backward: GPU kernel computing dInput, dGamma, dBeta (no CPU roundtrip)",
-    "MaxPool2d backward: proper gradient routing through stored max indices",
-    "UpsampleNearest backward: correct 4-to-1 gradient accumulation",
-    "Numerical gradient check passes for each fixed op (finite differences, tolerance < 1e-3)",
-]
-
-# (autograd-v4 themes+tasks archived at cycle 479: ag4-batchnorm.1-2, ag4-maxpool.1, ag4-upsample.1)
-
-[[epics]]
-id = "int8-inference"
-title = "INT8 Quantized Inference — post-training quantization for GPT-2"
-status = "completed"
-# 2/4 criteria met, 2 deferred. dp4a kernel works, quantization correct (1.3% error). Full model + perf need tiled dp4a.
-priority = "high"
-success_criteria = [
-    "DONE: INT8 GEMM kernel using dp4a instruction (4× INT8 dot product → INT32)",
-    "DONE: Post-training quantization: f32 weights → INT8 with per-channel scale factors (1.3% rel err)",
-    "DEFERRED: GPT-2 full INT8 inference — needs tiled dp4a for competitive perf",
-    "DEFERRED: Per-token latency improvement — naive dp4a is 7-10x slower than tiled f32, needs shared memory tiling",
-]
-
-# (int8-inference themes+tasks archived at cycle 479: int8-gemm.1-2, int8-gpt2.1-2)
-
-[[epics]]
-id = "diff-physics"
-title = "Differentiable Physics — GPU-accelerated differentiable simulation"
-status = "completed"
-# ALL 5 CRITERIA MET — gravity 47.1x GPU speedup, spring-mass optimization converges, standalone example
-priority = "high"
-success_criteria = [
-    "GPU particle simulation: N-body gravity or spring-mass system, >= 1000 particles, >= 100 timesteps",
-    "Differentiable: backward pass computes gradients w.r.t. initial positions/velocities",
-    "Optimization: find initial conditions that achieve a target final state",
-    "GPU speedup >= 5x over CPU reference for the forward simulation",
-    "Standalone example in examples/std/diff-physics/",
-]
-
-# (diff-physics themes+tasks archived at cycle 479: diffphys-sim.1-4)
-
-[[epics]]
-id = "kernel-fusion"
-title = "Kernel Fusion v1 — fused GEMM+bias+activation kernels"
-status = "completed"
-# 2/4 met. Fused PTX kernels ready. GPT-2 nn API integration deferred (needs Linear layer changes).
-priority = "high"
-success_criteria = [
-    "DONE: Fused gemm_bias_gelu kernel: GEMM + bias add + GELU in single launch",
-    "DONE: Fused gemm_bias_relu kernel: GEMM + bias add + ReLU in single launch",
-    "DEFERRED: GPT-2 nn API integration (requires Linear layer to detect + dispatch fused path)",
-    "DEFERRED: 15% latency reduction (needs integration first)",
-]
-
-# (kernel-fusion themes+tasks archived at cycle 479: fuse-gemm-act.1-2)
-
-[[epics]]
-id = "persistent-kernel"
-title = "Persistent Kernel — long-running GPU compute with dynamic work dispatch"
-status = "completed"
-# 3/4 criteria met. Dispatch < 10µs: NO (16.1µs, re-launch is faster at 9.5µs). API works.
-priority = "high"
-success_criteria = [
-    "Persistent kernel stays alive across 100+ work items without re-launch",
-    "Work dispatch latency < 10μs (vs ~50μs for kernel re-launch)",
-    "At least one real workload benefits (e.g., many small GEMM dispatches)",
-    "Clean API: PersistentScheduler::submit(work_item) from host side",
-]
-
-# (persistent-kernel themes+tasks archived at cycle 479: persist-kernel.1-3)
-
-[[epics]]
-id = "onnx-inference"
-title = "ONNX Runtime — load and execute arbitrary ONNX models on GPU"
-status = "completed"
-# ALL 8 CRITERIA MET — parser, executor, 41+ ops, ResNet 91.2%, GPT-2 coherent text, MobileNetV2 e2e
-priority = "high"
-success_criteria = [
-    # Phase 1: Parser + Core (CNN)
-    "ONNX protobuf parser: load .onnx file into typed graph IR (nodes, tensors, initializers)",
-    "Graph executor: topological sort nodes, allocate intermediate tensors, dispatch sequentially",
-    "Core 15 ops: Conv, MatMul, Relu, BatchNormalization, MaxPool, Add, Reshape, Transpose, Softmax, Concat, Flatten, Gather, Unsqueeze, Squeeze, Clip",
-    "ResNet-18 ONNX inference matches from_safetensors path (>90% CIFAR-10)",
-    # Phase 2: Transformer
-    "Transformer ops: Where, Cast, Slice, Split, Expand, LayerNormalization, Erf (for GELU)",
-    "GPT-2 ONNX inference produces coherent text (top-5 match safetensors path for ≥2/3 prompts)",
-    # Phase 3: Breadth
-    "At least 30 ONNX operators implemented and tested",
-    "MobileNetV2 or EfficientNet-Lite ONNX runs end-to-end correctly",
-]
-
-# (onnx-inference themes+tasks archived at cycle 510: onnx-parser.1-3, onnx-executor.1-4, onnx-transformer.1-3, onnx-breadth.1-2)
-
-[[epics]]
-id = "kernel-fusion-v2"
-title = "Kernel Fusion v2 — integrate fused GEMM+activation into nn API + GPT-2 speedup"
-status = "completed"
-# matmul_fused + Linear::forward_fused work. GPT-2 reverted: pre-padded B path is faster. Needs fused_prepadded_b for actual speedup.
-priority = "high"
-depends_on = "kernel-fusion"
-success_criteria = [
-    "Linear layer detects subsequent activation and dispatches fused kernel (gemm_bias_gelu / gemm_bias_relu)",
-    "GPT-2 nn API per-token latency reduced ≥15% from fusion (baseline: ~79ms/token)",
-    "ONNX executor uses fused dispatch for MatMul+Add+Relu patterns",
-    "No accuracy regression: GPT-2 output identical to unfused path",
-]
-
-# (kernel-fusion-v2 themes+tasks archived at cycle 510: fuse-nn-api.1-3)
-
-[[epics]]
-id = "int4-quantization"
-title = "INT4 Quantized Inference — GPTQ-style 4-bit weights for GPT-2"
-status = "completed"
-# 3/5 criteria met. INT4 kernel + host wrapper + Python quantizer (4.7x). GPT-2 INT4 Linear layer deferred.
-priority = "medium"
-depends_on = "int8-inference"
-success_criteria = [
-    "INT4 dequantization kernel: unpack 4-bit weights from u32, scale to f32 per group",
-    "INT4 GEMM: dequantize on-the-fly during matmul (W4A16 — 4-bit weights, 16-bit activations)",
-    "Quantize GPT-2 weights to INT4 with per-group scales (group_size=128)",
-    "GPT-2 INT4 inference produces coherent text (top-5 match f32 for ≥2/3 prompts)",
-    "Model memory reduced ≥3x (from ~500MB f32 to ~170MB INT4+scales)",
-]
-
-# (int4-quantization themes+tasks archived at cycle 510: int4-kernel.1-3, int4-gpt2.1-2)
-
-[[epics]]
-id = "graph-compiler"
-title = "Graph Compiler — automatic operator fusion for nn API and ONNX"
-status = "completed"
-priority = "medium"
-depends_on = "onnx-inference"
-success_criteria = [
-    "Graph IR: represent nn forward pass as a DAG of typed tensor operations",
-    "Fusion passes: detect and fuse elementwise chains (e.g., Add+Relu, GEMM+Bias+GELU)",
-    "Code generation: emit fused GPU kernel from fused subgraph (template-based, not JIT)",
-    "ONNX executor uses graph compiler for automatic fusion",
-    "Measurable speedup: ≥20% on GPT-2 or ResNet-18 ONNX inference",
-]
-
-# (graph-compiler themes+tasks archived at cycle 510: gc-ir.1-3, gc-codegen.1-3)
-
-# ============================================================
-# ONNX Fix + Benchmark (reopen onnx-inference)
-# ============================================================
-
-[[themes]]
-id = "onnx-fix"
-epic = "onnx-inference"
-title = "Fix ONNX runtime — raw_data parsing, ResNet e2e, GPT-2 e2e, benchmark"
-status = "completed"
-goal = "ONNX executor runs real models correctly with performance measurement"
-success_criteria = [
-    "raw_data (tag 9) correctly parsed for ALL initializers (fix prost decode issue)",
-    "ResNet-18 ONNX inference produces valid logits (no empty initializers)",
-    "GPT-2 ONNX inference produces coherent text",
-    "Benchmark: ONNX executor latency vs native nn API on same model",
-]
-
-[[tasks]]
-id = "onnx-fix.1"
-theme = "onnx-fix"
-title = "Fix raw_data parsing — diagnose why some TensorProto.raw_data decode as empty"
-kind = "experiment"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "onnx-fix.2"
-theme = "onnx-fix"
-title = "Export ResNet-18 ONNX with all weights embedded, run e2e inference"
-kind = "experiment"
-status = "done"
-depends = ["onnx-fix.1"]
-
-[[tasks]]
-id = "onnx-fix.3"
-theme = "onnx-fix"
-title = "Run GPT-2 ONNX inference, verify coherent text output"
-kind = "experiment"
-status = "done"
-depends = ["onnx-fix.1"]
-
-[[tasks]]
-id = "onnx-fix.4"
-theme = "onnx-fix"
-title = "Benchmark ONNX executor vs native nn API (latency comparison)"
-kind = "experiment"
-status = "done"
-depends = ["onnx-fix.2", "onnx-fix.3"]
-
-# ============================================================
-# Epic: Codebase Refactor
-# ============================================================
-
-[[epics]]
-id = "refactor"
-title = "Codebase Refactor — dead code, API cleanup, test coverage, code quality"
-status = "completed"
-priority = "high"
-success_criteria = [
-    "Zero clippy warnings on `cargo clippy -p gpu-host --features nn,gpt2,onnx`",
-    "dispatch_node() split into per-category handler functions (<80 lines each)",
-    "All unwrap() in library code (nn/, onnx_rt/) replaced with ? or map_err",
-    "Quantization pack/unpack extracted to shared utility (INT8 + INT4 reuse)",
-    "Example boilerplate uses KernelRegistry::init_default() (all 9 examples)",
-    "Public API audit: internal helpers marked pub(crate), not pub",
-]
-
-[[themes]]
-id = "refactor-quality"
-epic = "refactor"
-title = "Code quality — clippy, unwrap, large functions, dead code"
-status = "completed"
-goal = "Clean up code quality issues across the codebase"
-success_criteria = [
-    "Zero clippy warnings",
-    "dispatch_node() split into handler functions",
-    "unwrap() → Result in lib code",
-]
-
-[[tasks]]
-id = "refactor-quality.1"
-theme = "refactor-quality"
-title = "Fix all clippy warnings in gpu-host (nn, gpt2, onnx features)"
-kind = "experiment"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "refactor-quality.2"
-theme = "refactor-quality"
-title = "Split dispatch_node() into per-category handlers (activation, gemm, conv, shape, etc)"
-kind = "experiment"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "refactor-quality.3"
-theme = "refactor-quality"
-title = "Replace unwrap() with ? in all nn/ and onnx_rt/ library code"
-kind = "experiment"
-status = "done"
-depends = []
-
-[[themes]]
-id = "refactor-api"
-epic = "refactor"
-title = "API cleanup — pub(crate), example boilerplate, quantization utils"
-status = "completed"
-goal = "Clean public API surface and reduce example duplication"
-success_criteria = [
-    "All 9 examples use init_default()",
-    "Quantization utilities extracted",
-    "Internal helpers marked pub(crate)",
-]
-
-[[tasks]]
-id = "refactor-api.1"
-theme = "refactor-api"
-title = "Migrate all 9 examples to KernelRegistry::init_default()"
-kind = "experiment"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "refactor-api.2"
-theme = "refactor-api"
-title = "Extract shared quantization pack/unpack utilities from gemm.rs"
-kind = "experiment"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "refactor-api.3"
-theme = "refactor-api"
-title = "Audit pub visibility — mark internal helpers as pub(crate)"
-kind = "experiment"
-status = "done"
-depends = []
-
-# ============================================================
-# Epic: ONNX Performance Optimization
-# ============================================================
-
-[[epics]]
-id = "onnx-perf"
-title = "ONNX Performance — close gap with native nn API"
-status = "completed"
-priority = "high"
-success_criteria = [
-    "Initializers cached across inference runs (upload once, reuse)",
-    "ResNet-18 ONNX latency < 25ms (from 47.2ms, target: within 2x of native 15.7ms)",
-    "CPU-fallback ops (ReduceMean, Reshape) replaced with GPU-only paths where possible",
-    "GPT-2 ONNX single forward pass completes in < 5 seconds",
-]
-
-[[themes]]
-id = "onnx-cache"
-epic = "onnx-perf"
-title = "Initializer caching + weight prepadding"
-status = "completed"
-goal = "Eliminate per-inference weight upload overhead"
-success_criteria = [
-    "OnnxSession struct caches uploaded initializers across runs",
-    "ResNet-18 ONNX < 25ms with caching",
-]
-
-[[tasks]]
-id = "onnx-cache.1"
-theme = "onnx-cache"
-title = "Implement OnnxSession with initializer caching (upload once)"
-kind = "experiment"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "onnx-cache.2"
-theme = "onnx-cache"
-title = "Benchmark cached ONNX vs native nn API on ResNet-18"
-kind = "experiment"
-status = "done"
-depends = ["onnx-cache.1"]
-
-[[themes]]
-id = "onnx-gpu-ops"
-epic = "onnx-perf"
-title = "Replace CPU-fallback ops with GPU paths"
-status = "completed"
-goal = "Eliminate to_host() round-trips in hot path ops"
-success_criteria = [
-    "ReduceMean uses GPU reduction kernel (no to_host)",
-    "Mul/Sub/Div use GPU elementwise kernels",
-    "GPT-2 ONNX forward pass < 5 seconds",
-]
-
-[[tasks]]
-id = "onnx-gpu-ops.1"
-theme = "onnx-gpu-ops"
-title = "Replace CPU-fallback Mul/Sub/Div/Pow/Sqrt with GPU elementwise ops"
-kind = "experiment"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "onnx-gpu-ops.2"
-theme = "onnx-gpu-ops"
-title = "GPU ReduceMean kernel for 4D tensors"
-kind = "experiment"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "onnx-gpu-ops.3"
-theme = "onnx-gpu-ops"
-title = "Run GPT-2 ONNX full forward pass, benchmark latency"
-kind = "experiment"
-status = "done"
-depends = ["onnx-cache.1", "onnx-gpu-ops.1"]
-
-# ============================================================
-# Refactor v2 — 做完上次跳過的所有項目
-# ============================================================
-
-[[epics]]
-id = "refactor-v2"
-title = "Refactor v2 — 完成所有跳過的重構項目 + ONNX 效能優化"
-status = "completed"
-priority = "highest"
-success_criteria = [
-    "resnet.rs 的 5 個 Option::unwrap() 改成 ok_or(NnError)",
-    "INT8/INT4 quantization pack/unpack 提取到 nn/ops/quantize.rs 共用模組",
-    "pub(crate) 審計：所有非公開 API 的 helper 標為 pub(crate)",
-    "dead code 清理：移除未使用的函式和 import",
-    "magic number 常量化：所有 magic number 提取為 named constant",
-    "ONNX executor CPU-fallback ops 改為 GPU 路徑 (Mul/Sub/Div/Pow/Sqrt/Exp/Neg)",
-    "ONNX Conv2d weight prepadding cache (最大效能改善)",
-    "ResNet-18 ONNX < 25ms (目前 43ms, native 15.7ms)",
-    "GPT-2 ONNX single forward pass 實際執行並計時",
-    "新增 unit test: Int4Linear, OnnxSession, quantize utils",
-]
-
-[[themes]]
-id = "refactor-v2-code"
-epic = "refactor-v2"
-title = "代碼品質 — unwrap, pub(crate), dead code, magic numbers, quantize utils"
-status = "completed"
-goal = "徹底清理代碼品質問題"
-success_criteria = [
-    "unwrap() 修復",
-    "pub(crate) 審計完成",
-    "quantization utils 提取",
-    "magic numbers 常量化",
-]
-
-[[tasks]]
-id = "rv2-unwrap.1"
-theme = "refactor-v2-code"
-title = "Fix resnet.rs Option::unwrap() → ok_or(NnError) + backward.rs + optim.rs"
-kind = "experiment"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "rv2-quant.1"
-theme = "refactor-v2-code"
-title = "Extract INT8+INT4 pack/unpack into nn/ops/quantize.rs shared module"
-kind = "experiment"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "rv2-pub.1"
-theme = "refactor-v2-code"
-title = "pub(crate) audit: scan all pub fn/struct in nn/ and onnx_rt/, mark internal ones"
-kind = "experiment"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "rv2-dead.1"
-theme = "refactor-v2-code"
-title = "Dead code cleanup: unused functions, imports, variables across gpu-host"
-kind = "experiment"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "rv2-magic.1"
-theme = "refactor-v2-code"
-title = "Extract all magic numbers to named constants"
-kind = "experiment"
-status = "done"
-depends = []
-
-[[themes]]
-id = "refactor-v2-perf"
-epic = "refactor-v2"
-title = "ONNX 效能 — GPU-side ops + weight prepadding + GPT-2 forward"
-status = "completed"
-goal = "ResNet-18 ONNX < 25ms, GPT-2 forward pass 實際執行"
-success_criteria = [
-    "CPU-fallback elementwise ops 改 GPU",
-    "Conv2d weight prepadding cache",
-    "ResNet-18 < 25ms",
-    "GPT-2 forward pass 計時",
-]
-
-[[tasks]]
-id = "rv2-gpu-elem.1"
-theme = "refactor-v2-perf"
-title = "GPU elementwise kernels for Mul/Sub/Div/Neg (replace to_host round-trips)"
-kind = "experiment"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "rv2-prepad.1"
-theme = "refactor-v2-perf"
-title = "OnnxSession: pre-transpose+pad Conv/Gemm weights at session creation"
-kind = "experiment"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "rv2-bench.1"
-theme = "refactor-v2-perf"
-title = "Benchmark ResNet-18 ONNX with all optimizations, target < 25ms"
-kind = "experiment"
-status = "done"
-depends = ["rv2-gpu-elem.1", "rv2-prepad.1"]
-
-[[tasks]]
-id = "rv2-gpt2.1"
-theme = "refactor-v2-perf"
-title = "Run GPT-2 ONNX forward pass end-to-end, measure latency"
-kind = "experiment"
-status = "done"
-depends = ["rv2-gpu-elem.1"]
-
-[[themes]]
-id = "refactor-v2-test"
-epic = "refactor-v2"
-title = "Unit tests — Int4Linear, OnnxSession, quantize utils"
-status = "completed"
-goal = "新增缺失的 unit test"
-success_criteria = [
-    "Int4Linear forward test",
-    "OnnxSession run test",
-    "quantize pack/unpack test",
-]
-
-[[tasks]]
-id = "rv2-test.1"
-theme = "refactor-v2-test"
-title = "Add unit tests for Int4Linear, OnnxSession, quantize pack/unpack"
-kind = "experiment"
-status = "done"
-depends = ["rv2-quant.1"]
-
-# ============================================================
-# ONNX inference — remaining unmet criteria
-# ============================================================
 
 [[themes]]
 id = "onnx-gpt2-gen"
@@ -1011,171 +272,6 @@ success_criteria = [
     "Benchmark single forward pass latency",
 ]
 
-[[tasks]]
-id = "onnx-gpt2-gen.1"
-theme = "onnx-gpt2-gen"
-title = "Run GPT-2 ONNX single forward pass, fix any op errors"
-kind = "experiment"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "onnx-gpt2-gen.2"
-theme = "onnx-gpt2-gen"
-title = "GPT-2 ONNX autoregressive generation (10+ tokens)"
-kind = "experiment"
-status = "done"
-depends = ["onnx-gpt2-gen.1"]
-
-[[themes]]
-id = "onnx-conv-prepad"
-epic = "onnx-inference"
-title = "Conv2d weight prepadding in OnnxSession"
-status = "completed"
-goal = "Reduce ResNet ONNX from 43ms toward 25ms"
-success_criteria = [
-    "Conv2d weights pre-im2col'd at session creation",
-    "ResNet-18 ONNX < 30ms",
-]
-
-[[tasks]]
-id = "onnx-conv-prepad.1"
-theme = "onnx-conv-prepad"
-title = "Pre-compute im2col column matrix for Conv weights in OnnxSession"
-kind = "experiment"
-status = "done"
-depends = []
-
-[[brainstorms]]
-seq = 109
-at_cycle = 535
-trigger = "All tasks done, active epics have unmet criteria"
-level = "quick"
-new_tasks_spawned = ["onnx-gpt2-gen.1", "onnx-gpt2-gen.2", "onnx-conv-prepad.1"]
-new_themes_spawned = ["onnx-gpt2-gen", "onnx-conv-prepad"]
-new_epics_spawned = []
-themes_parked = []
-themes_completed = []
-key_insight = "ONNX epic has 3 unmet criteria: GPT-2 text gen, Conv prepad perf, MobileNet. GPT-2 forward pass is the highest priority — proves the 41-op executor works on a real transformer."
-
-[[tasks]]
-id = "onnx-gpt2-debug.1"
-theme = "onnx-gpt2-gen"
-title = "Debug GPT-2 ONNX logit divergence — compare node-by-node with native API"
-kind = "investigation"
-status = "done"
-depends = []
-
-[[themes]]
-id = "onnx-resnet-acc"
-epic = "onnx-inference"
-title = "ResNet-18 ONNX accuracy — export key mapping + GAP batch dim"
-status = "completed"
-goal = "ResNet-18 ONNX achieves >90% on CIFAR-10"
-success_criteria = [
-    "Export script maps safetensors keys to PyTorch model keys",
-    "GlobalAveragePool preserves batch dimension for 4D input",
-    "Our ONNX executor matches ORT accuracy (91.2%)",
-]
-
-[[tasks]]
-id = "onnx-resnet-acc.1"
-theme = "onnx-resnet-acc"
-title = "Fix ResNet ONNX export key mapping + GlobalAveragePool batch dim"
-kind = "experiment"
-status = "done"
-depends = []
-
-[[themes]]
-id = "onnx-mobilenet"
-epic = "onnx-inference"
-title = "MobileNetV2 ONNX — Identity op + grouped conv"
-status = "completed"
-goal = "MobileNetV2 runs end-to-end through ONNX executor"
-success_criteria = [
-    "Identity op implemented",
-    "Grouped convolution (depthwise separable) supported",
-    "MobileNetV2 produces valid 1000-class output",
-]
-
-[[tasks]]
-id = "onnx-mobilenet.1"
-theme = "onnx-mobilenet"
-title = "Add Identity op + grouped conv support, run MobileNetV2 e2e"
-kind = "experiment"
-status = "done"
-depends = []
-
-# ============================================================
-# NEW EPICS — BS110 Strategic Direction
-# ============================================================
-
-[[epics]]
-id = "classical-ml"
-title = "Classical ML on GPU — decision trees, random forest, k-means"
-status = "pending"
-priority = "high"
-success_criteria = [
-    "GPU decision tree inference: load trained tree, classify 10K+ samples in parallel",
-    "GPU random forest: ensemble of 100+ trees, majority-vote, accuracy matches CPU reference",
-    "GPU k-means: Lloyd's algorithm, K=10, 10K+ points, iterative convergence, speedup >= 5x over CPU",
-    "Standalone example in examples/std/classical-ml/",
-]
-
-[[epics]]
-id = "gpu-dynamic"
-title = "Dynamic Control Flow on GPU — the advantage over CUDA graphs"
-status = "completed"
-priority = "high"
-success_criteria = [
-    "Variable-length text generation: GPT-2 stops at EOS token, different samples finish at different lengths",
-    "Early-exit inference: model skips remaining layers when confidence exceeds threshold",
-    "Data-dependent branching demo: GPU kernel takes different compute paths based on input data",
-    "At least one demo that is impossible with CUDA graphs / TensorRT static compilation",
-]
-
-[[epics]]
-id = "graph-algorithms"
-title = "Graph Algorithms on GPU — BFS, PageRank with async scheduling"
-status = "completed"
-priority = "high"
-success_criteria = [
-    "CSR (Compressed Sparse Row) graph representation loaded on GPU",
-    "GPU BFS: level-synchronous on 100K+ vertex graph, correctness matches CPU reference",
-    "GPU PageRank: iterative until convergence (delta < 1e-6), matches CPU within 1e-4",
-    "GPU speedup >= 3x over CPU for graphs with 100K+ edges",
-    "Standalone example in examples/std/graph-algorithms/",
-]
-
-[[epics]]
-id = "int4-gpt2"
-title = "INT4 GPT-2 Inference — complete the deferred 4-bit inference"
-status = "completed"
-priority = "medium"
-depends_on = "int4-quantization"
-success_criteria = [
-    "Int4Linear integrated into GPT-2 model (replace Linear layers)",
-    "GPT-2 INT4 inference produces coherent text (top-5 match f32 for >= 2/3 prompts)",
-    "Model memory reduced >= 3x from f32 baseline",
-    "Per-token latency measured and documented",
-]
-
-[[epics]]
-id = "monte-carlo"
-title = "Monte Carlo Simulations — GPU PRNG, option pricing, convergence"
-status = "completed"
-priority = "medium"
-success_criteria = [
-    "GPU PRNG (xoshiro256++ or similar): 10K+ independent streams, passes basic statistical test",
-    "Black-Scholes Monte Carlo: 1M+ paths, result within 1% of analytical price",
-    "Pi estimation: 10M+ random points, accurate to 4+ decimal places",
-    "GPU speedup >= 10x over CPU for 1M-path Monte Carlo",
-]
-
-# ============================================================
-# NEW THEMES + TASKS — BS110
-# ============================================================
-
 [[themes]]
 id = "cml-tree"
 epic = "classical-ml"
@@ -1187,6 +283,177 @@ success_criteria = [
     "Random forest: ensemble aggregation with majority vote",
     "Accuracy matches CPU scikit-learn reference",
 ]
+
+[[themes]]
+id = "cml-kmeans"
+epic = "classical-ml"
+title = "k-means clustering on GPU"
+status = "parked"
+goal = "Lloyd's algorithm with GPU distance computation + centroid update"
+success_criteria = [
+    "GPU k-means converges to correct clusters",
+    "Speedup >= 5x over CPU reference",
+]
+
+# --- kernel-perf themes ---
+
+[[themes]]
+id = "perf-attention"
+epic = "kernel-perf"
+title = "FlashAttention-2 — MMA tiled GEMM + online softmax"
+status = "active"
+goal = "Attention throughput >= 50% of cuDNN FA2"
+success_criteria = [
+    "Q tile in shared memory for cooperative tiled GEMM",
+    "Score GEMM (Q·K^T) via MMA or tiled register-blocked matmul",
+    "P·V accumulation via tiled GEMM (not scalar loop)",
+    "Warp-level parallel softmax reduction",
+    "seq=512, 12 heads: throughput >= 1200 GFLOPS",
+]
+
+[[themes]]
+id = "perf-conv"
+epic = "kernel-perf"
+title = "High-performance Conv2D — Winograd + direct conv"
+status = "active"
+goal = "Conv2D >= 60% of cuDNN for common shapes"
+success_criteria = [
+    "Winograd F(4×4, 3×3) for 3×3 convolutions (2.25x FLOPs reduction)",
+    "Direct conv kernel for non-3×3 sizes (shared memory tiling)",
+    "im2col completely eliminated from forward path",
+    "GPU-side batch processing (no PCIe round-trips)",
+    "ResNet layer2 (64→128, 32×32, k=3): >= 1200 GFLOPS",
+]
+
+[[themes]]
+id = "perf-layernorm"
+epic = "kernel-perf"
+title = "High-performance LayerNorm — single-pass + vectorized"
+status = "active"
+goal = "LayerNorm >= 180 GB/s (60% of peak bandwidth)"
+success_criteria = [
+    "Single-pass Welford algorithm (mean + variance in one read)",
+    "256 threads per block with shared memory two-level reduction",
+    "float4 coalesced loads (128-bit transactions)",
+    "Fused LayerNorm + residual add variant",
+    "128×768 matrix: >= 180 GB/s",
+]
+
+[[themes]]
+id = "perf-elementwise"
+epic = "kernel-perf"
+title = "Vectorized elementwise ops — float4 + multi-element per thread"
+status = "pending"
+goal = "elementwise >= 240 GB/s, GELU >= 200 GB/s (80%+ of peak)"
+success_criteria = [
+    "float4 vectorized loads/stores for all elementwise ops",
+    "4-8 elements per thread for latency hiding",
+    "GELU fast approximation: x * sigmoid(1.702x)",
+    "elementwise_add >= 240 GB/s, gelu >= 200 GB/s",
+]
+
+[[themes]]
+id = "perf-e2e"
+epic = "kernel-perf"
+title = "End-to-end validation — GPT-2 < 35ms, YOLO < 80ms"
+status = "pending"
+goal = "Verify all kernel improvements compound to model-level speedup"
+success_criteria = [
+    "GPT-2 forward pass (seq=128) < 35ms (from 221ms)",
+    "YOLOv8-nano inference < 100ms (from 374ms)",
+    "No accuracy regression on any model",
+]
+
+[[themes]]
+id = "perf-fusion"
+epic = "kernel-perf"
+title = "Op Fusion — fuse LayerNorm+residual, reduce kernel launches"
+status = "active"
+goal = "Reduce GPT-2 per-block overhead by fusing small ops"
+success_criteria = [
+    "Fused LayerNorm + residual add kernel (1 kernel instead of 2)",
+    "GPT-2 per-block time reduced by >= 0.3ms from fusion",
+]
+
+[[themes]]
+id = "perf-gemm-v4"
+epic = "kernel-perf"
+title = "SGEMM V4 — float4 vectorized loads + cp.async pipeline"
+status = "active"
+goal = "SGEMM >= 70% cuBLAS (~1960 GFLOPS at 4096³)"
+success_criteria = [
+    "ld.global.v4.f32 for A and B tile loading",
+    "cp.async.ca.shared.global 3-stage pipeline",
+    "4096³ >= 1960 GFLOPS (70% of cuBLAS 2800)",
+]
+
+[[themes]]
+id = "perf-attn-v3"
+epic = "kernel-perf"
+title = "Attention V3 — warp-cooperative tiled GEMM for Q·K^T and P·V"
+status = "active"
+goal = "Flash Attention >= 70% of cuDNN FA2"
+success_criteria = [
+    "Score GEMM via cooperative thread-tile (not scalar dot product)",
+    "P·V via cooperative thread-tile accumulation",
+    "seq=512, 12 heads: >= 70% of cuDNN FA2 throughput",
+]
+
+[[themes]]
+id = "perf-conv-wino"
+epic = "kernel-perf"
+title = "Conv2D Winograd — F(4×4,3×3) for large spatial convolutions"
+status = "pending"
+goal = "Conv2D 3×3 >= 70% cuDNN for 56×56+ spatial sizes"
+success_criteria = [
+    "Winograd F(4×4,3×3) transform + batched GEMM + inverse transform",
+    "64→64 @ 56×56: >= 70% of cuDNN 1439 GFLOPS",
+    "No accuracy regression vs im2col path",
+]
+
+[[themes]]
+id = "perf-elem-fix"
+epic = "kernel-perf"
+title = "elementwise fix — out-of-place + fuse into other kernels"
+status = "active"
+goal = "elementwise >= 80% of peak 200 GB/s (≥160 GB/s)"
+success_criteria = [
+    "Out-of-place elementwise_add eliminates RW conflict",
+    "elementwise_add >= 160 GB/s at 786K elements",
+]
+
+# ============================================================
+# Tasks (active/pending only — done → archive/)
+# ============================================================
+# Done tasks archived at workflow v2 migration (cycle 594)
+
+# --- warp-batch-io (parked) ---
+
+[[tasks]]
+id = "warp-batch-io.2"
+theme = "warp-batch-io"
+title = "Experiment: implement lane-0-submits pattern in GpuOpenFuture"
+kind = "experiment"
+status = "pending"
+depends = ["warp-batch-io.1"]
+
+[[tasks]]
+id = "warp-batch-io.3"
+theme = "warp-batch-io"
+title = "Experiment: full 32-lane pipeline with shared hostcall packets"
+kind = "experiment"
+status = "pending"
+depends = ["warp-batch-io.2"]
+
+[[tasks]]
+id = "warp-batch-io.4"
+theme = "warp-batch-io"
+title = "Experiment: benchmark per-lane vs batched hostcall throughput"
+kind = "experiment"
+status = "pending"
+depends = ["warp-batch-io.3"]
+
+# --- classical-ml (parked) ---
 
 [[tasks]]
 id = "cml-tree.1"
@@ -1212,17 +479,6 @@ kind = "experiment"
 status = "pending"
 depends = ["cml-tree.2"]
 
-[[themes]]
-id = "cml-kmeans"
-epic = "classical-ml"
-title = "k-means clustering on GPU"
-status = "parked"
-goal = "Lloyd's algorithm with GPU distance computation + centroid update"
-success_criteria = [
-    "GPU k-means converges to correct clusters",
-    "Speedup >= 5x over CPU reference",
-]
-
 [[tasks]]
 id = "cml-kmeans.1"
 theme = "cml-kmeans"
@@ -1231,365 +487,39 @@ kind = "experiment"
 status = "pending"
 depends = []
 
-[[themes]]
-id = "dyn-control"
-epic = "gpu-dynamic"
-title = "Dynamic control flow demos — variable-length generation, early-exit"
-status = "completed"
-goal = "Demonstrate GPU compute patterns impossible with CUDA graphs"
-success_criteria = [
-    "Variable-length GPT-2 generation with per-sample EOS stopping",
-    "Early-exit inference demo",
-    "Clear documentation of why CUDA graphs cannot do this",
-]
+# --- kernel-perf: attention ---
 
 [[tasks]]
-id = "dyn-control.1"
-theme = "dyn-control"
-title = "Experiment: variable-length GPT-2 generation — stop at EOS per sample"
-kind = "experiment"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "dyn-control.2"
-theme = "dyn-control"
-title = "Experiment: early-exit inference — skip layers when confidence > threshold"
-kind = "experiment"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "dyn-control.3"
-theme = "dyn-control"
-title = "Design: document why these patterns are impossible with CUDA graphs"
-kind = "design"
-status = "done"
-depends = ["dyn-control.1", "dyn-control.2"]
-
-[[themes]]
-id = "graph-bfs"
-epic = "graph-algorithms"
-title = "BFS + PageRank on CSR graphs"
-status = "completed"
-goal = "GPU graph traversal with async-friendly frontier scheduling"
-success_criteria = [
-    "CSR graph construction from edge list",
-    "GPU BFS correctness on 100K+ vertices",
-    "GPU PageRank convergence",
-]
-
-[[tasks]]
-id = "graph-bfs.1"
-theme = "graph-bfs"
-title = "Experiment: CSR graph representation + synthetic graph generator (RMAT)"
-kind = "experiment"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "graph-bfs.2"
-theme = "graph-bfs"
-title = "Experiment: GPU BFS (level-synchronous) + CPU reference comparison"
-kind = "experiment"
-status = "done"
-depends = ["graph-bfs.1"]
-
-[[tasks]]
-id = "graph-bfs.3"
-theme = "graph-bfs"
-title = "Experiment: GPU PageRank (iterative SpMV) + convergence check"
-kind = "experiment"
-status = "done"
-depends = ["graph-bfs.1"]
-
-[[themes]]
-id = "int4-integrate"
-epic = "int4-gpt2"
-title = "Integrate Int4Linear into GPT-2 model"
-status = "completed"
-goal = "GPT-2 runs with 4-bit quantized weights"
-success_criteria = [
-    "Int4Linear replaces Linear in GPT-2 forward pass",
-    "Coherent text generation from INT4 model",
-]
-
-[[tasks]]
-id = "int4-integrate.1"
-theme = "int4-integrate"
-title = "Experiment: wire Int4Linear into GPT-2, load quantized weights, generate text"
-kind = "experiment"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "int4-integrate.2"
-theme = "int4-integrate"
-title = "Design: verify top-5 match on 3 prompts + measure per-token latency"
-kind = "design"
-status = "done"
-depends = ["int4-integrate.1"]
-
-[[themes]]
-id = "mc-finance"
-epic = "monte-carlo"
-title = "Monte Carlo — GPU PRNG + Black-Scholes + Pi estimation"
-status = "completed"
-goal = "Stochastic simulation with GPU-parallel random sampling"
-success_criteria = [
-    "GPU PRNG kernel with per-thread state",
-    "Black-Scholes option pricing within 1% of analytical",
-    "GPU speedup >= 10x",
-]
-
-[[tasks]]
-id = "mc-finance.1"
-theme = "mc-finance"
-title = "Experiment: GPU xoshiro256++ PRNG kernel with per-thread seeding"
-kind = "experiment"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "mc-finance.2"
-theme = "mc-finance"
-title = "Experiment: Black-Scholes Monte Carlo option pricing (1M paths)"
-kind = "experiment"
-status = "done"
-depends = ["mc-finance.1"]
-
-[[tasks]]
-id = "mc-finance.3"
-theme = "mc-finance"
-title = "Experiment: Pi estimation via Monte Carlo (10M points) + CPU comparison"
-kind = "experiment"
-status = "done"
-depends = ["mc-finance.1"]
-
-# ============================================================
-# BS110 brainstorm record
-# ============================================================
-
-[[brainstorms]]
-seq = 110
-at_cycle = 560
-trigger = "User requested: what epics to create, which to reopen, strategic direction"
-level = "deep"
-new_tasks_spawned = ["cml-tree.1", "cml-tree.2", "cml-tree.3", "cml-kmeans.1", "dyn-control.1", "dyn-control.2", "dyn-control.3", "graph-bfs.1", "graph-bfs.2", "graph-bfs.3", "int4-integrate.1", "mc-finance.1", "mc-finance.2", "mc-finance.3"]
-new_themes_spawned = ["cml-tree", "cml-kmeans", "dyn-control", "graph-bfs", "int4-integrate", "mc-finance"]
-new_epics_spawned = ["classical-ml", "gpu-dynamic", "graph-algorithms", "int4-gpt2", "monte-carlo"]
-themes_parked = []
-themes_completed = []
-key_insight = "NN axis saturated. Breadth wins, but only where async/await adds unique value. classical-ml (user requested) + gpu-dynamic (CUDA graphs can't do this) + graph-algorithms (async-native frontier scheduling) are the top 3. 'Building 3 demos that ONLY async-gpu can run beats 10 inferior NVIDIA library reimplementations.'"
-
-# ============================================================
-# BENCHMARK EPIC — Performance Data + Improvement Targets
-# ============================================================
-
-[[epics]]
-id = "benchmark"
-title = "GPU Kernel Benchmarks — cuBLAS/cuDNN comparison + throughput metrics"
-status = "completed"
-priority = "high"
-success_criteria = [
-    "SGEMM benchmark: measure GFLOPS at multiple sizes (512-4096), compare vs cuBLAS, report % of peak",
-    "Conv2D benchmark: measure GFLOPS for common configs (ResNet/YOLO shapes), compare vs cuDNN",
-    "Flash Attention benchmark: measure throughput at GPT-2 shapes, compare vs cuDNN/FlashAttention2",
-    "Memory-bound ops benchmark: LayerNorm, GELU, elementwise — measure GB/s vs theoretical peak",
-    "End-to-end GPT-2 latency breakdown: per-layer timing, identify bottleneck ops",
-    "Benchmark harness in examples/std/benchmark/ with reproducible results",
-    "Results documented with improvement targets (which kernels have most headroom)",
-]
-
-# --- Theme: kernel-level microbenchmarks vs cuBLAS/cuDNN ---
-
-[[themes]]
-id = "bench-kernels"
-epic = "benchmark"
-title = "Kernel microbenchmarks — GFLOPS/GB/s vs cuBLAS/cuDNN"
-status = "completed"
-goal = "Quantify per-kernel performance gap against NVIDIA optimized libraries"
-success_criteria = [
-    "SGEMM GFLOPS at M=N=K=512,1024,2048,4096 vs cuBLAS",
-    "Conv2D GFLOPS for 3x3/1x1 kernels at common feature map sizes vs cuDNN",
-    "Attention throughput at seq_len=128,256,512,1024 vs cuDNN",
-    "Bandwidth-bound ops GB/s vs GPU memory bandwidth peak",
-]
-
-[[tasks]]
-id = "bench-kernels.1"
-theme = "bench-kernels"
-title = "Experiment: SGEMM benchmark harness — measure GFLOPS at multiple sizes, compare cuBLAS"
-kind = "experiment"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "bench-kernels.2"
-theme = "bench-kernels"
-title = "Experiment: Conv2D benchmark — GFLOPS for ResNet/YOLO shapes, compare cuDNN"
-kind = "experiment"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "bench-kernels.3"
-theme = "bench-kernels"
-title = "Experiment: Flash Attention benchmark — throughput at GPT-2 shapes"
-kind = "experiment"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "bench-kernels.4"
-theme = "bench-kernels"
-title = "Experiment: Memory-bound ops (LayerNorm, GELU, elementwise) — GB/s measurement"
-kind = "experiment"
-status = "done"
-depends = []
-
-# --- Theme: end-to-end model profiling ---
-
-[[themes]]
-id = "bench-e2e"
-epic = "benchmark"
-title = "End-to-end model profiling — per-layer breakdown + bottleneck analysis"
-status = "completed"
-goal = "Identify which ops dominate latency and where to optimize"
-success_criteria = [
-    "GPT-2 per-layer timing breakdown",
-    "ResNet-18 ONNX per-op timing",
-    "Top-3 bottleneck ops identified with improvement targets",
-]
-
-[[tasks]]
-id = "bench-e2e.1"
-theme = "bench-e2e"
-title = "Experiment: GPT-2 inference per-layer profiling — identify bottleneck ops"
-kind = "experiment"
-status = "done"
-depends = ["bench-kernels.1"]
-
-[[tasks]]
-id = "bench-e2e.2"
-theme = "bench-e2e"
-title = "Design: benchmark results summary + improvement roadmap"
-kind = "design"
-status = "done"
-depends = ["bench-kernels.1", "bench-kernels.2", "bench-kernels.3", "bench-kernels.4", "bench-e2e.1"]
-
-# ============================================================
-# KERNEL PERFORMANCE EPIC — Close the gap to cuBLAS/cuDNN
-# ============================================================
-
-[[epics]]
-id = "kernel-perf"
-title = "Kernel Performance — close gap to cuBLAS/cuDNN across all compute primitives"
-status = "active"
-priority = "highest"
-success_criteria = [
-    "SGEMM >= 70% of cuBLAS (~1960 GFLOPS): float4 loads + cp.async 3-stage pipeline",
-    "Flash Attention >= 70% of cuDNN FA2: warp-cooperative tiled GEMM for Q·K^T and P·V",
-    "Conv2D >= 70% of cuDNN for ALL shapes: Winograd F(4×4,3×3) for large spatial + optimized im2col for small",
-    "Memory-bound ops >= 70% of peak BW (140 GB/s): fused kernels, out-of-place, op fusion",
-    "GPT-2 end-to-end forward pass < 25ms: op fusion + all kernel optimizations",
-]
-
-# --- Theme 1: GEMM (P0 — foundation for everything) ---
-
-[[themes]]
-id = "perf-gemm"
-epic = "kernel-perf"
-title = "High-performance GEMM — Cutlass-level tiled matmul"
-status = "active"
-goal = "SGEMM >= 2000 GFLOPS (70% of cuBLAS)"
-success_criteria = [
-    "128×128 output tile per block with 8×8 register blocking per thread",
-    "Double-buffered shared memory K-tile prefetch",
-    "float4 coalesced global loads (128-bit transactions)",
-    "GFLOPS >= 2000 at M=N=K=4096",
-    "GPT-2 shapes (128×768×768 etc.) >= 1500 GFLOPS",
-]
-
-[[tasks]]
-id = "perf-gemm.1"
-theme = "perf-gemm"
-title = "Investigation: study Cutlass SGEMM tile schedule, register mapping, smem layout"
+id = "perf-attn-v3.1"
+theme = "perf-attn-v3"
+title = "Investigation: design warp-cooperative attention — thread mapping, smem layout"
 kind = "investigation"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "perf-gemm.2"
-theme = "perf-gemm"
-title = "Experiment: implement 64×64 tile + 4×4 register blocking GEMM kernel"
-kind = "experiment"
-status = "done"
-depends = ["perf-gemm.1"]
-
-[[tasks]]
-id = "perf-gemm.3"
-theme = "perf-gemm"
-title = "Experiment: scale to 128×64 tile + 4×8 register blocking + double-buffered smem"
-kind = "experiment"
-status = "done"
-depends = ["perf-gemm.2"]
-
-[[tasks]]
-id = "perf-gemm.4"
-theme = "perf-gemm"
-title = "Experiment: BK=16 attempt (reverted — numerical issues) + float4 deferred"
-kind = "experiment"
-status = "done"
-depends = ["perf-gemm.3"]
-
-[[tasks]]
-id = "perf-gemm.5"
-theme = "perf-gemm"
-title = "Experiment: integrate V2 GEMM into nn API, benchmark GPT-2 end-to-end"
-kind = "experiment"
-status = "done"
-depends = ["perf-gemm.4"]
-
-# --- Theme 2: Flash Attention (P1 — MMA-based rewrite) ---
-
-[[themes]]
-id = "perf-attention"
-epic = "kernel-perf"
-title = "FlashAttention-2 — MMA tiled GEMM + online softmax"
 status = "active"
-goal = "Attention throughput >= 50% of cuDNN FA2"
-success_criteria = [
-    "Q tile in shared memory for cooperative tiled GEMM",
-    "Score GEMM (Q·K^T) via MMA or tiled register-blocked matmul",
-    "P·V accumulation via tiled GEMM (not scalar loop)",
-    "Warp-level parallel softmax reduction",
-    "seq=512, 12 heads: throughput >= 1200 GFLOPS",
-]
-
-[[tasks]]
-id = "perf-attention.1"
-theme = "perf-attention"
-title = "Investigation: study FlashAttention-2 algorithm — tile schedule, softmax, memory staging"
-kind = "investigation"
-status = "done"
 depends = []
 
 [[tasks]]
-id = "perf-attention.2"
-theme = "perf-attention"
-title = "Experiment: flash_attention_v2 with 4-way unrolled dots + explicit FMA"
+id = "perf-attn-v3.2"
+theme = "perf-attn-v3"
+title = "Experiment: implement cooperative score GEMM (Q·K^T) with 128 threads"
 kind = "experiment"
-status = "done"
-depends = ["perf-attention.1", "perf-gemm.3"]
+status = "pending"
+depends = ["perf-attn-v3.1"]
 
 [[tasks]]
-id = "perf-gemm.6"
-theme = "perf-gemm"
-title = "Experiment: 128×128 tile + 8×8 register blocking via macro-generated accumulators"
+id = "perf-attn-v3.3"
+theme = "perf-attn-v3"
+title = "Experiment: cooperative P·V accumulation + online softmax"
 kind = "experiment"
-status = "done"
-depends = ["perf-gemm.5"]
+status = "pending"
+depends = ["perf-attn-v3.2"]
+
+[[tasks]]
+id = "perf-attn-v3.4"
+theme = "perf-attn-v3"
+title = "Experiment: benchmark, iterate until ≥70% cuDNN, integrate"
+kind = "experiment"
+status = "pending"
+depends = ["perf-attn-v3.3"]
 
 [[tasks]]
 id = "perf-attention.3"
@@ -1607,21 +537,7 @@ kind = "experiment"
 status = "pending"
 depends = ["perf-attention.3"]
 
-# --- Theme 3: Conv2D (P2 — eliminate im2col) ---
-
-[[themes]]
-id = "perf-conv"
-epic = "kernel-perf"
-title = "High-performance Conv2D — Winograd + direct conv"
-status = "active"
-goal = "Conv2D >= 60% of cuDNN for common shapes"
-success_criteria = [
-    "Winograd F(4×4, 3×3) for 3×3 convolutions (2.25x FLOPs reduction)",
-    "Direct conv kernel for non-3×3 sizes (shared memory tiling)",
-    "im2col completely eliminated from forward path",
-    "GPU-side batch processing (no PCIe round-trips)",
-    "ResNet layer2 (64→128, 32×32, k=3): >= 1200 GFLOPS",
-]
+# --- kernel-perf: conv ---
 
 [[tasks]]
 id = "perf-conv.1"
@@ -1663,29 +579,7 @@ kind = "experiment"
 status = "pending"
 depends = ["perf-conv.2", "perf-conv.3", "perf-conv.4"]
 
-# --- Theme 4: LayerNorm (P3 — single-pass rewrite) ---
-
-[[themes]]
-id = "perf-layernorm"
-epic = "kernel-perf"
-title = "High-performance LayerNorm — single-pass + vectorized"
-status = "active"
-goal = "LayerNorm >= 180 GB/s (60% of peak bandwidth)"
-success_criteria = [
-    "Single-pass Welford algorithm (mean + variance in one read)",
-    "256 threads per block with shared memory two-level reduction",
-    "float4 coalesced loads (128-bit transactions)",
-    "Fused LayerNorm + residual add variant",
-    "128×768 matrix: >= 180 GB/s",
-]
-
-[[tasks]]
-id = "perf-layernorm.1"
-theme = "perf-layernorm"
-title = "Experiment: single-pass Welford LayerNorm with 256 threads + shared memory reduction"
-kind = "experiment"
-status = "done"
-depends = []
+# --- kernel-perf: layernorm ---
 
 [[tasks]]
 id = "perf-layernorm.2"
@@ -1703,28 +597,7 @@ kind = "experiment"
 status = "pending"
 depends = ["perf-layernorm.2"]
 
-# --- Theme 5: elementwise/GELU (P4 — vectorization) ---
-
-[[themes]]
-id = "perf-elementwise"
-epic = "kernel-perf"
-title = "Vectorized elementwise ops — float4 + multi-element per thread"
-status = "pending"
-goal = "elementwise >= 240 GB/s, GELU >= 200 GB/s (80%+ of peak)"
-success_criteria = [
-    "float4 vectorized loads/stores for all elementwise ops",
-    "4-8 elements per thread for latency hiding",
-    "GELU fast approximation: x * sigmoid(1.702x)",
-    "elementwise_add >= 240 GB/s, gelu >= 200 GB/s",
-]
-
-[[tasks]]
-id = "perf-elementwise.1"
-theme = "perf-elementwise"
-title = "Experiment: float4 vectorized elementwise_add + gelu + sigmoid + relu"
-kind = "experiment"
-status = "done"
-depends = []
+# --- kernel-perf: elementwise ---
 
 [[tasks]]
 id = "perf-elementwise.2"
@@ -1734,52 +607,7 @@ kind = "experiment"
 status = "pending"
 depends = ["perf-elementwise.1"]
 
-# --- Theme 6: End-to-end validation ---
-
-[[themes]]
-id = "perf-e2e"
-epic = "kernel-perf"
-title = "End-to-end validation — GPT-2 < 35ms, YOLO < 80ms"
-status = "pending"
-goal = "Verify all kernel improvements compound to model-level speedup"
-success_criteria = [
-    "GPT-2 forward pass (seq=128) < 35ms (from 221ms)",
-    "YOLOv8-nano inference < 100ms (from 374ms)",
-    "No accuracy regression on any model",
-]
-
-[[tasks]]
-id = "perf-e2e.1"
-theme = "perf-e2e"
-title = "Experiment: GPT-2 end-to-end benchmark with all optimized kernels"
-kind = "experiment"
-status = "pending"
-depends = ["perf-gemm.5", "perf-attention.4", "perf-layernorm.3", "perf-elementwise.2"]
-
-[[tasks]]
-id = "perf-e2e.2"
-theme = "perf-e2e"
-title = "Experiment: YOLOv8-nano + ResNet-18 benchmark with optimized conv + elementwise"
-kind = "experiment"
-status = "pending"
-depends = ["perf-conv.5", "perf-elementwise.2"]
-
-# ============================================================
-# Phase 2: 70% target — new themes + tasks
-# ============================================================
-
-# --- Theme: Op Fusion (Tier 1 priority) ---
-
-[[themes]]
-id = "perf-fusion"
-epic = "kernel-perf"
-title = "Op Fusion — fuse LayerNorm+residual, reduce kernel launches"
-status = "active"
-goal = "Reduce GPT-2 per-block overhead by fusing small ops"
-success_criteria = [
-    "Fused LayerNorm + residual add kernel (1 kernel instead of 2)",
-    "GPT-2 per-block time reduced by >= 0.3ms from fusion",
-]
+# --- kernel-perf: fusion ---
 
 [[tasks]]
 id = "perf-fusion.1"
@@ -1797,27 +625,7 @@ kind = "experiment"
 status = "pending"
 depends = ["perf-fusion.1"]
 
-# --- Theme: SGEMM Phase 2 — float4 + cp.async (Tier 1) ---
-
-[[themes]]
-id = "perf-gemm-v4"
-epic = "kernel-perf"
-title = "SGEMM V4 — float4 vectorized loads + cp.async pipeline"
-status = "active"
-goal = "SGEMM >= 70% cuBLAS (~1960 GFLOPS at 4096³)"
-success_criteria = [
-    "ld.global.v4.f32 for A and B tile loading",
-    "cp.async.ca.shared.global 3-stage pipeline",
-    "4096³ >= 1960 GFLOPS (70% of cuBLAS 2800)",
-]
-
-[[tasks]]
-id = "perf-gemm-v4.1"
-theme = "perf-gemm-v4"
-title = "Experiment: NVRTC V4 kernel with float4 loads — achieved 63% cuBLAS"
-kind = "experiment"
-status = "done"
-depends = []
+# --- kernel-perf: GEMM V4 ---
 
 [[tasks]]
 id = "perf-gemm-v4.2"
@@ -1835,65 +643,7 @@ kind = "experiment"
 status = "pending"
 depends = ["perf-gemm-v4.2"]
 
-# --- Theme: Attention V3 — warp-cooperative GEMM (Tier 2) ---
-
-[[themes]]
-id = "perf-attn-v3"
-epic = "kernel-perf"
-title = "Attention V3 — warp-cooperative tiled GEMM for Q·K^T and P·V"
-status = "active"
-goal = "Flash Attention >= 70% of cuDNN FA2"
-success_criteria = [
-    "Score GEMM via cooperative thread-tile (not scalar dot product)",
-    "P·V via cooperative thread-tile accumulation",
-    "seq=512, 12 heads: >= 70% of cuDNN FA2 throughput",
-]
-
-[[tasks]]
-id = "perf-attn-v3.1"
-theme = "perf-attn-v3"
-title = "Investigation: design warp-cooperative attention — thread mapping, smem layout"
-kind = "investigation"
-status = "active"
-depends = []
-
-[[tasks]]
-id = "perf-attn-v3.2"
-theme = "perf-attn-v3"
-title = "Experiment: implement cooperative score GEMM (Q·K^T) with 128 threads"
-kind = "experiment"
-status = "pending"
-depends = ["perf-attn-v3.1"]
-
-[[tasks]]
-id = "perf-attn-v3.3"
-theme = "perf-attn-v3"
-title = "Experiment: cooperative P·V accumulation + online softmax"
-kind = "experiment"
-status = "pending"
-depends = ["perf-attn-v3.2"]
-
-[[tasks]]
-id = "perf-attn-v3.4"
-theme = "perf-attn-v3"
-title = "Experiment: benchmark, iterate until ≥70% cuDNN, integrate"
-kind = "experiment"
-status = "pending"
-depends = ["perf-attn-v3.3"]
-
-# --- Theme: Conv2D Winograd (Tier 2) ---
-
-[[themes]]
-id = "perf-conv-wino"
-epic = "kernel-perf"
-title = "Conv2D Winograd — F(4×4,3×3) for large spatial convolutions"
-status = "pending"
-goal = "Conv2D 3×3 >= 70% cuDNN for 56×56+ spatial sizes"
-success_criteria = [
-    "Winograd F(4×4,3×3) transform + batched GEMM + inverse transform",
-    "64→64 @ 56×56: >= 70% of cuDNN 1439 GFLOPS",
-    "No accuracy regression vs im2col path",
-]
+# --- kernel-perf: conv winograd ---
 
 [[tasks]]
 id = "perf-conv-wino.1"
@@ -1919,18 +669,7 @@ kind = "experiment"
 status = "pending"
 depends = ["perf-conv-wino.2"]
 
-# --- Theme: elementwise fix (Tier 1, easy) ---
-
-[[themes]]
-id = "perf-elem-fix"
-epic = "kernel-perf"
-title = "elementwise fix — out-of-place + fuse into other kernels"
-status = "active"
-goal = "elementwise >= 80% of peak 200 GB/s (≥160 GB/s)"
-success_criteria = [
-    "Out-of-place elementwise_add eliminates RW conflict",
-    "elementwise_add >= 160 GB/s at 786K elements",
-]
+# --- kernel-perf: elementwise fix ---
 
 [[tasks]]
 id = "perf-elem-fix.1"
@@ -1939,3 +678,49 @@ title = "Experiment: out-of-place elementwise_add + benchmark"
 kind = "experiment"
 status = "pending"
 depends = []
+
+# --- kernel-perf: end-to-end ---
+
+[[tasks]]
+id = "perf-e2e.1"
+theme = "perf-e2e"
+title = "Experiment: GPT-2 end-to-end benchmark with all optimized kernels"
+kind = "experiment"
+status = "pending"
+depends = ["perf-gemm.5", "perf-attention.4", "perf-layernorm.3", "perf-elementwise.2"]
+
+[[tasks]]
+id = "perf-e2e.2"
+theme = "perf-e2e"
+title = "Experiment: YOLOv8-nano + ResNet-18 benchmark with optimized conv + elementwise"
+kind = "experiment"
+status = "pending"
+depends = ["perf-conv.5", "perf-elementwise.2"]
+
+# ============================================================
+# Brainstorms (last 2 — older → archive/)
+# ============================================================
+
+[[brainstorms]]
+seq = 109
+at_cycle = 535
+trigger = "All tasks done, active epics have unmet criteria"
+level = "standard"
+new_tasks_spawned = ["onnx-gpt2-gen.1", "onnx-gpt2-gen.2", "onnx-conv-prepad.1"]
+new_themes_spawned = ["onnx-gpt2-gen", "onnx-conv-prepad"]
+new_epics_spawned = []
+themes_parked = []
+themes_completed = []
+key_insight = "ONNX epic has 3 unmet criteria: GPT-2 text gen, Conv prepad perf, MobileNet. GPT-2 forward pass is the highest priority."
+
+[[brainstorms]]
+seq = 110
+at_cycle = 560
+trigger = "User requested: what epics to create, which to reopen, strategic direction"
+level = "deep"
+new_tasks_spawned = ["cml-tree.1", "cml-tree.2", "cml-tree.3", "cml-kmeans.1", "dyn-control.1", "dyn-control.2", "dyn-control.3", "graph-bfs.1", "graph-bfs.2", "graph-bfs.3", "int4-integrate.1", "mc-finance.1", "mc-finance.2", "mc-finance.3"]
+new_themes_spawned = ["cml-tree", "cml-kmeans", "dyn-control", "graph-bfs", "int4-integrate", "mc-finance"]
+new_epics_spawned = ["classical-ml", "gpu-dynamic", "graph-algorithms", "int4-gpt2", "monte-carlo"]
+themes_parked = []
+themes_completed = []
+key_insight = "NN axis saturated. Breadth wins where async/await adds unique value. classical-ml + gpu-dynamic + graph-algorithms are top 3."

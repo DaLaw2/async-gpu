@@ -980,3 +980,224 @@ id = "gc-codegen"
 epic = "graph-compiler"
 title = "Fused kernel code generation"
 status = "completed"
+
+# --- Archived at cycle 594 (workflow v2 migration) ---
+
+[[themes]]
+id = "onnx-fix"
+epic = "onnx-inference"
+title = "Fix ONNX runtime — raw_data parsing, ResNet e2e, GPT-2 e2e, benchmark"
+status = "completed"
+goal = "ONNX executor runs real models correctly with performance measurement"
+success_criteria = [
+    "raw_data (tag 9) correctly parsed for ALL initializers (fix prost decode issue)",
+    "ResNet-18 ONNX inference produces valid logits (no empty initializers)",
+    "GPT-2 ONNX inference produces coherent text",
+    "Benchmark: ONNX executor latency vs native nn API on same model",
+]
+
+[[themes]]
+id = "refactor-quality"
+epic = "refactor"
+title = "Code quality — clippy, unwrap, large functions, dead code"
+status = "completed"
+goal = "Clean up code quality issues across the codebase"
+success_criteria = [
+    "Zero clippy warnings",
+    "dispatch_node() split into handler functions",
+    "unwrap() → Result in lib code",
+]
+
+[[themes]]
+id = "refactor-api"
+epic = "refactor"
+title = "API cleanup — pub(crate), example boilerplate, quantization utils"
+status = "completed"
+goal = "Clean public API surface and reduce example duplication"
+success_criteria = [
+    "All 9 examples use init_default()",
+    "Quantization utilities extracted",
+    "Internal helpers marked pub(crate)",
+]
+
+[[themes]]
+id = "onnx-cache"
+epic = "onnx-perf"
+title = "Initializer caching + weight prepadding"
+status = "completed"
+goal = "Eliminate per-inference weight upload overhead"
+success_criteria = [
+    "OnnxSession struct caches uploaded initializers across runs",
+    "ResNet-18 ONNX < 25ms with caching",
+]
+
+[[themes]]
+id = "onnx-gpu-ops"
+epic = "onnx-perf"
+title = "Replace CPU-fallback ops with GPU paths"
+status = "completed"
+goal = "Eliminate to_host() round-trips in hot path ops"
+success_criteria = [
+    "ReduceMean uses GPU reduction kernel (no to_host)",
+    "Mul/Sub/Div use GPU elementwise kernels",
+    "GPT-2 ONNX forward pass < 5 seconds",
+]
+
+[[themes]]
+id = "refactor-v2-code"
+epic = "refactor-v2"
+title = "代碼品質 — unwrap, pub(crate), dead code, magic numbers, quantize utils"
+status = "completed"
+goal = "徹底清理代碼品質問題"
+success_criteria = [
+    "unwrap() 修復",
+    "pub(crate) 審計完成",
+    "quantization utils 提取",
+    "magic numbers 常量化",
+]
+
+[[themes]]
+id = "refactor-v2-perf"
+epic = "refactor-v2"
+title = "ONNX 效能 — GPU-side ops + weight prepadding + GPT-2 forward"
+status = "completed"
+goal = "ResNet-18 ONNX < 25ms, GPT-2 forward pass 實際執行"
+success_criteria = [
+    "CPU-fallback elementwise ops 改 GPU",
+    "Conv2d weight prepadding cache",
+    "ResNet-18 < 25ms",
+    "GPT-2 forward pass 計時",
+]
+
+[[themes]]
+id = "refactor-v2-test"
+epic = "refactor-v2"
+title = "Unit tests — Int4Linear, OnnxSession, quantize utils"
+status = "completed"
+goal = "新增缺失的 unit test"
+success_criteria = [
+    "Int4Linear forward test",
+    "OnnxSession run test",
+    "quantize pack/unpack test",
+]
+
+[[themes]]
+id = "onnx-conv-prepad"
+epic = "onnx-inference"
+title = "Conv2d weight prepadding in OnnxSession"
+status = "completed"
+goal = "Reduce ResNet ONNX from 43ms toward 25ms"
+success_criteria = [
+    "Conv2d weights pre-im2col'd at session creation",
+    "ResNet-18 ONNX < 30ms",
+]
+
+[[themes]]
+id = "onnx-resnet-acc"
+epic = "onnx-inference"
+title = "ResNet-18 ONNX accuracy — export key mapping + GAP batch dim"
+status = "completed"
+goal = "ResNet-18 ONNX achieves >90% on CIFAR-10"
+success_criteria = [
+    "Export script maps safetensors keys to PyTorch model keys",
+    "GlobalAveragePool preserves batch dimension for 4D input",
+    "Our ONNX executor matches ORT accuracy (91.2%)",
+]
+
+[[themes]]
+id = "onnx-mobilenet"
+epic = "onnx-inference"
+title = "MobileNetV2 ONNX — Identity op + grouped conv"
+status = "completed"
+goal = "MobileNetV2 runs end-to-end through ONNX executor"
+success_criteria = [
+    "Identity op implemented",
+    "Grouped convolution (depthwise separable) supported",
+    "MobileNetV2 produces valid 1000-class output",
+]
+
+[[themes]]
+id = "dyn-control"
+epic = "gpu-dynamic"
+title = "Dynamic control flow demos — variable-length generation, early-exit"
+status = "completed"
+goal = "Demonstrate GPU compute patterns impossible with CUDA graphs"
+success_criteria = [
+    "Variable-length GPT-2 generation with per-sample EOS stopping",
+    "Early-exit inference demo",
+    "Clear documentation of why CUDA graphs cannot do this",
+]
+
+[[themes]]
+id = "graph-bfs"
+epic = "graph-algorithms"
+title = "BFS + PageRank on CSR graphs"
+status = "completed"
+goal = "GPU graph traversal with async-friendly frontier scheduling"
+success_criteria = [
+    "CSR graph construction from edge list",
+    "GPU BFS correctness on 100K+ vertices",
+    "GPU PageRank convergence",
+]
+
+[[themes]]
+id = "int4-integrate"
+epic = "int4-gpt2"
+title = "Integrate Int4Linear into GPT-2 model"
+status = "completed"
+goal = "GPT-2 runs with 4-bit quantized weights"
+success_criteria = [
+    "Int4Linear replaces Linear in GPT-2 forward pass",
+    "Coherent text generation from INT4 model",
+]
+
+[[themes]]
+id = "mc-finance"
+epic = "monte-carlo"
+title = "Monte Carlo — GPU PRNG + Black-Scholes + Pi estimation"
+status = "completed"
+goal = "Stochastic simulation with GPU-parallel random sampling"
+success_criteria = [
+    "GPU PRNG kernel with per-thread state",
+    "Black-Scholes option pricing within 1% of analytical",
+    "GPU speedup >= 10x",
+]
+
+[[themes]]
+id = "bench-kernels"
+epic = "benchmark"
+title = "Kernel microbenchmarks — GFLOPS/GB/s vs cuBLAS/cuDNN"
+status = "completed"
+goal = "Quantify per-kernel performance gap against NVIDIA optimized libraries"
+success_criteria = [
+    "SGEMM GFLOPS at M=N=K=512,1024,2048,4096 vs cuBLAS",
+    "Conv2D GFLOPS for 3x3/1x1 kernels at common feature map sizes vs cuDNN",
+    "Attention throughput at seq_len=128,256,512,1024 vs cuDNN",
+    "Bandwidth-bound ops GB/s vs GPU memory bandwidth peak",
+]
+
+[[themes]]
+id = "bench-e2e"
+epic = "benchmark"
+title = "End-to-end model profiling — per-layer breakdown + bottleneck analysis"
+status = "completed"
+goal = "Identify which ops dominate latency and where to optimize"
+success_criteria = [
+    "GPT-2 per-layer timing breakdown",
+    "ResNet-18 ONNX per-op timing",
+    "Top-3 bottleneck ops identified with improvement targets",
+]
+
+[[themes]]
+id = "perf-gemm"
+epic = "kernel-perf"
+title = "High-performance GEMM — Cutlass-level tiled matmul"
+status = "completed"
+goal = "SGEMM >= 2000 GFLOPS (70% of cuBLAS)"
+success_criteria = [
+    "128×128 output tile per block with 8×8 register blocking per thread",
+    "Double-buffered shared memory K-tile prefetch",
+    "float4 coalesced global loads (128-bit transactions)",
+    "GFLOPS >= 2000 at M=N=K=4096",
+    "GPT-2 shapes (128×768×768 etc.) >= 1500 GFLOPS",
+]

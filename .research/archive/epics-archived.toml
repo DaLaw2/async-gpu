@@ -1,0 +1,599 @@
+# Archived completed epics — moved from state.toml
+# Archived at cycle 594 (workflow v2 migration)
+
+[[epics]]
+id = "async-std"
+title = "Async Std on GPU — real async/await with patched rustc + patched std"
+status = "completed"
+priority = "high"
+success_criteria = [
+    "Async hostcall: gpu_hostcall_request returns impl Future — warp yields to scheduler during I/O wait instead of spin-blocking",
+    "PAL async bridge: patched std I/O (write/read/open/close) calls async hostcall under #[warp_cooperative] context",
+    "Practical demo: #[warp_cooperative] async fn runs data pipeline (read file → compute → write file) with I/O yielding",
+    "Codebase reorganized into categorized subdirectories (core/kernel/macro/test)",
+]
+# ALL 4 CRITERIA MET (pragmatically) — closed 2026-03-15
+
+
+[[epics]]
+id = "gpu-error"
+title = "GPU-side error handling — Result propagation from GPU to host"
+status = "completed"
+priority = "medium"
+success_criteria = [
+    "GPU kernel can use `?` operator and return Result<T, E> to host",
+    "Errors propagate across async boundaries (hostcall errors → Result, not panic)",
+    "Host receives structured error info (error type + message), not just trap/exit code",
+    "std::io and std::fs errors on GPU produce proper std::io::Error, not panic",
+]
+# ALL 4 CRITERIA MET — closed by user 2026-03-14
+
+
+[[epics]]
+id = "gpu-debug"
+title = "GPU Debugging & Observability — structured tracing, assertions, flight recorder"
+status = "completed"
+priority = "high"
+success_criteria = [
+    "gpu_trace!() macro emits structured events with thread/block/warp ID + timestamp to host",
+    "gpu_assert!() sends diagnostic message + thread coords to host before trap",
+    "Post-mortem flight recorder dumps last N trace events when kernel crashes",
+    "Conditional compilation: tracing compiles out for zero overhead in release",
+]
+
+
+[[epics]]
+id = "native-warp-async"
+title = "Native Warp-Cooperative Async/Await — compiler-level SIMT async"
+status = "completed"
+priority = "high"
+success_criteria = [
+    "Standard impl Future polled warp-cooperatively (lane 0 polls, shfl broadcast)",
+    "#[warp_async] accepts async fn syntax with .await and ? operator",
+    "#[warp_cooperative] async fn compiles via rustc MIR pass and runs on GPU",
+]
+# ALL 3 CRITERIA MET — closed by user 2026-03-14
+
+
+[[epics]]
+id = "gpu-autonomous"
+title = "GPU as Autonomous Compute Environment v3 — native warp-cooperative async/await"
+status = "completed"
+priority = "high"
+success_criteria = [
+    "Multi-command kernel: processes 3+ command types (COMPUTE, PRINT, EXIT) from mapped memory command buffer in a single launch, TDR-safe",
+    "Cross-launch pipeline: two kernels share device buffer (A writes → B reads, zero host copy), with minimal Pipeline API",
+    "Data-dependent iteration: kernel autonomously loops (read → process → check convergence → iterate or finalize), pattern not yet demonstrated",
+    "Hostcall session persistence: HostcallSession keeps listener + fd table + buffer alive across multiple kernel launches, packet pool reinit between launches",
+    "Standard impl Future can be polled warp-cooperatively (lane 0 polls, broadcast result via shfl.sync)",
+    "#[warp_async] accepts async fn syntax with .await and ? operator",
+    "#[warp_cooperative] async fn compiles via rustc MIR pass and runs correctly on GPU",
+]
+# ALL 7 CRITERIA MET — closed by user 2026-03-14
+
+
+[[epics]]
+id = "gpu-perf"
+title = "GPU Inference Performance Optimization"
+status = "completed"
+priority = "high"
+success_criteria = [
+    "KV cache eliminates redundant recomputation — only new token passes through model per step",
+    "PARKED: Per-token generation latency < 20ms (down from ~143ms)",
+    "PARKED: BF16/TF32 MMA inference matches f32 FMA output (top-5 agreement for 3+ prompts)",
+    "PARKED: Mixed precision pipeline: GEMM via Tensor Core, everything else f32",
+]
+# Criterion 1 DONE. Criteria 2-4 PARKED (out of scope). Closed by user 2026-03-14.
+
+
+[[epics]]
+id = "real-std"
+title = "Real std on GPU — replace macros with actual Rust std"
+status = "completed"
+priority = "high"
+success_criteria = [
+    "GPU kernel can `use std::io::Write` and call `println!()` without custom macros",
+    "Vec, String, Box work on GPU via #[global_allocator] backed by hostcall-aware allocator",
+    "std::fs::File::create() and write_all() work on GPU via hostcall",
+    "std::io::stdin().read_line() works on GPU via hostcall",
+    "PAL/libc facade routes std sys calls to hostcall framework",
+]
+# ALL 5 CRITERIA MET — closed by user 2026-03-14
+
+
+[[epics]]
+id = "std-sysroot"
+title = "Patched std in sysroot — use std::fs::File directly on GPU"
+status = "completed"
+priority = "high"
+success_criteria = [
+    "Patched toolchain builds std for nvptx64-nvidia-cuda (x.py build succeeds with std patches)",
+    "GPU kernel with `use std::fs::File` compiles to valid PTX via patched sysroot",
+    "std::io::Write on GPU performs hostcall I/O correctly (end-to-end verified)",
+    "At least File, println!, Vec, String, Box work on GPU end-to-end",
+]
+# ALL 4 CRITERIA MET — closed 2026-03-15
+
+
+[[epics]]
+id = "public-api"
+title = "Public API — Host SDK + Reusable GPU Kernel Library"
+status = "completed"
+priority = "high"
+# ALL 4 CRITERIA MET — closed 2026-03-15
+success_criteria = [
+    "gpu-host is a library crate with documented public API (GpuRuntime, HostcallBuffer, HostcallSession)",
+    "A standalone example program uses gpu-host as a dependency to run a GPU kernel",
+    "Build system automated — single cargo command compiles host + kernel",
+    "At least 3 working examples (hello-gpu, async-io, compute) with documentation",
+]
+# Criteria 1 updated 2026-03-15: names match actual API (GpuRuntime not GpuDevice, etc.)
+
+
+[[epics]]
+id = "network-io"
+title = "Network I/O from GPU — TCP hostcall services"
+status = "completed"
+priority = "medium"
+success_criteria = [
+    "SERVICE_TCP_CONNECT / SERVICE_TCP_SEND / SERVICE_TCP_RECV defined in gpu-protocol",
+    "Host-side TCP service handlers implemented (std::net)",
+    "GPU-side Future types (GpuTcpConnectFuture, GpuTcpSendFuture, GpuTcpRecvFuture)",
+    "Demo kernel that connects to a server, sends data, receives response",
+]
+
+
+[[epics]]
+id = "formal-verification"
+title = "Formal Verification — TLA+ model of CAS hostcall protocol"
+status = "completed"
+# ALL 5 CRITERIA MET — closed 2026-03-15. TLC: 367M safety states + 337K liveness states, 0 errors.
+priority = "medium"
+success_criteria = [
+    "TLA+ model covers packet lifecycle (FREE → FILLING → READY → PROCESSING → DONE → FREE)",
+    "Safety invariants verified: no double-allocation, no lost packets, no data races",
+    "Liveness verified: every request eventually receives a response (under fairness)",
+    "Model covers multi-agent contention (at least 2 GPU agents + 1 host agent)",
+    "Findings documented with any discovered edge cases or protocol improvements",
+]
+
+
+[[epics]]
+id = "gpu-executor"
+title = "GPU-Side Async Executor — dynamic task spawning on GPU"
+status = "completed"
+# ALL 4 CRITERIA MET — closed 2026-03-15
+priority = "high"
+success_criteria = [
+    "Lock-free MPMC work queue compiles to valid PTX (tagged CAS, no ABA)",
+    "TaskSlot arena with type-erased poll_fn — spawn() enqueues, executor polls",
+    "Executor loop: warp dequeues task, lane 0 polls, result broadcast via shfl.sync",
+    "Demo kernel: spawn 4+ async tasks dynamically, all complete correctly",
+]
+
+
+[[epics]]
+id = "extended-std"
+title = "Extended std on GPU — sync primitives + collections via hostcall"
+status = "completed"
+priority = "high"
+# ALL 4 CRITERIA MET — closed 2026-03-15
+success_criteria = [
+    "GPU Mutex<T> via atomic CAS — lock/unlock/try_lock work correctly across warps",
+    "GPU-side HashMap or BTreeMap usable with hostcall-backed allocator",
+    "At least 2 new std types beyond current (File, Vec, String, Box, stdin)",
+    "gpu-libc stubs for new primitives (pthread_mutex_* or custom)",
+]
+
+
+[[epics]]
+id = "compute-utils"
+title = "GPU Compute Utils — expose all internal compute functions as public API"
+status = "completed"
+# ALL 5 CRITERIA MET — 46 public functions in 5 modules, all compile to PTX, docs generated
+priority = "high"
+success_criteria = [
+    "Full audit of all compute functions across codebase (compute_*.rs, helpers.rs, etc.)",
+    "gpu_runtime::compute module with public API: reductions, GEMM, activation functions, etc.",
+    "Warp-level primitives exposed: reduce_sum, scan, ballot, shuffle variants",
+    "Block-level primitives: shared memory helpers, bar_sync, parallel reduction",
+    "All exposed functions compile to valid PTX and have documentation",
+]
+
+
+[[epics]]
+id = "compute-demo"
+title = "GPU Compute Demo — prove async GPU is simpler and faster than raw CUDA"
+status = "completed"
+# ALL 4 CRITERIA MET — pipeline demo + benchmark + docs, benchmarked on real GPU
+priority = "high"
+success_criteria = [
+    "At least one multi-stage compute pipeline demo using compute utils + async orchestration",
+    "Demonstrate elimination of kernel launch overhead vs raw CUDA equivalent",
+    "User-facing quality: clean API, good documentation, easy to understand",
+    "Benchmark data comparing async GPU vs sequential kernel launches",
+]
+
+
+[[epics]]
+id = "gpu-channels"
+title = "GPU Async Channels — inter-task communication on GPU"
+status = "completed"
+# ALL 4 CRITERIA MET — closed 2026-03-15. Oneshot + MPSC + waker + demo all verified on GPU.
+priority = "high"
+success_criteria = [
+    "Oneshot<T> channel: sender.send(val) + receiver.await works between GPU async tasks",
+    "Mpsc<T> channel: multiple senders, single receiver, lock-free ring buffer in mapped memory",
+    "Waker integration: receiver future yields (Pending) until data available, sender wakes receiver",
+    "Demo kernel: producer-consumer pipeline using channels with GpuExecutor",
+]
+
+
+[[epics]]
+id = "benchmarks"
+title = "Benchmarks — hostcall latency, throughput, scalability measurements"
+status = "completed"
+# ALL 4 CRITERIA MET — closed 2026-03-15
+priority = "high"
+success_criteria = [
+    "Hostcall throughput benchmark: sustained calls/sec with 1, 32, 1024 threads",
+    "File I/O benchmark: read/write latency and throughput (inline vs sideband)",
+    "Scalability chart data: latency vs thread count (1 to 1024)",
+    "Results documented with analysis and comparison baseline",
+]
+
+
+[[epics]]
+id = "tokio-bridge"
+title = "Tokio Bridge — bidirectional async coordination between host tokio runtime and GPU"
+status = "completed"
+# ALL 4 CRITERIA MET — closed 2026-03-15. GpuTask API + tokio-offload example.
+priority = "high"
+success_criteria = [
+    "GpuRuntime integrates with tokio runtime (hostcall listener runs as tokio task)",
+    "gpu_spawn() returns a tokio::JoinHandle-like future that resolves when GPU task completes",
+    "Host can await GPU kernel results without blocking the tokio runtime",
+    "Demo: tokio server that offloads compute to GPU via async bridge",
+]
+
+
+[[epics]]
+id = "production-ready"
+title = "Production Readiness — multi-GPU, streams, memory management"
+status = "completed"
+priority = "high"
+# ALL 4 CRITERIA MET — multi-gpu, cuda-streams, gpu-alloc, prebuilt-toolchain all done
+success_criteria = [
+    "GpuRuntime supports multiple GPUs (device selection + multi-context management)",
+    "CUDA stream support for overlapping compute and I/O transfers",
+    "GPU memory pool with deallocation (slab or buddy allocator replaces bump-only)",
+    "Pre-built toolchain binaries via CI (reduce first-time setup to < 10 min)",
+]
+
+
+[[epics]]
+id = "tensor-core-gemm"
+title = "Tensor Core GEMM — production-quality MMA kernel with correct precision and real speedup"
+status = "completed"
+# ALL 5 CRITERIA MET — closed 2026-03-15. Split-K f16 MMA: 2.18x throughput, 26ms/token, 3/3 prompts match.
+priority = "highest"
+success_criteria = [
+    "Split-K accumulation: large K dimensions (>=1024) chunked into independent f32 partial sums to prevent rounding error accumulation",
+    "Direct f16 weight loading (no f32->f16 conversion), eliminating input truncation as an error source",
+    "GPT-2 Small f16 MMA inference top-5 tokens match f32 FMA reference (at least 2/3 prompts) — WITHOUT model-side QAT/PTQ",
+    "MMA GEMM throughput >= 2x f32 FMA (Tensor Core hardware advantage must be measurable)",
+    "Per-token latency with MMA significantly lower than current f32 FMA baseline of 68ms/token",
+]
+
+
+[[epics]]
+id = "object-detection"
+title = "GPU Object Detection — YOLOv8-nano inference with hostcall result return"
+status = "completed"
+# ALL 5 CRITERIA MET — closed 2026-03-15
+priority = "high"
+depends_on = "tensor-core-gemm"
+success_criteria = [
+    "Conv2D kernel: f32 FMA or Tensor Core MMA, shared memory tiling, correct stride/padding handling",
+    "Complete YOLO backbone: Conv2D + BatchNorm + SiLU + Upsample + Concat",
+    "Detection head + NMS: output bounding boxes, class ID, confidence score",
+    "End-to-end demo: read image -> GPU inference -> hostcall returns detection results, correctly detect >=3 objects in a single image",
+    "All kernels in pure Rust inline PTX, no cuDNN/cuBLAS dependency",
+]
+
+
+[[epics]]
+id = "developer-experience"
+title = "Developer Experience — cargo xtask, rust-analyzer, onboarding"
+status = "completed"
+priority = "low"
+# Closed by user 2026-03-16
+success_criteria = [
+    "cargo xtask gpu-build compiles host + GPU kernel crates, runs PTX post-processing",
+    "rust-analyzer provides completions and type checking for GPU kernel crates",
+    "Setup script (Linux + Windows) downloads pre-built toolchain and configures environment",
+    "New user onboarding time from clone to first kernel run < 15 minutes (with CUDA installed)",
+]
+
+
+[[epics]]
+id = "ml-framework"
+title = "Mini ML Framework — reusable compute API + inference examples"
+status = "completed"
+# ALL 6 CRITERIA MET — closed 2026-03-15
+priority = "high"
+success_criteria = [
+    "Unified GpuTensor type with shape, strides, device memory — usable across all ops",
+    "gpu_host::nn module with composable ops: Linear, Conv2d, BatchNorm, LayerNorm, activations (SiLU, GELU, Sigmoid, Softmax)",
+    "Host-side kernel launch abstracted — user never writes grid/block size or function names",
+    "GPT-2 inference as standalone example (examples/gpt2-inference/) using nn API",
+    "YOLOv8-nano inference as standalone example (examples/yolo-detect/) using nn API",
+    "examples/ split into hostcall/ (old raw API) and std/ (new patched-std + nn API)",
+]
+
+
+[[epics]]
+id = "gpu-rag"
+title = "GPU-Autonomous RAG — retrieval + generation in a single pipeline"
+status = "completed"
+# 4/5 criteria met. Criterion 3 (hostcall round-trips) deferred — demo uses nn API orchestration
+priority = "high"
+success_criteria = [
+    "DONE: Vector store: 1030 text chunks embedded via wte averaging, stored on GPU",
+    "DONE: Full pipeline: query → wte embedding → GPU matmul cosine similarity → top-K → GPT-2 generation → output",
+    "DEFERRED: hostcall round-trips — pipeline uses nn API (host-orchestrated GPU kernels), not raw hostcall kernel",
+    "DONE: Search 0.8ms + generation 237ms/tok — latency dominated by GPT-2 generation, no overhead from pipeline",
+    "DONE: Standalone example in examples/std/gpu-rag/",
+]
+
+
+[[epics]]
+id = "autograd-v4"
+title = "Autograd v4 — GPU-native backward passes for all ops"
+status = "completed"
+# ALL 4 CRITERIA MET — BN GPU kernel, MaxPool2d gradient routing, UpsampleNearest 4-to-1 accumulation
+priority = "high"
+success_criteria = [
+    "BatchNorm2d backward: GPU kernel computing dInput, dGamma, dBeta (no CPU roundtrip)",
+    "MaxPool2d backward: proper gradient routing through stored max indices",
+    "UpsampleNearest backward: correct 4-to-1 gradient accumulation",
+    "Numerical gradient check passes for each fixed op (finite differences, tolerance < 1e-3)",
+]
+
+
+[[epics]]
+id = "int8-inference"
+title = "INT8 Quantized Inference — post-training quantization for GPT-2"
+status = "completed"
+# 2/4 criteria met, 2 deferred. dp4a kernel works, quantization correct (1.3% error). Full model + perf need tiled dp4a.
+priority = "high"
+success_criteria = [
+    "DONE: INT8 GEMM kernel using dp4a instruction (4× INT8 dot product → INT32)",
+    "DONE: Post-training quantization: f32 weights → INT8 with per-channel scale factors (1.3% rel err)",
+    "DEFERRED: GPT-2 full INT8 inference — needs tiled dp4a for competitive perf",
+    "DEFERRED: Per-token latency improvement — naive dp4a is 7-10x slower than tiled f32, needs shared memory tiling",
+]
+
+
+[[epics]]
+id = "diff-physics"
+title = "Differentiable Physics — GPU-accelerated differentiable simulation"
+status = "completed"
+# ALL 5 CRITERIA MET — gravity 47.1x GPU speedup, spring-mass optimization converges, standalone example
+priority = "high"
+success_criteria = [
+    "GPU particle simulation: N-body gravity or spring-mass system, >= 1000 particles, >= 100 timesteps",
+    "Differentiable: backward pass computes gradients w.r.t. initial positions/velocities",
+    "Optimization: find initial conditions that achieve a target final state",
+    "GPU speedup >= 5x over CPU reference for the forward simulation",
+    "Standalone example in examples/std/diff-physics/",
+]
+
+
+[[epics]]
+id = "kernel-fusion"
+title = "Kernel Fusion v1 — fused GEMM+bias+activation kernels"
+status = "completed"
+# 2/4 met. Fused PTX kernels ready. GPT-2 nn API integration deferred (needs Linear layer changes).
+priority = "high"
+success_criteria = [
+    "DONE: Fused gemm_bias_gelu kernel: GEMM + bias add + GELU in single launch",
+    "DONE: Fused gemm_bias_relu kernel: GEMM + bias add + ReLU in single launch",
+    "DEFERRED: GPT-2 nn API integration (requires Linear layer to detect + dispatch fused path)",
+    "DEFERRED: 15% latency reduction (needs integration first)",
+]
+
+
+[[epics]]
+id = "persistent-kernel"
+title = "Persistent Kernel — long-running GPU compute with dynamic work dispatch"
+status = "completed"
+# 3/4 criteria met. Dispatch < 10µs: NO (16.1µs, re-launch is faster at 9.5µs). API works.
+priority = "high"
+success_criteria = [
+    "Persistent kernel stays alive across 100+ work items without re-launch",
+    "Work dispatch latency < 10μs (vs ~50μs for kernel re-launch)",
+    "At least one real workload benefits (e.g., many small GEMM dispatches)",
+    "Clean API: PersistentScheduler::submit(work_item) from host side",
+]
+
+
+[[epics]]
+id = "onnx-inference"
+title = "ONNX Runtime — load and execute arbitrary ONNX models on GPU"
+status = "completed"
+# ALL 8 CRITERIA MET — parser, executor, 41+ ops, ResNet 91.2%, GPT-2 coherent text, MobileNetV2 e2e
+priority = "high"
+success_criteria = [
+    "ONNX protobuf parser: load .onnx file into typed graph IR (nodes, tensors, initializers)",
+    "Graph executor: topological sort nodes, allocate intermediate tensors, dispatch sequentially",
+    "Core 15 ops: Conv, MatMul, Relu, BatchNormalization, MaxPool, Add, Reshape, Transpose, Softmax, Concat, Flatten, Gather, Unsqueeze, Squeeze, Clip",
+    "ResNet-18 ONNX inference matches from_safetensors path (>90% CIFAR-10)",
+    "Transformer ops: Where, Cast, Slice, Split, Expand, LayerNormalization, Erf (for GELU)",
+    "GPT-2 ONNX inference produces coherent text (top-5 match safetensors path for ≥2/3 prompts)",
+    "At least 30 ONNX operators implemented and tested",
+    "MobileNetV2 or EfficientNet-Lite ONNX runs end-to-end correctly",
+]
+
+
+[[epics]]
+id = "kernel-fusion-v2"
+title = "Kernel Fusion v2 — integrate fused GEMM+activation into nn API + GPT-2 speedup"
+status = "completed"
+# matmul_fused + Linear::forward_fused work. GPT-2 reverted: pre-padded B path is faster. Needs fused_prepadded_b for actual speedup.
+priority = "high"
+depends_on = "kernel-fusion"
+success_criteria = [
+    "Linear layer detects subsequent activation and dispatches fused kernel (gemm_bias_gelu / gemm_bias_relu)",
+    "GPT-2 nn API per-token latency reduced ≥15% from fusion (baseline: ~79ms/token)",
+    "ONNX executor uses fused dispatch for MatMul+Add+Relu patterns",
+    "No accuracy regression: GPT-2 output identical to unfused path",
+]
+
+
+[[epics]]
+id = "int4-quantization"
+title = "INT4 Quantized Inference — GPTQ-style 4-bit weights for GPT-2"
+status = "completed"
+# 3/5 criteria met. INT4 kernel + host wrapper + Python quantizer (4.7x). GPT-2 INT4 Linear layer deferred.
+priority = "medium"
+depends_on = "int8-inference"
+success_criteria = [
+    "INT4 dequantization kernel: unpack 4-bit weights from u32, scale to f32 per group",
+    "INT4 GEMM: dequantize on-the-fly during matmul (W4A16 — 4-bit weights, 16-bit activations)",
+    "Quantize GPT-2 weights to INT4 with per-group scales (group_size=128)",
+    "GPT-2 INT4 inference produces coherent text (top-5 match f32 for ≥2/3 prompts)",
+    "Model memory reduced ≥3x (from ~500MB f32 to ~170MB INT4+scales)",
+]
+
+
+[[epics]]
+id = "graph-compiler"
+title = "Graph Compiler — automatic operator fusion for nn API and ONNX"
+status = "completed"
+priority = "medium"
+depends_on = "onnx-inference"
+success_criteria = [
+    "Graph IR: represent nn forward pass as a DAG of typed tensor operations",
+    "Fusion passes: detect and fuse elementwise chains (e.g., Add+Relu, GEMM+Bias+GELU)",
+    "Code generation: emit fused GPU kernel from fused subgraph (template-based, not JIT)",
+    "ONNX executor uses graph compiler for automatic fusion",
+    "Measurable speedup: ≥20% on GPT-2 or ResNet-18 ONNX inference",
+]
+
+
+[[epics]]
+id = "refactor"
+title = "Codebase Refactor — dead code, API cleanup, test coverage, code quality"
+status = "completed"
+priority = "high"
+success_criteria = [
+    "Zero clippy warnings on `cargo clippy -p gpu-host --features nn,gpt2,onnx`",
+    "dispatch_node() split into per-category handler functions (<80 lines each)",
+    "All unwrap() in library code (nn/, onnx_rt/) replaced with ? or map_err",
+    "Quantization pack/unpack extracted to shared utility (INT8 + INT4 reuse)",
+    "Example boilerplate uses KernelRegistry::init_default() (all 9 examples)",
+    "Public API audit: internal helpers marked pub(crate), not pub",
+]
+
+
+[[epics]]
+id = "onnx-perf"
+title = "ONNX Performance — close gap with native nn API"
+status = "completed"
+priority = "high"
+success_criteria = [
+    "Initializers cached across inference runs (upload once, reuse)",
+    "ResNet-18 ONNX latency < 25ms (from 47.2ms, target: within 2x of native 15.7ms)",
+    "CPU-fallback ops (ReduceMean, Reshape) replaced with GPU-only paths where possible",
+    "GPT-2 ONNX single forward pass completes in < 5 seconds",
+]
+
+
+[[epics]]
+id = "refactor-v2"
+title = "Refactor v2 — 完成所有跳過的重構項目 + ONNX 效能優化"
+status = "completed"
+priority = "highest"
+success_criteria = [
+    "resnet.rs 的 5 個 Option::unwrap() 改成 ok_or(NnError)",
+    "INT8/INT4 quantization pack/unpack 提取到 nn/ops/quantize.rs 共用模組",
+    "pub(crate) 審計：所有非公開 API 的 helper 標為 pub(crate)",
+    "dead code 清理：移除未使用的函式和 import",
+    "magic number 常量化：所有 magic number 提取為 named constant",
+    "ONNX executor CPU-fallback ops 改為 GPU 路徑 (Mul/Sub/Div/Pow/Sqrt/Exp/Neg)",
+    "ONNX Conv2d weight prepadding cache (最大效能改善)",
+    "ResNet-18 ONNX < 25ms (目前 43ms, native 15.7ms)",
+    "GPT-2 ONNX single forward pass 實際執行並計時",
+    "新增 unit test: Int4Linear, OnnxSession, quantize utils",
+]
+
+
+[[epics]]
+id = "gpu-dynamic"
+title = "Dynamic Control Flow on GPU — the advantage over CUDA graphs"
+status = "completed"
+priority = "high"
+success_criteria = [
+    "Variable-length text generation: GPT-2 stops at EOS token, different samples finish at different lengths",
+    "Early-exit inference: model skips remaining layers when confidence exceeds threshold",
+    "Data-dependent branching demo: GPU kernel takes different compute paths based on input data",
+    "At least one demo that is impossible with CUDA graphs / TensorRT static compilation",
+]
+
+
+[[epics]]
+id = "graph-algorithms"
+title = "Graph Algorithms on GPU — BFS, PageRank with async scheduling"
+status = "completed"
+priority = "high"
+success_criteria = [
+    "CSR (Compressed Sparse Row) graph representation loaded on GPU",
+    "GPU BFS: level-synchronous on 100K+ vertex graph, correctness matches CPU reference",
+    "GPU PageRank: iterative until convergence (delta < 1e-6), matches CPU within 1e-4",
+    "GPU speedup >= 3x over CPU for graphs with 100K+ edges",
+    "Standalone example in examples/std/graph-algorithms/",
+]
+
+
+[[epics]]
+id = "int4-gpt2"
+title = "INT4 GPT-2 Inference — complete the deferred 4-bit inference"
+status = "completed"
+priority = "medium"
+depends_on = "int4-quantization"
+success_criteria = [
+    "Int4Linear integrated into GPT-2 model (replace Linear layers)",
+    "GPT-2 INT4 inference produces coherent text (top-5 match f32 for >= 2/3 prompts)",
+    "Model memory reduced >= 3x from f32 baseline",
+    "Per-token latency measured and documented",
+]
+
+
+[[epics]]
+id = "monte-carlo"
+title = "Monte Carlo Simulations — GPU PRNG, option pricing, convergence"
+status = "completed"
+priority = "medium"
+success_criteria = [
+    "GPU PRNG (xoshiro256++ or similar): 10K+ independent streams, passes basic statistical test",
+    "Black-Scholes Monte Carlo: 1M+ paths, result within 1% of analytical price",
+    "Pi estimation: 10M+ random points, accurate to 4+ decimal places",
+    "GPU speedup >= 10x over CPU for 1M-path Monte Carlo",
+]
+
+
+[[epics]]
+id = "benchmark"
+title = "GPU Kernel Benchmarks — cuBLAS/cuDNN comparison + throughput metrics"
+status = "completed"
+priority = "high"
+success_criteria = [
+    "SGEMM benchmark: measure GFLOPS at multiple sizes (512-4096), compare vs cuBLAS, report % of peak",
+    "Conv2D benchmark: measure GFLOPS for common configs (ResNet/YOLO shapes), compare vs cuDNN",
+    "Flash Attention benchmark: measure throughput at GPT-2 shapes, compare vs cuDNN/FlashAttention2",
+    "Memory-bound ops benchmark: LayerNorm, GELU, elementwise — measure GB/s vs theoretical peak",
+    "End-to-end GPT-2 latency breakdown: per-layer timing, identify bottleneck ops",
+    "Benchmark harness in examples/std/benchmark/ with reproducible results",
+    "Results documented with improvement targets (which kernels have most headroom)",
+]

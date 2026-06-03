@@ -3,7 +3,7 @@ target = "nvptx64-nvidia-cuda"
 
 [target.nvptx64-nvidia-cuda]
 linker = "llvm-bitcode-linker"
-rustflags = ["-C", "target-cpu=sm_86", "-C", "target-feature=+ptx78"]
+rustflags = ["-C", "target-cpu=sm_75", "-C", "target-feature=+ptx78"]
 
 [unstable]
 build-std = ["core"]

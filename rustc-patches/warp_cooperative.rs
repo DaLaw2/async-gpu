@@ -284,7 +284,7 @@ fn try_detect_dispatch(body: &Body<'_>, bb: BasicBlock) -> Option<(Option<BasicB
     let has_discriminant_assign = bb_data.statements.iter().any(|stmt| {
         matches!(
             &stmt.kind,
-            StatementKind::Assign(box (lhs, Rvalue::Discriminant(_)))
+            StatementKind::Assign((lhs, Rvalue::Discriminant(_)))
                 if lhs.local == scrutinee_local && lhs.projection.is_empty()
         )
     });

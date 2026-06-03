@@ -197,11 +197,8 @@ impl File {
         false
     }
 
-    pub fn read_buf(&self, mut cursor: BorrowedCursor<'_>) -> io::Result<()> {
-        let buf = cursor.ensure_init();
-        let n = self.read(buf.init_mut())?;
-        unsafe { cursor.advance_unchecked(n); }
-        Ok(())
+    pub fn read_buf(&self, cursor: BorrowedCursor<'_>) -> io::Result<()> {
+        crate::io::default_read_buf(|buf| self.read(buf), cursor)
     }
 
     pub fn write(&self, buf: &[u8]) -> io::Result<usize> {

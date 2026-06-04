@@ -37,6 +37,7 @@ pub mod cpu_ref;
 #[cfg(not(feature = "demo"))]
 pub(crate) mod cpu_ref;
 pub mod error;
+pub mod fusion;
 pub mod layers;
 /// Pre-built model architectures (GPT-2, ResNet, YOLOv8).
 ///

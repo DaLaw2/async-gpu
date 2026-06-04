@@ -15,11 +15,11 @@ status = "running"     # ready | running | blocked | completed
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
 current_step = "dispatch"
-current_task_id = "iter-design.2,fusion-analysis.2"
+current_task_id = "iter-design.3,fusion-analysis.3"
 
 # Sequence counters
 brainstorm_seq = 116
-tasks_since_brainstorm = 4   # reset after brainstorm 116
+tasks_since_brainstorm = 6   # reset after brainstorm 116
 
 # ============================================================
 # Epics — Tiered (T0 → T3), sorted by tier then priority
@@ -31,7 +31,9 @@ tasks_since_brainstorm = 4   # reset after brainstorm 116
 # object-detection, developer-experience, ml-framework, gpu-rag, autograd-v4,
 # int8-inference, diff-physics, kernel-fusion, persistent-kernel, onnx-inference,
 # kernel-fusion-v2, int4-quantization, graph-compiler, refactor, onnx-perf,
-# refactor-v2, gpu-dynamic, graph-algorithms, int4-gpt2, monte-carlo, benchmark
+# refactor-v2, gpu-dynamic, graph-algorithms, int4-gpt2, monte-carlo, benchmark,
+# native-rust-dx, std-thread-gpu, cooperative-compute, structured-concurrency,
+# library-api, kernel-perf
 
 # --- T0: Foundation (must be done first) ---
 
@@ -140,7 +142,26 @@ success_criteria = [
     "GPT-2 end-to-end forward pass < 40ms",
 ]
 
-# --- T2: Advanced ---
+# --- T2: Advanced (now active tier — T0/T1 all completed) ---
+
+[[epics]]
+id = "developer-showcase"
+title = "Developer Showcase — examples, API surface, and README for all shipped features"
+tier = 2
+status = "active"
+priority = "high"
+# North Star: Every shipped feature has a clean example and is discoverable in README.
+#   A new developer sees what async-gpu can do in 5 minutes of reading.
+#   Hidden features (SC, channels, executor) become first-class user-facing APIs.
+# Litmus Test: A Rust dev reads the README, picks any feature, finds a working example,
+#   and uses the API from the async-gpu facade without reading internal crates.
+success_criteria = [
+    "Structured Concurrency (BlockScope/GridScope/GpuChannel) has standalone example + facade re-exports",
+    "README has feature matrix, performance table, and progressive code snippets",
+    "GPU channels and executor have clean examples demonstrating async GPU programming",
+    "Every major feature category has at least one clean, documented example",
+    "async-gpu facade re-exports all user-facing kernel-side types (scopes, channels, executor)",
+]
 
 [[epics]]
 id = "cuda-graph-scheduling"
@@ -1272,7 +1293,7 @@ id = "iter-design.3"
 theme = "iter-design"
 title = "Design: MIR pass strategy — iterator chain → single fused GPU kernel"
 kind = "design"
-status = "pending"
+status = "done"
 depends = ["iter-design.2"]
 
 # --- gpu-iterator: compiler ---
@@ -1358,9 +1379,9 @@ depends = ["fusion-analysis.1"]
 [[tasks]]
 id = "fusion-analysis.3"
 theme = "fusion-analysis"
-title = "Experiment: implement fusion candidate detection in MIR pass"
+title = "Experiment: implement fusion candidate detection in tape optimizer"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["fusion-analysis.2"]
 
 # --- auto-fusion: codegen ---

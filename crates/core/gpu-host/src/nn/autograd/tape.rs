@@ -5,7 +5,7 @@
 pub struct TensorId(pub u32);
 
 /// Kind of operation recorded on the tape.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum OpKind {
     /// Matrix multiplication: C = A * B
     Matmul,

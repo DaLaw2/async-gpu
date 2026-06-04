@@ -4,8 +4,8 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 604
-completed_tasks = 717
+total_cycles = 605
+completed_tasks = 720
 status = "running"     # ready | running | blocked | completed
 
 # Project North Star — the ONE thing all epics serve:
@@ -14,12 +14,12 @@ status = "running"     # ready | running | blocked | completed
 # No GPU concepts leak. VectorWare's I/O strength + async-gpu's compute strength, unified.
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
-current_step = "do.save"
+current_step = "do.select"
 current_task_id = ""
 
 # Sequence counters
-brainstorm_seq = 110
-tasks_since_brainstorm = 12   # >= 10 → brainstorm triggered
+brainstorm_seq = 111
+tasks_since_brainstorm = 0   # reset after brainstorm
 
 # ============================================================
 # Epics — Tiered (T0 → T3), sorted by tier then priority
@@ -56,7 +56,7 @@ success_criteria = [
 id = "std-thread-gpu"
 title = "std::thread on GPU — thread::spawn() maps to warp"
 tier = 0
-status = "active"
+status = "completed"
 priority = "highest"
 # North Star: thread::spawn() on GPU just works — this is the I/O PILLAR of the unified kernel.
 #   Sequential I/O (file read/write, println!) happens in warp-as-thread mode.
@@ -251,7 +251,7 @@ success_criteria = [
 id = "std-thread-integration"
 epic = "std-thread-gpu"
 title = "std::thread::spawn via patched std — fix bar.sync hang"
-status = "active"
+status = "completed"
 goal = "std::thread::spawn() works on GPU via patched rustc std"
 success_criteria = [
     "std::thread::spawn on GPU doesn't hang (bar.sync + std init interaction fixed)",
@@ -295,6 +295,38 @@ title = "Experiment: rewrite examples/ to use gpu::run() native Rust style"
 kind = "experiment"
 status = "done"
 depends = ["native-api.1"]
+
+[[tasks]]
+id = "native-api.3"
+theme = "native-api"
+title = "Investigation: gpu-kernel ABI availability + migration plan"
+kind = "investigation"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "native-api.4"
+theme = "native-api"
+title = "Experiment: migrate all kernels from extern ptx-kernel to extern gpu-kernel"
+kind = "experiment"
+status = "pending"
+depends = ["native-api.3"]
+
+[[tasks]]
+id = "native-api.5"
+theme = "native-api"
+title = "Design: gpu::run_custom() builder API for multi-argument kernels"
+kind = "design"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "native-api.6"
+theme = "native-api"
+title = "Experiment: rewrite remaining examples with builder API + std kernel-side APIs"
+kind = "experiment"
+status = "pending"
+depends = ["native-api.5"]
 
 # --- kernel-perf themes ---
 
@@ -634,3 +666,15 @@ new_epics_spawned = ["classical-ml", "gpu-dynamic", "graph-algorithms", "int4-gp
 themes_parked = []
 themes_completed = []
 key_insight = "NN axis saturated. Breadth wins where async/await adds unique value. classical-ml + gpu-dynamic + graph-algorithms are top 3."
+
+[[brainstorms]]
+seq = 111
+at_cycle = 605
+trigger = "Proactive (tasks>=15), std-thread-gpu epic completed, native-rust-dx verification failed 2/4"
+level = "standard"
+new_tasks_spawned = ["native-api.3", "native-api.4", "native-api.5", "native-api.6"]
+new_themes_spawned = []
+new_epics_spawned = []
+themes_parked = []
+themes_completed = ["std-thread-integration"]
+key_insight = "std-thread-gpu cleared T0. native-rust-dx needs gpu-kernel ABI migration + builder API for remaining examples. User chose to keep criteria, not weaken them."

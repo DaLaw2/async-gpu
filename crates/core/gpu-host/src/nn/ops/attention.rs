@@ -158,21 +158,20 @@ pub fn multi_head_flash_attention(
     causal: bool,
     registry: &Arc<KernelRegistry>,
 ) -> Result<GpuTensor> {
-    let dev = registry.device();
-    let total = n_heads * seq_len * d_head;
-    let mut output = GpuTensor::zeros(&[n_heads * seq_len, d_head], dev)?;
-
-    let status_dev = dev.htod_sync_copy(&[0u32]).map_err(NnError::Cuda)?;
-
     // Use NVRTC V3 attention when cublas feature enabled (cooperative tiled GEMM)
     #[cfg(feature = "cublas")]
     {
+        let dev = registry.device();
         return multi_head_flash_attention_v3(q, k, v, seq_len, n_heads, d_head, causal, dev);
     }
 
     // Fallback: Rust PTX flash_attention_v2 kernel
     #[cfg(not(feature = "cublas"))]
     {
+        let dev = registry.device();
+        let mut output = GpuTensor::zeros(&[n_heads * seq_len, d_head], dev)?;
+        let status_dev = dev.htod_sync_copy(&[0u32]).map_err(NnError::Cuda)?;
+
         let func = registry.get("flash_attention_v2")?;
         let n_q_tiles = seq_len.div_ceil(32) as u32;
         let config = cudarc::driver::LaunchConfig {
@@ -198,7 +197,6 @@ pub fn multi_head_flash_attention(
             .map_err(NnError::Cuda)?;
         }
 
-        let _ = total;
         Ok(output)
     }
 }
@@ -548,97 +546,6 @@ pub fn concat_heads(
     }
 
     Ok(output)
-}
-
-/// Multi-head attention via matmul: S = Q·K^T, P = softmax(S), O = P·V.
-///
-/// Uses cuBLAS-backed matmul for the heavy GEMM operations.
-/// Requires softmax + causal mask as separate kernels.
-#[cfg(feature = "cublas")]
-#[allow(clippy::too_many_arguments)]
-fn multi_head_matmul_attention(
-    q: &GpuTensor,
-    k: &GpuTensor,
-    v: &GpuTensor,
-    seq_len: usize,
-    n_heads: usize,
-    d_head: usize,
-    causal: bool,
-    registry: &Arc<KernelRegistry>,
-) -> Result<GpuTensor> {
-    let dev = registry.device();
-    let scale = 1.0 / (d_head as f32).sqrt();
-
-    // Q, K, V are [n_heads * seq_len, d_head] in head-major layout
-    let q_host = q.to_host()?;
-    let k_host = k.to_host()?;
-    let v_host = v.to_host()?;
-    let mut all_output = vec![0.0f32; n_heads * seq_len * d_head];
-
-    for h in 0..n_heads {
-        let head_off = h * seq_len * d_head;
-
-        // Extract per-head slices
-        let q_slice = &q_host[head_off..head_off + seq_len * d_head];
-        let k_slice = &k_host[head_off..head_off + seq_len * d_head];
-        let v_slice = &v_host[head_off..head_off + seq_len * d_head];
-
-        // Transpose K: [seq_len, d_head] → [d_head, seq_len]
-        let mut k_t = vec![0.0f32; d_head * seq_len];
-        for r in 0..seq_len {
-            for c in 0..d_head {
-                k_t[c * seq_len + r] = k_slice[r * d_head + c];
-            }
-        }
-
-        // Upload Q_h and K^T to GPU
-        let q_dev = GpuTensor::from_host(q_slice, &[seq_len, d_head], dev)?;
-        let kt_dev = GpuTensor::from_host(&k_t, &[d_head, seq_len], dev)?;
-
-        // S = Q × K^T: [seq_len, seq_len]
-        let s = super::matmul_v2(&q_dev, &kt_dev, registry)?;
-
-        // Scale + causal mask + softmax on host (simple for correctness)
-        let mut s_host = s.to_host()?;
-        for i in 0..seq_len {
-            // Apply scale and causal mask
-            let mut max_val: f32 = f32::NEG_INFINITY;
-            for j in 0..seq_len {
-                let idx = i * seq_len + j;
-                if causal && j > i {
-                    s_host[idx] = f32::NEG_INFINITY;
-                } else {
-                    s_host[idx] *= scale;
-                }
-                if s_host[idx] > max_val {
-                    max_val = s_host[idx];
-                }
-            }
-            // Softmax: exp(x - max) / sum(exp(x - max))
-            let mut sum: f32 = 0.0;
-            for j in 0..seq_len {
-                let idx = i * seq_len + j;
-                let e = (s_host[idx] - max_val).exp();
-                s_host[idx] = e;
-                sum += e;
-            }
-            let inv_sum = if sum > 0.0 { 1.0 / sum } else { 0.0 };
-            for j in 0..seq_len {
-                s_host[i * seq_len + j] *= inv_sum;
-            }
-        }
-
-        // Upload P and V_h to GPU
-        let p = GpuTensor::from_host(&s_host, &[seq_len, seq_len], dev)?;
-        let v_dev = GpuTensor::from_host(v_slice, &[seq_len, d_head], dev)?;
-
-        // O = P × V: [seq_len, d_head]
-        let o_h = super::matmul_v2(&p, &v_dev, registry)?;
-        let o_host = o_h.to_host()?;
-        all_output[head_off..head_off + seq_len * d_head].copy_from_slice(&o_host);
-    }
-
-    GpuTensor::from_host(&all_output, &[n_heads * seq_len, d_head], dev)
 }
 
 /// Scaled dot-product attention with separate KV cache lengths.

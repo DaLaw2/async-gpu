@@ -15,7 +15,7 @@ status = "running"     # ready | running | blocked | completed
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
 current_step = "dispatch"
-current_task_id = "perf-attn-v3.3,perf-fusion.2"
+current_task_id = "perf-attn-v3.4"
 
 # Sequence counters
 brainstorm_seq = 115
@@ -1013,7 +1013,7 @@ id = "perf-attn-v3.4"
 theme = "perf-attn-v3"
 title = "Experiment: benchmark, iterate until ≥70% cuDNN, integrate"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["perf-attn-v3.3"]
 
 [[tasks]]

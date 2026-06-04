@@ -1,6 +1,6 @@
 # Dev Brainstorm — Think Phase
 
-Dispatched from `dev.md` ROUTE when a brainstorm trigger fires.
+Dispatched from `dev.md` GATE (proactive) or ROUTE (reactive) when a brainstorm trigger fires.
 
 ## Pre-brainstorm (MANDATORY)
 
@@ -50,5 +50,8 @@ Select 3-4 experts from: Systems Architect, Compiler Engineer, GPU Architect, Pe
 - Increment `brainstorm_seq`, reset `tasks_since_brainstorm = 0`
 - Record `[[brainstorms]]` entry with seq, trigger, level, key_insight
 - Commit + push
-- Transition → `current_step = "do.select"`
-- **MUST produce** at least one new task, theme, or epic. No empty brainstorms.
+- Transition → `current_step = "gate"`
+
+### Output rules by trigger
+- **No ready tasks** → **MUST produce** at least one new task (loop is stuck without new work)
+- **All other triggers** → MAY produce tasks/themes/epics, but not required. Valid outputs include: reprioritize existing tasks, park themes, adjust scope, record strategic insight. No-task brainstorms must still record `key_insight`.

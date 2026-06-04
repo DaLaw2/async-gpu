@@ -1,16 +1,17 @@
 ## Current Focus
-T0 epics nearing completion. Both have all tasks done; ready for Epic Verification Gate.
-- native-rust-dx: 3/4 criteria met (examples partially rewritten — 3/7 hostcall converted, 4 need flexible API)
-- std-thread-gpu: 5/5 criteria likely met (std::thread::spawn verified working with println!)
-tasks_since_brainstorm = 15 → brainstorm triggered.
+T0 CLEARED. Both foundation epics completed. T1 activation next.
+- native-rust-dx: COMPLETED (4/4 criteria pass — gpu-kernel ABI, MIR pass, one-liner API, examples rewritten)
+- std-thread-gpu: COMPLETED (5/5 criteria pass — thread::spawn works with println!)
+- Tier promotion: T1 epics now eligible (cooperative-compute, structured-concurrency, kernel-perf)
+tasks_since_brainstorm = 0.
 
 ## Recent Decisions
-- 2026-06-04: SIMT lane-0 guard in gpu_main/gpu_main_poll — main_fn must run on lane 0 only
-- 2026-06-04: sys_thread_cuda.rs trampoline needs lane masking (only lane 0 manages closure data)
-- 2026-06-04: kernel_std.cubin pre-compilation required (6MB PTX → 37MB cubin, <1s vs >10min)
-- 2026-06-04: Sysroot IS patched (cuda.rs routes std::thread → gpu_thread_spawn_raw)
-- 2026-06-04: 3 hostcall examples simplified (hello-gpu, async-io, async-pipeline) — 4 need flexible API
-- 2026-06-04: ONLY_TEST env var controls test selection (not CLI args)
+- 2026-06-04: Migrated all kernels from extern "ptx-kernel" to extern "gpu-kernel" (abi_gpu_kernel feature)
+- 2026-06-04: gpu::custom() builder API for multi-arg kernels (CustomLaunchBuilder → GpuContext → GpuResult)
+- 2026-06-04: Removed #[warp_cooperative] attributes — MIR pass handles all async fn
+- 2026-06-04: warp-macro crate kept — warp_*! DSL functions still need the proc macro
+- 2026-06-04: SIMT lane-0 guard in gpu_main/gpu_main_poll — main_fn runs on lane 0 only
+- 2026-06-04: kernel_std.cubin pre-compilation required (6MB PTX → 37MB cubin, <1s load)
 
 ## Tried & Rejected
 - bar.sync removal for cross-launch fix: doesn't work (L1 cache coherence)
@@ -28,11 +29,12 @@ tasks_since_brainstorm = 15 → brainstorm triggered.
 - Flash Attention V3: 559 GFLOPS causal @ seq=512
 - Fused LN+residual: 2.01x speedup, 154 GB/s
 - In-place elementwise_add: 160 GB/s (83% peak)
-- std::thread::spawn: WORKS — spawn 2 threads, join, println! (45 + 120 = 165)
+- std::thread::spawn: WORKS (45 + 120 = 165, println! from spawned threads)
 - kernel_std.cubin: 37MB, loads <1s
+- Examples: 8/8 hostcall converted to gpu:: API, ~350 lines boilerplate removed
 
 ## Next
-1. Run Epic Verification Gate on std-thread-gpu (5/5 criteria should pass)
-2. Assess native-rust-dx criterion 4 (examples rewrite — partial, may need discussion)
-3. Brainstorm triggered (tasks_since_brainstorm=15) — focus on remaining T0 gaps or T1 activation
-4. If T0 clears → activate cooperative-compute (T1)
+1. Activate T1 epics: cooperative-compute, structured-concurrency (kernel-perf already active)
+2. cooperative-compute is the COMPUTE PILLAR — gpu::cooperative() from sequential context
+3. Brainstorm needed to create themes/tasks for cooperative-compute and structured-concurrency
+4. kernel-perf has existing themes but many tasks blocked on dependency chains

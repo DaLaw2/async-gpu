@@ -24,7 +24,7 @@ Question: Does this work advance BOTH the epic North Star AND the Project North 
 Answer: ALIGNED (with 1-sentence evidence) or DRIFT (with 1-sentence explanation of what drifted).
 ```
 **Pass (ALIGNED)**: Continue to next cycle.
-**Fail (DRIFT)**: Record drift in context.md. Triggers reactive brainstorm in ROUTE.
+**Fail (DRIFT)**: Record drift in context.md. Triggers brainstorm in ROUTE.
 
 ## Gate 3: Epic Verification Gate
 
@@ -37,5 +37,5 @@ Success Criteria: {criteria_list}
 Verify EACH criterion by actually running/checking the observable outcome described.
 Return: PASS or FAIL with concrete evidence for each criterion.
 ```
-**Pass**: ALL criteria PASS → mark epic completed. Archive epic + its themes/tasks.
+**Pass**: ALL criteria PASS → orchestrator runs cascade close (see ROUTE in `dev.md`).
 **Fail**: ANY criterion FAIL → epic stays active. Create tasks for unmet criteria.

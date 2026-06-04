@@ -3,7 +3,7 @@
 All execution happens in subagents. They receive a structured brief and do NOT read state.toml
 or make strategic decisions. The orchestrator assembles the brief and judges results.
 
-## Brief Template
+## Brief Template (type: task)
 
 ```
 ## Task
@@ -53,13 +53,13 @@ Entry point: {specific file, script, or function to start from}
 - Redirect long output to .research/run.log, grep key results, delete log after use
 ```
 
-## Dispatch Types
+## Verify Pipeline
 
-### type: task (default)
-Full brief above. Subagent writes code, runs tests, produces findings + synthesis.
+After a task subagent reports STATUS=done, the orchestrator runs a verify → retry pipeline.
+All stages use separate subagents. The orchestrator does NOT read code — only subagent returns.
 
-### type: verify
-Dispatched automatically after a task subagent reports STATUS=done. A separate subagent verifies.
+### Stage 1: Verify
+
 ```
 ## Verify: {task_id}
 Task goal: {title}
@@ -76,6 +76,55 @@ Findings file: .research/findings/tasks/{task_id}-c{cycle}.md
 
 Return: PASS (all checks green) or FAIL (which check failed + evidence)
 ```
+
+PASS → task is done. Pipeline ends.
+FAIL → proceed to Stage 2.
+
+### Stage 2: Investigate
+
+Diagnose the failure without attempting fixes.
+
+```
+## Investigate verify failure: {task_id}
+Task goal: {title}
+Verify failure: {which check failed + evidence from verify subagent}
+Files changed: {FILES_CHANGED}
+Findings file: .research/findings/tasks/{task_id}-c{cycle}.md
+
+## Instructions
+1. Read the verify failure evidence
+2. Read the changed files and test output to understand what went wrong
+3. Diagnose the ROOT CAUSE — not the symptom
+
+Return: DIAGNOSIS (root cause in 2-3 sentences), FIX_HINT (what specifically to change)
+```
+
+### Stage 3: Fix
+
+Apply the targeted repair based on the diagnosis.
+
+```
+## Fix verify failure: {task_id}
+Task goal: {title}
+Diagnosis: {DIAGNOSIS from investigate subagent}
+Fix hint: {FIX_HINT from investigate subagent}
+Files changed: {FILES_CHANGED}
+
+## Instructions
+1. Apply the fix described in the diagnosis
+2. Run relevant tests to confirm the fix works
+3. Lint: cargo +stable fmt --check && cargo +stable clippy -- -D warnings
+4. Update findings file if needed
+
+Return: STATUS (done|blocked), SUMMARY (what was fixed), FILES_CHANGED
+```
+
+### Stage 4: Re-verify
+
+Run Stage 1 again with updated FILES_CHANGED.
+PASS → task is done. FAIL → mark task blocked (triggers brainstorm in ROUTE).
+
+## Other Dispatch Types
 
 ### type: north-star
 ```
@@ -100,10 +149,3 @@ See `dev-brainstorm.md`.
 
 ### type: maintain
 Dispatch `/maintain` with relevant sub-commands based on what changed in this cycle.
-
-## Extensibility
-
-To add a new dispatch type:
-1. Create `dev-{type}.md` with the subagent brief template and return contract
-2. Add trigger condition to `dev.md` ROUTE step
-3. No changes to this file or the core loop needed

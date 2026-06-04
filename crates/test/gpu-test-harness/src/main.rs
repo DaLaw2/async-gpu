@@ -543,7 +543,7 @@ fn main() -> Result<()> {
     tests_warp::run_warp_future_multi_print_test(Arc::clone(&dev))?;
 
     // WarpFuture proc macro test (warp-future.5)
-    tests_warp::run_warp_macro_print_test(Arc::clone(&dev))?;
+    tests_warp::run_warp_print_test(Arc::clone(&dev))?;
 
     // WarpFuture if/else test (warp-cfg.2)
     tests_warp::run_warp_cfg_if_else_test(Arc::clone(&dev))?;

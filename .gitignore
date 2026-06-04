@@ -36,3 +36,12 @@ formal/tla2tools.jar
 formal/HostcallProtocol_TTrace_*.bin
 formal/states/
 *.cubin
+
+# Editor/IDE config
+.vscode/
+
+# Local docs (not tracked)
+docs/
+
+# Benchmark output
+bench-results/

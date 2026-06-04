@@ -1,14 +1,16 @@
 # Dev Brainstorm — Think Phase
 
 Dispatched from `dev.md` when a brainstorm trigger fires.
-Proactive triggers are checked at GATE (before work). Reactive triggers are checked at ROUTE (after work).
+Triggers checked at GATE (proactive, before work) and ROUTE (reactive, after work).
 
-## Pre-brainstorm (MANDATORY)
+## Context Gathering (MANDATORY)
 
 1. Read all `[[epics]]` with `status = "active"`, sorted by tier (T0 first)
-2. **Tier gate**: If ANY T0 epic has unmet success criteria → brainstorm MUST focus on T0 only
-3. Prepare context: active epics summary, theme syntheses, blocked tasks, open questions
-4. All recommendations must reference which epic (and tier) they serve
+2. Read `.research/archive/epics-archived.toml` — flag any archived epic whose value has changed due to: new capabilities landed since archival, dependency epics that completed and unlock new approaches, or technology shifts (e.g. new hardware). These are reopen candidates.
+3. **Tier gate**: If ANY T0 epic has unmet success criteria → brainstorm MUST focus on T0 only
+4. Prepare context: active epics summary, theme syntheses, blocked tasks, open questions, reopen candidates
+
+All recommendations must reference which epic (and tier) they serve.
 
 ## Level Selection
 
@@ -20,7 +22,7 @@ Proactive triggers are checked at GATE (before work). Reactive triggers are chec
 
 ## Standard (1 subagent)
 
-Dispatch subagent with context (epics, theme syntheses, blocked tasks, open questions).
+Dispatch subagent with context (epics, theme syntheses, blocked tasks, open questions, reopen candidates).
 Subagent writes structured analysis to `.research/findings/brainstorm/bs{N}.md`:
 - Epic progress assessment, technical feasibility, risks, skeptic challenges, recommendations.
 Read output. Orchestrator updates state.toml based on recommendations.
@@ -48,10 +50,19 @@ Select 3-4 experts from: Systems Architect, Compiler Engineer, GPU Architect, Pe
 
 ## Post-brainstorm (all levels)
 
+Update state:
 - Increment `brainstorm_seq`, reset `tasks_since_brainstorm = 0`
 - Record `[[brainstorms]]` entry with seq, trigger, level, key_insight
 - Transition → `current_step = "gate"` (re-enter loop from top)
 
+### Possible outputs
+
+Brainstorm may produce any combination of:
+- **Create** new tasks, themes, or epics
+- **Reprioritize** existing tasks or park themes
+- **Reopen** an archived epic — move entry from archive back to state.toml, set `status = "active"`, assign tier. Do NOT restore old themes/tasks; a follow-up brainstorm creates fresh ones from current codebase state. Record in brainstorm entry: `epics_reopened = ["epic-id"]`. Record reason in `context.md` Recent Decisions.
+- **Record** strategic insight (no-task brainstorms must still record `key_insight`)
+
 ### Output rules by trigger
 - **No ready tasks** → **MUST produce** at least one new task (loop is stuck without new work)
-- **All other triggers** → MAY produce tasks/themes/epics, but not required. Valid outputs include: reprioritize existing tasks, park themes, adjust scope, record strategic insight. No-task brainstorms must still record `key_insight`.
+- **All other triggers** → outputs are optional. No-task brainstorms must still record `key_insight`.

@@ -217,7 +217,7 @@ pub(crate) fn run_warp_future_multi_print_test(dev: Arc<CudaDevice>) -> Result<(
 }
 
 /// WarpFuture proc macro test: #[warp_async] generates a 2-call state machine (warp-future.5).
-pub(crate) fn run_warp_macro_print_test(dev: Arc<CudaDevice>) -> Result<()> {
+pub(crate) fn run_warp_print_test(dev: Arc<CudaDevice>) -> Result<()> {
     println!("\n--- WarpFuture Proc Macro Test (warp-future.5) ---");
 
     let hc_buf = hostcall::HostcallBuffer::new(4)?;
@@ -241,10 +241,10 @@ pub(crate) fn run_warp_macro_print_test(dev: Arc<CudaDevice>) -> Result<()> {
     });
 
     let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
-    let _ = dev.load_ptx(ptx, "kernel", &["warp_macro_print_test"]);
+    let _ = dev.load_ptx(ptx, "kernel", &["warp_print_test"]);
     let f = dev
-        .get_func("kernel", "warp_macro_print_test")
-        .ok_or(GpuHostError::KernelNotFound("warp_macro_print_test"))?;
+        .get_func("kernel", "warp_print_test")
+        .ok_or(GpuHostError::KernelNotFound("warp_print_test"))?;
 
     let cfg = LaunchConfig {
         grid_dim: (1, 1, 1),

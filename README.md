@@ -5,7 +5,7 @@
 
 **What if the GPU could drive its own computation?** Open files, read data, branch on results, loop until convergence, write output — all from GPU code, with zero CPU orchestration between steps.
 
-async_gpu makes this real: **Rust async/await running natively on NVIDIA GPUs**, with a custom rustc MIR pass that turns standard `async fn` into warp-cooperative state machines — and GPU compute kernels powerful enough to run **GPT-2 inference in 25ms** (8.8x optimized), **YOLOv8-nano object detection**, **graph algorithms** (BFS, PageRank), and **Monte Carlo simulations** (129x throughput). Custom SGEMM at **63% of cuBLAS**, Flash Attention at **54% of cuDNN FA2**.
+async_gpu makes this real: **Rust async/await running natively on NVIDIA GPUs**, with a custom rustc MIR pass that turns standard `async fn` into warp-cooperative state machines — and GPU compute kernels powerful enough to run **GPT-2 inference in 25ms** (8.8x optimized), **YOLOv8-nano object detection**, **graph algorithms** (BFS, PageRank), and **Monte Carlo simulations** (129x throughput). Custom SGEMM at **90% of cuBLAS**, Flash Attention at **54% of cuDNN FA2**.
 
 ```rust
 // GPU kernel — looks like normal Rust
@@ -33,9 +33,9 @@ pub unsafe extern "gpu-kernel" fn unified_io_compute(buf: *mut u8, result: *mut 
 
 ```rust
 // Host side — one-liner API
-use gpu_host::gpu;
+use async_gpu::gpu;
 
-fn main() -> gpu_host::Result<()> {
+fn main() -> async_gpu::Result<()> {
     // Launch a hostcall-enabled kernel (supports println!, file I/O)
     gpu::run("unified_io_compute")?;
 
@@ -50,8 +50,6 @@ fn main() -> gpu_host::Result<()> {
 Kernel entry uses `extern "gpu-kernel"` — no custom attribute macros needed. A **custom rustc MIR pass** auto-applies to all `async fn` on the `nvptx64` target, inserting `bar.warp.sync` + `shfl.sync` at every `.await` point for warp convergence. Standard Rust syntax, standard `Future` trait.
 
 ## Quick Start
-
-> **New here?** The [Getting Started Guide](docs/getting-started.md) walks you through writing and running your first GPU kernel in under 30 minutes.
 
 ### Prerequisites
 
@@ -219,7 +217,7 @@ Standalone example: `cargo run --manifest-path examples/std/yolo-detect/Cargo.to
 
 ### Host SDK
 
-**One-liner API** (`gpu_host::gpu`):
+**One-liner API** (`async_gpu::gpu`):
 
 | Function | Purpose |
 |----------|---------|
@@ -254,7 +252,7 @@ Formally verified with TLA+ (367M safety states, 337K liveness states, 0 violati
 
 The custom MIR pass auto-applies to **all** `async fn` on the `nvptx64` target — no attributes needed. It inserts `bar.warp.sync` at each `.await` point so all 32 SIMT lanes always agree on the current state.
 
-A legacy `#[warp_async]` proc macro exists for functions using the `warp_*!()` DSL, but standard `async fn` + `.await` is the recommended path.
+Standard `async fn` + `.await` is the only path needed — no proc macros required.
 
 ### GPU Threading Model
 
@@ -269,14 +267,14 @@ A legacy `#[warp_async]` proc macro exists for functions using the `warp_*!()` D
 
 Warp 0 runs `main()`, other warps sleep until `thread::spawn()` wakes them. Warps return to the idle pool after their closure completes, enabling reuse.
 
-## Neural Network Module (`gpu_host::nn`)
+## Neural Network Module (`async_gpu::nn`)
 
 PyTorch-style composable layers and autograd, running on GPU via the kernel registry:
 
 ```rust
-use gpu_host::nn::{GpuTensor, KernelRegistry, Module};
-use gpu_host::nn::layers::{Linear, LayerNorm, GELU};
-use gpu_host::nn::models::gpt2::Gpt2Model;
+use async_gpu::nn::{GpuTensor, KernelRegistry, Module};
+use async_gpu::nn::layers::{Linear, LayerNorm, GELU};
+use async_gpu::nn::models::gpt2::Gpt2Model;
 
 // Build model from safetensors weights — no raw kernel launches needed
 let model = Gpt2Model::from_weights(&weights, config, &registry)?;
@@ -285,7 +283,7 @@ let tokens = model.generate(&prompt_tokens, 50)?;
 
 **Layers**: `Linear`, `Conv2d`, `LayerNorm`, `BatchNorm2d`, `Embedding`, `MultiHeadAttention`, `GELU`, `SiLU`, `Sigmoid`, `ReLU`, `MaxPool2d`, `Sequential`, `Int4Linear`.
 
-**ONNX Runtime** (`gpu_host::onnx_rt`):
+**ONNX Runtime** (`async_gpu::onnx`):
 - Load any `.onnx` file via prost protobuf parser (no protoc needed)
 - 43 ONNX operators: Conv (incl. grouped/depthwise), MatMul, Gemm, Relu, BatchNorm, LayerNorm, Softmax, Add, Mul, Sub, Reshape, Transpose, Gather, Split, Where, Concat, Identity, GlobalAveragePool, ReduceMean, and more
 - `OnnxSession`: initializer caching + weight prepadding for repeated inference
@@ -320,8 +318,6 @@ crates/
     gpu-libc/          Minimal libc shim for GPU: routes sys calls to hostcall
   kernel/
     gpu-kernel-std/    Unified GPU kernel crate (130+ kernels: compute, hostcall, pipeline, fused, physics, persistent, thread, std)
-  macro/
-    warp-macro/        #[warp_async] proc macro (generates WarpFuture state machines)
   test/
     async-hostcall-test/   Async hostcall integration tests
     async-pipeline-test/   Async pipeline integration tests
@@ -363,7 +359,7 @@ formal/              TLA+ specification and model-checking config
 | Kernel | async-gpu | cuBLAS/cuDNN | % of Reference | Improvement |
 |--------|-----------|-------------|----------------|-------------|
 | **GPT-2 forward** (seq=128) | **25.1ms** | ~20ms est. | — | **8.8x** over baseline |
-| **SGEMM** (4096³) | 1,760 GFLOPS | 2,800 GFLOPS | **63%** | 11.2x over v1 |
+| **SGEMM** (4096³) | 2,691 GFLOPS | 2,987 GFLOPS | **90%** | 17.1x over v1 |
 | **Flash Attention V3** (seq=512, causal) | 559 GFLOPS | — | — | V3 rewrite |
 | **Flash Attention** (seq=64) | 0.056ms | 0.030ms (FA2) | **54%** | 8.2x over v1 |
 | **Flash Attention** (seq=128) | 0.134ms | 0.048ms (FA2) | **36%** | 9.3x over v1 |

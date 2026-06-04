@@ -22,24 +22,6 @@ fn fresh_module_name() -> String {
     format!("gpu_{seq}")
 }
 
-/// Check if a PTX source is the unified kernel (same content as KERNEL/KERNEL_STD).
-///
-/// Uses pointer equality first (fast, works when callers pass ptx::KERNEL directly),
-/// then falls back to length comparison (handles re-assigned const references).
-fn is_unified_kernel_ptx(ptx_src: &str) -> bool {
-    let kernel = crate::ptx::KERNEL;
-    // Fast path: pointer equality (same static data)
-    if std::ptr::eq(ptx_src.as_ptr(), kernel.as_ptr()) {
-        return true;
-    }
-    let kernel_std = crate::ptx::KERNEL_STD;
-    if std::ptr::eq(ptx_src.as_ptr(), kernel_std.as_ptr()) {
-        return true;
-    }
-    // Fallback: length match (the unified PTX has a distinctive size)
-    ptx_src.len() == kernel.len()
-}
-
 /// Load a CUDA module from cubin (fast) or PTX (slow JIT fallback).
 ///
 /// If `cubin` is non-empty, loads the precompiled cubin directly (sub-second).
@@ -278,13 +260,7 @@ pub fn run_zero_param_with_config(
     // Initialize CUDA context via cudarc (this handles cuInit, context creation, etc.)
     let dev = CudaDevice::new(0).map_err(GpuHostError::CudaInit)?;
 
-    // Auto-detect cubin: if PTX is the unified kernel, use precompiled cubin
-    let cubin = crate::cubin::KERNEL_CUBIN;
-    let effective_cubin = if !cubin.is_empty() && is_unified_kernel_ptx(ptx_src) {
-        cubin
-    } else {
-        &[]
-    };
+    let effective_cubin: &[u8] = &[];
 
     let cu_module: sys::CUmodule = unsafe { load_module_cubin_or_ptx(ptx_src, effective_cubin)? };
 
@@ -481,13 +457,8 @@ impl GpuStdModule {
 
         let dev = CudaDevice::new(0).map_err(GpuHostError::CudaInit)?;
 
-        // Auto-detect cubin: if caller didn't provide cubin but ptx_src is the
-        // unified kernel PTX, use the embedded cubin.
-        let kernel_cubin = crate::cubin::KERNEL_CUBIN;
         let effective_cubin = if !cubin.is_empty() {
             cubin
-        } else if !kernel_cubin.is_empty() && is_unified_kernel_ptx(ptx_src) {
-            kernel_cubin
         } else {
             &[]
         };

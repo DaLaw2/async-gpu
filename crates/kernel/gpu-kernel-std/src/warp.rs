@@ -505,8 +505,7 @@ pub unsafe extern "gpu-kernel" fn warp_future_multi_print_test(buf: *mut u8, res
 // Standard async fn replacements for former #[warp_async] kernels
 // ============================================================
 //
-// These functions previously used #[warp_macro::warp_async] to generate
-// WarpFuture state machines. They now use standard async fn with
+// These functions now use standard async fn with
 // gpu_runtime::std_future futures. Only lane 0 executes the async logic;
 // other lanes return early. This produces identical observable behavior
 // (same messages, same result values) as the original WarpFuture approach.
@@ -516,26 +515,23 @@ use gpu_runtime::std_future::{
 };
 
 // ============================================================
-// warp-future.5: Proc macro print test (now standard async fn)
+// warp-future.5: Print test (standard async fn)
 // ============================================================
 
-/// Two sequential PRINT hostcalls via standard async fn.
-///
-/// Replaces the former `#[warp_async]` version that generated a WarpFuture
-/// state machine. Now uses GpuPrintFuture::new().await directly.
-async unsafe fn warp_macro_print_test_async(buf: *mut u8) -> bool {
+/// Two sequential PRINT hostcalls using GpuPrintFuture::new().await directly.
+async unsafe fn warp_print_test_async(buf: *mut u8) -> bool {
     let ok1 = GpuPrintFuture::new(buf, b"Macro[1/2]: GENERATED_CODE!!").await;
     let ok2 = GpuPrintFuture::new(buf, b"Macro[2/2]: PROC_MACRO_WORKS!").await;
     ok1 && ok2
 }
 
 #[no_mangle]
-pub unsafe extern "gpu-kernel" fn warp_macro_print_test(buf: *mut u8, result: *mut u32) {
+pub unsafe extern "gpu-kernel" fn warp_print_test(buf: *mut u8, result: *mut u32) {
     gpu_runtime::panic::gpu_panic_init(buf);
     if nvptx::_thread_idx_x() != 0 {
         return;
     }
-    match gpu_runtime::std_future::block_on(warp_macro_print_test_async(buf)) {
+    match gpu_runtime::std_future::block_on(warp_print_test_async(buf)) {
         Some(true) => core::ptr::write_volatile(result, 1),
         _ => core::ptr::write_volatile(result, 0),
     }

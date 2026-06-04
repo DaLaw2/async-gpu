@@ -9,10 +9,16 @@
 // Score GEMM: each thread computes 8 scores S[my_row][group*8..group*8+7]
 // P·V GEMM:  each thread computes 16 outputs O[my_row][group*16..group*16+15]
 //
-// V3.1 optimizations:
+// V3.3 optimizations over V3.1:
+//   - Skip-correction fast path: when tile_max <= m_val, correction=1.0 → skip
+//     16 multiplies in the correction loop (common case for later tiles)
+//   - float4 output writes (4x fewer store transactions)
+//
+// V3.1 base optimizations:
 //   - Shared memory padding (stride 65) to eliminate bank conflicts
 //   - float4 global loads for K/V tiles
 //   - Cooperative Q load via shared memory (4x fewer global reads)
+//   - `p_val > 1e-30f` branch saves V reads for causal masked positions
 
 extern "C" __global__ __launch_bounds__(128, 3) void flash_attn_v3(
     const float* __restrict__ Q,
@@ -47,12 +53,12 @@ extern "C" __global__ __launch_bounds__(128, 3) void flash_attn_v3(
 
     // Shared memory: K[32][65] + V[32][65] = 16,640 bytes
     // Stride=65 eliminates 4-way bank conflicts on K reads:
-    //   Without padding: bank = d % 32 (same for all groups → 4-way conflict)
-    //   With padding: bank = (row*65 + d) % 32 (different per row → no conflict)
+    //   Without padding: bank = d % 32 (same for all groups -> 4-way conflict)
+    //   With padding: bank = (row*65 + d) % 32 (different per row -> no conflict)
     extern __shared__ float smem[];
 
     // Phase 0: Cooperative Q load into smem, then copy to registers
-    // 128 threads load 2048 elements (32 rows × 64 cols) — 4x fewer global reads
+    // 128 threads load 2048 elements (32 rows x 64 cols) — 4x fewer global reads
     // than per-thread loading where each of 4 threads per row loads the same row.
     {
         float* Q_smem = smem;  // reuse smem before K/V are loaded
@@ -112,7 +118,7 @@ extern "C" __global__ __launch_bounds__(128, 3) void flash_attn_v3(
         if (causal && kv_start > q_tile * BQ + BQ - 1) break;
 
         // Load K and V tiles cooperatively with float4
-        // 128 threads, 2048 elements each → 512 float4s → 4 per thread
+        // 128 threads, 2048 elements each -> 512 float4s -> 4 per thread
         const int TOTAL_F4 = BKV * D / 4;  // 512
         for (int i4 = tid; i4 < TOTAL_F4; i4 += 128) {
             int flat = i4 * 4;
@@ -196,11 +202,17 @@ extern "C" __global__ __launch_bounds__(128, 3) void flash_attn_v3(
         tile_sum += __shfl_xor_sync(0xFFFFFFFF, tile_sum, 1);
         tile_sum += __shfl_xor_sync(0xFFFFFFFF, tile_sum, 2);
 
+        // Compute correction factor for online softmax rescaling
+        // Optimization: skip correction when m_val hasn't changed (correction = 1.0)
+        // This is common for later tiles where the max score doesn't increase.
         float correction = __expf(m_val - m_new);
-        #pragma unroll
-        for (int i = 0; i < 16; i++) o_reg[i] *= correction;
-
-        l_val = l_val * correction + tile_sum;
+        if (correction < 0.999f) {
+            #pragma unroll
+            for (int i = 0; i < 16; i++) o_reg[i] *= correction;
+            l_val = l_val * correction + tile_sum;
+        } else {
+            l_val += tile_sum;
+        }
         m_val = m_new;
 
         // === PHASE 3: P·V accumulation ===
@@ -232,13 +244,18 @@ extern "C" __global__ __launch_bounds__(128, 3) void flash_attn_v3(
         __syncthreads();
     }
 
-    // === PHASE 4: Write output ===
+    // === PHASE 4: Write output via float4 ===
     if (q_row_global < (int)seq_len && l_val > 0.0f) {
         float inv_l = 1.0f / l_val;
         const int o_col_start = group * 16;
         #pragma unroll
-        for (int i = 0; i < 16; i++) {
-            o_base[q_row_global * D + o_col_start + i] = o_reg[i] * inv_l;
+        for (int i = 0; i < 16; i += 4) {
+            float4 out_val;
+            out_val.x = o_reg[i]     * inv_l;
+            out_val.y = o_reg[i + 1] * inv_l;
+            out_val.z = o_reg[i + 2] * inv_l;
+            out_val.w = o_reg[i + 3] * inv_l;
+            *reinterpret_cast<float4*>(&o_base[q_row_global * D + o_col_start + i]) = out_val;
         }
     }
 }

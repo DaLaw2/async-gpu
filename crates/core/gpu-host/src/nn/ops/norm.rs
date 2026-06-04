@@ -487,3 +487,108 @@ pub fn batch_norm_silu(
 
     Ok(output)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Micro-benchmark: fused vs unfused LayerNorm + residual add.
+    ///
+    /// Measures the raw kernel time difference for GPT-2 Small dimensions
+    /// (seq_len=128, d_model=768). Run with `--features cublas` to enable fused path.
+    #[test]
+    fn bench_fused_ln_residual_vs_unfused() {
+        let dev = cudarc::driver::CudaDevice::new(0).expect("CUDA");
+        let registry =
+            Arc::new(KernelRegistry::new(Arc::clone(&dev), crate::ptx::KERNEL).expect("PTX"));
+
+        // GPT-2 Small dimensions: 128 tokens, 768 hidden
+        let seq_len = 128;
+        let d_model = 768;
+        let n = seq_len * d_model;
+
+        // Create test tensors
+        let input_data: Vec<f32> = (0..n).map(|i| ((i % 97) as f32 - 48.0) * 0.01).collect();
+        let residual_data: Vec<f32> = (0..n).map(|i| ((i % 83) as f32 - 41.0) * 0.01).collect();
+        let gamma_data: Vec<f32> = (0..d_model).map(|i| 0.9 + (i % 17) as f32 * 0.01).collect();
+        let beta_data: Vec<f32> = (0..d_model).map(|i| (i % 13) as f32 * 0.001).collect();
+        let eps = 1e-5f32;
+
+        let shape = &[seq_len, d_model];
+        let g_shape = &[d_model];
+
+        let input_t = GpuTensor::from_host(&input_data, shape, &dev).expect("input");
+        let residual_t = GpuTensor::from_host(&residual_data, shape, &dev).expect("residual");
+        let gamma_t = GpuTensor::from_host(&gamma_data, g_shape, &dev).expect("gamma");
+        let beta_t = GpuTensor::from_host(&beta_data, g_shape, &dev).expect("beta");
+
+        let num_warmup = 5;
+        let num_runs = 50;
+
+        // ---------- Unfused: elementwise_add + layer_norm ----------
+        for _ in 0..num_warmup {
+            let mut tmp = input_t.clone_tensor().unwrap();
+            crate::nn::ops::elementwise_add(&mut tmp, &residual_t, &registry).unwrap();
+            let _ = layer_norm(&tmp, &gamma_t, &beta_t, eps, &registry).unwrap();
+            dev.synchronize().unwrap();
+        }
+
+        dev.synchronize().unwrap();
+        let t0 = std::time::Instant::now();
+        for _ in 0..num_runs {
+            let mut tmp = input_t.clone_tensor().unwrap();
+            crate::nn::ops::elementwise_add(&mut tmp, &residual_t, &registry).unwrap();
+            let _ = layer_norm(&tmp, &gamma_t, &beta_t, eps, &registry).unwrap();
+        }
+        dev.synchronize().unwrap();
+        let unfused_ms = t0.elapsed().as_secs_f64() * 1000.0 / num_runs as f64;
+
+        eprintln!("\n=== LN+Residual Micro-Benchmark (seq={seq_len}, d={d_model}) ===");
+        eprintln!("  Unfused (add + LN):      {unfused_ms:.4} ms/call");
+
+        // ---------- Fused: layer_norm_residual_dual ----------
+        #[cfg(feature = "cublas")]
+        {
+            for _ in 0..num_warmup {
+                let _ = layer_norm_residual_dual(
+                    &input_t,
+                    &residual_t,
+                    &gamma_t,
+                    &beta_t,
+                    eps,
+                    &registry,
+                )
+                .unwrap();
+                dev.synchronize().unwrap();
+            }
+
+            dev.synchronize().unwrap();
+            let t1 = std::time::Instant::now();
+            for _ in 0..num_runs {
+                let _ = layer_norm_residual_dual(
+                    &input_t,
+                    &residual_t,
+                    &gamma_t,
+                    &beta_t,
+                    eps,
+                    &registry,
+                )
+                .unwrap();
+            }
+            dev.synchronize().unwrap();
+            let fused_ms = t1.elapsed().as_secs_f64() * 1000.0 / num_runs as f64;
+
+            let speedup = unfused_ms / fused_ms;
+            let saved_ms = unfused_ms - fused_ms;
+            eprintln!("  Fused (LN+res dual):     {fused_ms:.4} ms/call");
+            eprintln!("  Speedup:                 {speedup:.2}x");
+            eprintln!("  Saved per call:          {saved_ms:.4} ms");
+            eprintln!("  Saved per block (2x):    {:.4} ms", saved_ms * 2.0);
+        }
+
+        #[cfg(not(feature = "cublas"))]
+        {
+            eprintln!("  Fused: SKIPPED (requires --features cublas)");
+        }
+    }
+}

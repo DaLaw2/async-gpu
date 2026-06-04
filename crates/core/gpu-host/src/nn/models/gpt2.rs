@@ -1237,15 +1237,34 @@ impl Int4TransformerBlock {
     }
 
     /// Forward pass: input `[seq_len, n_embd]` → output `[seq_len, n_embd]`.
+    ///
+    /// When the `cublas` feature is enabled, uses fused LN+residual kernels
+    /// (same optimization as the f32 [`TransformerBlock`]).
     pub fn forward(&self, input: &GpuTensor) -> Result<GpuTensor> {
-        // LN1 → MHA → residual
+        // LN1 → MHA
         let ln1_out = self.ln_1.forward(input)?;
         let attn_out = self.attn.forward_causal(&ln1_out)?;
-        let mut residual = input.clone_tensor()?;
-        ops::elementwise_add(&mut residual, &attn_out, &self.registry)?;
 
-        // LN2 → FFN → residual
-        let ln2_out = self.ln_2.forward(&residual)?;
+        // Fused: compute residual = input + attn_out AND ln2_out = LN(residual)
+        #[cfg(feature = "cublas")]
+        let (ln2_out, mut residual) = ops::layer_norm_residual_dual(
+            input,
+            &attn_out,
+            self.ln_2.gamma(),
+            self.ln_2.beta(),
+            self.layer_norm_eps,
+            &self.registry,
+        )?;
+
+        #[cfg(not(feature = "cublas"))]
+        let (ln2_out, mut residual) = {
+            let mut res = input.clone_tensor()?;
+            ops::elementwise_add(&mut res, &attn_out, &self.registry)?;
+            let ln2 = self.ln_2.forward(&res)?;
+            (ln2, res)
+        };
+
+        // FFN → residual
         let ffn_hidden = self.ffn_up.forward(&ln2_out)?;
         let ffn_act = self.gelu.forward(&ffn_hidden)?;
         let ffn_out = self.ffn_down.forward(&ffn_act)?;

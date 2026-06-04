@@ -15,11 +15,11 @@ status = "running"     # ready | running | blocked | completed
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
 current_step = "dispatch"
-current_task_id = "sc-channel.4,sc-design.5"
+current_task_id = "perf-attn-v3.3,perf-fusion.2"
 
 # Sequence counters
 brainstorm_seq = 115
-tasks_since_brainstorm = 18   # reset after brainstorm 114
+tasks_since_brainstorm = 20   # reset after brainstorm 114
 
 # ============================================================
 # Epics — Tiered (T0 → T3), sorted by tier then priority
@@ -1005,7 +1005,7 @@ id = "perf-attn-v3.3"
 theme = "perf-attn-v3"
 title = "Experiment: cooperative P·V accumulation + online softmax"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["perf-attn-v3.2"]
 
 [[tasks]]
@@ -1101,7 +1101,7 @@ id = "perf-fusion.2"
 theme = "perf-fusion"
 title = "Experiment: integrate fused LN+residual into GPT-2, benchmark"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["perf-fusion.1"]
 
 # --- kernel-perf: GEMM V4 ---

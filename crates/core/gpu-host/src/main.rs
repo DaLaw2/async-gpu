@@ -218,6 +218,28 @@ fn main() -> Result<()> {
                 run_gpu_api_test()?;
                 return Ok(());
             }
+            "cooperative" => {
+                // Debug: check which warps participate
+                println!("\n--- Cooperative Debug ---");
+                let dbg: Vec<u32> = gpu_host::gpu::compute("cooperative_debug", 4, 128)
+                    .map_err(|e| GpuHostError::Verification { test: "coop", detail: format!("{e}") })?;
+                println!("  Warp writes: {:?} (expect [100, 101, 102, 103])", dbg);
+
+                println!("\n--- Cooperative Compute Test ---");
+                let result: Vec<u32> = gpu_host::gpu::compute("cooperative_compute_test", 256, 128)
+                    .map_err(|e| GpuHostError::Verification { test: "coop", detail: format!("{e}") })?;
+                let mut ok = true;
+                for i in 0..256usize {
+                    let expected = (i * 2 + 1) as u32;
+                    if result[i] != expected {
+                        println!("  MISMATCH at {i}: got {}, expected {expected}", result[i]);
+                        ok = false;
+                    }
+                }
+                println!("  Cooperative compute: {}", if ok { "PASSED" } else { "FAILED" });
+                assert!(ok);
+                return Ok(());
+            }
             "std_thread_demo" => {
                 run_std_thread_spawn_demo(Arc::clone(&dev))?;
                 return Ok(());

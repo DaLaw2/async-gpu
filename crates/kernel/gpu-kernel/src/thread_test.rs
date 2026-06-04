@@ -75,6 +75,76 @@ pub unsafe extern "ptx-kernel" fn thread_reuse_test(result: *mut u32) {
     });
 }
 
+/// Debug: cooperative with zero-capture closure — just writes to a global static.
+static COOP_RESULT: [core::sync::atomic::AtomicU32; 4] = {
+    const Z: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+    [Z; 4]
+};
+
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn cooperative_debug(result: *mut u32) {
+    thread::gpu_main(|| {
+        // Zero-capture closure: all data accessed via statics
+        unsafe {
+            thread::cooperative(&|| {
+                let wid = thread::current_id();
+                let lid = gpu_runtime::index::thread_idx_x() % 32;
+                if lid == 0 {
+                    COOP_RESULT[wid as usize].store(wid + 100, core::sync::atomic::Ordering::Relaxed);
+                }
+            });
+        }
+
+        // Copy results to output
+        if gpu_runtime::index::thread_idx_x() == 0 {
+            for i in 0..4usize {
+                core::ptr::write_volatile(
+                    result.add(i),
+                    COOP_RESULT[i].load(core::sync::atomic::Ordering::Relaxed),
+                );
+            }
+        }
+    });
+}
+
+/// Test: cooperative compute — all warps process data in parallel.
+///
+/// Fills an output array: output[i] = i * 2 + 1.
+/// Uses cooperative() so all 4 warps share the work.
+/// Data pointer passed via global atomic (not closure capture).
+///
+/// Launch with: block_dim=(128,1,1)
+/// Output: result[i] = i * 2 + 1 for i in 0..256
+static COOP_OUT_PTR: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
+static COOP_N: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+
+#[no_mangle]
+pub unsafe extern "ptx-kernel" fn cooperative_compute_test(result: *mut u32) {
+    thread::gpu_main(|| {
+        // Pass data via global atomics (closure captures point to local memory)
+        COOP_OUT_PTR.store(result as u64, core::sync::atomic::Ordering::Relaxed);
+        COOP_N.store(256, core::sync::atomic::Ordering::Relaxed);
+
+        unsafe {
+            thread::cooperative(&|| {
+                let out = COOP_OUT_PTR.load(core::sync::atomic::Ordering::Relaxed) as *mut u32;
+                let n = COOP_N.load(core::sync::atomic::Ordering::Relaxed);
+                let wid = thread::current_id();
+                let total_warps = (thread::available_parallelism() + 1) as u32;
+                let lid = gpu_runtime::index::thread_idx_x() % 32;
+
+                if lid == 0 {
+                    let mut i = wid;
+                    while i < n {
+                        core::ptr::write_volatile(out.add(i as usize), i * 2 + 1);
+                        i += total_warps;
+                    }
+                }
+            });
+        }
+    });
+}
+
 /// Demo: extern "gpu-kernel" ABI — the native Rust GPU entry point.
 ///
 /// This is identical to thread_spawn_test but uses extern "gpu-kernel" instead

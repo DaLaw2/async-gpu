@@ -55,6 +55,16 @@ static WARP_RESULT: [AtomicU64; MAX_WARPS] = [ATOMIC_U64_ZERO; MAX_WARPS];
 
 static NUM_WARPS: AtomicU32 = AtomicU32::new(0);
 
+// Per-warp scratch buffer for closure data + result (256 bytes each)
+const SCRATCH_SIZE: usize = 256;
+#[allow(clippy::declare_interior_mutable_const)]
+const SCRATCH_ROW: [AtomicU32; SCRATCH_SIZE / 4] = {
+    #[allow(clippy::declare_interior_mutable_const)]
+    const ZERO: AtomicU32 = AtomicU32::new(0);
+    [ZERO; SCRATCH_SIZE / 4]
+};
+static SCRATCH: [[AtomicU32; SCRATCH_SIZE / 4]; MAX_WARPS] = [SCRATCH_ROW; MAX_WARPS];
+
 #[inline(always)]
 fn warp_id() -> u32 {
     crate::index::thread_idx_x() / 32
@@ -129,10 +139,9 @@ pub fn gpu_main<F: FnOnce()>(main_fn: F) {
 
 fn worker_loop(wid: usize) {
     loop {
-        // All lanes read the status (same global address → coherent, single transaction)
         let status = WARP_STATUS[wid].load(Ordering::Acquire);
         match status {
-            STATUS_ASSIGNED => {
+            STATUS_ASSIGNED | STATUS_COOPERATIVE => {
                 if lane_id() == 0 {
                     WARP_STATUS[wid].store(STATUS_RUNNING, Ordering::Release);
                 }
@@ -140,9 +149,6 @@ fn worker_loop(wid: usize) {
                 let fn_ptr = WARP_FN[wid].load(Ordering::Acquire);
                 let data_ptr = WARP_DATA[wid].load(Ordering::Acquire);
 
-                // All 32 lanes call the trampoline in SIMT lockstep.
-                // The closure runs with full 32-lane parallelism available.
-                // Only lane 0 stores the result (handled inside trampoline).
                 let trampoline: fn(*mut u8) = unsafe { core::mem::transmute(fn_ptr) };
                 trampoline(data_ptr as *mut u8);
 
@@ -243,17 +249,7 @@ where
         nanosleep_short();
     };
 
-    // Allocate space for the closure + result in a static buffer
-    // For simplicity: use a per-warp scratch buffer in global memory
-    // Each warp gets SCRATCH_SIZE bytes for closure data + result
-    const SCRATCH_SIZE: usize = 256;
-    #[allow(clippy::declare_interior_mutable_const)]
-    const SCRATCH_ROW: [AtomicU32; SCRATCH_SIZE / 4] = {
-        #[allow(clippy::declare_interior_mutable_const)]
-        const ZERO: AtomicU32 = AtomicU32::new(0);
-        [ZERO; SCRATCH_SIZE / 4]
-    };
-    static SCRATCH: [[AtomicU32; SCRATCH_SIZE / 4]; MAX_WARPS] = [SCRATCH_ROW; MAX_WARPS];
+    // Use the module-level SCRATCH buffer for closure data + result
 
     let scratch_ptr = SCRATCH[target_warp].as_ptr() as *mut u8;
 
@@ -295,6 +291,88 @@ pub fn current_id() -> u32 {
 /// Yield the current thread briefly.
 pub fn yield_now() {
     nanosleep_short();
+}
+
+// ============================================================
+// Cooperative Compute — all warps execute in data-parallel mode
+// ============================================================
+
+const STATUS_COOPERATIVE: u32 = 5;
+
+/// Execute a closure cooperatively across all warps.
+///
+/// Called from the main thread (warp 0). Wakes all worker warps to execute
+/// the same closure in parallel. Each warp uses `current_id()` and
+/// `available_parallelism()` to determine its data partition.
+///
+/// After the closure returns on all warps, control returns to the main thread.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// thread::gpu_main(|| {
+///     // Sequential: only warp 0
+///     let data = read_file("input.bin");
+///
+///     // Cooperative: ALL warps participate
+///     thread::cooperative(|| {
+///         let wid = thread::current_id() as usize;
+///         let n_warps = thread::available_parallelism() + 1;
+///         for i in (wid..data.len()).step_by(n_warps) {
+///             output[i] = data[i] * 2.0;
+///         }
+///     });
+///
+///     // Sequential: back to warp 0 only
+///     write_file("output.bin", &output);
+/// });
+/// ```
+/// # Safety
+///
+/// The closure must be safe to call from all warps simultaneously.
+/// The caller must ensure proper data partitioning (no data races).
+pub unsafe fn cooperative<F: Fn()>(f: &F) {
+    let n_warps = NUM_WARPS.load(Ordering::Acquire) as usize;
+    if n_warps <= 1 {
+        f();
+        return;
+    }
+
+    fn trampoline<F: Fn()>(raw: *mut u8) {
+        let f = unsafe { &*(raw as *const F) };
+        f();
+    }
+
+    // Copy closure to each worker's SCRATCH buffer (same mechanism as spawn).
+    // This ensures each warp reads from its own known-good global memory.
+    let closure_size = core::mem::size_of::<F>();
+    assert!(closure_size <= SCRATCH_SIZE, "cooperative closure too large");
+
+    let trampoline_fn = trampoline::<F> as fn(*mut u8);
+
+    if lane_id() == 0 {
+        for i in 1..n_warps {
+            let scratch_ptr = SCRATCH[i].as_ptr() as *mut u8;
+            core::ptr::copy_nonoverlapping(f as *const F as *const u8, scratch_ptr, closure_size);
+            WARP_FN[i].store(trampoline_fn as usize as u64, Ordering::Relaxed);
+            WARP_DATA[i].store(scratch_ptr as u64, Ordering::Relaxed);
+            WARP_STATUS[i].store(STATUS_COOPERATIVE, Ordering::Release);
+        }
+    }
+
+    // Warp 0 also executes directly
+    f();
+
+    for i in 1..n_warps {
+        loop {
+            let s = WARP_STATUS[i].load(Ordering::Acquire);
+            if s == STATUS_DONE {
+                WARP_STATUS[i].store(STATUS_IDLE, Ordering::Release);
+                break;
+            }
+            nanosleep_short();
+        }
+    }
 }
 
 /// Sleep for approximately `nanos` nanoseconds.

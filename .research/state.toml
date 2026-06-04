@@ -14,12 +14,12 @@ status = "running"     # ready | running | blocked | completed
 # No GPU concepts leak. VectorWare's I/O strength + async-gpu's compute strength, unified.
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
-current_step = "awaiting_user"
-current_task_id = ""
+current_step = "dispatch"
+current_task_id = "sc-resource.2,sc-channel.2"
 
 # Sequence counters
-brainstorm_seq = 114
-tasks_since_brainstorm = 0   # reset after brainstorm 114
+brainstorm_seq = 115
+tasks_since_brainstorm = 6   # reset after brainstorm 114
 
 # ============================================================
 # Epics — Tiered (T0 → T3), sorted by tier then priority
@@ -91,8 +91,8 @@ success_criteria = [
 id = "structured-concurrency"
 title = "Structured Concurrency — scope-based parallelism mapped to GPU hardware"
 tier = 1
-status = "pending"
-priority = "high"
+status = "active"
+priority = "highest"
 # North Star: Task scope = hardware scope. BlockScope uses shared memory, GridScope uses global.
 #   Resources auto-reclaim when scope ends. Channels pick the fastest path automatically.
 # Litmus Test: Users never manually choose shared vs global memory — the scope decides.
@@ -127,15 +127,17 @@ id = "kernel-perf"
 title = "Kernel Performance — close gap to cuBLAS/cuDNN across all compute primitives"
 tier = 1
 status = "active"
-priority = "high"
+priority = "medium"
 # North Star: The compute ops inside cooperative() must be FAST — this is what makes
 #   async-gpu better than VectorWare. Competitive with cuBLAS/cuDNN, not just convenient.
 # Litmus Test: GPT-2 inference is within 2x of a hand-optimized CUDA implementation.
+# Note: Wrap-up mode — SGEMM achieved 90%, relax attention/conv targets.
+#   Focus shifts to structured-concurrency as primary T1 epic.
 success_criteria = [
     "SGEMM >= 70% of cuBLAS at 4096³",
-    "Flash Attention >= 70% of cuDNN FA2 at seq=512",
-    "Conv2D >= 70% of cuDNN for common shapes (ResNet, YOLO)",
-    "GPT-2 end-to-end forward pass < 25ms",
+    "Flash Attention >= 35% of cuDNN FA2 at seq=512",
+    "Conv2D >= 50% of cuDNN for common shapes (ResNet, YOLO)",
+    "GPT-2 end-to-end forward pass < 30ms",
 ]
 
 # --- T2: Advanced ---
@@ -188,6 +190,60 @@ success_criteria = [
     "At least one non-trivial example runs correctly on both NVIDIA and AMD",
 ]
 
+[[epics]]
+id = "gpu-iterator"
+title = "GPU Iterator — par_iter() compiles to warp-parallel GPU kernels"
+tier = 2
+status = "pending"
+priority = "high"
+depends_on = "structured-concurrency"
+# North Star: Iterator chains are Rust's native way to express data-parallel compute.
+#   par_iter() makes "compute walks all-warp cooperative" invisible — just iterators.
+#   No GPU concepts leak: no kernel launch, no thread config, no cooperative() call.
+# Litmus Test: data.par_iter().map(|x| x * 2.0 + 1.0).collect() produces
+#   correct results on GPU, user doesn't know it's GPU code.
+success_criteria = [
+    "gpu::par_iter() maps Rust iterator chains to GPU warp-parallel execution",
+    "MIR pass transforms iterator chain bodies into warp-parallel kernel code",
+    "At least map, filter, fold, collect operations supported",
+    "Demo: iterator chain that outperforms CPU Rayon on large data (>1M elements)",
+]
+
+[[epics]]
+id = "auto-fusion"
+title = "Auto Kernel Fusion — compile-time elementwise operation fusion"
+tier = 2
+status = "pending"
+priority = "medium"
+# North Star: Users write idiomatic decomposed Rust and the compiler fuses the ops.
+#   No "fused kernel" concept leaks — performance optimization is the compiler's job.
+#   Plain Rust code gets plain Rust performance, automatically.
+# Litmus Test: gelu(x * scale + bias) compiles to one GPU kernel launch,
+#   not three. User never writes a fused kernel.
+success_criteria = [
+    "MIR pass identifies chains of elementwise operations across function boundaries",
+    "Fused kernel generated at compile time (not runtime JIT)",
+    "At least multiply + add + activation (GELU/ReLU) chains fused automatically",
+    "Measurable speedup: fused chain >= 2x faster than sequential kernel launches",
+]
+
+[[epics]]
+id = "std-completeness"
+title = "std Completeness — expand GPU std coverage for no_std crate compatibility"
+tier = 2
+status = "pending"
+priority = "low"
+# North Star: "Both look like plain Rust" means the full standard library works.
+#   More std types on GPU = fewer places where GPU limitations leak into user code.
+#   Extends the real-std vision to cover the rest of the standard library.
+# Litmus Test: A popular no_std crate (heapless, hashbrown) compiles and runs on GPU unmodified.
+success_criteria = [
+    "std::sync::mpsc channel maps to GPU channel implementation transparently",
+    "std::sync::RwLock on GPU via warp-aware atomic protocol",
+    "std::net::TcpListener::bind() on GPU (server-side networking via hostcall)",
+    "At least one third-party no_std crate compiles and runs on GPU unmodified",
+]
+
 # --- T3: Exploratory ---
 
 [[epics]]
@@ -221,6 +277,24 @@ success_criteria = [
     "Soundness proof: MIR pass sync insertion is sufficient for all valid async fn",
     "Completeness: async fn that would cause warp divergence rejected at compile time",
     "TLA+ model extended to cover MIR pass state transitions",
+]
+
+[[epics]]
+id = "ownership-memory"
+title = "Ownership = Memory Hierarchy — Rust lifetimes map to GPU memory tiers"
+tier = 3
+status = "pending"
+priority = "low"
+depends_on = "structured-concurrency"
+# North Star: Shared vs global memory is a GPU concept that still leaks today.
+#   Rust's ownership system absorbs it: lifetimes determine memory tier automatically.
+#   No GPU concepts leak — not even memory hierarchy. It's just Rust lifetimes.
+# Litmus Test: Misusing shared memory across blocks is a compile error, not a runtime bug.
+success_criteria = [
+    "Lifetime-parameterized memory types: &'block T → shared memory, &'grid T → global memory",
+    "Borrow checker prevents cross-scope memory access at compile time",
+    "Register promotion for move semantics in inner loops",
+    "At least one real kernel where the type system catches a memory hierarchy bug",
 ]
 
 # --- Evergreen ---
@@ -265,6 +339,73 @@ success_criteria = [
 
 # T0 themes/tasks archived: std-thread-integration (.1, .2), native-api (.2-.6)
 # Archived at cycle 607 — epics native-rust-dx + std-thread-gpu completed
+
+# --- T1: structured-concurrency themes ---
+
+[[themes]]
+id = "sc-design"
+epic = "structured-concurrency"
+title = "Scope API design — BlockScope/GridScope lifetime model"
+status = "active"
+goal = "Design scope types that map Rust lifetimes to GPU hardware scopes"
+success_criteria = [
+    "BlockScope<'a> and GridScope<'a> type signatures designed with lifetime bounds",
+    "Resource allocation API: scope.alloc::<T>(n) returns &'scope [T] in correct memory tier",
+    "Cancellation propagation model defined (parent scope cancel → child cleanup)",
+    "Design doc with examples showing how user code looks vs raw GPU code",
+]
+
+[[themes]]
+id = "sc-resource"
+epic = "structured-concurrency"
+title = "Scoped resource management — auto shared/global memory lifecycle"
+status = "pending"
+goal = "Resources auto-allocate in correct memory tier and auto-reclaim on scope exit"
+success_criteria = [
+    "BlockScope allocates in shared memory, GridScope in global memory",
+    "Drop impl reclaims memory when scope lifetime ends",
+    "Nested scopes work correctly (GridScope containing BlockScopes)",
+    "No manual memory management needed — scope lifetime = resource lifetime",
+]
+
+[[themes]]
+id = "sc-channel"
+epic = "structured-concurrency"
+title = "GpuChannel<T> — auto-transport selection by scope distance"
+status = "pending"
+goal = "Channels auto-select fastest transport based on sender/receiver scope"
+success_criteria = [
+    "Same warp: shfl.sync transport (register-level, zero latency)",
+    "Same block: shared memory transport (block-scoped, low latency)",
+    "Cross-block: global memory transport (grid-scoped, high bandwidth)",
+    "User writes one GpuChannel<T> API — transport selection is invisible",
+]
+
+[[themes]]
+id = "sc-demo"
+epic = "structured-concurrency"
+title = "Structured concurrency demo — producer-consumer with automatic channels"
+status = "pending"
+goal = "End-to-end demo proving scope-based parallelism works and is ergonomic"
+success_criteria = [
+    "Producer-consumer pipeline using BlockScope with auto shared memory channels",
+    "Demo code is shorter and clearer than equivalent raw cooperative() code",
+    "Performance comparable to hand-tuned shared memory pipeline",
+    "Second demo: multi-block reduce using GridScope with auto global memory",
+]
+
+[[themes]]
+id = "sc-runtime"
+epic = "structured-concurrency"
+title = "Scope runtime — warp scheduling for nested scopes"
+status = "pending"
+goal = "Scopes map to GPU warp fork/join with correct synchronization"
+success_criteria = [
+    "BlockScope forks warps within a thread block, joins on scope exit",
+    "GridScope coordinates across blocks via global memory barriers",
+    "Nested scopes (GridScope → BlockScope) schedule correctly",
+    "Integration with existing cooperative() API — scopes compose with gpu::cooperative()",
+]
 
 # --- T1: library-api themes ---
 
@@ -385,7 +526,8 @@ depends = ["lib-docs.1", "lib-cleanup.6"]
 id = "perf-attention"
 epic = "kernel-perf"
 title = "FlashAttention-2 — MMA tiled GEMM + online softmax"
-status = "active"
+status = "parked"
+# Parked: overlaps with perf-attn-v3, consolidate efforts there
 goal = "Attention throughput >= 50% of cuDNN FA2"
 success_criteria = [
     "Q tile in shared memory for cooperative tiled GEMM",
@@ -398,9 +540,9 @@ success_criteria = [
 [[themes]]
 id = "perf-conv"
 epic = "kernel-perf"
-title = "High-performance Conv2D — Winograd + direct conv"
+title = "High-performance Conv2D — direct conv + shared memory tiling"
 status = "active"
-goal = "Conv2D >= 60% of cuDNN for common shapes"
+goal = "Conv2D >= 40% of cuDNN for common shapes"
 success_criteria = [
     "Winograd F(4×4, 3×3) for 3×3 convolutions (2.25x FLOPs reduction)",
     "Direct conv kernel for non-3×3 sizes (shared memory tiling)",
@@ -476,18 +618,19 @@ id = "perf-attn-v3"
 epic = "kernel-perf"
 title = "Attention V3 — warp-cooperative tiled GEMM for Q·K^T and P·V"
 status = "active"
-goal = "Flash Attention >= 70% of cuDNN FA2"
+goal = "Flash Attention >= 35% of cuDNN FA2"
 success_criteria = [
     "Score GEMM via cooperative thread-tile (not scalar dot product)",
     "P·V via cooperative thread-tile accumulation",
-    "seq=512, 12 heads: >= 70% of cuDNN FA2 throughput",
+    "seq=512, 12 heads: >= 35% of cuDNN FA2 throughput",
 ]
 
 [[themes]]
 id = "perf-conv-wino"
 epic = "kernel-perf"
 title = "Conv2D Winograd — F(4×4,3×3) for large spatial convolutions"
-status = "pending"
+status = "parked"
+# Parked: Winograd ROI too low given relaxed conv targets
 goal = "Conv2D 3×3 >= 70% cuDNN for 56×56+ spatial sizes"
 success_criteria = [
     "Winograd F(4×4,3×3) transform + batched GEMM + inverse transform",
@@ -523,6 +666,172 @@ success_criteria = [
     "GPT-2 per-token latency reduced >= 10% from GEMM fusion (vs pre-padded unfused baseline)",
 ]
 
+# --- T2: gpu-iterator themes ---
+
+[[themes]]
+id = "iter-design"
+epic = "gpu-iterator"
+title = "Iterator API design — ParallelIterator trait for GPU"
+status = "pending"
+goal = "Design gpu::par_iter() that maps Rust iterator semantics to GPU execution"
+success_criteria = [
+    "ParallelIterator trait with map, filter, fold, collect methods",
+    "Closure capture semantics defined (what can be captured, how it's transferred to GPU)",
+    "MIR pass transformation strategy designed (iterator chain → fused GPU kernel)",
+]
+
+[[themes]]
+id = "iter-compiler"
+epic = "gpu-iterator"
+title = "MIR pass — iterator chain to GPU kernel compilation"
+status = "pending"
+goal = "Compile iterator chains into warp-parallel GPU kernels via MIR transformation"
+success_criteria = [
+    "map() body transformed into per-lane computation",
+    "filter() compiled to warp ballot + compaction",
+    "fold()/reduce() compiled to warp shuffle reduction",
+    "collect() handles dynamic output sizing via atomic counter",
+]
+
+[[themes]]
+id = "iter-runtime"
+epic = "gpu-iterator"
+title = "Iterator runtime — GPU execution of compiled iterator chains"
+status = "pending"
+goal = "Warp-parallel execution of iterator bodies with correct memory management"
+success_criteria = [
+    "Input data partitioned across warps/blocks automatically",
+    "Output buffer allocated and managed for collect()",
+    "Chained operations execute in single kernel (no intermediate buffers)",
+]
+
+[[themes]]
+id = "iter-demo"
+epic = "gpu-iterator"
+title = "Iterator demos — par_iter vs Rayon benchmarks"
+status = "pending"
+goal = "Demonstrate GPU iterator superiority over CPU for large datasets"
+success_criteria = [
+    "par_iter().map().collect() demo on 1M+ elements",
+    "par_iter().filter().fold() demo with data-dependent filtering",
+    "Benchmark: GPU par_iter vs CPU Rayon, showing crossover point",
+]
+
+# --- T2: auto-fusion themes ---
+
+[[themes]]
+id = "fusion-analysis"
+epic = "auto-fusion"
+title = "Fusion analysis — MIR pattern matching for fusable op chains"
+status = "pending"
+goal = "Identify elementwise operation chains that can be fused into single kernels"
+success_criteria = [
+    "Pattern matcher identifies consecutive elementwise ops in MIR",
+    "Handles cross-function boundaries (inlined closures, trait method calls)",
+    "Fusion graph built with data flow dependencies",
+]
+
+[[themes]]
+id = "fusion-codegen"
+epic = "auto-fusion"
+title = "Fused kernel codegen — compile-time PTX generation from fusion graph"
+status = "pending"
+goal = "Generate single fused GPU kernel from multiple elementwise operations"
+success_criteria = [
+    "Template-based PTX generation from fusion graph nodes",
+    "Register allocation for fused intermediate values (no global memory round-trip)",
+    "float4 vectorized loads/stores in generated kernel",
+]
+
+[[themes]]
+id = "fusion-integrate"
+epic = "auto-fusion"
+title = "Fusion integration — auto-fuse nn ops + benchmark"
+status = "pending"
+goal = "nn API operations automatically fused, measurable GPT-2 speedup"
+success_criteria = [
+    "nn::Linear forward auto-fuses matmul+bias+activation",
+    "GPT-2 forward pass benefits from automatic fusion (>= 10% speedup)",
+    "No accuracy regression from fusion",
+]
+
+# --- T2: std-completeness themes ---
+
+[[themes]]
+id = "std-sync"
+epic = "std-completeness"
+title = "Sync primitives — mpsc channels + RwLock on GPU"
+status = "pending"
+goal = "std::sync types transparently map to GPU implementations"
+success_criteria = [
+    "std::sync::mpsc::channel() works on GPU backed by GPU channel implementation",
+    "std::sync::RwLock with warp-aware read/write arbitration",
+    "API identical to CPU std::sync — no GPU-specific types needed",
+]
+
+[[themes]]
+id = "std-net-server"
+epic = "std-completeness"
+title = "Server-side networking — TcpListener on GPU"
+status = "pending"
+goal = "GPU can bind and accept TCP connections via hostcall"
+success_criteria = [
+    "TcpListener::bind() + accept() implemented via hostcall services",
+    "Incoming connections dispatched to GPU warps",
+    "Demo: simple echo server running entirely on GPU",
+]
+
+[[themes]]
+id = "std-compat"
+epic = "std-completeness"
+title = "Third-party crate compatibility — no_std crates on GPU"
+status = "pending"
+goal = "Popular no_std crates compile and run on GPU unmodified"
+success_criteria = [
+    "Survey of 10+ popular no_std crates for GPU compatibility",
+    "At least one crate (heapless, hashbrown, or similar) runs on GPU unmodified",
+    "Compatibility matrix documented with known blockers",
+]
+
+# --- T3: ownership-memory themes ---
+
+[[themes]]
+id = "om-design"
+epic = "ownership-memory"
+title = "Memory lifetime design — &'block T and &'grid T type system"
+status = "pending"
+goal = "Design lifetime-parameterized types that map to GPU memory hierarchy"
+success_criteria = [
+    "&'block T type maps to shared memory allocation",
+    "&'grid T type maps to global memory allocation",
+    "Move semantics map to register promotion",
+    "Borrow checker rules defined for cross-scope access prevention",
+]
+
+[[themes]]
+id = "om-compiler"
+epic = "ownership-memory"
+title = "Compiler support — lifetime-to-memory-tier mapping in rustc"
+status = "pending"
+goal = "Patched rustc enforces memory hierarchy via Rust's type system"
+success_criteria = [
+    "Lifetime parameters in rustc map to address space annotations in LLVM IR",
+    "Cross-scope borrows rejected at compile time",
+    "Register promotion for local values with move semantics",
+]
+
+[[themes]]
+id = "om-demo"
+epic = "ownership-memory"
+title = "Memory hierarchy demos — compile-time safety in action"
+status = "pending"
+goal = "Demonstrate that the type system catches real GPU memory bugs"
+success_criteria = [
+    "Demo: kernel where shared memory misuse is a compile error",
+    "Demo: real computation using lifetime-based memory with zero manual management",
+    "Performance comparable to hand-optimized memory management",
+]
+
 # ============================================================
 # Tasks (active/pending only — done → archive/)
 # ============================================================
@@ -531,6 +840,145 @@ success_criteria = [
 
 # Orphaned parked tasks removed (cycle 604): warp-batch-io.2-4, cml-tree.1-3, cml-kmeans.1
 # (parent epics archived — brainstorm will recreate if epic reactivates)
+
+# --- structured-concurrency: design ---
+
+[[tasks]]
+id = "sc-design.1"
+theme = "sc-design"
+title = "Investigation: survey scope-based concurrency models and map to GPU hardware hierarchy"
+kind = "investigation"
+status = "done"
+depends = []
+notes = "Study Kotlin coroutineScope, Swift structured concurrency, Trio nurseries. Map scope concepts to GPU warp/block/grid. Identify which patterns translate and which need GPU-specific design."
+
+[[tasks]]
+id = "sc-design.2"
+theme = "sc-design"
+title = "Design: BlockScope<'a>/GridScope<'a> API — lifetime model + resource allocation interface"
+kind = "design"
+status = "done"
+depends = ["sc-design.1"]
+
+[[tasks]]
+id = "sc-design.3"
+theme = "sc-design"
+title = "Design: cancellation propagation semantics across nested scopes"
+kind = "design"
+status = "pending"
+depends = ["sc-design.2"]
+
+# --- structured-concurrency: resource ---
+
+[[tasks]]
+id = "sc-resource.1"
+theme = "sc-resource"
+title = "Investigation: Rust lifetime mechanics for shared/global memory allocation and Drop"
+kind = "investigation"
+status = "done"
+depends = ["sc-design.2"]
+
+[[tasks]]
+id = "sc-resource.2"
+theme = "sc-resource"
+title = "Experiment: BlockScope shared memory allocator with lifetime-bounded allocation"
+kind = "experiment"
+status = "done"
+depends = ["sc-resource.1"]
+
+[[tasks]]
+id = "sc-resource.3"
+theme = "sc-resource"
+title = "Experiment: GridScope global memory allocator + Drop cleanup on scope exit"
+kind = "experiment"
+status = "pending"
+depends = ["sc-resource.1"]
+
+# --- structured-concurrency: channel ---
+
+[[tasks]]
+id = "sc-channel.1"
+theme = "sc-channel"
+title = "Investigation: transport selection heuristics — shfl vs shared memory vs global"
+kind = "investigation"
+status = "done"
+depends = ["sc-design.2"]
+
+[[tasks]]
+id = "sc-channel.2"
+theme = "sc-channel"
+title = "Experiment: GpuChannel<T> with auto-transport selection based on scope distance"
+kind = "experiment"
+status = "done"
+depends = ["sc-channel.1"]
+
+[[tasks]]
+id = "sc-channel.3"
+theme = "sc-channel"
+title = "Experiment: benchmark channel throughput across all three transport modes"
+kind = "experiment"
+status = "pending"
+depends = ["sc-channel.2"]
+
+# --- structured-concurrency: demo ---
+
+[[tasks]]
+id = "sc-demo.1"
+theme = "sc-demo"
+title = "Experiment: producer-consumer pipeline using BlockScope with auto shared memory channels"
+kind = "experiment"
+status = "pending"
+depends = ["sc-resource.2", "sc-channel.2"]
+
+[[tasks]]
+id = "sc-demo.2"
+theme = "sc-demo"
+title = "Experiment: multi-block parallel reduce using GridScope with auto global memory"
+kind = "experiment"
+status = "pending"
+depends = ["sc-resource.3", "sc-demo.1"]
+
+# --- structured-concurrency: runtime ---
+
+[[tasks]]
+id = "sc-design.4"
+theme = "sc-design"
+title = "Investigation: compiler requirements — MIR pass changes vs pure library types for scope enforcement"
+kind = "investigation"
+status = "pending"
+depends = ["sc-design.2"]
+
+[[tasks]]
+id = "sc-runtime.1"
+theme = "sc-runtime"
+title = "Investigation: warp scheduling model for nested scopes — fork/join vs work-stealing"
+kind = "investigation"
+status = "pending"
+depends = ["sc-design.2"]
+
+[[tasks]]
+id = "sc-runtime.2"
+theme = "sc-runtime"
+title = "Experiment: BlockScope warp fork/join within a single thread block"
+kind = "experiment"
+status = "pending"
+depends = ["sc-runtime.1"]
+
+[[tasks]]
+id = "sc-runtime.3"
+theme = "sc-runtime"
+title = "Experiment: GridScope cross-block coordination via global memory barriers"
+kind = "experiment"
+status = "pending"
+depends = ["sc-runtime.1"]
+
+[[tasks]]
+id = "sc-runtime.4"
+theme = "sc-runtime"
+title = "Experiment: scopes compose with gpu::cooperative() — bridge old and new models"
+kind = "experiment"
+status = "pending"
+depends = ["sc-runtime.2", "sc-resource.2"]
 
 # --- kernel-perf: attention ---
 
@@ -709,6 +1157,312 @@ kind = "experiment"
 status = "pending"
 depends = ["perf-conv.5", "perf-elementwise.2"]
 
+# --- gpu-iterator: design ---
+
+[[tasks]]
+id = "iter-design.1"
+theme = "iter-design"
+title = "Investigation: Rust Iterator/Rayon traits — which semantics map to GPU, which don't"
+kind = "investigation"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "iter-design.2"
+theme = "iter-design"
+title = "Design: ParallelIterator trait API surface + closure capture rules"
+kind = "design"
+status = "pending"
+depends = ["iter-design.1"]
+
+[[tasks]]
+id = "iter-design.3"
+theme = "iter-design"
+title = "Design: MIR pass strategy — iterator chain → single fused GPU kernel"
+kind = "design"
+status = "pending"
+depends = ["iter-design.2"]
+
+# --- gpu-iterator: compiler ---
+
+[[tasks]]
+id = "iter-compiler.1"
+theme = "iter-compiler"
+title = "Experiment: MIR pass for map() — transform closure body into per-lane GPU code"
+kind = "experiment"
+status = "pending"
+depends = ["iter-design.3"]
+
+[[tasks]]
+id = "iter-compiler.2"
+theme = "iter-compiler"
+title = "Experiment: MIR pass for filter() + fold() — ballot compaction + shuffle reduction"
+kind = "experiment"
+status = "pending"
+depends = ["iter-compiler.1"]
+
+[[tasks]]
+id = "iter-compiler.3"
+theme = "iter-compiler"
+title = "Experiment: MIR pass for collect() — atomic output sizing + coalesced writes"
+kind = "experiment"
+status = "pending"
+depends = ["iter-compiler.1"]
+
+# --- gpu-iterator: runtime ---
+
+[[tasks]]
+id = "iter-runtime.1"
+theme = "iter-runtime"
+title = "Experiment: warp-parallel input partitioning + output buffer management"
+kind = "experiment"
+status = "pending"
+depends = ["iter-compiler.1"]
+
+[[tasks]]
+id = "iter-runtime.2"
+theme = "iter-runtime"
+title = "Experiment: chained iterator fusion — zero intermediate buffers in pipeline"
+kind = "experiment"
+status = "pending"
+depends = ["iter-runtime.1", "iter-compiler.2"]
+
+# --- gpu-iterator: demo ---
+
+[[tasks]]
+id = "iter-demo.1"
+theme = "iter-demo"
+title = "Experiment: par_iter().map().collect() on 1M+ f32 elements — correctness + performance"
+kind = "experiment"
+status = "pending"
+depends = ["iter-runtime.1", "iter-compiler.3"]
+
+[[tasks]]
+id = "iter-demo.2"
+theme = "iter-demo"
+title = "Experiment: benchmark GPU par_iter vs CPU Rayon — find crossover point"
+kind = "experiment"
+status = "pending"
+depends = ["iter-demo.1"]
+
+# --- auto-fusion: analysis ---
+
+[[tasks]]
+id = "fusion-analysis.1"
+theme = "fusion-analysis"
+title = "Investigation: fusable patterns in MIR — elementwise chains, broadcast, reductions"
+kind = "investigation"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "fusion-analysis.2"
+theme = "fusion-analysis"
+title = "Design: MIR pass pattern matching rules for fusion candidates"
+kind = "design"
+status = "pending"
+depends = ["fusion-analysis.1"]
+
+[[tasks]]
+id = "fusion-analysis.3"
+theme = "fusion-analysis"
+title = "Experiment: implement fusion candidate detection in MIR pass"
+kind = "experiment"
+status = "pending"
+depends = ["fusion-analysis.2"]
+
+# --- auto-fusion: codegen ---
+
+[[tasks]]
+id = "fusion-codegen.1"
+theme = "fusion-codegen"
+title = "Investigation: code generation strategies — template PTX vs NVRTC vs dynamic"
+kind = "investigation"
+status = "pending"
+depends = ["fusion-analysis.2"]
+
+[[tasks]]
+id = "fusion-codegen.2"
+theme = "fusion-codegen"
+title = "Experiment: generate fused PTX from fusion graph — multiply+add+activation chain"
+kind = "experiment"
+status = "pending"
+depends = ["fusion-codegen.1", "fusion-analysis.3"]
+
+[[tasks]]
+id = "fusion-codegen.3"
+theme = "fusion-codegen"
+title = "Experiment: register-only intermediates + float4 vectorization in generated kernels"
+kind = "experiment"
+status = "pending"
+depends = ["fusion-codegen.2"]
+
+# --- auto-fusion: integration ---
+
+[[tasks]]
+id = "fusion-integrate.1"
+theme = "fusion-integrate"
+title = "Experiment: auto-fuse nn::Linear matmul+bias+activation — integrate with nn API"
+kind = "experiment"
+status = "pending"
+depends = ["fusion-codegen.2"]
+
+[[tasks]]
+id = "fusion-integrate.2"
+theme = "fusion-integrate"
+title = "Experiment: benchmark GPT-2 with auto-fusion vs manual — measure speedup"
+kind = "experiment"
+status = "pending"
+depends = ["fusion-integrate.1"]
+
+# --- std-completeness: sync ---
+
+[[tasks]]
+id = "std-sync.1"
+theme = "std-sync"
+title = "Investigation: which std::sync types map to GPU — mpsc, RwLock, Condvar, Barrier"
+kind = "investigation"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "std-sync.2"
+theme = "std-sync"
+title = "Experiment: std::sync::mpsc channel backed by GPU channel + libc stubs"
+kind = "experiment"
+status = "pending"
+depends = ["std-sync.1"]
+
+[[tasks]]
+id = "std-sync.3"
+theme = "std-sync"
+title = "Experiment: std::sync::RwLock via warp-aware atomic read/write arbitration"
+kind = "experiment"
+status = "pending"
+depends = ["std-sync.1"]
+
+# --- std-completeness: networking ---
+
+[[tasks]]
+id = "std-net-server.1"
+theme = "std-net-server"
+title = "Investigation: TcpListener bind/accept hostcall model + warp dispatch"
+kind = "investigation"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "std-net-server.2"
+theme = "std-net-server"
+title = "Experiment: TcpListener::bind() + accept() hostcall services implementation"
+kind = "experiment"
+status = "pending"
+depends = ["std-net-server.1"]
+
+[[tasks]]
+id = "std-net-server.3"
+theme = "std-net-server"
+title = "Experiment: GPU echo server demo — bind, accept, read, write, close"
+kind = "experiment"
+status = "pending"
+depends = ["std-net-server.2"]
+
+# --- std-completeness: compatibility ---
+
+[[tasks]]
+id = "std-compat.1"
+theme = "std-compat"
+title = "Investigation: survey popular no_std crates — identify compilation blockers for GPU"
+kind = "investigation"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "std-compat.2"
+theme = "std-compat"
+title = "Experiment: compile and run heapless or hashbrown on GPU unmodified"
+kind = "experiment"
+status = "pending"
+depends = ["std-compat.1"]
+
+[[tasks]]
+id = "std-compat.3"
+theme = "std-compat"
+title = "Experiment: fix blockers + document GPU compatibility matrix"
+kind = "experiment"
+status = "pending"
+depends = ["std-compat.2"]
+
+# --- ownership-memory: design ---
+
+[[tasks]]
+id = "om-design.1"
+theme = "om-design"
+title = "Investigation: Rust lifetime mechanics applicable to GPU memory hierarchy — academic survey"
+kind = "investigation"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "om-design.2"
+theme = "om-design"
+title = "Design: &'block T / &'grid T type system + borrow checker extension rules"
+kind = "design"
+status = "pending"
+depends = ["om-design.1"]
+
+[[tasks]]
+id = "om-design.3"
+theme = "om-design"
+title = "Design: register promotion strategy for move semantics in inner loops"
+kind = "design"
+status = "pending"
+depends = ["om-design.2"]
+
+# --- ownership-memory: compiler ---
+
+[[tasks]]
+id = "om-compiler.1"
+theme = "om-compiler"
+title = "Investigation: rustc changes needed — type system vs MIR pass vs LLVM address spaces"
+kind = "investigation"
+status = "pending"
+depends = ["om-design.2"]
+
+[[tasks]]
+id = "om-compiler.2"
+theme = "om-compiler"
+title = "Experiment: implement lifetime-to-address-space mapping in patched rustc"
+kind = "experiment"
+status = "pending"
+depends = ["om-compiler.1"]
+
+[[tasks]]
+id = "om-compiler.3"
+theme = "om-compiler"
+title = "Experiment: cross-scope borrow rejection + register promotion pass"
+kind = "experiment"
+status = "pending"
+depends = ["om-compiler.2"]
+
+# --- ownership-memory: demo ---
+
+[[tasks]]
+id = "om-demo.1"
+theme = "om-demo"
+title = "Experiment: kernel where type system catches shared memory misuse — compile error demo"
+kind = "experiment"
+status = "pending"
+depends = ["om-compiler.2"]
+
+[[tasks]]
+id = "om-demo.2"
+theme = "om-demo"
+title = "Experiment: real computation kernel with lifetime-based memory — zero manual management"
+kind = "experiment"
+status = "pending"
+depends = ["om-demo.1"]
+
 # ============================================================
 # Brainstorms (last 2 — older → archive/)
 # ============================================================
@@ -776,3 +1530,15 @@ new_epics_spawned = []
 themes_parked = []
 themes_completed = ["lib-extract", "lib-facade", "kernel-entry-dx", "coop-api"]
 key_insight = "State diverged from reality — 6 themes completed but not marked, native-rust-dx ready to close. SM75 blocks cp.async SGEMM; double-buffer is the alternative. library-api critical path: cleanup.5 → cleanup.6 → docs.2."
+
+[[brainstorms]]
+seq = 115
+at_cycle = 607
+trigger = "User-directed strategic planning: evaluate project direction post library-api completion"
+level = "deep"
+new_tasks_spawned = ["sc-design.1", "sc-design.2", "sc-design.3", "sc-resource.1", "sc-resource.2", "sc-resource.3", "sc-channel.1", "sc-channel.2", "sc-channel.3", "sc-demo.1", "sc-demo.2"]
+new_themes_spawned = ["sc-design", "sc-resource", "sc-channel", "sc-demo"]
+new_epics_spawned = ["gpu-iterator", "auto-fusion", "std-completeness", "ownership-memory"]
+themes_parked = ["perf-attention", "perf-conv-wino"]
+themes_completed = []
+key_insight = "Core tech stack complete (36 epics archived). Shift from kernel-perf (wrap-up, relaxed targets) to structured-concurrency (T1 top priority). Roadmap: Phase 1 structured-concurrency + kernel-perf wrap-up → Phase 2 gpu-iterator + auto-fusion → Phase 3 unified-runtime. GPU par_iter + compile-time fusion = project's next narrative-defining features."

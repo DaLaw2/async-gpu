@@ -35,12 +35,12 @@
 use core::marker::PhantomData;
 use core::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
-const MAX_WARPS: usize = 32;
+pub(crate) const MAX_WARPS: usize = 32;
 
-const STATUS_IDLE: u32 = 0;
-const STATUS_ASSIGNED: u32 = 1;
+pub(crate) const STATUS_IDLE: u32 = 0;
+pub(crate) const STATUS_ASSIGNED: u32 = 1;
 const STATUS_RUNNING: u32 = 2;
-const STATUS_DONE: u32 = 3;
+pub(crate) const STATUS_DONE: u32 = 3;
 const STATUS_EXIT: u32 = 4;
 
 #[allow(clippy::declare_interior_mutable_const)]
@@ -48,12 +48,12 @@ const ATOMIC_U32_ZERO: AtomicU32 = AtomicU32::new(STATUS_IDLE);
 #[allow(clippy::declare_interior_mutable_const)]
 const ATOMIC_U64_ZERO: AtomicU64 = AtomicU64::new(0);
 
-static WARP_STATUS: [AtomicU32; MAX_WARPS] = [ATOMIC_U32_ZERO; MAX_WARPS];
-static WARP_FN: [AtomicU64; MAX_WARPS] = [ATOMIC_U64_ZERO; MAX_WARPS];
-static WARP_DATA: [AtomicU64; MAX_WARPS] = [ATOMIC_U64_ZERO; MAX_WARPS];
-static WARP_RESULT: [AtomicU64; MAX_WARPS] = [ATOMIC_U64_ZERO; MAX_WARPS];
+pub(crate) static WARP_STATUS: [AtomicU32; MAX_WARPS] = [ATOMIC_U32_ZERO; MAX_WARPS];
+pub(crate) static WARP_FN: [AtomicU64; MAX_WARPS] = [ATOMIC_U64_ZERO; MAX_WARPS];
+pub(crate) static WARP_DATA: [AtomicU64; MAX_WARPS] = [ATOMIC_U64_ZERO; MAX_WARPS];
+pub(crate) static WARP_RESULT: [AtomicU64; MAX_WARPS] = [ATOMIC_U64_ZERO; MAX_WARPS];
 
-static NUM_WARPS: AtomicU32 = AtomicU32::new(0);
+pub(crate) static NUM_WARPS: AtomicU32 = AtomicU32::new(0);
 
 /// Debug counter: incremented each time gpu_thread_spawn_raw is called.
 static SPAWN_RAW_COUNT: AtomicU32 = AtomicU32::new(0);
@@ -65,27 +65,27 @@ pub extern "C" fn gpu_thread_spawn_raw_count() -> u32 {
 }
 
 // Per-warp scratch buffer for closure data + result (256 bytes each)
-const SCRATCH_SIZE: usize = 256;
+pub(crate) const SCRATCH_SIZE: usize = 256;
 #[allow(clippy::declare_interior_mutable_const)]
 const SCRATCH_ROW: [AtomicU32; SCRATCH_SIZE / 4] = {
     #[allow(clippy::declare_interior_mutable_const)]
     const ZERO: AtomicU32 = AtomicU32::new(0);
     [ZERO; SCRATCH_SIZE / 4]
 };
-static SCRATCH: [[AtomicU32; SCRATCH_SIZE / 4]; MAX_WARPS] = [SCRATCH_ROW; MAX_WARPS];
+pub(crate) static SCRATCH: [[AtomicU32; SCRATCH_SIZE / 4]; MAX_WARPS] = [SCRATCH_ROW; MAX_WARPS];
 
 #[inline(always)]
-fn warp_id() -> u32 {
+pub(crate) fn warp_id() -> u32 {
     crate::index::thread_idx_x() / 32
 }
 
 #[inline(always)]
-fn lane_id() -> u32 {
+pub(crate) fn lane_id() -> u32 {
     crate::index::thread_idx_x() % 32
 }
 
 #[inline(always)]
-fn nanosleep_short() {
+pub(crate) fn nanosleep_short() {
     #[cfg(target_arch = "nvptx64")]
     unsafe {
         core::arch::asm!("nanosleep.u32 100;");
@@ -343,7 +343,7 @@ pub fn yield_now() {
 // Cooperative Compute — all warps execute in data-parallel mode
 // ============================================================
 
-const STATUS_COOPERATIVE: u32 = 5;
+pub(crate) const STATUS_COOPERATIVE: u32 = 5;
 
 /// Execute a closure cooperatively across all warps.
 ///

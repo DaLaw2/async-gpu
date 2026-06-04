@@ -1758,4 +1758,110 @@ mod tests {
         // Basic sanity: INT4 model should produce at least 1 token
         assert!(new_tokens >= 1, "INT4 model produced no tokens");
     }
+
+    /// Benchmark GPT-2 forward pass with profiled per-block timing.
+    ///
+    /// Measures total forward pass and per-block time for seq_len=128.
+    /// Run with `--features cublas` to measure fused LN+residual performance.
+    #[test]
+    fn bench_gpt2_forward_profiled() {
+        let model_path =
+            crate::model_dir(Some(env!("CARGO_MANIFEST_DIR"))).join("model.safetensors");
+        if !model_path.exists() {
+            println!("SKIP: GPT-2 model not found at {}", model_path.display());
+            return;
+        }
+
+        let dev = cudarc::driver::CudaDevice::new(0).expect("CUDA");
+        let registry = Arc::new(
+            crate::nn::KernelRegistry::new(Arc::clone(&dev), crate::ptx::KERNEL).expect("PTX"),
+        );
+        let weights = crate::model::load_gpt2_weights(&model_path).expect("weights");
+        let config = Gpt2Config::small();
+        let model = Gpt2Model::from_weights(&weights, config, &registry).expect("model");
+
+        let tokenizer = crate::tokenizer::Gpt2Tokenizer::new().expect("tokenizer");
+        let prompt = "The meaning of life is to find purpose and happiness in the things we do every day and to share that with others around us";
+        let tokens = tokenizer.encode(prompt);
+        // Pad or truncate to exactly 128 tokens for consistent benchmarking
+        let seq_len = 128;
+        let mut token_vec = tokens.clone();
+        token_vec.resize(seq_len, 0);
+        let token_ids = dev.htod_sync_copy(&token_vec).expect("upload");
+
+        // Feature detection
+        let fused = cfg!(feature = "cublas");
+        eprintln!(
+            "\n=== GPT-2 Forward Pass Benchmark (seq={}, fused={}) ===",
+            seq_len, fused
+        );
+
+        // Warmup run (2 iterations)
+        for _ in 0..2 {
+            let _ = model.forward(&token_ids, seq_len).expect("warmup forward");
+            dev.synchronize().unwrap();
+        }
+
+        // Benchmark: 5 profiled runs
+        let num_runs = 5;
+        let mut total_times_ms = Vec::new();
+        let mut per_block_times: Vec<Vec<f64>> = (0..12).map(|_| Vec::new()).collect();
+
+        for run in 0..num_runs {
+            let (logits, timings) = model
+                .forward_profiled(&token_ids, seq_len)
+                .expect("profiled forward");
+            drop(logits);
+
+            let total: f64 = timings.iter().map(|(_, ms)| ms).sum();
+            total_times_ms.push(total);
+
+            if run == 0 {
+                eprintln!("\n--- Timing breakdown (run 0) ---");
+                for (name, ms) in &timings {
+                    eprintln!("  {:<15} {:>8.3} ms", name, ms);
+                }
+                eprintln!("  {:<15} {:>8.3} ms", "TOTAL", total);
+            }
+
+            // Collect per-block timings
+            for (name, ms) in &timings {
+                if let Some(idx) = name.strip_prefix("block_") {
+                    if let Ok(i) = idx.parse::<usize>() {
+                        if i < 12 {
+                            per_block_times[i].push(*ms);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Statistics
+        total_times_ms.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let median_total = total_times_ms[num_runs / 2];
+        let min_total = total_times_ms[0];
+        let avg_block: f64 = per_block_times
+            .iter()
+            .map(|v| v.iter().sum::<f64>() / v.len() as f64)
+            .sum::<f64>()
+            / 12.0;
+
+        eprintln!(
+            "\n--- Summary ({} runs, seq={}, fused={}) ---",
+            num_runs, seq_len, fused
+        );
+        eprintln!("  Total forward (median): {:.3} ms", median_total);
+        eprintln!("  Total forward (min):    {:.3} ms", min_total);
+        eprintln!("  Avg per-block:          {:.3} ms", avg_block);
+
+        // Per-block detail
+        eprintln!("\n--- Per-block timing (avg of {} runs) ---", num_runs);
+        for (i, times) in per_block_times.iter().enumerate() {
+            let avg = times.iter().sum::<f64>() / times.len() as f64;
+            let min = times.iter().cloned().fold(f64::INFINITY, f64::min);
+            eprintln!("  block_{:<2}: avg={:.3}ms  min={:.3}ms", i, avg, min);
+        }
+
+        eprintln!("\nBenchmark complete.");
+    }
 }

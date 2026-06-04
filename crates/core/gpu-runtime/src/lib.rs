@@ -134,6 +134,31 @@ pub mod thread;
 /// ```
 pub mod block;
 
+/// Block-level structured concurrency with lifetime-bounded shared memory.
+///
+/// Provides `BlockScope` — a scoped concurrency primitive that owns a region
+/// of shared memory and guarantees all spawned work completes before the
+/// scope exits. The `'scope` lifetime prevents shared memory references from
+/// escaping their hardware scope.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use gpu_runtime::scope::block_scope;
+///
+/// block_scope(|scope| {
+///     let buf = scope.alloc::<f32>(256);
+///     scope.spawn_all(|wid, n_warps| {
+///         let mut i = wid as usize;
+///         while i < 256 {
+///             buf[i] = i as f32;
+///             i += n_warps as usize;
+///         }
+///     });
+/// });
+/// ```
+pub mod scope;
+
 /// Neural network building blocks — activation functions and warp-cooperative ops.
 ///
 /// # Example
@@ -497,6 +522,24 @@ pub mod executor;
 /// Channel slots must reside in GPU global memory (device or mapped).
 /// Values must be `Copy` — no Drop support on GPU.
 pub mod channel;
+
+/// Block-scoped GPU channels — shared-memory backed with CTA-scope atomics.
+///
+/// Provides intra-block channels that use CTA-scope atomics (~2-6 cycles)
+/// instead of system-scope atomics (~100 cycles), yielding 20-50x latency
+/// improvement for communication between warps within the same block.
+///
+/// # Channel Types
+///
+/// - **BlockOneshotSlot**: Single-value, single-use channel in shared memory.
+/// - **BlockMpscChannel**: Multi-producer, single-consumer ring buffer in shared memory.
+///
+/// # Safety
+///
+/// All channel storage must reside in shared memory. The `'scope` lifetime
+/// on sender/receiver types prevents references from escaping the block.
+/// Values must be `Copy` — no Drop support on GPU.
+pub mod block_channel;
 
 /// GPU synchronization primitives — Mutex, MutexGuard.
 ///

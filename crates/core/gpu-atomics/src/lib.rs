@@ -548,6 +548,170 @@ pub unsafe fn st_global_u32(ptr: *mut u32, val: u32) {
     }
 }
 
+// ============================================================
+// CTA-scope atomics (for shared memory within a block)
+// ============================================================
+//
+// CTA-scope operations are visible only within the current cooperative
+// thread array (block). They are ~20-50x faster than system-scope for
+// intra-block communication because they avoid the GPU-CPU cache
+// coherence protocol.
+//
+// These use generic address space (no `.shared` qualifier) so they work
+// with pointers obtained from `cvta.shared.u64` (shared memory mapped
+// into generic address space). Using `.cta` scope without `.shared`
+// avoids the requirement to convert pointers back to shared-memory
+// address space.
+
+/// CTA-scope release store of a u32.
+///
+/// Emits `st.release.cta.u32 [ptr], val;`
+///
+/// All prior memory operations (in program order) are guaranteed to be
+/// visible to any thread in the same block before this store becomes
+/// visible. For shared-memory channel state transitions.
+///
+/// Safety: `ptr` must be a valid, aligned pointer within the current
+/// block's address space (typically shared memory via `cvta.shared`).
+#[inline(always)]
+pub unsafe fn cta_store_release_u32(ptr: *mut u32, val: u32) {
+    #[cfg(target_arch = "nvptx64")]
+    core::arch::asm!(
+        "st.release.cta.u32 [{ptr}], {val};",
+        ptr = in(reg64) ptr,
+        val = in(reg32) val,
+        options(nostack),
+    );
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (ptr, val);
+        gpu_stub!();
+    }
+}
+
+/// CTA-scope acquire load of a u32.
+///
+/// Emits `ld.acquire.cta.u32 result, [ptr];`
+///
+/// All subsequent memory operations (in program order) are guaranteed to
+/// observe any stores that were visible before the matching release store
+/// within the same block. For polling channel state.
+///
+/// Safety: `ptr` must be a valid, aligned pointer within the current
+/// block's address space.
+#[inline(always)]
+pub unsafe fn cta_load_acquire_u32(ptr: *const u32) -> u32 {
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let result: u32;
+        core::arch::asm!(
+            "ld.acquire.cta.u32 {result}, [{ptr}];",
+            result = out(reg32) result,
+            ptr = in(reg64) ptr,
+            options(nostack, readonly),
+        );
+        result
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = ptr;
+        gpu_stub!()
+    }
+}
+
+/// Spin-loop-safe CTA-scope acquire load of a u32.
+///
+/// Emits `ld.acquire.cta.u32` followed by `nanosleep.u32 64`.
+///
+/// Unlike `cta_load_acquire_u32`, this function:
+/// - Does NOT use `options(readonly)` — prevents LLVM LICM hoisting
+/// - Includes `nanosleep` — yields warp slot during spin
+///
+/// Use this ONLY inside spin/poll loops on shared-memory state.
+#[inline(always)]
+pub unsafe fn cta_spin_load_acquire_u32(ptr: *const u32) -> u32 {
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let result: u32;
+        core::arch::asm!(
+            "ld.acquire.cta.u32 {result}, [{ptr}];",
+            "nanosleep.u32 64;",
+            result = out(reg32) result,
+            ptr = in(reg64) ptr,
+            options(nostack),
+        );
+        result
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = ptr;
+        gpu_stub!()
+    }
+}
+
+/// CTA-scope compare-and-swap (CAS) on a u32.
+///
+/// Emits `atom.cas.acq_rel.cta.b32 result, [ptr], expected, desired;`
+///
+/// Atomically: if `*ptr == expected`, sets `*ptr = desired`. Returns the
+/// original value of `*ptr` regardless of whether the swap occurred.
+/// The operation uses acquire-release semantics at CTA scope.
+///
+/// Safety: `ptr` must be a valid, aligned pointer within the current
+/// block's address space (typically shared memory).
+#[inline(always)]
+pub unsafe fn cta_cas_u32(ptr: *mut u32, expected: u32, desired: u32) -> u32 {
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let result: u32;
+        core::arch::asm!(
+            "atom.cas.acq_rel.cta.b32 {result}, [{ptr}], {expected}, {desired};",
+            result = out(reg32) result,
+            ptr = in(reg64) ptr,
+            expected = in(reg32) expected,
+            desired = in(reg32) desired,
+            options(nostack),
+        );
+        result
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (ptr, expected, desired);
+        gpu_stub!()
+    }
+}
+
+/// CTA-scope atomic fetch-and-add on a u32.
+///
+/// Emits `atom.add.acq_rel.cta.u32 result, [ptr], val;`
+///
+/// Atomically adds `val` to `*ptr` and returns the original value.
+/// CTA-scope with acquire-release semantics — visible to all threads
+/// in the same block.
+///
+/// Safety: `ptr` must be a valid, aligned pointer within the current
+/// block's address space.
+#[inline(always)]
+pub unsafe fn cta_fetch_add_u32(ptr: *mut u32, val: u32) -> u32 {
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let result: u32;
+        core::arch::asm!(
+            "atom.add.acq_rel.cta.u32 {result}, [{ptr}], {val};",
+            result = out(reg32) result,
+            ptr = in(reg64) ptr,
+            val = in(reg32) val,
+            options(nostack),
+        );
+        result
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (ptr, val);
+        gpu_stub!()
+    }
+}
+
 // NVVM intrinsic fallbacks removed — llvm.nvvm.atomic.add.gen.i.sys
 // fails with "Cannot select" on current nightly LLVM. All operations
 // use inline PTX asm which is confirmed working.

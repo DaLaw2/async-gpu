@@ -270,6 +270,52 @@ fn main() -> Result<()> {
                 );
                 assert!(map_ok);
 
+                println!("\n--- Cooperative Reduce Test (multi-warp sum) ---");
+                let reduce_result: Vec<u64> =
+                    gpu_host::gpu::launch("cooperative_reduce_test", 1, 128).map_err(|e| {
+                        GpuHostError::Verification {
+                            test: "coop_reduce",
+                            detail: format!("{e}"),
+                        }
+                    })?;
+                let total = reduce_result[0];
+                let expected_sum: u64 = (0..256u64).sum(); // 32640
+                println!("  Result: {total}, expected: {expected_sum}");
+                println!(
+                    "  Cooperative reduce: {}",
+                    if total == expected_sum {
+                        "PASSED"
+                    } else {
+                        "FAILED"
+                    }
+                );
+                assert_eq!(total, expected_sum);
+
+                println!("\n--- Cooperative Map with Params Test (scaled multiply) ---");
+                let ext_result: Vec<u32> =
+                    gpu_host::gpu::launch("cooperative_map_ext_test", 256, 128).map_err(|e| {
+                        GpuHostError::Verification {
+                            test: "coop_map_ext",
+                            detail: format!("{e}"),
+                        }
+                    })?;
+                let mut ext_ok = true;
+                for i in 0..256usize {
+                    let expected = (i * 7) as u32;
+                    if ext_result[i] != expected {
+                        println!(
+                            "  MISMATCH at {i}: got {}, expected {expected}",
+                            ext_result[i]
+                        );
+                        ext_ok = false;
+                    }
+                }
+                println!(
+                    "  Cooperative map_with_params: {}",
+                    if ext_ok { "PASSED" } else { "FAILED" }
+                );
+                assert!(ext_ok);
+
                 return Ok(());
             }
             "std_thread_demo" => {

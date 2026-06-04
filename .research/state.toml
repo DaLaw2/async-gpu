@@ -515,7 +515,7 @@ id = "coop-api.2"
 theme = "coop-api"
 title = "Experiment: implement cooperative_map + cooperative_reduce"
 kind = "experiment"
-status = "active"
+status = "done"
 depends = ["coop-api.1"]
 
 [[tasks]]

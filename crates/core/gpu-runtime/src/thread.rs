@@ -584,6 +584,332 @@ pub fn cooperative_map(src: *const u8, dst: *mut u8, len: usize, f: fn(&CoopMapA
     }
 }
 
+// ============================================================
+// Cooperative Reduce — multi-warp reduction to a single value
+// ============================================================
+
+/// Global argument block for cooperative_reduce.
+/// Layout: [src_ptr: u64, len: u64, fn_ptr: u64, accumulator: u64]
+static COOP_REDUCE_ARGS: [AtomicU64; 4] = [ATOMIC_U64_ZERO; 4];
+
+/// Arguments passed to the cooperative_reduce user function.
+///
+/// Each warp receives this struct with partition info. The user function
+/// returns a `u64` partial result (its warp's contribution).
+#[derive(Clone, Copy)]
+pub struct CoopReduceArgs {
+    /// Pointer to input data (read-only).
+    pub src: *const u8,
+    /// Total number of elements.
+    pub len: usize,
+    /// This warp's ID (0-based, includes warp 0).
+    pub warp_id: u32,
+    /// Total number of warps participating.
+    pub n_warps: u32,
+}
+
+/// Execute a multi-warp reduction, returning a single combined value.
+///
+/// Each warp runs the user function on its partition and returns a `u64`
+/// partial result. Warp 0 collects all partial results from WARP_RESULT
+/// slots and sums them to produce the final value.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use gpu_runtime::thread;
+///
+/// thread::gpu_main(|| {
+///     let data: Vec<u64> = vec![1, 2, 3, 4, 5, 6, 7, 8];
+///
+///     let total = thread::cooperative_reduce(
+///         data.as_ptr() as *const u8,
+///         data.len(),
+///         |args| {
+///             let src = args.src as *const u64;
+///             let mut sum = 0u64;
+///             let mut i = args.warp_id as usize;
+///             while i < args.len {
+///                 sum += unsafe { core::ptr::read_volatile(src.add(i)) };
+///                 i += args.n_warps as usize;
+///             }
+///             sum
+///         },
+///     );
+///     // total == 36
+/// });
+/// ```
+///
+/// # Safety guarantees
+///
+/// - `src` must be valid for the duration of the call
+/// - The user function must return a partial result that can be summed
+/// - No closure captures (function pointer, not closure)
+pub fn cooperative_reduce(src: *const u8, len: usize, f: fn(&CoopReduceArgs) -> u64) -> u64 {
+    let n_warps = NUM_WARPS.load(Ordering::Acquire) as usize;
+    let total = if n_warps == 0 { 1 } else { n_warps };
+
+    // Warp 0 publishes the arguments to global memory
+    if lane_id() == 0 {
+        COOP_REDUCE_ARGS[0].store(src as u64, Ordering::Relaxed);
+        COOP_REDUCE_ARGS[1].store(len as u64, Ordering::Relaxed);
+        COOP_REDUCE_ARGS[2].store(f as usize as u64, Ordering::Relaxed);
+        // Reset accumulator
+        COOP_REDUCE_ARGS[3].store(0, Ordering::Relaxed);
+    }
+
+    if total <= 1 {
+        // Single warp: just call directly
+        let args = CoopReduceArgs {
+            src,
+            len,
+            warp_id: 0,
+            n_warps: 1,
+        };
+        return if lane_id() == 0 { f(&args) } else { 0 };
+    }
+
+    // Trampoline: reads args, calls user fn, stores result in WARP_RESULT
+    fn reduce_trampoline(_raw: *mut u8) {
+        let lid = crate::index::thread_idx_x() % 32;
+        if lid == 0 {
+            let src = COOP_REDUCE_ARGS[0].load(Ordering::Acquire) as *const u8;
+            let len = COOP_REDUCE_ARGS[1].load(Ordering::Acquire) as usize;
+            let fn_ptr = COOP_REDUCE_ARGS[2].load(Ordering::Acquire);
+            let f: fn(&CoopReduceArgs) -> u64 = unsafe { core::mem::transmute(fn_ptr) };
+
+            let wid = crate::index::thread_idx_x() / 32;
+            let n_warps = NUM_WARPS.load(Ordering::Acquire);
+
+            let args = CoopReduceArgs {
+                src,
+                len,
+                warp_id: wid,
+                n_warps,
+            };
+            let partial = f(&args);
+
+            // Store partial result in WARP_RESULT for warp 0 to collect
+            WARP_RESULT[wid as usize].store(partial, Ordering::Release);
+        }
+    }
+
+    let trampoline_fn = reduce_trampoline as fn(*mut u8);
+
+    // Wake worker warps
+    if lane_id() == 0 {
+        for i in 1..total {
+            WARP_FN[i].store(trampoline_fn as usize as u64, Ordering::Relaxed);
+            WARP_DATA[i].store(0, Ordering::Relaxed);
+            WARP_STATUS[i].store(STATUS_COOPERATIVE, Ordering::Release);
+        }
+    }
+
+    // Warp 0 also computes its partial result
+    let warp0_partial = if lane_id() == 0 {
+        let args = CoopReduceArgs {
+            src,
+            len,
+            warp_id: 0,
+            n_warps: total as u32,
+        };
+        f(&args)
+    } else {
+        0
+    };
+
+    // Wait for all workers to finish, then collect their results
+    let mut combined = warp0_partial;
+    #[allow(clippy::needless_range_loop)]
+    for i in 1..total {
+        loop {
+            let s = WARP_STATUS[i].load(Ordering::Acquire);
+            if s == STATUS_DONE {
+                // Collect this warp's partial result
+                combined += WARP_RESULT[i].load(Ordering::Acquire);
+                WARP_STATUS[i].store(STATUS_IDLE, Ordering::Release);
+                break;
+            }
+            nanosleep_short();
+        }
+    }
+
+    combined
+}
+
+// ============================================================
+// Cooperative Map with Params — extra user-defined u64 parameters
+// ============================================================
+
+/// Global argument block for cooperative_map_with_params.
+/// Layout: [src_ptr: u64, dst_ptr: u64, len: u64, fn_ptr: u64, p0: u64, p1: u64, p2: u64, p3: u64]
+static COOP_MAP_EXT_ARGS: [AtomicU64; 8] = [ATOMIC_U64_ZERO; 8];
+
+/// Arguments passed to cooperative_map_with_params user function.
+///
+/// Extends [`CoopMapArgs`] with up to 4 user-defined u64 parameters.
+/// These can carry scalars, matrix dimensions, stride values, etc.
+#[derive(Clone, Copy)]
+pub struct CoopMapExtArgs {
+    /// Pointer to input data (read-only).
+    pub src: *const u8,
+    /// Pointer to output data (write).
+    pub dst: *mut u8,
+    /// Total number of elements.
+    pub len: usize,
+    /// This warp's ID (0-based, includes warp 0).
+    pub warp_id: u32,
+    /// Total number of warps participating.
+    pub n_warps: u32,
+    /// User-defined parameters (up to 4).
+    pub params: [u64; 4],
+}
+
+/// Execute a data-parallel map with extra user-defined parameters.
+///
+/// Like [`cooperative_map`], but passes up to 4 additional `u64` parameters
+/// to the user function. Useful for operations that need extra context
+/// (e.g., scalar multiplier, matrix dimensions M/K/N, stride values).
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use gpu_runtime::thread;
+///
+/// thread::gpu_main(|| {
+///     let input: Vec<u32> = vec![1, 2, 3, 4];
+///     let mut output: Vec<u32> = vec![0; 4];
+///
+///     // Multiply each element by scalar 10
+///     thread::cooperative_map_with_params(
+///         input.as_ptr() as *const u8,
+///         output.as_mut_ptr() as *mut u8,
+///         input.len(),
+///         [10, 0, 0, 0],  // params[0] = scalar
+///         |args| {
+///             let src = args.src as *const u32;
+///             let dst = args.dst as *mut u32;
+///             let scale = args.params[0] as u32;
+///             let mut i = args.warp_id as usize;
+///             while i < args.len {
+///                 unsafe {
+///                     let v = core::ptr::read_volatile(src.add(i));
+///                     core::ptr::write_volatile(dst.add(i), v * scale);
+///                 }
+///                 i += args.n_warps as usize;
+///             }
+///         },
+///     );
+///     // output == [10, 20, 30, 40]
+/// });
+/// ```
+pub fn cooperative_map_with_params(
+    src: *const u8,
+    dst: *mut u8,
+    len: usize,
+    params: [u64; 4],
+    f: fn(&CoopMapExtArgs),
+) {
+    let n_warps = NUM_WARPS.load(Ordering::Acquire) as usize;
+    let total = if n_warps == 0 { 1 } else { n_warps };
+
+    // Warp 0 publishes the arguments to global memory
+    if lane_id() == 0 {
+        COOP_MAP_EXT_ARGS[0].store(src as u64, Ordering::Relaxed);
+        COOP_MAP_EXT_ARGS[1].store(dst as u64, Ordering::Relaxed);
+        COOP_MAP_EXT_ARGS[2].store(len as u64, Ordering::Relaxed);
+        COOP_MAP_EXT_ARGS[3].store(f as usize as u64, Ordering::Relaxed);
+        COOP_MAP_EXT_ARGS[4].store(params[0], Ordering::Relaxed);
+        COOP_MAP_EXT_ARGS[5].store(params[1], Ordering::Relaxed);
+        COOP_MAP_EXT_ARGS[6].store(params[2], Ordering::Relaxed);
+        COOP_MAP_EXT_ARGS[7].store(params[3], Ordering::Relaxed);
+    }
+
+    if total <= 1 {
+        let args = CoopMapExtArgs {
+            src,
+            dst,
+            len,
+            warp_id: 0,
+            n_warps: 1,
+            params,
+        };
+        if lane_id() == 0 {
+            f(&args);
+        }
+        return;
+    }
+
+    // Trampoline: reads args from COOP_MAP_EXT_ARGS, calls user fn
+    fn ext_trampoline(_raw: *mut u8) {
+        let lid = crate::index::thread_idx_x() % 32;
+        if lid == 0 {
+            let src = COOP_MAP_EXT_ARGS[0].load(Ordering::Acquire) as *const u8;
+            let dst = COOP_MAP_EXT_ARGS[1].load(Ordering::Acquire) as *mut u8;
+            let len = COOP_MAP_EXT_ARGS[2].load(Ordering::Acquire) as usize;
+            let fn_ptr = COOP_MAP_EXT_ARGS[3].load(Ordering::Acquire);
+            let f: fn(&CoopMapExtArgs) = unsafe { core::mem::transmute(fn_ptr) };
+
+            let wid = crate::index::thread_idx_x() / 32;
+            let n_warps = NUM_WARPS.load(Ordering::Acquire);
+
+            let params = [
+                COOP_MAP_EXT_ARGS[4].load(Ordering::Acquire),
+                COOP_MAP_EXT_ARGS[5].load(Ordering::Acquire),
+                COOP_MAP_EXT_ARGS[6].load(Ordering::Acquire),
+                COOP_MAP_EXT_ARGS[7].load(Ordering::Acquire),
+            ];
+
+            let args = CoopMapExtArgs {
+                src,
+                dst,
+                len,
+                warp_id: wid,
+                n_warps,
+                params,
+            };
+            f(&args);
+        }
+    }
+
+    let trampoline_fn = ext_trampoline as fn(*mut u8);
+
+    // Wake worker warps
+    if lane_id() == 0 {
+        for i in 1..total {
+            WARP_FN[i].store(trampoline_fn as usize as u64, Ordering::Relaxed);
+            WARP_DATA[i].store(0, Ordering::Relaxed);
+            WARP_STATUS[i].store(STATUS_COOPERATIVE, Ordering::Release);
+        }
+    }
+
+    // Warp 0 also participates
+    if lane_id() == 0 {
+        let args = CoopMapExtArgs {
+            src,
+            dst,
+            len,
+            warp_id: 0,
+            n_warps: total as u32,
+            params,
+        };
+        f(&args);
+    }
+
+    // Wait for all workers to finish
+    #[allow(clippy::needless_range_loop)]
+    for i in 1..total {
+        loop {
+            let s = WARP_STATUS[i].load(Ordering::Acquire);
+            if s == STATUS_DONE {
+                WARP_STATUS[i].store(STATUS_IDLE, Ordering::Release);
+                break;
+            }
+            nanosleep_short();
+        }
+    }
+}
+
 /// Sleep for approximately `nanos` nanoseconds.
 pub fn sleep_nanos(nanos: u32) {
     #[cfg(target_arch = "nvptx64")]

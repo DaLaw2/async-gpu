@@ -1,26 +1,24 @@
 # Theme Synthesis: coop-api — Cooperative API Ergonomics
 
-## Key Finding
+## Problem
+Closure captures across warps fail (per-warp local memory). Users needed
+3+ global atomics + unsafe to pass data into `cooperative()`.
 
-Closure captures fail across warps because captured references point to per-warp
-local memory (PTX `.local`). Heap data (Vec, etc.) is already in global memory —
-the bottleneck is getting the *pointer* to other warps without closure captures.
+## Solution: Three cooperative APIs
 
-## Solution: `cooperative_map(src, dst, len, fn)`
+1. **`cooperative_map(src, dst, len, fn)`** — data-parallel transform. Zero
+   global atomics. `fn(&CoopMapArgs)` enforces no-capture at compile time.
 
-New API passes data via an explicit global argument block instead of closures.
-Takes `fn(&CoopMapArgs)` (function pointer, not closure) so the "no captures"
-constraint is enforced at compile time. Each warp receives `CoopMapArgs` with
-`{src, dst, len, warp_id, n_warps}` — all partitioning info in one struct.
+2. **`cooperative_reduce(src, len, fn) -> u64`** — multi-warp reduction.
+   Each warp returns a partial via `WARP_RESULT`; warp 0 collects and sums.
+
+3. **`cooperative_map_with_params(src, dst, len, [u64;4], fn)`** — map with
+   extra parameters (scalars, dimensions, strides) via `CoopMapExtArgs`.
 
 ## Impact
+- `unified_io_compute` (North Star demo) rewritten: 3 global atomics eliminated
+- Call-site boilerplate: ~15 lines of atomics → ~8 lines of pure compute
+- Type-safe: function pointers prevent accidental closure captures
 
-- Eliminates 3 global atomic statics + 6 atomic ops + `unsafe` per cooperative call
-- Call-site goes from ~15 lines of boilerplate to ~10 lines of pure compute logic
-- Type-safe: accidentally capturing a local is a compile error, not GPU crash
-
-## Next Steps
-
-- coop-api.2: Apply cooperative_map to `unified_io_compute` (the North Star demo)
-- Consider generic `cooperative_map_typed<T, U>()` that casts pointers internally
-- Explore whether the trampoline overhead is measurable vs `cooperative()`
+## Verified
+All 5 cooperative tests pass on GTX 1660 (sm_75), 4 warps. CI lint clean.

@@ -654,16 +654,15 @@ pub unsafe extern "gpu-kernel" fn std_buffered_println_test(
 // North Star Demo: File::read → cooperative compute → File::write
 // ============================================================
 
-static UIC_IN_PTR: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
-static UIC_OUT_PTR: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
-static UIC_LEN: AtomicU32 = AtomicU32::new(0);
-
 /// North Star: File::read → compute → File::write in one kernel.
 ///
 /// Demonstrates the project vision: I/O and compute unified in plain Rust.
 /// - Sequential I/O (warp 0): read input file
-/// - Cooperative compute (all warps): transform data in parallel
+/// - Cooperative compute (all warps): transform data via cooperative_map
 /// - Sequential I/O (warp 0): write output file
+///
+/// Uses `cooperative_map` instead of `cooperative()` — zero global atomics.
+/// All data flows through explicit `(src, dst, len)` parameters.
 ///
 /// Launch with: block_dim=(128,1,1), hostcall enabled.
 #[unsafe(no_mangle)]
@@ -693,31 +692,25 @@ pub unsafe extern "gpu-kernel" fn unified_io_compute(buf: *mut u8, result: *mut 
         // Allocate output
         let mut output = vec![0u8; data.len()];
 
-        // Publish pointers for cooperative access
-        UIC_IN_PTR.store(data.as_ptr() as u64, AtomicOrdering::Release);
-        UIC_OUT_PTR.store(output.as_mut_ptr() as u64, AtomicOrdering::Release);
-        UIC_LEN.store(n as u32, AtomicOrdering::Release);
-
         // === COOPERATIVE COMPUTE: all warps multiply by 2 ===
-        unsafe {
-            gpu_runtime::thread::cooperative(&|| {
-                let src = UIC_IN_PTR.load(AtomicOrdering::Acquire) as *const f32;
-                let dst = UIC_OUT_PTR.load(AtomicOrdering::Acquire) as *mut f32;
-                let len = UIC_LEN.load(AtomicOrdering::Acquire);
-                let wid = gpu_runtime::thread::current_id();
-                let total = (gpu_runtime::thread::available_parallelism() + 1) as u32;
-                let lid = gpu_runtime::index::thread_idx_x() % 32;
-
-                if lid == 0 {
-                    let mut i = wid;
-                    while i < len {
-                        let v = core::ptr::read_volatile(src.add(i as usize));
-                        core::ptr::write_volatile(dst.add(i as usize), v * 2.0);
-                        i += total;
+        // Zero global atomics — data flows through cooperative_map's arguments.
+        gpu_runtime::thread::cooperative_map(
+            data.as_ptr() as *const u8,
+            output.as_mut_ptr() as *mut u8,
+            n,
+            |args| {
+                let src = args.src as *const f32;
+                let dst = args.dst as *mut f32;
+                let mut i = args.warp_id as usize;
+                while i < args.len {
+                    unsafe {
+                        let v = core::ptr::read_volatile(src.add(i));
+                        core::ptr::write_volatile(dst.add(i), v * 2.0);
                     }
+                    i += args.n_warps as usize;
                 }
-            });
-        }
+            },
+        );
 
         // === SEQUENTIAL I/O: write output ===
         match File::create("io_compute_output.bin") {

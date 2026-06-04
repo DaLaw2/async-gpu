@@ -192,6 +192,93 @@ pub unsafe extern "gpu-kernel" fn cooperative_map_test(result: *mut u32) {
     });
 }
 
+/// Test: cooperative_reduce — all warps sum partitions of an array.
+///
+/// Input: static array [0..256], each warp sums its partition.
+/// Output: result[0] = total sum = 0+1+2+...+255 = 32640
+///
+/// Launch with: block_dim=(128,1,1)
+static CREDUCE_INPUT: [core::sync::atomic::AtomicU64; 256] = {
+    const Z: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
+    [Z; 256]
+};
+
+#[no_mangle]
+pub unsafe extern "gpu-kernel" fn cooperative_reduce_test(result: *mut u64) {
+    thread::gpu_main(|| {
+        // Initialize input
+        for i in 0..256u64 {
+            CREDUCE_INPUT[i as usize].store(i, core::sync::atomic::Ordering::Relaxed);
+        }
+
+        let total = thread::cooperative_reduce(
+            CREDUCE_INPUT.as_ptr() as *const u8,
+            256,
+            |args| {
+                let src = args.src as *const u64;
+                let mut sum = 0u64;
+                let mut i = args.warp_id as usize;
+                while i < args.len {
+                    unsafe {
+                        sum += core::ptr::read_volatile(src.add(i));
+                    }
+                    i += args.n_warps as usize;
+                }
+                sum
+            },
+        );
+
+        if gpu_runtime::index::thread_idx_x() == 0 {
+            unsafe {
+                core::ptr::write_volatile(result, total);
+            }
+        }
+    });
+}
+
+/// Test: cooperative_map_with_params — elementwise multiply by a scalar parameter.
+///
+/// Input: static array [0..256]
+/// params[0] = scalar = 7
+/// Output: result[i] = i * 7
+///
+/// Launch with: block_dim=(128,1,1)
+static CEXT_INPUT: [core::sync::atomic::AtomicU32; 256] = {
+    const Z: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+    [Z; 256]
+};
+
+#[no_mangle]
+pub unsafe extern "gpu-kernel" fn cooperative_map_ext_test(result: *mut u32) {
+    thread::gpu_main(|| {
+        // Initialize input
+        for i in 0..256u32 {
+            CEXT_INPUT[i as usize].store(i, core::sync::atomic::Ordering::Relaxed);
+        }
+
+        // Multiply each element by scalar=7 passed via params[0]
+        thread::cooperative_map_with_params(
+            CEXT_INPUT.as_ptr() as *const u8,
+            result as *mut u8,
+            256,
+            [7, 0, 0, 0],
+            |args| {
+                let src = args.src as *const u32;
+                let dst = args.dst as *mut u32;
+                let scale = args.params[0] as u32;
+                let mut i = args.warp_id as usize;
+                while i < args.len {
+                    unsafe {
+                        let v = core::ptr::read_volatile(src.add(i));
+                        core::ptr::write_volatile(dst.add(i), v * scale);
+                    }
+                    i += args.n_warps as usize;
+                }
+            },
+        );
+    });
+}
+
 /// Demo: extern "gpu-kernel" ABI — the native Rust GPU entry point.
 ///
 /// This is identical to thread_spawn_test but uses extern "gpu-kernel" ABI.

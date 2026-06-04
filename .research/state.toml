@@ -468,6 +468,14 @@ status = "pending"
 depends = ["lib-toolchain.1"]
 
 [[tasks]]
+id = "lib-cleanup.1"
+theme = "lib-cleanup"
+title = "Investigation: audit all files/functions — are they in the right crate?"
+kind = "investigation"
+status = "done"
+depends = ["lib-extract.2", "lib-facade.2"]
+
+[[tasks]]
 id = "lib-cleanup.2"
 theme = "lib-cleanup"
 title = "Experiment: move model/yolo/tokenizer demo code out of gpu-host"
@@ -519,7 +527,7 @@ success_criteria = [
 id = "coop-demo"
 epic = "cooperative-compute"
 title = "Unified I/O+Compute demo — File::read → matmul → File::write"
-status = "pending"
+status = "active"
 goal = "End-to-end demo proving the vision in one kernel"
 success_criteria = [
     "Read two matrix files, cooperative matmul, write result — single kernel",
@@ -579,7 +587,7 @@ id = "coop-demo.1"
 theme = "coop-demo"
 title = "Experiment: litmus test — File::read → matmul → File::write in one kernel"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["coop-compute.2", "coop-api.3"]
 
 [[tasks]]

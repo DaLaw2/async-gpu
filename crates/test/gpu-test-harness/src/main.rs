@@ -416,6 +416,10 @@ fn main() -> Result<()> {
                 run_kernel_std_smoke(Arc::clone(&dev))?;
                 return Ok(());
             }
+            "matmul_io" => {
+                run_matmul_io_compute(Arc::clone(&dev))?;
+                return Ok(());
+            }
             #[cfg(feature = "cublas")]
             "fusion_bench" => {
                 run_fusion_benchmark(Arc::clone(&dev))?;
@@ -1322,5 +1326,226 @@ fn run_thread_spawn_test(dev: Arc<CudaDevice>) -> Result<()> {
 
     println!("  Test 2 — PASSED");
     println!("  thread::spawn test — ALL PASSED");
+    Ok(())
+}
+
+/// North Star Litmus Test: File::read → matmul → File::write in ONE kernel.
+///
+/// Host creates matmul_a.bin (8×4) and matmul_b.bin (4×6), launches the
+/// matmul_io_compute kernel, then reads matmul_c.bin and verifies against
+/// a CPU reference matmul.
+fn run_matmul_io_compute(dev: Arc<CudaDevice>) -> Result<()> {
+    use cudarc::driver::{LaunchAsync, LaunchConfig};
+
+    println!("\n--- North Star: File::read → matmul → File::write (coop-demo.1) ---");
+
+    const M: usize = 8;
+    const K: usize = 4;
+    const N: usize = 6;
+
+    // === Step 1: Create input matrix files ===
+    // A[i][j] = (i * K + j + 1) as f32
+    let mut a = vec![0.0f32; M * K];
+    for i in 0..M {
+        for j in 0..K {
+            a[i * K + j] = (i * K + j + 1) as f32;
+        }
+    }
+    // B[i][j] = ((i * N + j + 1) * 2) as f32
+    let mut b = vec![0.0f32; K * N];
+    for i in 0..K {
+        for j in 0..N {
+            b[i * N + j] = ((i * N + j + 1) * 2) as f32;
+        }
+    }
+
+    // Write raw f32 bytes to files
+    let a_bytes: Vec<u8> = a.iter().flat_map(|v| v.to_le_bytes()).collect();
+    let b_bytes: Vec<u8> = b.iter().flat_map(|v| v.to_le_bytes()).collect();
+    std::fs::write("matmul_a.bin", &a_bytes).map_err(|e| GpuHostError::Verification {
+        test: "matmul_io",
+        detail: format!("write matmul_a.bin: {e}"),
+    })?;
+    std::fs::write("matmul_b.bin", &b_bytes).map_err(|e| GpuHostError::Verification {
+        test: "matmul_io",
+        detail: format!("write matmul_b.bin: {e}"),
+    })?;
+    println!(
+        "  Created matmul_a.bin ({}×{} = {} bytes)",
+        M,
+        K,
+        a_bytes.len()
+    );
+    println!(
+        "  Created matmul_b.bin ({}×{} = {} bytes)",
+        K,
+        N,
+        b_bytes.len()
+    );
+
+    // === Step 2: Load kernel_std cubin/PTX ===
+    let cubin_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("kernel_std.cubin");
+    let module_name = "matmul_io";
+    if cubin_path.exists() {
+        println!("  Loading cubin from {} ...", cubin_path.display());
+        let cubin = cudarc::nvrtc::Ptx::from_file(&cubin_path);
+        dev.load_ptx(cubin, module_name, &["matmul_io_compute"])
+            .map_err(|e| GpuHostError::Verification {
+                test: "matmul_io",
+                detail: format!("cubin load: {e}"),
+            })?;
+    } else {
+        println!(
+            "  No cubin found, loading PTX ({} bytes)...",
+            KERNEL_STD_PTX.len()
+        );
+        let ptx = cudarc::nvrtc::Ptx::from_src(KERNEL_STD_PTX);
+        dev.load_ptx(ptx, module_name, &["matmul_io_compute"])
+            .map_err(|e| GpuHostError::Verification {
+                test: "matmul_io",
+                detail: format!("PTX load: {e}"),
+            })?;
+    }
+    println!("  Module loaded");
+
+    let func = dev
+        .get_func(module_name, "matmul_io_compute")
+        .ok_or(GpuHostError::KernelNotFound("matmul_io_compute"))?;
+
+    // === Step 3: Set up hostcall + device memory ===
+    let session = gpu_host::hostcall::HostcallSession::start_with_print(64, |msg| {
+        let s = String::from_utf8_lossy(msg);
+        println!("  [GPU] {}", s.trim());
+    })?;
+
+    // Dims: device u32 array [M, K, N] — GPU reads these
+    let dims_data = vec![M as u32, K as u32, N as u32];
+    let dims_dev = dev.htod_sync_copy(&dims_data)?;
+
+    // Result: device u32 array [success, n_elements]
+    let mut result_dev: cudarc::driver::CudaSlice<u32> = dev.alloc_zeros::<u32>(8)?;
+
+    // === Step 4: Launch kernel ===
+    let config = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (128, 1, 1), // 4 warps
+        shared_mem_bytes: 0,
+    };
+
+    println!(
+        "  Launching matmul_io_compute ({}×{} × {}×{} → {}×{})...",
+        M, K, K, N, M, N
+    );
+    let start = std::time::Instant::now();
+    unsafe {
+        func.launch(config, (session.dev_ptr(), &dims_dev, &mut result_dev))?;
+    }
+    dev.synchronize()?;
+    let elapsed = start.elapsed();
+    println!("  Kernel completed in {elapsed:?}");
+
+    // Brief sleep for hostcall listener to flush
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    session.shutdown();
+
+    // Read result markers
+    let result_vals = dev.dtoh_sync_copy(&result_dev)?;
+    let success = result_vals[0];
+    let n_elements = result_vals[1];
+
+    if success != 1 {
+        // Clean up files
+        let _ = std::fs::remove_file("matmul_a.bin");
+        let _ = std::fs::remove_file("matmul_b.bin");
+        let _ = std::fs::remove_file("matmul_c.bin");
+        return Err(GpuHostError::Verification {
+            test: "matmul_io_compute",
+            detail: format!("kernel failed (success={success}, elements={n_elements})"),
+        });
+    }
+    println!("  Kernel success: {} elements written", n_elements);
+
+    // === Step 5: Read matmul_c.bin and verify ===
+    let c_bytes = std::fs::read("matmul_c.bin").map_err(|e| GpuHostError::Verification {
+        test: "matmul_io_compute",
+        detail: format!("read matmul_c.bin: {e}"),
+    })?;
+    println!("  Read matmul_c.bin: {} bytes", c_bytes.len());
+
+    if c_bytes.len() != M * N * 4 {
+        let _ = std::fs::remove_file("matmul_a.bin");
+        let _ = std::fs::remove_file("matmul_b.bin");
+        let _ = std::fs::remove_file("matmul_c.bin");
+        return Err(GpuHostError::Verification {
+            test: "matmul_io_compute",
+            detail: format!(
+                "output size mismatch: expected {} bytes, got {}",
+                M * N * 4,
+                c_bytes.len()
+            ),
+        });
+    }
+
+    // Parse f32 values from raw bytes
+    let gpu_c: Vec<f32> = c_bytes
+        .chunks_exact(4)
+        .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+        .collect();
+
+    // CPU reference matmul: C = A × B
+    let mut expected = vec![0.0f32; M * N];
+    for i in 0..M {
+        for j in 0..N {
+            let mut sum = 0.0f32;
+            for p in 0..K {
+                sum += a[i * K + p] * b[p * N + j];
+            }
+            expected[i * N + j] = sum;
+        }
+    }
+
+    // Verify GPU result against CPU reference
+    let mut ok = true;
+    let mut mismatch_count = 0usize;
+    for i in 0..M {
+        for j in 0..N {
+            let idx = i * N + j;
+            let gpu_val = gpu_c[idx];
+            let cpu_val = expected[idx];
+            if (gpu_val - cpu_val).abs() > 1e-3 {
+                if mismatch_count < 5 {
+                    println!("  MISMATCH at C[{i}][{j}]: GPU={gpu_val}, CPU={cpu_val}");
+                }
+                ok = false;
+                mismatch_count += 1;
+            }
+        }
+    }
+
+    // Clean up files
+    let _ = std::fs::remove_file("matmul_a.bin");
+    let _ = std::fs::remove_file("matmul_b.bin");
+    let _ = std::fs::remove_file("matmul_c.bin");
+
+    if !ok {
+        return Err(GpuHostError::Verification {
+            test: "matmul_io_compute",
+            detail: format!("{mismatch_count} mismatches out of {}", M * N),
+        });
+    }
+
+    println!(
+        "  All {} elements match CPU reference (tolerance 1e-3)",
+        M * N
+    );
+    println!(
+        "  Sample: C[0][0]={:.1}, C[7][5]={:.1}",
+        gpu_c[0],
+        gpu_c[M * N - 1]
+    );
+    println!("  ========================================");
+    println!("  NORTH STAR LITMUS TEST — PASSED");
+    println!("  File::read → matmul → File::write in ONE kernel");
+    println!("  ========================================");
     Ok(())
 }

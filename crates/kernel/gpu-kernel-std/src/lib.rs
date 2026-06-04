@@ -821,3 +821,167 @@ pub unsafe extern "gpu-kernel" fn std_thread_spawn_minimal(buf: *mut u8, result:
         }
     });
 }
+
+// ============================================================
+// North Star Litmus Test: File::read → matmul → File::write
+// ============================================================
+
+/// Naive matmul callback for cooperative_map_with_params.
+///
+/// params[0] = M, params[1] = K, params[2] = N, params[3] = B ptr (as u64).
+/// Each warp computes rows i where i % n_warps == warp_id.
+fn matmul_callback(args: &gpu_runtime::thread::CoopMapExtArgs) {
+    let a = args.src as *const f32;
+    let c = args.dst as *mut f32;
+    let m = args.params[0] as usize;
+    let k = args.params[1] as usize;
+    let n = args.params[2] as usize;
+    let b = args.params[3] as *const f32;
+
+    let wid = args.warp_id as usize;
+    let nw = args.n_warps as usize;
+
+    // Each warp computes rows i where i % nw == wid
+    let mut i = wid;
+    while i < m {
+        let mut j = 0usize;
+        while j < n {
+            let mut sum = 0.0f32;
+            let mut p = 0usize;
+            while p < k {
+                let a_val = unsafe { core::ptr::read_volatile(a.add(i * k + p)) };
+                let b_val = unsafe { core::ptr::read_volatile(b.add(p * n + j)) };
+                sum += a_val * b_val;
+                p += 1;
+            }
+            unsafe {
+                core::ptr::write_volatile(c.add(i * n + j), sum);
+            }
+            j += 1;
+        }
+        i += nw;
+    }
+}
+
+/// Inner implementation for the matmul I/O kernel.
+/// Separated to allow testing with and without gpu_main_poll.
+fn matmul_io_inner(buf: *mut u8, dims: *const u32, result: *mut u32) {
+    use std::io::Read;
+
+    // Read dimensions from host-provided device memory
+    let m = unsafe { core::ptr::read_volatile(dims.add(0)) } as usize;
+    let k = unsafe { core::ptr::read_volatile(dims.add(1)) } as usize;
+    let n = unsafe { core::ptr::read_volatile(dims.add(2)) } as usize;
+
+    println!("[MATMUL] M={} K={} N={}", m, k, n);
+
+    // === SEQUENTIAL I/O: read matrix A (M×K f32) ===
+    let a_data = match std::fs::File::open("matmul_a.bin") {
+        Ok(mut f) => {
+            let mut raw = Vec::new();
+            f.read_to_end(&mut raw).unwrap();
+            raw
+        }
+        Err(e) => {
+            println!("[MATMUL] ERR File::open(matmul_a.bin): {}", e);
+            return;
+        }
+    };
+    let a_elems = a_data.len() / 4;
+    println!("[MATMUL] Read A: {} floats ({} bytes)", a_elems, a_data.len());
+
+    // === SEQUENTIAL I/O: read matrix B (K×N f32) ===
+    let b_data = match std::fs::File::open("matmul_b.bin") {
+        Ok(mut f) => {
+            let mut raw = Vec::new();
+            f.read_to_end(&mut raw).unwrap();
+            raw
+        }
+        Err(e) => {
+            println!("[MATMUL] ERR File::open(matmul_b.bin): {}", e);
+            return;
+        }
+    };
+    let b_elems = b_data.len() / 4;
+    println!("[MATMUL] Read B: {} floats ({} bytes)", b_elems, b_data.len());
+
+    // Sanity check
+    if a_elems != m * k {
+        println!("[MATMUL] ERR: A has {} floats, expected M*K={}", a_elems, m * k);
+        return;
+    }
+    if b_elems != k * n {
+        println!("[MATMUL] ERR: B has {} floats, expected K*N={}", b_elems, k * n);
+        return;
+    }
+
+    // Allocate output C (M×N f32)
+    let mut c_data = vec![0u8; m * n * 4];
+
+    // === COOPERATIVE COMPUTE: C = A × B (all warps) ===
+    let a_ptr = a_data.as_ptr() as *const u8;
+    let c_ptr = c_data.as_mut_ptr() as *mut u8;
+    let b_ptr = b_data.as_ptr() as u64;
+
+    gpu_runtime::thread::cooperative_map_with_params(
+        a_ptr,
+        c_ptr,
+        m * n,
+        [m as u64, k as u64, n as u64, b_ptr],
+        matmul_callback,
+    );
+
+    println!("[MATMUL] Compute done: C[{}x{}]", m, n);
+
+    // === SEQUENTIAL I/O: write result C ===
+    match std::fs::File::create("matmul_c.bin") {
+        Ok(mut f) => {
+            use std::io::Write;
+            f.write_all(&c_data).unwrap();
+            println!("[MATMUL] Wrote C: {} bytes", c_data.len());
+        }
+        Err(e) => {
+            println!("[MATMUL] ERR File::create(matmul_c.bin): {}", e);
+            return;
+        }
+    }
+
+    println!("[MATMUL] DONE: File::read -> matmul -> File::write");
+
+    // Write success marker
+    if gpu_runtime::index::thread_idx_x() == 0 {
+        unsafe {
+            core::ptr::write_volatile(result, 1); // success
+            core::ptr::write_volatile(result.add(1), (m * n) as u32); // elements
+        }
+    }
+}
+
+/// North Star litmus test: File::read → matmul → File::write in ONE kernel.
+///
+/// 1. Sequential I/O (warp 0): read matmul_a.bin (M×K f32) and matmul_b.bin (K×N f32)
+/// 2. Cooperative compute (all warps): C = A × B via naive triple-loop matmul
+/// 3. Sequential I/O (warp 0): write matmul_c.bin (M×N f32)
+///
+/// Launch with: block_dim=(128,1,1), hostcall enabled.
+/// Kernel args: (hostcall_buf: *mut u8, dims: *const u32, result: *mut u32)
+///   dims[0] = M, dims[1] = K, dims[2] = N
+///   result[0] = success flag (1 = ok), result[1] = M*N (elements written)
+#[unsafe(no_mangle)]
+pub unsafe extern "gpu-kernel" fn matmul_io_compute(
+    buf: *mut u8,
+    dims: *const u32,
+    result: *mut u32,
+) {
+    stdio_init(buf);
+    gpu_libc::gpu_libc_io_init(buf);
+
+    // Phase 1: Sequential I/O — single thread reads files and writes result
+    // Phase 2: Cooperative compute — all warps via gpu_main_poll
+    // Phase 3: Sequential I/O — single thread writes result file
+    //
+    // For now, run everything inside gpu_main_poll for cooperative compute.
+    gpu_runtime::thread::gpu_main_poll(|| {
+        matmul_io_inner(buf, dims, result);
+    });
+}

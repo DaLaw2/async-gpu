@@ -9,16 +9,13 @@ use crate::types::*;
 use gpu_protocol::*;
 
 /// Global hostcall buffer pointer for libc I/O.
-static mut HC_BUF: *mut u8 = core::ptr::null_mut();
+static HC_BUF: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
 
 /// Initialize the hostcall I/O subsystem.
 /// Must be called at kernel entry before any file I/O operations.
 #[inline(always)]
 pub unsafe fn gpu_libc_io_init(buf: *mut u8) {
-    // SAFETY: HC_BUF is a static mut written once at kernel entry before any I/O.
-    // After init, all threads only read this pointer. The single-writer-then-
-    // read-only pattern prevents data races.
-    HC_BUF = buf;
+    HC_BUF.store(buf as u64, core::sync::atomic::Ordering::Relaxed);
 }
 
 /// Map gpu-protocol error category to libc errno.
@@ -60,7 +57,7 @@ fn map_open_flags(flags: c_int) -> u32 {
 /// Open a file via hostcall. Returns fd on success, -1 on error.
 #[no_mangle]
 pub unsafe extern "C" fn open(pathname: *const c_char, flags: c_int, _mode: mode_t) -> c_int {
-    let buf = HC_BUF;
+    let buf = HC_BUF.load(core::sync::atomic::Ordering::Relaxed) as *mut u8;
     if buf.is_null() {
         set_errno(ENOSYS);
         return -1;
@@ -112,7 +109,7 @@ pub unsafe extern "C" fn open(pathname: *const c_char, flags: c_int, _mode: mode
 /// Write to a file descriptor via hostcall.
 #[no_mangle]
 pub unsafe extern "C" fn write(fd: c_int, data: *const c_void, count: size_t) -> ssize_t {
-    let buf = HC_BUF;
+    let buf = HC_BUF.load(core::sync::atomic::Ordering::Relaxed) as *mut u8;
     if buf.is_null() {
         set_errno(ENOSYS);
         return -1;
@@ -155,7 +152,7 @@ pub unsafe extern "C" fn write(fd: c_int, data: *const c_void, count: size_t) ->
 /// Read from a file descriptor via hostcall.
 #[no_mangle]
 pub unsafe extern "C" fn read(fd: c_int, out_buf: *mut c_void, count: size_t) -> ssize_t {
-    let buf = HC_BUF;
+    let buf = HC_BUF.load(core::sync::atomic::Ordering::Relaxed) as *mut u8;
     if buf.is_null() {
         set_errno(ENOSYS);
         return -1;
@@ -204,7 +201,7 @@ pub unsafe extern "C" fn read(fd: c_int, out_buf: *mut c_void, count: size_t) ->
 /// Close a file descriptor via hostcall.
 #[no_mangle]
 pub unsafe extern "C" fn close(fd: c_int) -> c_int {
-    let buf = HC_BUF;
+    let buf = HC_BUF.load(core::sync::atomic::Ordering::Relaxed) as *mut u8;
     if buf.is_null() {
         set_errno(ENOSYS);
         return -1;

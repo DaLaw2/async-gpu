@@ -654,9 +654,9 @@ pub unsafe extern "gpu-kernel" fn std_buffered_println_test(
 // North Star Demo: File::read → cooperative compute → File::write
 // ============================================================
 
-static NS_IN_PTR: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
-static NS_OUT_PTR: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
-static NS_LEN: AtomicU32 = AtomicU32::new(0);
+static UIC_IN_PTR: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
+static UIC_OUT_PTR: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
+static UIC_LEN: AtomicU32 = AtomicU32::new(0);
 
 /// North Star: File::read → compute → File::write in one kernel.
 ///
@@ -667,7 +667,7 @@ static NS_LEN: AtomicU32 = AtomicU32::new(0);
 ///
 /// Launch with: block_dim=(128,1,1), hostcall enabled.
 #[unsafe(no_mangle)]
-pub unsafe extern "gpu-kernel" fn north_star_demo(buf: *mut u8, result: *mut u32) {
+pub unsafe extern "gpu-kernel" fn unified_io_compute(buf: *mut u8, result: *mut u32) {
     stdio_init(buf);
     gpu_libc::gpu_libc_io_init(buf);
 
@@ -676,7 +676,7 @@ pub unsafe extern "gpu-kernel" fn north_star_demo(buf: *mut u8, result: *mut u32
         use std::io::{Read, Write};
 
         // === SEQUENTIAL I/O: read input ===
-        let data = match File::open("north_star_input.bin") {
+        let data = match File::open("io_compute_input.bin") {
             Ok(mut f) => {
                 let mut raw = Vec::new();
                 f.read_to_end(&mut raw).unwrap();
@@ -688,22 +688,22 @@ pub unsafe extern "gpu-kernel" fn north_star_demo(buf: *mut u8, result: *mut u32
             }
         };
         let n = data.len() / 4;
-        println!("[NS] Read {} floats from input", n);
+        println!("[UIC] Read {} floats from input", n);
 
         // Allocate output
         let mut output = vec![0u8; data.len()];
 
         // Publish pointers for cooperative access
-        NS_IN_PTR.store(data.as_ptr() as u64, AtomicOrdering::Release);
-        NS_OUT_PTR.store(output.as_mut_ptr() as u64, AtomicOrdering::Release);
-        NS_LEN.store(n as u32, AtomicOrdering::Release);
+        UIC_IN_PTR.store(data.as_ptr() as u64, AtomicOrdering::Release);
+        UIC_OUT_PTR.store(output.as_mut_ptr() as u64, AtomicOrdering::Release);
+        UIC_LEN.store(n as u32, AtomicOrdering::Release);
 
         // === COOPERATIVE COMPUTE: all warps multiply by 2 ===
         unsafe {
             gpu_runtime::thread::cooperative(&|| {
-                let src = NS_IN_PTR.load(AtomicOrdering::Acquire) as *const f32;
-                let dst = NS_OUT_PTR.load(AtomicOrdering::Acquire) as *mut f32;
-                let len = NS_LEN.load(AtomicOrdering::Acquire);
+                let src = UIC_IN_PTR.load(AtomicOrdering::Acquire) as *const f32;
+                let dst = UIC_OUT_PTR.load(AtomicOrdering::Acquire) as *mut f32;
+                let len = UIC_LEN.load(AtomicOrdering::Acquire);
                 let wid = gpu_runtime::thread::current_id();
                 let total = (gpu_runtime::thread::available_parallelism() + 1) as u32;
                 let lid = gpu_runtime::index::thread_idx_x() % 32;
@@ -720,10 +720,10 @@ pub unsafe extern "gpu-kernel" fn north_star_demo(buf: *mut u8, result: *mut u32
         }
 
         // === SEQUENTIAL I/O: write output ===
-        match File::create("north_star_output.bin") {
+        match File::create("io_compute_output.bin") {
             Ok(mut f) => {
                 f.write_all(&output).unwrap();
-                println!("[NS] Wrote {} floats to output", n);
+                println!("[UIC] Wrote {} floats to output", n);
             }
             Err(e) => {
                 println!("[ERR] File::create: {}", e);
@@ -731,7 +731,7 @@ pub unsafe extern "gpu-kernel" fn north_star_demo(buf: *mut u8, result: *mut u32
             }
         }
 
-        println!("[NS] DONE: read → compute(×2) → write");
+        println!("[UIC] DONE: read → compute(×2) → write");
 
         // Write success marker
         if gpu_runtime::index::thread_idx_x() == 0 {

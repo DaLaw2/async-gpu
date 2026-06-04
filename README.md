@@ -10,7 +10,7 @@ async_gpu makes this real: **Rust async/await running natively on NVIDIA GPUs**,
 ```rust
 // GPU kernel — looks like normal Rust
 #[no_mangle]
-pub unsafe extern "gpu-kernel" fn north_star_demo(buf: *mut u8, result: *mut u32) {
+pub unsafe extern "gpu-kernel" fn unified_io_compute(buf: *mut u8, result: *mut u32) {
     use std::fs::File;
     use std::io::{Read, Write};
 
@@ -37,7 +37,7 @@ use gpu_host::gpu;
 
 fn main() -> gpu_host::Result<()> {
     // Launch a hostcall-enabled kernel (supports println!, file I/O)
-    gpu::run("north_star_demo")?;
+    gpu::run("unified_io_compute")?;
 
     // Launch a pure compute kernel, get output back
     let result: Vec<u32> = gpu::launch("thread_spawn_test", 4, 128)?;
@@ -248,16 +248,11 @@ GPU-host communication uses a ROCm-inspired two-stack design over CUDA mapped me
 
 Formally verified with TLA+ (367M safety states, 337K liveness states, 0 violations). See [`formal/`](formal/).
 
-### Warp-Cooperative GPU Async
+### Async on GPU
 
-| Feature | MIR pass (recommended) | `#[warp_async]` macro |
-|---------|------------------------|----------------------|
-| Syntax | Standard `async fn` + `.await` | `warp_*!()` macros |
-| Activation | Auto-applies to all `async fn` on nvptx64 | Explicit `#[warp_async]` attribute |
-| Toolchain | Patched rustc | Stock nightly |
-| Warp convergence | `bar.warp.sync` at `.await` | State machine by construction |
+The custom MIR pass auto-applies to **all** `async fn` on the `nvptx64` target — no attributes needed. It inserts `bar.warp.sync` at each `.await` point so all 32 SIMT lanes always agree on the current state.
 
-All 32 lanes always agree on the current state — warp convergence is maintained by construction.
+A legacy `#[warp_async]` proc macro exists for functions using the `warp_*!()` DSL, but standard `async fn` + `.await` is the recommended path.
 
 ### GPU Threading Model
 

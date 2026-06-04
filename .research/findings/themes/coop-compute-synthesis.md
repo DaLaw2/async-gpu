@@ -1,18 +1,17 @@
 # Theme Synthesis: coop-compute — Kernel-side compute library
 
 ## Status
-Active. Investigation (coop-compute.1) complete. MVP experiment (coop-compute.2) next.
+Active. Investigation (coop-compute.1) and naive matmul MVP (coop-compute.2) complete.
 
 ## Key Findings
-- All existing GEMM kernels are host-launched entry points — none callable from within a running kernel.
-- The cooperative_map_with_params API constrains kernel-side compute: single lane per warp, no shared memory, no bar.sync.
-- Naive triple-loop matmul (f32, row-major) fits naturally: A=src, C=dst, B+dims in params[4].
-- Performance estimate: ~0.3-0.6 GFLOPS (4 warps, lane-0 only). Sufficient for the litmus test demo.
-- Upgrade path to tiled GEMM (all 32 lanes, register blocking) shares the same caller API.
+- cooperative_map_with_params is sufficient for kernel-side matmul: A=src, C=dst, B+dims in params[4].
+- Naive triple-loop matmul verified on GPU: C[8x6] = A[8x4] x B[4x6], all 48 elements match CPU reference.
+- No API changes needed — the existing cooperative infrastructure handles compute workloads naturally.
+- Lane-0-only execution is correct but leaves 31/32 lanes idle per warp. Tiled optimization is next.
+- Static AtomicU32 arrays work for input data in no_std kernels; f32 output via gpu::launch<f32> is seamless.
 
 ## Critical Path
-coop-compute.1 (done) → coop-compute.2 (implement naive MVP) → coop-compute.3 (tiled optimization)
+coop-compute.1 (done) → coop-compute.2 (done) → coop-compute.3 (tiled, all 32 lanes)
 
 ## Design Decision
-Row-major f32 for all matrices. Row-striped warp partitioning. B pointer encoded in params[3].
-No new API needed — cooperative_map_with_params is sufficient for the MVP and the tiled version.
+Row-major f32, row-striped warp partitioning, B pointer in params[3]. No new API needed.

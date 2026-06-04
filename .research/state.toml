@@ -440,7 +440,7 @@ id = "lib-facade.1"
 theme = "lib-facade"
 title = "Investigation: design async-gpu facade structure and re-export surface"
 kind = "investigation"
-status = "pending"
+status = "done"
 depends = ["lib-extract.1"]
 
 [[tasks]]
@@ -523,7 +523,7 @@ id = "coop-api.3"
 theme = "coop-api"
 title = "Experiment: rewrite unified_io_compute with cooperative_map"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["coop-api.2"]
 
 [[tasks]]
@@ -539,7 +539,7 @@ id = "coop-compute.2"
 theme = "coop-compute"
 title = "Experiment: naive kernel-side matmul MVP via cooperative_map"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["coop-compute.1", "coop-api.2"]
 
 [[tasks]]

@@ -279,6 +279,99 @@ pub unsafe extern "gpu-kernel" fn cooperative_map_ext_test(result: *mut u32) {
     });
 }
 
+/// Test: naive matmul via cooperative_map_with_params.
+///
+/// C[8×6] = A[8×4] × B[4×6], row-major f32.
+/// Each warp computes its partition of rows: rows i where i % n_warps == warp_id.
+///
+/// Launch with: block_dim=(128,1,1) = 4 warps
+/// Output: result[0..48] = C[8×6] as f32
+static MATMUL_A: [core::sync::atomic::AtomicU32; 32] = {
+    const Z: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+    [Z; 32]
+};
+static MATMUL_B: [core::sync::atomic::AtomicU32; 24] = {
+    const Z: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+    [Z; 24]
+};
+
+/// Store an f32 into an AtomicU32 slot (bit-preserving).
+#[inline(always)]
+fn store_f32(arr: &[core::sync::atomic::AtomicU32], idx: usize, val: f32) {
+    arr[idx].store(val.to_bits(), core::sync::atomic::Ordering::Relaxed);
+}
+
+/// The naive matmul callback for cooperative_map_with_params.
+///
+/// params[0] = M, params[1] = K, params[2] = N, params[3] = B ptr
+fn naive_matmul_kernel(args: &gpu_runtime::thread::CoopMapExtArgs) {
+    let a = args.src as *const f32;
+    let c = args.dst as *mut f32;
+    let m = args.params[0] as usize;
+    let k = args.params[1] as usize;
+    let n = args.params[2] as usize;
+    let b = args.params[3] as *const f32;
+
+    let wid = args.warp_id as usize;
+    let nw = args.n_warps as usize;
+
+    // Each warp computes rows i where i % nw == wid
+    let mut i = wid;
+    while i < m {
+        let mut j = 0usize;
+        while j < n {
+            let mut sum = 0.0f32;
+            let mut p = 0usize;
+            while p < k {
+                let a_val = unsafe { core::ptr::read_volatile(a.add(i * k + p)) };
+                let b_val = unsafe { core::ptr::read_volatile(b.add(p * n + j)) };
+                sum += a_val * b_val;
+                p += 1;
+            }
+            unsafe {
+                core::ptr::write_volatile(c.add(i * n + j), sum);
+            }
+            j += 1;
+        }
+        i += nw;
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "gpu-kernel" fn cooperative_matmul_test(result: *mut f32) {
+    thread::gpu_main(|| {
+        const M: usize = 8;
+        const K: usize = 4;
+        const N: usize = 6;
+
+        // Initialize A[8×4]: A[i][j] = (i * K + j + 1) as f32
+        for i in 0..M {
+            for j in 0..K {
+                store_f32(&MATMUL_A, i * K + j, (i * K + j + 1) as f32);
+            }
+        }
+
+        // Initialize B[4×6]: B[i][j] = ((i * N + j + 1) * 2) as f32
+        for i in 0..K {
+            for j in 0..N {
+                store_f32(&MATMUL_B, i * N + j, ((i * N + j + 1) * 2) as f32);
+            }
+        }
+
+        let a_ptr = MATMUL_A.as_ptr() as *const u8;
+        let c_ptr = result as *mut u8;
+        let b_ptr = MATMUL_B.as_ptr() as u64;
+
+        thread::cooperative_map_with_params(
+            a_ptr,
+            c_ptr,
+            M * N, // len = output element count
+            [M as u64, K as u64, N as u64, b_ptr],
+            naive_matmul_kernel,
+        );
+    });
+}
+
 /// Demo: extern "gpu-kernel" ABI — the native Rust GPU entry point.
 ///
 /// This is identical to thread_spawn_test but uses extern "gpu-kernel" ABI.

@@ -318,6 +318,88 @@ fn main() -> Result<()> {
 
                 return Ok(());
             }
+            "matmul" => {
+                println!("\n--- Cooperative Matmul Test (coop-compute.2) ---");
+                println!(
+                    "  C[8×6] = A[8×4] × B[4×6], naive triple-loop via cooperative_map_with_params"
+                );
+
+                const M: usize = 8;
+                const K: usize = 4;
+                const N: usize = 6;
+
+                // Launch kernel: 48 f32 output elements, 128 threads (4 warps)
+                let result: Vec<f32> = gpu_host::gpu::launch("cooperative_matmul_test", M * N, 128)
+                    .map_err(|e| GpuHostError::Verification {
+                        test: "matmul",
+                        detail: format!("{e}"),
+                    })?;
+
+                // CPU reference matmul
+                // A[i][j] = (i * K + j + 1) as f32
+                // B[i][j] = ((i * N + j + 1) * 2) as f32
+                let mut a = vec![0.0f32; M * K];
+                let mut b = vec![0.0f32; K * N];
+                for i in 0..M {
+                    for j in 0..K {
+                        a[i * K + j] = (i * K + j + 1) as f32;
+                    }
+                }
+                for i in 0..K {
+                    for j in 0..N {
+                        b[i * N + j] = ((i * N + j + 1) * 2) as f32;
+                    }
+                }
+
+                // C = A × B (CPU reference)
+                let mut expected = vec![0.0f32; M * N];
+                for i in 0..M {
+                    for j in 0..N {
+                        let mut sum = 0.0f32;
+                        for p in 0..K {
+                            sum += a[i * K + p] * b[p * N + j];
+                        }
+                        expected[i * N + j] = sum;
+                    }
+                }
+
+                // Verify GPU result against CPU reference
+                let mut matmul_ok = true;
+                let mut mismatch_count = 0usize;
+                for i in 0..M {
+                    for j in 0..N {
+                        let idx = i * N + j;
+                        let gpu_val = result[idx];
+                        let cpu_val = expected[idx];
+                        if (gpu_val - cpu_val).abs() > 1e-3 {
+                            if mismatch_count < 5 {
+                                println!("  MISMATCH at C[{i}][{j}]: GPU={gpu_val}, CPU={cpu_val}");
+                            }
+                            matmul_ok = false;
+                            mismatch_count += 1;
+                        }
+                    }
+                }
+
+                if matmul_ok {
+                    println!("  All 48 elements match CPU reference (tolerance 1e-3)");
+                    println!(
+                        "  Sample: C[0][0]={:.1}, C[7][5]={:.1}",
+                        result[0],
+                        result[M * N - 1]
+                    );
+                } else {
+                    println!("  FAILED: {mismatch_count} mismatches out of {}", M * N);
+                }
+
+                println!(
+                    "  Cooperative matmul: {}",
+                    if matmul_ok { "PASSED" } else { "FAILED" }
+                );
+                assert!(matmul_ok);
+
+                return Ok(());
+            }
             "std_thread_demo" => {
                 run_std_thread_spawn_demo(Arc::clone(&dev))?;
                 return Ok(());

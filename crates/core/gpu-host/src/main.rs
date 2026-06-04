@@ -218,6 +218,11 @@ fn main() -> Result<()> {
                 run_gpu_api_test()?;
                 return Ok(());
             }
+            #[cfg(feature = "cublas")]
+            "fusion_bench" => {
+                run_fusion_benchmark(Arc::clone(&dev))?;
+                return Ok(());
+            }
             "cnn" => {
                 tests_cnn::run_batchnorm_silu_test(Arc::clone(&dev))?;
                 tests_cnn::run_cnn_ops_test(Arc::clone(&dev))?;
@@ -554,6 +559,174 @@ fn main() -> Result<()> {
     tests_pipeline::run_newton_sqrt_test(Arc::clone(&dev))?;
 
     println!("\nAll tests PASSED.");
+    Ok(())
+}
+
+/// Benchmark fused LayerNorm + residual vs separate ops.
+#[cfg(feature = "cublas")]
+fn run_fusion_benchmark(dev: Arc<CudaDevice>) -> Result<()> {
+    use gpu_host::nn::ops::norm::{layer_norm, layer_norm_residual};
+    use gpu_host::nn::registry::KernelRegistry;
+    use gpu_host::nn::tensor::GpuTensor;
+
+    println!("\n--- Fused LayerNorm+Residual Benchmark (perf-fusion) ---");
+
+    let registry = std::sync::Arc::new(
+        KernelRegistry::new(dev.clone(), crate::KERNEL_PTX).map_err(|e| {
+            GpuHostError::Verification {
+                test: "fusion",
+                detail: format!("{e}"),
+            }
+        })?,
+    );
+
+    const ROWS: usize = 128;
+    const D: usize = 768;
+    let input_data: Vec<f32> = (0..ROWS * D)
+        .map(|i| (i % 17) as f32 * 0.01 - 0.08)
+        .collect();
+    let residual_data: Vec<f32> = (0..ROWS * D)
+        .map(|i| (i % 13) as f32 * 0.01 - 0.06)
+        .collect();
+    let gamma: Vec<f32> = vec![1.0; D];
+    let beta: Vec<f32> = vec![0.0; D];
+
+    let input = GpuTensor::from_host(&input_data, &[ROWS, D], &dev).map_err(|e| {
+        GpuHostError::Verification {
+            test: "fusion",
+            detail: format!("{e}"),
+        }
+    })?;
+    let residual = GpuTensor::from_host(&residual_data, &[ROWS, D], &dev).map_err(|e| {
+        GpuHostError::Verification {
+            test: "fusion",
+            detail: format!("{e}"),
+        }
+    })?;
+    let g = GpuTensor::from_host(&gamma, &[D], &dev).map_err(|e| GpuHostError::Verification {
+        test: "fusion",
+        detail: format!("{e}"),
+    })?;
+    let b = GpuTensor::from_host(&beta, &[D], &dev).map_err(|e| GpuHostError::Verification {
+        test: "fusion",
+        detail: format!("{e}"),
+    })?;
+
+    let iters = 100;
+
+    // Benchmark separate LayerNorm
+    for _ in 0..5 {
+        let _ = layer_norm(&input, &g, &b, 1e-5, &registry);
+    }
+    dev.synchronize().map_err(|e| GpuHostError::Verification {
+        test: "fusion",
+        detail: format!("{e}"),
+    })?;
+    let start = std::time::Instant::now();
+    for _ in 0..iters {
+        let _ = layer_norm(&input, &g, &b, 1e-5, &registry);
+    }
+    dev.synchronize().map_err(|e| GpuHostError::Verification {
+        test: "fusion",
+        detail: format!("{e}"),
+    })?;
+    let ln_ms = start.elapsed().as_secs_f64() * 1000.0 / iters as f64;
+
+    // Benchmark fused LN+residual
+    for _ in 0..5 {
+        let _ = layer_norm_residual(&input, &residual, &g, &b, 1e-5, &registry);
+    }
+    dev.synchronize().map_err(|e| GpuHostError::Verification {
+        test: "fusion",
+        detail: format!("{e}"),
+    })?;
+    let start = std::time::Instant::now();
+    for _ in 0..iters {
+        let _ = layer_norm_residual(&input, &residual, &g, &b, 1e-5, &registry);
+    }
+    dev.synchronize().map_err(|e| GpuHostError::Verification {
+        test: "fusion",
+        detail: format!("{e}"),
+    })?;
+    let fused_ms = start.elapsed().as_secs_f64() * 1000.0 / iters as f64;
+
+    let bytes = (ROWS * D * 4) as f64 * 3.0; // input + residual + output
+    let ln_gbps = bytes / (ln_ms * 1e6);
+    let fused_gbps = bytes / (fused_ms * 1e6);
+
+    println!("  Shape: [{ROWS}, {D}] (GPT-2 typical)");
+    println!("  Separate LN:  {ln_ms:.4} ms ({ln_gbps:.0} GB/s)");
+    println!("  Fused LN+res: {fused_ms:.4} ms ({fused_gbps:.0} GB/s)");
+    println!("  Speedup:      {:.2}x", ln_ms / fused_ms);
+    // --- elementwise_add: in-place vs out-of-place ---
+    use gpu_host::nn::ops::reshape::elementwise_add_out;
+
+    const ELEM_N: usize = 786_432; // 128 * 768 * 8 (typical GPT-2 FFN)
+    let a_data: Vec<f32> = (0..ELEM_N).map(|i| (i % 11) as f32 * 0.1).collect();
+    let b_data: Vec<f32> = (0..ELEM_N).map(|i| (i % 7) as f32 * 0.1).collect();
+
+    let a_elem =
+        GpuTensor::from_host(&a_data, &[ELEM_N], &dev).map_err(|e| GpuHostError::Verification {
+            test: "elem",
+            detail: format!("{e}"),
+        })?;
+    let b_elem =
+        GpuTensor::from_host(&b_data, &[ELEM_N], &dev).map_err(|e| GpuHostError::Verification {
+            test: "elem",
+            detail: format!("{e}"),
+        })?;
+
+    // Out-of-place benchmark
+    for _ in 0..5 {
+        let _ = elementwise_add_out(&a_elem, &b_elem, &registry);
+    }
+    dev.synchronize().map_err(|e| GpuHostError::Verification {
+        test: "elem",
+        detail: format!("{e}"),
+    })?;
+    let start = std::time::Instant::now();
+    for _ in 0..iters {
+        let _ = elementwise_add_out(&a_elem, &b_elem, &registry);
+    }
+    dev.synchronize().map_err(|e| GpuHostError::Verification {
+        test: "elem",
+        detail: format!("{e}"),
+    })?;
+    let oop_ms = start.elapsed().as_secs_f64() * 1000.0 / iters as f64;
+
+    // In-place benchmark
+    let mut a_inplace =
+        GpuTensor::from_host(&a_data, &[ELEM_N], &dev).map_err(|e| GpuHostError::Verification {
+            test: "elem",
+            detail: format!("{e}"),
+        })?;
+    for _ in 0..5 {
+        let _ = gpu_host::nn::ops::elementwise_add(&mut a_inplace, &b_elem, &registry);
+    }
+    dev.synchronize().map_err(|e| GpuHostError::Verification {
+        test: "elem",
+        detail: format!("{e}"),
+    })?;
+    let start = std::time::Instant::now();
+    for _ in 0..iters {
+        let _ = gpu_host::nn::ops::elementwise_add(&mut a_inplace, &b_elem, &registry);
+    }
+    dev.synchronize().map_err(|e| GpuHostError::Verification {
+        test: "elem",
+        detail: format!("{e}"),
+    })?;
+    let ip_ms = start.elapsed().as_secs_f64() * 1000.0 / iters as f64;
+
+    let elem_bytes = (ELEM_N * 4) as f64;
+    let oop_gbps = elem_bytes * 3.0 / (oop_ms * 1e6); // read a + read b + write c
+    let ip_gbps = elem_bytes * 3.0 / (ip_ms * 1e6); // read a + read b + write a (RW conflict)
+
+    println!("\n  elementwise_add ({ELEM_N} elements):");
+    println!("  In-place (a+=b): {ip_ms:.4} ms ({ip_gbps:.0} GB/s)");
+    println!("  Out-of-place:    {oop_ms:.4} ms ({oop_gbps:.0} GB/s)");
+    println!("  Speedup:         {:.2}x", ip_ms / oop_ms);
+
+    println!("\n  Fused LN+Residual + elementwise Benchmark — DONE");
     Ok(())
 }
 

@@ -29,5 +29,7 @@ pub use gemm::{
 pub use norm::layer_norm_residual;
 pub use norm::{batch_norm, batch_norm_silu, layer_norm};
 pub use pool::max_pool2d;
+#[cfg(feature = "cublas")]
+pub use reshape::elementwise_add_out;
 pub use reshape::{bias_add, bias_add_chw, concat_channels, elementwise_add, embedding_lookup};
 pub use upsample::upsample_nearest_2x;

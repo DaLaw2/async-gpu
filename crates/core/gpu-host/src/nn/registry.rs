@@ -82,7 +82,6 @@ const ML_KERNELS: &[&str] = &[
     "elementwise_add_v3",
     "gelu_forward_v2",
     "flash_attention_v2",
-    "full_gemm_splitk",
     "sgd_step",
     "im2col_offset",
     // Matrix utilities

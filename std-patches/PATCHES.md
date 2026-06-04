@@ -1,7 +1,7 @@
 # Patched std — CUDA/nvptx64 patches for Rust std library
 
 Patches for `target_os = "cuda"` (nvptx64-nvidia-cuda).
-Baseline: `rustc 1.96.0-nightly (3b1b0ef4d 2026-03-11)`
+Baseline: `rustc 1.98.0-nightly (d595fce01 2026-06-02)`
 
 ## Setup
 

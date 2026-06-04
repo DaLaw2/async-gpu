@@ -210,6 +210,88 @@ pub fn elementwise_add(
     Ok(())
 }
 
+/// Out-of-place element-wise addition: c = a + b.
+///
+/// Unlike `elementwise_add` (in-place a += b), this creates a new output tensor.
+/// Avoids read-write conflicts on the same buffer, achieving higher bandwidth.
+/// Uses NVRTC-compiled kernel with float4 vectorized loads.
+#[cfg(feature = "cublas")]
+pub fn elementwise_add_out(
+    a: &GpuTensor,
+    b: &GpuTensor,
+    registry: &Arc<KernelRegistry>,
+) -> Result<GpuTensor> {
+    use cudarc::driver::LaunchAsync;
+    use cudarc::nvrtc::compile_ptx;
+
+    if a.numel() != b.numel() {
+        return Err(NnError::ShapeMismatch {
+            expected: format!("same numel, a has {}", a.numel()),
+            actual: format!("b has {}", b.numel()),
+        });
+    }
+
+    let n = a.numel();
+    let dev = registry.device();
+    let mut output = GpuTensor::zeros(a.shape(), dev)?;
+
+    static ELEM_ADD_OOP_SRC: &str = r#"
+extern "C" __global__ void elementwise_add_oop(
+    const float* __restrict__ a,
+    const float* __restrict__ b,
+    float* __restrict__ c,
+    unsigned int n
+) {
+    unsigned int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int idx = tid * 4;
+    if (idx + 3 < n) {
+        float4 av = *reinterpret_cast<const float4*>(&a[idx]);
+        float4 bv = *reinterpret_cast<const float4*>(&b[idx]);
+        float4 cv;
+        cv.x = av.x + bv.x;
+        cv.y = av.y + bv.y;
+        cv.z = av.z + bv.z;
+        cv.w = av.w + bv.w;
+        *reinterpret_cast<float4*>(&c[idx]) = cv;
+    } else {
+        for (unsigned int i = idx; i < n; i++) {
+            c[i] = a[i] + b[i];
+        }
+    }
+}
+"#;
+
+    use std::sync::OnceLock;
+    static COMPILED: OnceLock<bool> = OnceLock::new();
+    COMPILED.get_or_init(|| {
+        let ptx = compile_ptx(ELEM_ADD_OOP_SRC).expect("NVRTC elementwise_add_oop failed");
+        dev.load_ptx(ptx, "elem_oop", &["elementwise_add_oop"])
+            .expect("load elementwise_add_oop");
+        true
+    });
+
+    let func = dev
+        .get_func("elem_oop", "elementwise_add_oop")
+        .ok_or(NnError::KernelNotFound {
+            name: "elementwise_add_oop",
+        })?;
+
+    let threads = 256u32;
+    let total_threads = (n as u32 + 3) / 4; // each thread handles 4 elements
+    let grid = ((total_threads + threads - 1) / threads, 1, 1);
+    let config = cudarc::driver::LaunchConfig {
+        grid_dim: grid,
+        block_dim: (threads, 1, 1),
+        shared_mem_bytes: 0,
+    };
+    unsafe {
+        func.launch(config, (a.data(), b.data(), output.data_mut(), n as u32))
+            .map_err(NnError::Cuda)?;
+    }
+
+    Ok(output)
+}
+
 /// Embedding lookup: wte[token_ids] + wpe[positions].
 ///
 /// wte: `[vocab_size, d_model]`, wpe: `[max_seq, d_model]`, token_ids: device buffer of u32.

@@ -11,7 +11,7 @@ status = "running"     # ready | running | blocked | completed
 # Current cycle position within Think/Do
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "native-api.1"
+current_task_id = "perf-fusion.1"
 
 # Sequence counters
 brainstorm_seq = 110

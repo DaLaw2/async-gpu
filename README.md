@@ -317,8 +317,7 @@ crates/
     gpu-atomics/       System-scope GPU atomics via inline PTX (CAS, shfl, activemask)
     gpu-libc/          Minimal libc shim for GPU: routes sys calls to hostcall
   kernel/
-    gpu-kernel/        Main GPU kernel crate (130+ kernels: compute, hostcall, pipeline, backward, fused, physics, persistent, thread, elementwise)
-    gpu-kernel-std/    GPU kernels using patched Rust std (println!, Vec, File, stdin, thread::spawn)
+    gpu-kernel-std/    Unified GPU kernel crate (130+ kernels: compute, hostcall, pipeline, fused, physics, persistent, thread, std)
   macro/
     warp-macro/        #[warp_async] proc macro (generates WarpFuture state machines)
   test/

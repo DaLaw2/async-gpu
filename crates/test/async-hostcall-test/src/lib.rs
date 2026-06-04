@@ -54,7 +54,7 @@ struct ExecutorStorage {
 unsafe impl Sync for ExecutorStorage {}
 
 // ============================================================
-// Hostcall helper functions (self-contained, duplicated from gpu-kernel)
+// Hostcall helper functions (self-contained, duplicated from gpu-kernel-std)
 // ============================================================
 
 /// Pop a packet from the free stack. Returns packet index or NULL_INDEX.

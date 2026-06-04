@@ -6,7 +6,7 @@
 //! - `JoinHandle::join()` blocks until the spawned thread completes
 //! - `thread::available_parallelism()` returns the number of free warps
 //!
-//! The GPU kernel code (in crates/kernel/gpu-kernel/src/thread_test.rs):
+//! The GPU kernel code (in crates/kernel/gpu-kernel-std/src/thread_test.rs):
 //!
 //! ```rust
 //! use gpu_runtime::thread;

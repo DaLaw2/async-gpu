@@ -35,3 +35,4 @@ rustc-ice-*.txt
 formal/tla2tools.jar
 formal/HostcallProtocol_TTrace_*.bin
 formal/states/
+*.cubin

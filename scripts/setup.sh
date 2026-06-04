@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# async_gpu — One-command setup
+# async_gpu — One-command toolchain setup
 #
 # Usage:
 #   ./scripts/setup.sh              # Default: --std mode
 #   ./scripts/setup.sh --quick      # Stock nightly only, no patched std (~2 min)
 #   ./scripts/setup.sh --std        # Nightly + patched std + kernel_std build (~15 min)
 #   ./scripts/setup.sh --full       # Everything + patched compiler (2-4 hours)
-#   ./scripts/setup.sh --check      # Verify current setup is working
+#   ./scripts/setup.sh --check      # Verify current setup is valid
 #
 # Modes:
-#   --quick   Nightly toolchain + components. Core-only kernels work.
+#   --quick   Nightly toolchain + components + nvptx64 target. Core-only kernels work.
 #   --std     (default) Also patches std in sysroot for File I/O, thread::spawn, println!
 #   --full    Also builds patched compiler for #[warp_cooperative] MIR pass.
-#   --check   Verify setup: environment + compile + run a trivial kernel.
+#   --check   Verify setup: environment, artifacts, compile + run a trivial kernel.
 
 set -euo pipefail
 
@@ -43,6 +43,51 @@ die() {
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 TOOLCHAIN_FILE="$REPO_DIR/rust-toolchain.toml"
+
+# ── Smoke test: compile a trivial nvptx64 kernel ────────────
+# This verifies the nightly toolchain + nvptx64 target are functional
+# without needing the full gpu-kernel-std crate.
+
+smoke_test_ptx() {
+    local toolchain="$1"
+    local tmpdir
+    tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/async_gpu_smoke.XXXXXX")
+    # shellcheck disable=SC2064  # Intentional: capture current $tmpdir value
+    trap "rm -rf '$tmpdir'" RETURN
+
+    # Minimal no_std kernel source
+    cat > "$tmpdir/lib.rs" << 'KERNEL'
+#![no_std]
+#![no_main]
+#![feature(abi_ptx)]
+
+#[panic_handler]
+fn panic(_: &core::panic::PanicInfo) -> ! { loop {} }
+
+#[no_mangle]
+pub extern "ptx-kernel" fn smoke_test() {}
+KERNEL
+
+    # Try to compile it to PTX
+    local output
+    if output=$(rustc +"$toolchain" \
+        --target nvptx64-nvidia-cuda \
+        --crate-type cdylib \
+        --emit=asm \
+        -o "$tmpdir/smoke.ptx" \
+        "$tmpdir/lib.rs" 2>&1); then
+        # Verify the output contains PTX
+        if [ -f "$tmpdir/smoke.ptx" ] && grep -q '\.visible \.entry' "$tmpdir/smoke.ptx" 2>/dev/null; then
+            return 0
+        else
+            echo "$output" >&2
+            return 1
+        fi
+    else
+        echo "$output" >&2
+        return 1
+    fi
+}
 
 # ── Parse mode ───────────────────────────────────────────────
 
@@ -79,9 +124,9 @@ done
 # ── Banner ───────────────────────────────────────────────────
 
 printf "\n${BOLD}"
-echo "╔══════════════════════════════════════════════╗"
-echo "║     async_gpu — Setup                        ║"
-echo "╚══════════════════════════════════════════════╝"
+echo "╔════════════════════════════════════════╗"
+echo "║       async_gpu — Setup                ║"
+echo "╚════════════════════════════════════════╝"
 printf "${NC}\n"
 printf "  Mode: ${BOLD}${CYAN}%s${NC}\n" "$MODE"
 
@@ -104,8 +149,9 @@ info "Toolchain: $NIGHTLY (from rust-toolchain.toml)"
 
 if [ "$MODE" = "check" ]; then
     ISSUES=0
+    WARNINGS=0
 
-    step "1/4" "Environment"
+    step "1/5" "Environment"
 
     # rustup
     if command -v rustup >/dev/null 2>&1; then
@@ -166,15 +212,17 @@ if [ "$MODE" = "check" ]; then
         ok "ptxas: $PTXAS"
     else
         warn "ptxas not found (needed for --std and --full modes)"
+        WARNINGS=$((WARNINGS + 1))
     fi
 
-    step "2/4" "Patched std status"
+    step "2/5" "Patched std status"
 
     # patched-std directory
     if [ -d "$REPO_DIR/patched-std/src" ]; then
         ok "patched-std/ directory present"
     else
         warn "patched-std/ not found (run --std mode to create)"
+        WARNINGS=$((WARNINGS + 1))
     fi
 
     # sysroot patched?
@@ -184,23 +232,28 @@ if [ "$MODE" = "check" ]; then
             ok "Sysroot std is patched"
         else
             warn "Sysroot std is NOT patched (run --std mode to patch)"
+            WARNINGS=$((WARNINGS + 1))
         fi
     fi
 
     # kernel_std.ptx / kernel_std.cubin
     HOST_DIR="$REPO_DIR/crates/core/gpu-host"
     if [ -f "$HOST_DIR/kernel_std.ptx" ]; then
-        ok "kernel_std.ptx present ($(wc -c < "$HOST_DIR/kernel_std.ptx") bytes)"
+        PTX_SIZE=$(wc -c < "$HOST_DIR/kernel_std.ptx")
+        ok "kernel_std.ptx present ($(numfmt --to=iec "$PTX_SIZE" 2>/dev/null || echo "$PTX_SIZE bytes"))"
     else
         warn "kernel_std.ptx not found"
+        WARNINGS=$((WARNINGS + 1))
     fi
     if [ -f "$HOST_DIR/kernel_std.cubin" ]; then
-        ok "kernel_std.cubin present ($(wc -c < "$HOST_DIR/kernel_std.cubin") bytes)"
+        CUBIN_SIZE=$(wc -c < "$HOST_DIR/kernel_std.cubin")
+        ok "kernel_std.cubin present ($(numfmt --to=iec "$CUBIN_SIZE" 2>/dev/null || echo "$CUBIN_SIZE bytes"))"
     else
         warn "kernel_std.cubin not found"
+        WARNINGS=$((WARNINGS + 1))
     fi
 
-    step "3/4" "Patched compiler status"
+    step "3/5" "Patched compiler status"
 
     if [ -d "$REPO_DIR/patched-rustc/build" ]; then
         PATCHED_RUSTC_BIN=""
@@ -217,23 +270,54 @@ if [ "$MODE" = "check" ]; then
             ok "Patched compiler: $PATCHED_RUSTC_BIN"
         else
             warn "patched-rustc/ exists but no rustc binary found"
+            WARNINGS=$((WARNINGS + 1))
         fi
     else
         info "No patched compiler (only needed for --full mode)"
     fi
 
-    step "4/4" "Compile & run smoke test"
+    step "4/5" "PTX smoke test (compile trivial kernel)"
 
     if [ "$ISSUES" -gt 0 ]; then
         warn "Skipping smoke test — $ISSUES prerequisite issue(s) above"
     else
-        # Try building the simplest PTX kernel
+        info "Compiling a minimal PTX kernel to verify nvptx64 target..."
+        if SMOKE_ERR=$(smoke_test_ptx "$NIGHTLY" 2>&1); then
+            ok "Minimal PTX compilation succeeded"
+        else
+            fail "Minimal PTX compilation failed"
+            if [ -n "$SMOKE_ERR" ]; then
+                echo "$SMOKE_ERR" | tail -5 | while IFS= read -r line; do
+                    info "  $line"
+                done
+            fi
+            ISSUES=$((ISSUES + 1))
+        fi
+    fi
+
+    step "5/5" "Full crate build + example run"
+
+    if [ "$ISSUES" -gt 0 ]; then
+        warn "Skipping full build — $ISSUES prerequisite issue(s) above"
+    else
+        # Build gpu-kernel-std
         info "Building gpu-kernel-std (PTX)..."
         KERNEL_DIR="$REPO_DIR/crates/kernel/gpu-kernel-std"
-        if (cd "$KERNEL_DIR" && cargo +"$NIGHTLY" build --release) >/dev/null 2>&1; then
+        BUILD_LOG=$(mktemp "${TMPDIR:-/tmp}/async_gpu_build.XXXXXX")
+        if (cd "$KERNEL_DIR" && cargo +"$NIGHTLY" build --release) >"$BUILD_LOG" 2>&1; then
             ok "gpu-kernel-std PTX build succeeded"
+        else
+            fail "gpu-kernel-std PTX build failed"
+            info "Last 10 lines of build output:"
+            tail -10 "$BUILD_LOG" | while IFS= read -r line; do
+                info "  $line"
+            done
+            ISSUES=$((ISSUES + 1))
+        fi
+        rm -f "$BUILD_LOG"
 
-            # Try running hello-gpu example
+        # Try running hello-gpu example
+        if [ "$ISSUES" -eq 0 ]; then
             info "Running hello-gpu example..."
             HELLO_HOST="$REPO_DIR/examples/hostcall/hello-gpu/host"
             if [ -d "$HELLO_HOST" ]; then
@@ -242,24 +326,29 @@ if [ "$MODE" = "check" ]; then
                     ok "hello-gpu example ran successfully"
                 else
                     warn "hello-gpu example did not produce expected output"
-                    echo "$OUTPUT" | tail -5 | while read -r line; do
+                    echo "$OUTPUT" | tail -5 | while IFS= read -r line; do
                         info "  $line"
                     done
                 fi
+            else
+                info "hello-gpu example not found (skipping)"
             fi
-        else
-            fail "gpu-kernel-std PTX build failed"
-            ISSUES=$((ISSUES + 1))
         fi
     fi
 
     # ── Summary ──────────────────────────────────────────────
 
     printf "\n${BOLD}────────────────────────────────────────────────${NC}\n"
-    if [ "$ISSUES" -eq 0 ]; then
-        printf "${GREEN}${BOLD}Setup looks good!${NC}\n"
+    if [ "$ISSUES" -eq 0 ] && [ "$WARNINGS" -eq 0 ]; then
+        printf "${GREEN}${BOLD}Setup looks good! All checks passed.${NC}\n"
+    elif [ "$ISSUES" -eq 0 ]; then
+        printf "${GREEN}${BOLD}Setup OK${NC} with ${YELLOW}${BOLD}$WARNINGS warning(s)${NC}.\n"
+        printf "Warnings are non-blocking — core functionality works.\n"
     else
-        printf "${RED}${BOLD}$ISSUES issue(s) found.${NC} Fix the items above.\n"
+        printf "${RED}${BOLD}$ISSUES issue(s) found.${NC} Fix the items marked with ${RED}✗${NC} above.\n"
+        if [ "$WARNINGS" -gt 0 ]; then
+            printf "Also ${YELLOW}${BOLD}$WARNINGS warning(s)${NC} — see items marked with ${YELLOW}!${NC}.\n"
+        fi
     fi
     printf "${BOLD}────────────────────────────────────────────────${NC}\n\n"
     exit "$( [ "$ISSUES" -eq 0 ] && echo 0 || echo 1 )"
@@ -271,9 +360,9 @@ fi
 
 TOTAL_STEPS=0
 case "$MODE" in
-    quick) TOTAL_STEPS=3 ;;
-    std)   TOTAL_STEPS=6 ;;
-    full)  TOTAL_STEPS=7 ;;
+    quick) TOTAL_STEPS=4 ;;   # prereqs + toolchain + PTX build + smoke test
+    std)   TOTAL_STEPS=7 ;;   # quick(4) + clone src + patch std + build kernel_std
+    full)  TOTAL_STEPS=8 ;;   # std(7) + patched compiler
 esac
 
 CURRENT_STEP=0
@@ -284,7 +373,7 @@ next_step() {
 
 # ── Step: Prerequisites ──────────────────────────────────────
 
-next_step "Checking prerequisites"
+next_step "Checking prerequisites (~5s)"
 
 # rustup
 if ! command -v rustup >/dev/null 2>&1; then
@@ -355,7 +444,7 @@ fi
 
 # ── Step: Install nightly toolchain ──────────────────────────
 
-next_step "Installing nightly toolchain ($NIGHTLY)"
+next_step "Installing nightly toolchain ($NIGHTLY) (~1 min if not cached)"
 
 if rustup toolchain list 2>/dev/null | grep -q "$NIGHTLY"; then
     ok "Toolchain $NIGHTLY already installed"
@@ -388,24 +477,49 @@ fi
 
 # ── Step: Build PTX kernel (smoke test) ──────────────────────
 
-next_step "Building gpu-kernel-std PTX (smoke test)"
+next_step "Building gpu-kernel-std PTX (~30s)"
 
 KERNEL_DIR="$REPO_DIR/crates/kernel/gpu-kernel-std"
 info "Building gpu-kernel-std for nvptx64..."
-if (cd "$KERNEL_DIR" && cargo +"$NIGHTLY" build --release) 2>&1 | tail -5; then
+BUILD_LOG=$(mktemp "${TMPDIR:-/tmp}/async_gpu_build.XXXXXX")
+if (cd "$KERNEL_DIR" && cargo +"$NIGHTLY" build --release) >"$BUILD_LOG" 2>&1; then
     ok "PTX kernel build succeeded"
 else
     fail "PTX kernel build failed"
+    info "Last 10 lines of build output:"
+    tail -10 "$BUILD_LOG" | while IFS= read -r line; do
+        info "  $line"
+    done
+    rm -f "$BUILD_LOG"
     die "gpu-kernel-std failed to build for nvptx64." \
         "Check that the nightly toolchain and components are correctly installed."
+fi
+rm -f "$BUILD_LOG"
+
+# ── Step: Smoke test (verify nvptx64 target works) ──────────
+
+next_step "Smoke test (compile a trivial PTX kernel)"
+
+info "Verifying nvptx64 target produces valid PTX..."
+if SMOKE_ERR=$(smoke_test_ptx "$NIGHTLY" 2>&1); then
+    ok "Smoke test passed — nvptx64 target is functional"
+else
+    fail "Smoke test failed — nvptx64 target did not produce valid PTX"
+    if [ -n "$SMOKE_ERR" ]; then
+        echo "$SMOKE_ERR" | tail -5 | while IFS= read -r line; do
+            info "  $line"
+        done
+    fi
+    die "Toolchain installed but PTX compilation failed." \
+        "Try: rustup toolchain remove $NIGHTLY && re-run this script."
 fi
 
 # ── Quick mode done ──────────────────────────────────────────
 
 if [ "$MODE" = "quick" ]; then
-    printf "\n${BOLD}${GREEN}╔══════════════════════════════════════════════╗${NC}\n"
-    printf "${BOLD}${GREEN}║  Quick setup complete!                        ║${NC}\n"
-    printf "${BOLD}${GREEN}╚══════════════════════════════════════════════╝${NC}\n\n"
+    printf "\n${BOLD}${GREEN}╔════════════════════════════════════════╗${NC}\n"
+    printf "${BOLD}${GREEN}║    Quick setup complete!                ║${NC}\n"
+    printf "${BOLD}${GREEN}╚════════════════════════════════════════╝${NC}\n\n"
     echo "What works now:"
     ok "All core-only GPU kernels (no_std + core)"
     ok "All hostcall examples (hello-gpu, async-io, vector-math, ...)"
@@ -425,7 +539,7 @@ fi
 
 # ── Step: Clone rustc source (for std patches) ───────────────
 
-next_step "Preparing rustc source for std patches"
+next_step "Preparing rustc source for std patches (~2 min if cloning)"
 
 RUSTC_SRC="$REPO_DIR/rustc-src"
 if [ -d "$RUSTC_SRC/library/std" ]; then
@@ -438,7 +552,7 @@ fi
 
 # ── Step: Apply std patches ──────────────────────────────────
 
-next_step "Applying std patches"
+next_step "Applying std patches (~30s)"
 
 PATCHED_STD="$REPO_DIR/patched-std"
 if [ -f "$PATCHED_STD/src/sys/thread/cuda.rs" ]; then
@@ -456,7 +570,7 @@ fi
 
 # ── Step: Build kernel_std PTX + cubin ───────────────────────
 
-next_step "Building kernel_std (PTX + cubin)"
+next_step "Building kernel_std (PTX + cubin, ~10-15 min)"
 
 HOST_DIR="$REPO_DIR/crates/core/gpu-host"
 if [ -f "$HOST_DIR/kernel_std.cubin" ] && [ -f "$HOST_DIR/kernel_std.ptx" ]; then
@@ -475,9 +589,9 @@ fi
 # ── Std mode done ────────────────────────────────────────────
 
 if [ "$MODE" = "std" ]; then
-    printf "\n${BOLD}${GREEN}╔══════════════════════════════════════════════╗${NC}\n"
-    printf "${BOLD}${GREEN}║  Std setup complete!                          ║${NC}\n"
-    printf "${BOLD}${GREEN}╚══════════════════════════════════════════════╝${NC}\n\n"
+    printf "\n${BOLD}${GREEN}╔════════════════════════════════════════╗${NC}\n"
+    printf "${BOLD}${GREEN}║    Std setup complete!                  ║${NC}\n"
+    printf "${BOLD}${GREEN}╚════════════════════════════════════════╝${NC}\n\n"
     echo "What works now:"
     ok "Everything from --quick mode"
     ok "std::thread::spawn on GPU"
@@ -537,9 +651,9 @@ else
     fi
 fi
 
-printf "\n${BOLD}${GREEN}╔══════════════════════════════════════════════╗${NC}\n"
-printf "${BOLD}${GREEN}║  Full setup complete!                         ║${NC}\n"
-printf "${BOLD}${GREEN}╚══════════════════════════════════════════════╝${NC}\n\n"
+printf "\n${BOLD}${GREEN}╔════════════════════════════════════════╗${NC}\n"
+printf "${BOLD}${GREEN}║    Full setup complete!                 ║${NC}\n"
+printf "${BOLD}${GREEN}╚════════════════════════════════════════╝${NC}\n\n"
 echo "What works now:"
 ok "Everything from --std mode"
 ok "#[warp_cooperative] attribute"

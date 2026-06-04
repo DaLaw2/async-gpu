@@ -248,10 +248,10 @@ pub fn matmul_v2(
         return matmul_cublas(a, b, m, k, n, dev);
     }
 
-    // Use NVRTC V4 (float4 loads + fmaf) for large matrices
+    // Use NVRTC V4.1 (BK=16, float4 loads, double-buffered smem) for large matrices
     #[cfg(feature = "cublas")]
     if m >= 512 && n >= 512 && k >= 256 {
-        return matmul_v4(a, b, m, k, n, dev);
+        return matmul_v4_1(a, b, m, k, n, dev);
     }
 
     let status = dev.htod_sync_copy(&[0u32])?;
@@ -535,10 +535,11 @@ extern "C" __global__ void gemm_f32_v4(
         })?;
 
     let mut d_dev = dev.alloc_zeros::<f32>(m * n).map_err(NnError::Cuda)?;
+    // Kernel uses __shared__ (static smem) — set dynamic smem to 0.
     let config = cudarc::driver::LaunchConfig {
         grid_dim: (m.div_ceil(128) as u32, n.div_ceil(128) as u32, 1),
         block_dim: (256, 1, 1),
-        shared_mem_bytes: 2 * (8 * 132 + 8 * 128) * 4, // BK=8
+        shared_mem_bytes: 0,
     };
 
     unsafe {
@@ -775,11 +776,11 @@ extern "C" __global__ void gemm_f32_v4_1(
         })?;
 
     let mut d_dev = dev.alloc_zeros::<f32>(m * n).map_err(NnError::Cuda)?;
-    // BK=16: 2 * (16*132 + 16*128) * 4 = 33280 bytes
+    // Kernel uses __shared__ (static smem, 33280 bytes) — set dynamic smem to 0.
     let config = cudarc::driver::LaunchConfig {
         grid_dim: (m.div_ceil(128) as u32, n.div_ceil(128) as u32, 1),
         block_dim: (256, 1, 1),
-        shared_mem_bytes: 2 * (16 * 132 + 16 * 128) * 4,
+        shared_mem_bytes: 0,
     };
 
     unsafe {

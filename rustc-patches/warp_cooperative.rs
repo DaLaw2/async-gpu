@@ -18,8 +18,8 @@
 //! ## Activation
 //!
 //! - Only on `nvptx64` targets (`is_enabled` check)
-//! - Only on functions annotated with `#[warp_cooperative]`
-//! - Only on coroutine bodies (post-StateTransform)
+//! - Applied to ALL coroutine bodies (post-StateTransform) — no annotation needed
+//! - `#[warp_cooperative]` attribute accepted for backward compatibility but not required
 
 use std::borrow::Cow;
 
@@ -76,15 +76,14 @@ impl<'tcx> MirPass<'tcx> for WarpCooperativeTransform {
             return;
         }
 
-        // For async fn, the coroutine body has a different def_id than the
-        // outer function that holds `#[warp_cooperative]`. Check the parent.
+        // On nvptx64, apply warp-cooperative transform to ALL async fn coroutines
+        // automatically — no #[warp_cooperative] annotation needed. All async I/O
+        // on GPU requires warp cooperation (hostcall protocol), so this is always correct.
+        //
+        // The attribute is still accepted for backward compatibility but is no longer required.
         let parent_def_id = tcx.parent(def_id);
-        let has_attr = has_warp_cooperative_attr(tcx, def_id)
+        let _has_attr = has_warp_cooperative_attr(tcx, def_id)
             || has_warp_cooperative_attr(tcx, parent_def_id);
-
-        if !has_attr {
-            return;
-        }
 
         let fn_name = tcx.def_path_str(def_id);
         debug!("WarpCooperativeTransform: processing `{fn_name}`");

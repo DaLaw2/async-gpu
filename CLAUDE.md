@@ -40,13 +40,11 @@
 5. **No Publishing** — **NEVER** do crates.io publish, docs site, blog posts, or any public-facing release actions. These are external-visibility actions that only the user decides to do. Do not create tasks/themes/epics related to publishing.
 
 ## Dev Workflow
-- Autonomous orchestrator loop via `/dev`. Implemented as native Workflow scripts.
-- Scripts: `.claude/workflows/dev.js` (main loop), `brainstorm.js`, `maintain.js`
-- Deterministic JS control flow + structured schema validation + parallel dispatch
-- All file I/O and code execution via subagents. Script holds no filesystem state.
+- Autonomous orchestrator loop. Launch with `/dev`. Details in `.claude/commands/dev.md`.
+- Main agent manages flow only — all execution via subagents. See `dev-gates.md`, `dev-dispatch.md`, `dev-brainstorm.md`.
 - Always run `bash scripts/ci-lint.sh` before `git push`. Only push when it passes.
 
 ## Maintenance
-- `/maintain <sub-command>` dispatches housekeeping (ci, archive, readme, nightly, patches, gitignore).
-- Implementation: `.claude/workflows/maintain.js` — all sub-commands run in parallel.
-- Automatically called at SAVE step in the dev loop.
+- `/maintain` dispatches housekeeping sub-commands (ci, archive, readme, nightly, patches, gitignore).
+- At `do.save` in the dev loop, dispatch maintenance as a subagent.
+- Auto-archive completed items to keep state.toml under ~300 lines.

@@ -15,11 +15,11 @@ status = "running"     # ready | running | blocked | completed
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
 current_step = "dispatch"
-current_task_id = "iter-design.3,fusion-analysis.3"
+current_task_id = "iter-compiler.1,fusion-codegen.1"
 
 # Sequence counters
 brainstorm_seq = 116
-tasks_since_brainstorm = 6   # reset after brainstorm 116
+tasks_since_brainstorm = 8   # reset after brainstorm 116
 
 # ============================================================
 # Epics — Tiered (T0 → T3), sorted by tier then priority
@@ -35,112 +35,7 @@ tasks_since_brainstorm = 6   # reset after brainstorm 116
 # native-rust-dx, std-thread-gpu, cooperative-compute, structured-concurrency,
 # library-api, kernel-perf
 
-# --- T0: Foundation (must be done first) ---
-
-[[epics]]
-id = "native-rust-dx"
-title = "Native Rust DX — GPU code looks like normal Rust"
-tier = 0
-status = "completed"
-priority = "highest"
-# North Star: GPU code syntax is indistinguishable from normal Rust.
-#   This is the SYNTAX FOUNDATION for unified I/O + Compute — both must look native.
-# Litmus Test: Show a kernel with File::read + matmul + File::write to a Rust dev —
-#   they can read it without knowing it's GPU code.
-success_criteria = [
-    "Kernel entry uses extern \"gpu-kernel\" fn main(), no custom attribute macros needed",
-    "async fn works without #[warp_cooperative] or #[warp_async] — MIR pass handles it transparently",
-    "Host-side launch is one line: gpu::run(kernel_main) — no GpuRuntime/HostcallSession/KernelRegistry exposed",
-    "All examples/ rewritten in native Rust style — a Rust dev can read them without GPU knowledge",
-]
-
-[[epics]]
-id = "std-thread-gpu"
-title = "std::thread on GPU — thread::spawn() maps to warp"
-tier = 0
-status = "completed"
-priority = "highest"
-# North Star: thread::spawn() on GPU just works — this is the I/O PILLAR of the unified kernel.
-#   Sequential I/O (file read/write, println!) happens in warp-as-thread mode.
-# Litmus Test: VectorWare "threads on GPU" blog example compiles and runs on async-gpu.
-success_criteria = [
-    "Warp 0 runs main(), other warps sleep until thread::spawn() wakes them",
-    "thread::spawn() returns JoinHandle, join() blocks parent warp until child completes",
-    "thread::current(), thread::sleep(), thread::yield_now() all work",
-    "thread::available_parallelism() returns number of available warps",
-    "Example: spawn 2+ threads doing independent work, join results, println! — identical to CPU Rust",
-]
-
-# --- T1: Core pillars ---
-
-[[epics]]
-id = "cooperative-compute"
-title = "Cooperative Compute — GPU-internal all-warp parallel computation"
-tier = 1
-status = "completed"
-priority = "high"
-# North Star: This is the COMPUTE PILLAR of the unified kernel. From sequential I/O context,
-#   switch to all-warp data-parallel compute, then back. I/O + Compute in one fn main().
-# Litmus Test: File::read → matmul → File::write in a single kernel, no mode-switch boilerplate.
-success_criteria = [
-    "gpu::cooperative(closure) wakes all warps, executes closure in data-parallel mode, returns result",
-    "Seamless transition: sequential code (1 warp) → cooperative (all warps) → sequential — no manual sync",
-    "Existing nn ops (matmul, attention, conv2d) callable from within a kernel via cooperative",
-    "Demo: read file → matmul → write result, all in one extern \"gpu-kernel\" fn main()",
-]
-
-[[epics]]
-id = "structured-concurrency"
-title = "Structured Concurrency — scope-based parallelism mapped to GPU hardware"
-tier = 1
-status = "completed"
-priority = "highest"
-# North Star: Task scope = hardware scope. BlockScope uses shared memory, GridScope uses global.
-#   Resources auto-reclaim when scope ends. Channels pick the fastest path automatically.
-# Litmus Test: Users never manually choose shared vs global memory — the scope decides.
-success_criteria = [
-    "BlockScope and GridScope types enforce lifetime-bounded task scopes via Rust lifetimes",
-    "Resources allocated within a scope auto-reclaim when scope ends (shared memory for block, global for grid)",
-    "GpuChannel<T> auto-selects transport: shfl.sync (same warp), shared memory (same block), global (cross-block)",
-    "Cancellation propagates down scope hierarchy — parent cancel kills all children",
-    "Demo: producer-consumer pipeline using BlockScope with automatic shared memory channels",
-]
-
-[[epics]]
-id = "library-api"
-title = "Library API — async-gpu as a usable crate, not a demo collection"
-tier = 1
-status = "completed"
-priority = "highest"
-# North Star: A user adds `async-gpu = "0.1"` to Cargo.toml and writes GPU programs
-#   using a clean, documented public API. No sysroot hacks, no copy-pasting from examples.
-# Litmus Test: A new user clones the repo, runs `cargo install`, and writes a working
-#   GPU kernel + host program in under 30 minutes using only the docs.
-success_criteria = [
-    "Single `async-gpu` facade crate re-exports gpu::run/launch/custom + kernel-side runtime",
-    "Public API surface is documented (rustdoc) — internal types are pub(crate)",
-    "Clean separation: library crates vs demo/example vs test harness — no mixing",
-    "Toolchain setup is scripted: one command gives the user a working patched toolchain",
-    "Getting-started guide: from zero to running GPU kernel in documented steps",
-]
-
-[[epics]]
-id = "kernel-perf"
-title = "Kernel Performance — close gap to cuBLAS/cuDNN across all compute primitives"
-tier = 1
-status = "completed"
-priority = "medium"
-# North Star: The compute ops inside cooperative() must be FAST — this is what makes
-#   async-gpu better than VectorWare. Competitive with cuBLAS/cuDNN, not just convenient.
-# Litmus Test: GPT-2 inference is within 2x of a hand-optimized CUDA implementation.
-# Note: Wrap-up mode — SGEMM achieved 90%, relax attention/conv targets.
-#   Focus shifts to structured-concurrency as primary T1 epic.
-success_criteria = [
-    "SGEMM >= 70% of cuBLAS at 4096³",
-    "Flash Attention >= 35% of cuDNN FA2 at seq=512",
-    "Conv2D functional with direct+im2col path (perf optimization deferred to conv-perf epic)",
-    "GPT-2 end-to-end forward pass < 40ms",
-]
+# --- T0/T1 all completed and archived ---
 
 # --- T2: Advanced (now active tier — T0/T1 all completed) ---
 
@@ -379,290 +274,15 @@ success_criteria = [
 # T0 themes/tasks archived: std-thread-integration (.1, .2), native-api (.2-.6)
 # Archived at cycle 607 — epics native-rust-dx + std-thread-gpu completed
 
-# --- T1: structured-concurrency themes ---
+# T1 themes archived: sc-design, sc-resource, sc-channel, sc-demo, sc-runtime,
+# lib-extract, lib-facade, lib-cleanup, lib-toolchain, lib-docs
+# T1 tasks archived: lib-toolchain.2, lib-cleanup.5-.6, lib-docs.1-.2,
+# sc-design.1-.5, sc-resource.1-.3, sc-channel.1-.4, sc-demo.1-.2, sc-runtime.1-.4
 
-[[themes]]
-id = "sc-design"
-epic = "structured-concurrency"
-title = "Scope API design — BlockScope/GridScope lifetime model"
-status = "completed"
-goal = "Design scope types that map Rust lifetimes to GPU hardware scopes"
-success_criteria = [
-    "BlockScope<'a> and GridScope<'a> type signatures designed with lifetime bounds",
-    "Resource allocation API: scope.alloc::<T>(n) returns &'scope [T] in correct memory tier",
-    "Cancellation propagation model defined (parent scope cancel → child cleanup)",
-    "Design doc with examples showing how user code looks vs raw GPU code",
-]
+# kernel-perf themes archived: perf-attention, perf-conv, perf-layernorm,
+# perf-elementwise, perf-e2e, perf-fusion, perf-gemm-v4, perf-attn-v3
 
-[[themes]]
-id = "sc-resource"
-epic = "structured-concurrency"
-title = "Scoped resource management — auto shared/global memory lifecycle"
-status = "completed"
-goal = "Resources auto-allocate in correct memory tier and auto-reclaim on scope exit"
-success_criteria = [
-    "BlockScope allocates in shared memory, GridScope in global memory",
-    "Drop impl reclaims memory when scope lifetime ends",
-    "Nested scopes work correctly (GridScope containing BlockScopes)",
-    "No manual memory management needed — scope lifetime = resource lifetime",
-]
-
-[[themes]]
-id = "sc-channel"
-epic = "structured-concurrency"
-title = "GpuChannel<T> — auto-transport selection by scope distance"
-status = "completed"
-goal = "Channels auto-select fastest transport based on sender/receiver scope"
-success_criteria = [
-    "Same warp: shfl.sync transport (register-level, zero latency)",
-    "Same block: shared memory transport (block-scoped, low latency)",
-    "Cross-block: global memory transport (grid-scoped, high bandwidth)",
-    "User writes one GpuChannel<T> API — transport selection is invisible",
-]
-
-[[themes]]
-id = "sc-demo"
-epic = "structured-concurrency"
-title = "Structured concurrency demo — producer-consumer with automatic channels"
-status = "completed"
-goal = "End-to-end demo proving scope-based parallelism works and is ergonomic"
-success_criteria = [
-    "Producer-consumer pipeline using BlockScope with auto shared memory channels",
-    "Demo code is shorter and clearer than equivalent raw cooperative() code",
-    "Performance comparable to hand-tuned shared memory pipeline",
-    "Second demo: multi-block reduce using GridScope with auto global memory",
-]
-
-[[themes]]
-id = "sc-runtime"
-epic = "structured-concurrency"
-title = "Scope runtime — warp scheduling for nested scopes"
-status = "completed"
-goal = "Scopes map to GPU warp fork/join with correct synchronization"
-success_criteria = [
-    "BlockScope forks warps within a thread block, joins on scope exit",
-    "GridScope coordinates across blocks via global memory barriers",
-    "Nested scopes (GridScope → BlockScope) schedule correctly",
-    "Integration with existing cooperative() API — scopes compose with gpu::cooperative()",
-]
-
-# --- T1: library-api themes ---
-
-[[themes]]
-id = "lib-extract"
-epic = "library-api"
-title = "Extract test harness from gpu-host — pure library crate"
-status = "completed"
-goal = "gpu-host is a pure library; test harness in separate crate"
-success_criteria = [
-    "main.rs + 13 tests_*.rs + bench_harness.rs moved to crates/test/gpu-test-harness/",
-    "gpu-host has no [[bin]] target, default features = []",
-]
-
-[[themes]]
-id = "lib-facade"
-epic = "library-api"
-title = "async-gpu facade crate with curated re-exports"
-status = "completed"
-goal = "Single async-gpu crate is the user's entry point"
-success_criteria = [
-    "crates/async-gpu/ re-exports gpu::run/launch/custom + error types",
-    "At least one example depends on async-gpu instead of gpu-host",
-]
-
-[[themes]]
-id = "lib-cleanup"
-epic = "library-api"
-title = "Clean public API surface — hide internals, remove dead code"
-status = "completed"
-goal = "cargo doc produces useful API docs"
-success_criteria = [
-    "Internal modules pub(crate), protocol constants in submodules",
-    "cargo doc --no-deps output is clean and useful",
-]
-
-[[themes]]
-id = "lib-toolchain"
-epic = "library-api"
-title = "One-command toolchain setup"
-status = "completed"
-goal = "scripts/setup.sh gives working environment"
-success_criteria = [
-    "setup.sh with quick/full/check modes",
-    "Smoke test compiles and runs a trivial kernel",
-]
-
-[[themes]]
-id = "lib-docs"
-epic = "library-api"
-title = "Getting-started guide + rustdoc"
-status = "completed"
-goal = "New user writes working GPU program in 30 min"
-success_criteria = [
-    "Getting-started guide in docs/ or README",
-    "rustdoc with doc examples for all public types",
-]
-
-# lib-extract tasks (.1-.4) archived — theme completed
-# lib-facade tasks (.1-.2) archived — theme completed
-# lib-toolchain.1 archived — done
-
-[[tasks]]
-id = "lib-toolchain.2"
-theme = "lib-toolchain"
-title = "Experiment: polish scripts/setup.sh with quick/full/check modes + smoke test"
-kind = "experiment"
-status = "done"
-depends = []
-
-# kernel-entry-dx theme + tasks (.1-.3) archived — native-rust-dx completed
-
-# lib-cleanup.1 (audit) archived — done
-# lib-cleanup.2 (model move) superseded by lib-cleanup.5 (pub(crate) approach)
-# lib-cleanup.3 (warp-macro removal) archived — done
-# lib-cleanup.4 (kernel crate merge) archived — done
-
-[[tasks]]
-id = "lib-cleanup.5"
-theme = "lib-cleanup"
-title = "Experiment: pub(crate) visibility for demo modules + #![warn(missing_docs)]"
-kind = "experiment"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "lib-cleanup.6"
-theme = "lib-cleanup"
-title = "Experiment: verify cargo doc --no-deps produces clean API docs"
-kind = "experiment"
-status = "done"
-depends = ["lib-cleanup.5"]
-
-# cooperative-compute themes/tasks archived — epic completed
-# coop-api (.1-.3), coop-compute (.1-.3), coop-demo (.1-.2) all archived at cycle 607
-
-# --- lib-docs tasks ---
-
-[[tasks]]
-id = "lib-docs.1"
-theme = "lib-docs"
-title = "Design: getting-started guide structure (5-step, under 30 min)"
-kind = "design"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "lib-docs.2"
-theme = "lib-docs"
-title = "Experiment: write getting-started guide + rustdoc examples"
-kind = "experiment"
-status = "done"
-depends = ["lib-docs.1", "lib-cleanup.6"]
-
-# --- kernel-perf themes ---
-
-[[themes]]
-id = "perf-attention"
-epic = "kernel-perf"
-title = "FlashAttention-2 — MMA tiled GEMM + online softmax"
-status = "parked"
-# Parked: overlaps with perf-attn-v3, consolidate efforts there
-goal = "Attention throughput >= 50% of cuDNN FA2"
-success_criteria = [
-    "Q tile in shared memory for cooperative tiled GEMM",
-    "Score GEMM (Q·K^T) via MMA or tiled register-blocked matmul",
-    "P·V accumulation via tiled GEMM (not scalar loop)",
-    "Warp-level parallel softmax reduction",
-    "seq=512, 12 heads: throughput >= 1200 GFLOPS",
-]
-
-[[themes]]
-id = "perf-conv"
-epic = "kernel-perf"
-title = "High-performance Conv2D — direct conv + shared memory tiling"
-status = "completed"
-goal = "Conv2D >= 50% of cuDNN for common shapes"
-success_criteria = [
-    "Winograd F(4×4, 3×3) for 3×3 convolutions (2.25x FLOPs reduction)",
-    "Direct conv kernel for non-3×3 sizes (shared memory tiling)",
-    "im2col completely eliminated from forward path",
-    "GPU-side batch processing (no PCIe round-trips)",
-    "ResNet layer2 (64→128, 32×32, k=3): >= 1200 GFLOPS",
-]
-
-[[themes]]
-id = "perf-layernorm"
-epic = "kernel-perf"
-title = "High-performance LayerNorm — single-pass + vectorized"
-status = "completed"
-goal = "LayerNorm >= 180 GB/s (60% of peak bandwidth)"
-success_criteria = [
-    "Single-pass Welford algorithm (mean + variance in one read)",
-    "256 threads per block with shared memory two-level reduction",
-    "float4 coalesced loads (128-bit transactions)",
-    "Fused LayerNorm + residual add variant",
-    "128×768 matrix: >= 180 GB/s",
-]
-
-[[themes]]
-id = "perf-elementwise"
-epic = "kernel-perf"
-title = "Vectorized elementwise ops — float4 + multi-element per thread"
-status = "completed"
-goal = "elementwise >= 240 GB/s, GELU >= 200 GB/s (80%+ of peak)"
-success_criteria = [
-    "float4 vectorized loads/stores for all elementwise ops",
-    "4-8 elements per thread for latency hiding",
-    "GELU fast approximation: x * sigmoid(1.702x)",
-    "elementwise_add >= 240 GB/s, gelu >= 200 GB/s",
-]
-
-[[themes]]
-id = "perf-e2e"
-epic = "kernel-perf"
-title = "End-to-end validation — GPT-2 < 40ms, YOLO < 80ms"
-status = "completed"
-goal = "Verify all kernel improvements compound to model-level speedup"
-success_criteria = [
-    "GPT-2 forward pass (seq=128) < 35ms (from 221ms)",
-    "YOLOv8-nano inference < 100ms (from 374ms)",
-    "No accuracy regression on any model",
-]
-
-[[themes]]
-id = "perf-fusion"
-epic = "kernel-perf"
-title = "Op Fusion — fuse LayerNorm+residual, reduce kernel launches"
-status = "completed"
-goal = "Reduce GPT-2 per-block overhead by fusing small ops"
-success_criteria = [
-    "Fused LayerNorm + residual add kernel (1 kernel instead of 2)",
-    "GPT-2 per-block time reduced by >= 0.3ms from fusion",
-]
-
-[[themes]]
-id = "perf-gemm-v4"
-epic = "kernel-perf"
-title = "SGEMM V4 — float4 vectorized loads + double-buffer pipeline"
-status = "completed"
-goal = "SGEMM >= 70% cuBLAS (~1960 GFLOPS at 4096³)"
-success_criteria = [
-    "ld.global.v4.f32 for A and B tile loading",
-    "Double-buffer shared memory pipeline (SM75-compatible, replaces cp.async)",
-    "4096³ >= 1960 GFLOPS (70% of cuBLAS 2800) — achieved 2691 GFLOPS (90%)",
-]
-
-[[themes]]
-id = "perf-attn-v3"
-epic = "kernel-perf"
-title = "Attention V3 — warp-cooperative tiled GEMM for Q·K^T and P·V"
-status = "completed"
-goal = "Flash Attention >= 35% of cuDNN FA2"
-success_criteria = [
-    "Score GEMM via cooperative thread-tile (not scalar dot product)",
-    "P·V via cooperative thread-tile accumulation",
-    "seq=512, 12 heads: >= 35% of cuDNN FA2 throughput",
-]
+# --- T2: conv-perf themes ---
 
 [[themes]]
 id = "perf-conv-wino"
@@ -689,32 +309,69 @@ success_criteria = [
     "No accuracy regression on any model",
 ]
 
+# kernel-perf parked themes archived: perf-int8-tiled, perf-gemm-fusion
+
+# --- T2: developer-showcase themes ---
+
 [[themes]]
-id = "perf-int8-tiled"
-epic = "kernel-perf"
-title = "INT8 tiled dp4a — shared memory tiled INT8 GEMM for competitive inference"
-status = "parked"
-goal = "INT8 GEMM via tiled dp4a >= 2x f32 FMA throughput"
-# From deferred int8-inference epic. Naive dp4a is 7-10x slower than tiled f32.
-# Tiled dp4a with shared memory should unlock 2-4x speedup over f32.
+id = "showcase-api"
+epic = "developer-showcase"
+title = "Facade re-exports — make hidden features discoverable"
+status = "active"
+goal = "async-gpu crate re-exports SC scopes, channels, and executor types"
 success_criteria = [
-    "Tiled dp4a kernel with shared memory staging (same tiling strategy as SGEMM V4)",
-    "INT8 GEMM throughput >= 2x f32 FMA at 4096x4096",
-    "GPT-2 full INT8 inference produces coherent text (top-5 match f32 for >= 2/3 prompts)",
+    "BlockScope, GridScope, block_scope(), grid_scope() re-exported from async-gpu",
+    "OneshotSender/Receiver, MpscSender/Receiver re-exported from async-gpu",
+    "GpuExecutor re-exported from async-gpu",
+    "cargo doc --no-deps shows all new public types cleanly",
 ]
 
 [[themes]]
-id = "perf-gemm-fusion"
-epic = "kernel-perf"
-title = "Fused GEMM+activation in nn API — fused_prepadded_b path"
-status = "parked"
-goal = "Linear layer dispatches fused GEMM+bias+activation, measurable GPT-2 speedup"
-# From deferred kernel-fusion + kernel-fusion-v2 epics. fused kernels exist but
-# pre-padded B path is faster than unfused; needs fused_prepadded_b to combine both.
+id = "showcase-sc"
+epic = "developer-showcase"
+title = "Structured Concurrency example — BlockScope producer-consumer"
+status = "pending"
+goal = "Standalone example demonstrating structured concurrency on GPU"
 success_criteria = [
-    "fused_prepadded_b kernel: pre-padded weight matrix + GEMM + bias + activation in one launch",
-    "nn::Linear detects subsequent activation and dispatches fused path automatically",
-    "GPT-2 per-token latency reduced >= 10% from GEMM fusion (vs pre-padded unfused baseline)",
+    "examples/hostcall/structured-concurrency/ with host + kernel",
+    "Shows BlockScope allocation, spawn, join, and auto-cleanup",
+    "GpuChannel used for producer-consumer communication",
+]
+
+[[themes]]
+id = "showcase-channels"
+epic = "developer-showcase"
+title = "GPU Channels + Executor example — async programming on GPU"
+status = "pending"
+goal = "Standalone examples demonstrating GPU async channels and executor"
+success_criteria = [
+    "Example using Oneshot and MPSC channels between GPU tasks",
+    "GPU executor example: spawn 4+ async tasks dynamically",
+]
+
+[[themes]]
+id = "showcase-examples"
+epic = "developer-showcase"
+title = "Example gap-fill — ensure all shipped features have examples"
+status = "pending"
+goal = "Every major feature has at least one clean, documented example"
+success_criteria = [
+    "Cooperative compute example cleaned up as showcase",
+    "Benchmark example updated with latest numbers",
+]
+
+[[themes]]
+id = "showcase-readme"
+epic = "developer-showcase"
+title = "README overhaul — feature matrix, perf table, hero examples"
+status = "pending"
+goal = "README serves as landing page that sells async-gpu in 5 minutes"
+success_criteria = [
+    "Feature matrix: all GPU capabilities in one table",
+    "Performance table: SGEMM 90% cuBLAS, FA 47-60%, GPT-2 39ms",
+    "North Star hero: File::read → matmul → File::write code in README",
+    "Progressive snippets: hello → cooperative → SC pipeline",
+    "Getting-started guide updated with SC and channels",
 ]
 
 # --- T2: gpu-iterator themes ---
@@ -892,295 +549,13 @@ success_criteria = [
 # Orphaned parked tasks removed (cycle 604): warp-batch-io.2-4, cml-tree.1-3, cml-kmeans.1
 # (parent epics archived — brainstorm will recreate if epic reactivates)
 
-# --- structured-concurrency: design ---
+# SC tasks archived: sc-design.1-.5, sc-resource.1-.3, sc-channel.1-.4,
+# sc-demo.1-.2, sc-runtime.1-.4, sc-channel.4, sc-design.5
+# kernel-perf tasks archived: perf-attn-v3.3-.4, perf-attention.3-.4,
+# perf-conv.2-.5, perf-layernorm.2-.3, perf-elementwise.2, perf-fusion.2,
+# perf-gemm-v4.2-.3, perf-e2e.1-.2
 
-[[tasks]]
-id = "sc-design.1"
-theme = "sc-design"
-title = "Investigation: survey scope-based concurrency models and map to GPU hardware hierarchy"
-kind = "investigation"
-status = "done"
-depends = []
-notes = "Study Kotlin coroutineScope, Swift structured concurrency, Trio nurseries. Map scope concepts to GPU warp/block/grid. Identify which patterns translate and which need GPU-specific design."
-
-[[tasks]]
-id = "sc-design.2"
-theme = "sc-design"
-title = "Design: BlockScope<'a>/GridScope<'a> API — lifetime model + resource allocation interface"
-kind = "design"
-status = "done"
-depends = ["sc-design.1"]
-
-[[tasks]]
-id = "sc-design.3"
-theme = "sc-design"
-title = "Design: cancellation propagation semantics across nested scopes"
-kind = "design"
-status = "done"
-depends = ["sc-design.2"]
-
-# --- structured-concurrency: resource ---
-
-[[tasks]]
-id = "sc-resource.1"
-theme = "sc-resource"
-title = "Investigation: Rust lifetime mechanics for shared/global memory allocation and Drop"
-kind = "investigation"
-status = "done"
-depends = ["sc-design.2"]
-
-[[tasks]]
-id = "sc-resource.2"
-theme = "sc-resource"
-title = "Experiment: BlockScope shared memory allocator with lifetime-bounded allocation"
-kind = "experiment"
-status = "done"
-depends = ["sc-resource.1"]
-
-[[tasks]]
-id = "sc-resource.3"
-theme = "sc-resource"
-title = "Experiment: GridScope global memory allocator + Drop cleanup on scope exit"
-kind = "experiment"
-status = "done"
-depends = ["sc-resource.1"]
-
-# --- structured-concurrency: channel ---
-
-[[tasks]]
-id = "sc-channel.1"
-theme = "sc-channel"
-title = "Investigation: transport selection heuristics — shfl vs shared memory vs global"
-kind = "investigation"
-status = "done"
-depends = ["sc-design.2"]
-
-[[tasks]]
-id = "sc-channel.2"
-theme = "sc-channel"
-title = "Experiment: GpuChannel<T> with auto-transport selection based on scope distance"
-kind = "experiment"
-status = "done"
-depends = ["sc-channel.1"]
-
-[[tasks]]
-id = "sc-channel.3"
-theme = "sc-channel"
-title = "Experiment: benchmark channel throughput across all three transport modes"
-kind = "experiment"
-status = "done"
-depends = ["sc-channel.2"]
-
-# --- structured-concurrency: demo ---
-
-[[tasks]]
-id = "sc-demo.1"
-theme = "sc-demo"
-title = "Experiment: producer-consumer pipeline using BlockScope with auto shared memory channels"
-kind = "experiment"
-status = "done"
-depends = ["sc-resource.2", "sc-channel.2"]
-
-[[tasks]]
-id = "sc-demo.2"
-theme = "sc-demo"
-title = "Experiment: multi-block parallel reduce using GridScope with auto global memory"
-kind = "experiment"
-status = "done"
-depends = ["sc-resource.3", "sc-demo.1"]
-
-# --- structured-concurrency: runtime ---
-
-[[tasks]]
-id = "sc-design.4"
-theme = "sc-design"
-title = "Investigation: compiler requirements — MIR pass changes vs pure library types for scope enforcement"
-kind = "investigation"
-status = "done"
-depends = ["sc-design.2"]
-
-[[tasks]]
-id = "sc-runtime.1"
-theme = "sc-runtime"
-title = "Investigation: warp scheduling model for nested scopes — fork/join vs work-stealing"
-kind = "investigation"
-status = "done"
-depends = ["sc-design.2"]
-
-[[tasks]]
-id = "sc-runtime.2"
-theme = "sc-runtime"
-title = "Experiment: BlockScope warp fork/join within a single thread block"
-kind = "experiment"
-status = "done"
-depends = ["sc-runtime.1"]
-
-[[tasks]]
-id = "sc-runtime.3"
-theme = "sc-runtime"
-title = "Experiment: GridScope cross-block coordination via global memory barriers"
-kind = "experiment"
-status = "done"
-depends = ["sc-runtime.1"]
-
-[[tasks]]
-id = "sc-runtime.4"
-theme = "sc-runtime"
-title = "Experiment: scopes compose with gpu::cooperative() — bridge old and new models"
-kind = "experiment"
-status = "done"
-depends = ["sc-runtime.2", "sc-resource.2"]
-
-# --- structured-concurrency: epic verification gap tasks ---
-
-[[tasks]]
-id = "sc-channel.4"
-theme = "sc-channel"
-title = "Experiment: unified GpuChannel<T> enum that auto-selects block/grid transport"
-kind = "experiment"
-status = "done"
-depends = ["sc-channel.2"]
-
-[[tasks]]
-id = "sc-design.5"
-theme = "sc-design"
-title = "Experiment: implement cancellation chain-walk — parent cancel propagates to children"
-kind = "experiment"
-status = "done"
-depends = ["sc-design.3", "sc-resource.2"]
-
-# --- kernel-perf: attention ---
-
-[[tasks]]
-id = "perf-attn-v3.3"
-theme = "perf-attn-v3"
-title = "Experiment: cooperative P·V accumulation + online softmax"
-kind = "experiment"
-status = "done"
-depends = ["perf-attn-v3.2"]
-
-[[tasks]]
-id = "perf-attn-v3.4"
-theme = "perf-attn-v3"
-title = "Experiment: benchmark, iterate until ≥70% cuDNN, integrate"
-kind = "experiment"
-status = "done"
-depends = ["perf-attn-v3.3"]
-
-[[tasks]]
-id = "perf-attention.3"
-theme = "perf-attention"
-title = "Experiment: tiled P·V accumulation + cp.async KV prefetch + warp softmax"
-kind = "experiment"
-status = "pending"
-depends = ["perf-attention.2"]
-
-[[tasks]]
-id = "perf-attention.4"
-theme = "perf-attention"
-title = "Experiment: benchmark + integrate into nn::ops::multi_head_flash_attention"
-kind = "experiment"
-status = "pending"
-depends = ["perf-attention.3"]
-
-# --- kernel-perf: conv ---
-
-[[tasks]]
-id = "perf-conv.2"
-theme = "perf-conv"
-title = "Experiment: implement Winograd 3×3 conv kernel with shared memory transforms"
-kind = "experiment"
-status = "done"
-depends = ["perf-conv.1", "perf-gemm.3"]
-
-[[tasks]]
-id = "perf-conv.3"
-theme = "perf-conv"
-title = "Experiment: direct conv kernel for 1×1, 5×5, 7×7 with register tiling"
-kind = "experiment"
-status = "done"
-depends = ["perf-gemm.3"]
-
-[[tasks]]
-id = "perf-conv.4"
-theme = "perf-conv"
-title = "Experiment: GPU-side batched conv (eliminate D2H/H2D round-trips)"
-kind = "experiment"
-status = "done"
-depends = ["perf-conv.2"]
-
-[[tasks]]
-id = "perf-conv.5"
-theme = "perf-conv"
-title = "Experiment: benchmark all conv shapes, integrate into nn::ops::conv2d"
-kind = "experiment"
-status = "done"
-depends = ["perf-conv.2", "perf-conv.3", "perf-conv.4"]
-
-# --- kernel-perf: layernorm ---
-
-[[tasks]]
-id = "perf-layernorm.2"
-theme = "perf-layernorm"
-title = "Experiment: float4 vectorized loads + fused residual-add variant"
-kind = "experiment"
-status = "done"
-depends = ["perf-layernorm.1"]
-
-[[tasks]]
-id = "perf-layernorm.3"
-theme = "perf-layernorm"
-title = "Experiment: benchmark + integrate into nn::ops::layer_norm"
-kind = "experiment"
-status = "done"
-depends = ["perf-layernorm.2"]
-
-# --- kernel-perf: elementwise ---
-
-[[tasks]]
-id = "perf-elementwise.2"
-theme = "perf-elementwise"
-title = "Experiment: benchmark all elementwise ops, integrate into nn::ops"
-kind = "experiment"
-status = "done"
-depends = ["perf-elementwise.1"]
-
-# --- kernel-perf: fusion ---
-
-[[tasks]]
-id = "perf-fusion.2"
-theme = "perf-fusion"
-title = "Experiment: integrate fused LN+residual into GPT-2, benchmark"
-kind = "experiment"
-status = "done"
-depends = ["perf-fusion.1"]
-
-# --- kernel-perf: GEMM V4 ---
-
-[[tasks]]
-id = "perf-gemm-v4.2"
-theme = "perf-gemm-v4"
-title = "Experiment: cp.async 3-stage pipeline (SM80+ async copy)"
-kind = "experiment"
-status = "parked"
-depends = ["perf-gemm-v4.1"]
-parked_reason = "cp.async requires SM80+; GTX 1660 is SM75"
-
-[[tasks]]
-id = "perf-gemm-v4.2.1"
-theme = "perf-gemm-v4"
-title = "Experiment: double-buffer shared memory SGEMM (SM75-compatible pipeline)"
-kind = "experiment"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "perf-gemm-v4.3"
-theme = "perf-gemm-v4"
-title = "Experiment: benchmark V4, integrate, verify ≥70% cuBLAS"
-kind = "experiment"
-status = "pending"
-depends = ["perf-gemm-v4.2.1"]
+# (SC and kernel-perf task entries removed — see archive/tasks-archived.toml)
 
 # --- conv-perf: winograd ---
 
@@ -1252,24 +627,6 @@ kind = "experiment"
 status = "pending"
 depends = ["conv-e2e.1"]
 
-# --- kernel-perf: end-to-end ---
-
-[[tasks]]
-id = "perf-e2e.1"
-theme = "perf-e2e"
-title = "Experiment: GPT-2 end-to-end benchmark with all optimized kernels"
-kind = "experiment"
-status = "done"
-depends = ["perf-gemm.5", "perf-attention.4", "perf-layernorm.3", "perf-elementwise.2"]
-
-[[tasks]]
-id = "perf-e2e.2"
-theme = "perf-e2e"
-title = "Experiment: YOLOv8-nano + ResNet-18 benchmark with optimized conv + elementwise"
-kind = "experiment"
-status = "pending"
-depends = ["perf-conv.5", "perf-elementwise.2"]
-
 # --- gpu-iterator: design ---
 
 [[tasks]]
@@ -1301,9 +658,9 @@ depends = ["iter-design.2"]
 [[tasks]]
 id = "iter-compiler.1"
 theme = "iter-compiler"
-title = "Experiment: MIR pass for map() — transform closure body into per-lane GPU code"
+title = "Experiment: implement GpuParallelIterator trait with map/for_each/collect_into"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["iter-design.3"]
 
 [[tasks]]
@@ -1391,7 +748,7 @@ id = "fusion-codegen.1"
 theme = "fusion-codegen"
 title = "Investigation: code generation strategies — template PTX vs NVRTC vs dynamic"
 kind = "investigation"
-status = "pending"
+status = "done"
 depends = ["fusion-analysis.2"]
 
 [[tasks]]
@@ -1575,6 +932,136 @@ title = "Experiment: real computation kernel with lifetime-based memory — zero
 kind = "experiment"
 status = "pending"
 depends = ["om-demo.1"]
+
+# --- developer-showcase: api ---
+
+[[tasks]]
+id = "showcase-api.1"
+theme = "showcase-api"
+title = "Investigation: audit async-gpu facade for all missing re-exports (SC, channels, executor)"
+kind = "investigation"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "showcase-api.2"
+theme = "showcase-api"
+title = "Experiment: add SC types + channels + executor to async-gpu facade re-exports"
+kind = "experiment"
+status = "pending"
+depends = ["showcase-api.1"]
+
+[[tasks]]
+id = "showcase-api.3"
+theme = "showcase-api"
+title = "Experiment: verify cargo doc --no-deps with new exports, fix any doc issues"
+kind = "experiment"
+status = "pending"
+depends = ["showcase-api.2"]
+
+# --- developer-showcase: structured concurrency ---
+
+[[tasks]]
+id = "showcase-sc.1"
+theme = "showcase-sc"
+title = "Experiment: create examples/hostcall/structured-concurrency/ — BlockScope producer-consumer"
+kind = "experiment"
+status = "pending"
+depends = ["showcase-api.2"]
+
+[[tasks]]
+id = "showcase-sc.2"
+theme = "showcase-sc"
+title = "Experiment: add GridScope multi-block reduce to SC example"
+kind = "experiment"
+status = "pending"
+depends = ["showcase-sc.1"]
+
+# --- developer-showcase: channels + executor ---
+
+[[tasks]]
+id = "showcase-channels.1"
+theme = "showcase-channels"
+title = "Experiment: create GPU channels example — oneshot + MPSC producer-consumer pipeline"
+kind = "experiment"
+status = "pending"
+depends = ["showcase-api.2"]
+
+[[tasks]]
+id = "showcase-channels.2"
+theme = "showcase-channels"
+title = "Experiment: create GPU executor example — spawn 4+ async tasks dynamically"
+kind = "experiment"
+status = "pending"
+depends = ["showcase-api.2"]
+
+# --- developer-showcase: example gap-fill ---
+
+[[tasks]]
+id = "showcase-examples.1"
+theme = "showcase-examples"
+title = "Investigation: scan all 42 completed epics — list features without clean public examples"
+kind = "investigation"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "showcase-examples.2"
+theme = "showcase-examples"
+title = "Experiment: clean up warp-cooperative as cooperative compute showcase"
+kind = "experiment"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "showcase-examples.3"
+theme = "showcase-examples"
+title = "Experiment: update benchmark example with latest perf numbers (SGEMM 90%, FA 47-60%)"
+kind = "experiment"
+status = "pending"
+depends = []
+
+# --- developer-showcase: readme ---
+
+[[tasks]]
+id = "showcase-readme.1"
+theme = "showcase-readme"
+title = "Experiment: write feature matrix — all GPU capabilities in one table"
+kind = "experiment"
+status = "pending"
+depends = ["showcase-examples.1"]
+
+[[tasks]]
+id = "showcase-readme.2"
+theme = "showcase-readme"
+title = "Experiment: write performance comparison table — vs cuBLAS/cuDNN with actual numbers"
+kind = "experiment"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "showcase-readme.3"
+theme = "showcase-readme"
+title = "Experiment: North Star hero example in README — File::read → matmul → File::write"
+kind = "experiment"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "showcase-readme.4"
+theme = "showcase-readme"
+title = "Experiment: progressive code snippets — hello → cooperative → SC pipeline"
+kind = "experiment"
+status = "pending"
+depends = ["showcase-sc.1"]
+
+[[tasks]]
+id = "showcase-readme.5"
+theme = "showcase-readme"
+title = "Experiment: update getting-started guide with SC, channels, executor sections"
+kind = "experiment"
+status = "pending"
+depends = ["showcase-sc.1", "showcase-channels.1"]
 
 # ============================================================
 # Brainstorms (last 2 — older → archive/)

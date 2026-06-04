@@ -635,6 +635,28 @@ pub mod sync;
 /// linear probing, performance degrades rapidly above 0.7 load factor.
 pub mod collections;
 
+/// GPU parallel iterator — lazy, fused, data-parallel iterator chains.
+///
+/// Provides a Rayon-like parallel iterator API for GPU kernels. Iterator
+/// chains are built lazily via adapter methods (`map`, `enumerate`, `zip`)
+/// and executed via terminal methods (`for_each`, `collect_into`, `fold`,
+/// `sum`). All closures are fused at compile time via monomorphization.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use gpu_runtime::par_iter::*;
+///
+/// let data = unsafe { GpuSlice::from_raw_parts(input_ptr, len) };
+/// let out = unsafe { GpuSliceMut::from_raw_parts(output_ptr, len) };
+///
+/// data.par_iter()
+///     .map(|x| x * 2.0)
+///     .map(|x| x + 1.0)
+///     .collect_into(out);
+/// ```
+pub mod par_iter;
+
 /// Prelude — import everything you need for a basic GPU kernel.
 ///
 /// The prelude exports high-level APIs for common tasks. For low-level

@@ -57,6 +57,12 @@ pub use crate::executor::{ExecutorError, ExecutorStats, GpuExecutor, TaskId};
 // --- Collections ---
 pub use crate::collections::GpuHashMap;
 
+// --- Parallel iterators ---
+pub use crate::par_iter::{
+    GpuMaxValue, GpuMinValue, GpuOne, GpuParIter, GpuParallelIterator, GpuSlice, GpuSliceMut,
+    GpuZero, SendPtr, SendPtrMut,
+};
+
 // --- Unified channels ---
 pub use crate::unified_channel::{
     ScopedMpscReceiver, ScopedMpscSendError, ScopedMpscSender, ScopedOneshotClosed,

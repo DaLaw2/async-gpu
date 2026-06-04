@@ -15,11 +15,11 @@ status = "running"     # ready | running | blocked | completed
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
 current_step = "dispatch"
-current_task_id = "sc-demo.2,sc-design.4"
+current_task_id = "sc-channel.3,sc-runtime.3"
 
 # Sequence counters
 brainstorm_seq = 115
-tasks_since_brainstorm = 14   # reset after brainstorm 114
+tasks_since_brainstorm = 16   # reset after brainstorm 114
 
 # ============================================================
 # Epics — Tiered (T0 → T3), sorted by tier then priority
@@ -917,7 +917,7 @@ id = "sc-channel.3"
 theme = "sc-channel"
 title = "Experiment: benchmark channel throughput across all three transport modes"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["sc-channel.2"]
 
 # --- structured-concurrency: demo ---
@@ -969,7 +969,7 @@ id = "sc-runtime.3"
 theme = "sc-runtime"
 title = "Experiment: GridScope cross-block coordination via global memory barriers"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["sc-runtime.1"]
 
 [[tasks]]

@@ -989,6 +989,49 @@ impl<'scope> GridScope<'scope> {
         unsafe { *self.expected_completions.get() }
     }
 
+    /// Allocate and initialize `count` work slots from the global memory pool.
+    ///
+    /// Returns a mutable slice of [`crate::grid_work::BlockWorkSlot`] ready
+    /// for use with [`dispatch_work_to_slot`](Self::dispatch_work_to_slot)
+    /// and [`crate::grid_work::grid_worker_loop`].
+    ///
+    /// All slots are zero-initialized with status set to
+    /// [`crate::grid_work::SLOT_IDLE`] via system-scope release stores.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the allocation would exceed the pool capacity.
+    pub fn alloc_work_slots(&self, count: usize) -> &'scope mut [crate::grid_work::BlockWorkSlot] {
+        let slots = self.alloc::<crate::grid_work::BlockWorkSlot>(count);
+        // alloc() already zeroes memory. Re-initialize with proper atomic
+        // release stores so worker blocks on other SMs see consistent state.
+        unsafe {
+            crate::grid_work::init_work_slots(slots);
+        }
+        slots
+    }
+
+    /// Dispatch work to a specific slot allocated by [`alloc_work_slots`](Self::alloc_work_slots).
+    ///
+    /// Writes the function pointer and arguments to the slot, then
+    /// transitions it to `WORK_AVAILABLE` via system-scope release store.
+    ///
+    /// The work function signature must be `fn(args: &[u64; 4]) -> u64`.
+    ///
+    /// # Safety
+    ///
+    /// - `slot` must be a slot returned by `alloc_work_slots` on this scope.
+    /// - `work_fn` must be a valid function pointer with the expected signature.
+    /// - The slot must be in IDLE or COMPLETED state.
+    pub unsafe fn dispatch_work_to_slot(
+        &self,
+        slot: &mut crate::grid_work::BlockWorkSlot,
+        work_fn: u64,
+        args: [u64; 4],
+    ) {
+        crate::grid_work::dispatch_work(slot, work_fn, args);
+    }
+
     /// Set the number of completions to wait for at scope exit.
     ///
     /// This is set by the user after dispatching work to blocks.

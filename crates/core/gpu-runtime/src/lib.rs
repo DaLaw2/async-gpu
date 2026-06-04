@@ -159,6 +159,31 @@ pub mod block;
 /// ```
 pub mod scope;
 
+/// Cross-block work coordination for GridScope.
+///
+/// Provides work-dispatch primitives that let a coordinator block distribute
+/// work to independently-scheduled worker blocks via global memory. Designed
+/// for SM75 without cooperative launch.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use gpu_runtime::scope::grid_scope;
+/// use gpu_runtime::grid_work::{self, BlockWorkSlot};
+///
+/// // Coordinator (block 0):
+/// unsafe {
+///     grid_scope(pool, pool_size, |gscope| {
+///         let slots = gscope.alloc_work_slots(num_workers);
+///         // dispatch work, wait for results...
+///     });
+/// }
+///
+/// // Worker (block N):
+/// unsafe { grid_work::grid_worker_loop(slot_ptr); }
+/// ```
+pub mod grid_work;
+
 /// Neural network building blocks — activation functions and warp-cooperative ops.
 ///
 /// # Example

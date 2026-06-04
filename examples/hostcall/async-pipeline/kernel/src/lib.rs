@@ -1,18 +1,18 @@
 //! Async Pipeline — warp-cooperative data pipeline with real I/O.
 //!
-//! Demonstrates `#[warp_cooperative] async fn` using real hostcall Futures:
+//! Demonstrates async fn using real hostcall Futures:
 //! 1. Open input file → read data
 //! 2. Transform on GPU (add 1 to each byte)
 //! 3. Open output file → write transformed data → close
 //!
 //! Each `.await` is a yield point where the MIR pass inserts warp convergence
 //! barriers (`bar.warp.sync`), allowing other warps to run during I/O wait.
+//! The MIR pass handles this automatically for all async fn on nvptx64 — no
+//! annotation needed.
 
 #![no_std]
 #![feature(abi_gpu_kernel)]
 #![feature(asm_experimental_arch)]
-#![feature(register_tool)]
-#![register_tool(warp_cooperative)]
 
 use gpu_runtime::prelude::*;
 use gpu_runtime::std_future::{
@@ -31,7 +31,6 @@ gpu_runtime::panic_handler!();
 /// 5 await points: open_read, read, close_read, open_write, write, close_write
 /// The MIR pass inserts `bar.warp.sync` at each, so all lanes in the warp
 /// yield together. Between awaits, compute runs in SIMT lockstep.
-#[warp_cooperative]
 pub async fn data_pipeline(buf: *mut u8) -> u32 {
     // Step 1: Open input file for reading
     let fd = match GpuOpenFuture::new(buf, b"pipeline_input.txt", FILE_OPEN_READ).await {
@@ -92,8 +91,8 @@ pub async fn data_pipeline(buf: *mut u8) -> u32 {
 
 /// Entry point: thread 0 runs the async pipeline via `block_on`.
 ///
-/// The `data_pipeline` async fn is compiled with `#[warp_cooperative]`, so the
-/// MIR pass inserts `bar.warp.sync` + `shfl.sync` at each `.await` point.
+/// The `data_pipeline` async fn is compiled with the MIR pass, which
+/// automatically inserts `bar.warp.sync` + `shfl.sync` at each `.await` point.
 /// In a multi-warp scenario, other warps can run compute while this warp
 /// waits for I/O responses.
 ///
@@ -124,7 +123,6 @@ pub unsafe extern "gpu-kernel" fn async_data_pipeline(buf: *mut u8, output: *mut
 /// Uses `GpuBulkReadFuture` and `GpuBulkWriteFuture` for large data transfers
 /// (up to sideband capacity, default 1MB) instead of the 48-byte packet payload.
 /// Each `.await` is a yield point with warp convergence barrier.
-#[warp_cooperative]
 pub async fn bulk_data_pipeline(buf: *mut u8, sideband: *mut u8) -> u32 {
     // Step 1: Open input file
     let fd = match GpuOpenFuture::new(buf, b"bulk_input.txt", FILE_OPEN_READ).await {

@@ -1,8 +1,6 @@
 #![no_std]
 #![feature(abi_gpu_kernel)]
 #![feature(asm_experimental_arch)]
-#![feature(register_attr)]
-#![register_attr(warp_cooperative)]
 
 use core::future::Future;
 use core::pin::Pin;
@@ -43,7 +41,6 @@ impl Future for YieldOnce {
 // This triggers shfl.sync discriminant broadcast in the MIR pass.
 // ---------------------------------------------------------------------------
 
-#[warp_cooperative]
 pub async fn multi_await(x: u32) -> u32 {
     let a = YieldOnce::new(x + 1).await;
     let b = YieldOnce::new(a + 10).await;
@@ -54,7 +51,6 @@ pub async fn multi_await(x: u32) -> u32 {
 // Simple async fn (no .await): single-state, only bar.warp.sync
 // ---------------------------------------------------------------------------
 
-#[warp_cooperative]
 pub async fn simple_add(x: u32) -> u32 {
     x + 1
 }
@@ -135,7 +131,6 @@ impl Future for SimClose {
 /// 6-await data pipeline: open → write → close → open → read → close
 /// Each .await yields the warp. The MIR pass inserts convergence barriers.
 /// Result = written * 1000 + read_back (expected: 29000 + 29 = 29029 for all lanes)
-#[warp_cooperative]
 pub async fn async_pipeline(tid: u32) -> u32 {
     // "Open for write" — yields once
     let _wfd = SimOpen::new(10 + tid).await;

@@ -372,8 +372,8 @@ pub unsafe extern "gpu-kernel" fn file_transform_pipeline(
 // async-pipeline.3: Branching Pipeline — conditional state transitions
 // ============================================================
 //
-// Demonstrates the key pattern that `#[warp_async]` cannot express:
-// conditional state transitions based on hostcall response values.
+// Demonstrates conditional state transitions based on hostcall response values.
+// (Originally hand-written; now achievable via standard async fn + MIR pass.)
 //
 // Logic:
 //   1. Try to OPEN "branch_test.txt" for reading

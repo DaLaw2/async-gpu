@@ -864,7 +864,7 @@ pub(crate) fn run_warp_scale_async_test(dev: Arc<CudaDevice>) -> Result<()> {
 
 pub(crate) fn run_autonomous_pipeline_test(dev: Arc<CudaDevice>) -> Result<()> {
     println!("\n--- Autonomous Pipeline (gpu-compute.2) ---");
-    println!("  GPU-driven multi-step compute with #[warp_async] control flow");
+    println!("  GPU-driven multi-step compute with warp-async control flow");
 
     let cfg = LaunchConfig {
         grid_dim: (1, 1, 1),
@@ -977,7 +977,7 @@ pub(crate) fn run_autonomous_pipeline_test(dev: Arc<CudaDevice>) -> Result<()> {
     println!("    - GPU autonomously chose processing paths via match");
     println!("    - GPU branched on hostcall results via if/else");
     println!("    - 13 total hostcall steps across 3 pipelines, zero host orchestration");
-    println!("    - #[warp_async] replaces 150+ lines of hand-written state machine");
+    println!("    - Proc-macro warp-async replaces 150+ lines of hand-written state machine");
     Ok(())
 }
 

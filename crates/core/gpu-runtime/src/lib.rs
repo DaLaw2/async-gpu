@@ -380,8 +380,8 @@ pub mod warp_future;
 /// single-threaded executor (Embassy, manual spin-poll, etc.).
 ///
 /// The key design insight: inner futures are standard per-thread futures.
-/// Warp cooperation is added by the CALLER's state machine (either
-/// `#[warp_async]` proc macro or a future `#[warp_cooperative]` rustc pass).
+/// Warp cooperation is added automatically by the rustc MIR pass for all
+/// async fn on nvptx64 (no annotation needed).
 ///
 /// # Example
 ///
@@ -416,8 +416,8 @@ pub mod warp_cooperative;
 /// (warp-cooperatively), then runs F2 to completion. All lanes
 /// stay converged throughout.
 ///
-/// This is the manual proof of what `#[warp_cooperative] async fn` will
-/// eventually generate automatically.
+/// This is the manual proof of what the MIR pass now generates
+/// automatically for all async fn on nvptx64.
 pub mod warp_sequential;
 
 /// Warp-cooperative Result broadcasting for `? operator` across .await boundaries.

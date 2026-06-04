@@ -51,6 +51,8 @@ Kernel entry uses `extern "gpu-kernel"` — no custom attribute macros needed. A
 
 ## Quick Start
 
+> **New here?** The [Getting Started Guide](docs/getting-started.md) walks you through writing and running your first GPU kernel in under 30 minutes.
+
 ### Prerequisites
 
 - [Rust](https://rustup.rs/) with nightly toolchain: `rustup toolchain install nightly-2026-06-03`

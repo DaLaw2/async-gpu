@@ -62,8 +62,9 @@
 //! - [`error`] — Error types ([`GpuHostError`])
 //!
 //! # Optional modules (feature-gated)
-//! - `model` — GPT-2 weight loading from safetensors (feature = `gpt2`)
-//! - `tokenizer` — GPT-2 BPE tokenizer (feature = `gpt2`)
+//! - `nn` — Neural network module: tensors, layers, ops, autograd, pre-built models (feature = `nn`)
+//! - `async_rt` — Tokio async/await integration (feature = `async`)
+//! - [`streams`] — CUDA stream overlap support
 
 #![warn(missing_docs)]
 #![allow(clippy::needless_range_loop)]
@@ -74,6 +75,9 @@ pub mod hostcall;
 ///
 /// Provides pinned device-mapped host memory allocation used by hostcall buffers,
 /// command buffers, and other CUDA memory primitives.
+///
+/// Most users should use [`MappedBuffer`] instead of these raw allocation functions.
+#[doc(hidden)]
 pub mod mapped_mem;
 pub mod memory;
 pub mod runtime;
@@ -169,6 +173,8 @@ pub mod cubin {
 }
 
 // Convenience re-exports for common types.
+
+/// One-liner GPU launch API — `gpu::run()`, `gpu::launch()`, `gpu::custom()`.
 pub mod gpu;
 pub use error::{GpuHostError, Result};
 pub use hostcall::{HostcallBuffer, HostcallSession, Pipeline};
@@ -189,6 +195,7 @@ pub use runtime::GpuRuntime;
 /// let dir = gpu_host::model_dir(Some(env!("CARGO_MANIFEST_DIR")));
 /// let gpt2 = dir.join("model.safetensors");
 /// ```
+#[doc(hidden)]
 pub fn model_dir(start: Option<&str>) -> std::path::PathBuf {
     // 1. Env var override
     if let Ok(dir) = std::env::var("ASYNC_GPU_MODELS") {

@@ -14,8 +14,8 @@ status = "running"     # ready | running | blocked | completed
 # No GPU concepts leak. VectorWare's I/O strength + async-gpu's compute strength, unified.
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
-current_step = "do.execute"
-current_task_id = "lib-cleanup.5,lib-toolchain.2,perf-gemm-v4.2.1"
+current_step = "do.save"
+current_task_id = ""
 
 # Sequence counters
 brainstorm_seq = 114
@@ -294,7 +294,7 @@ success_criteria = [
 id = "lib-cleanup"
 epic = "library-api"
 title = "Clean public API surface — hide internals, remove dead code"
-status = "active"
+status = "completed"
 goal = "cargo doc produces useful API docs"
 success_criteria = [
     "Internal modules pub(crate), protocol constants in submodules",
@@ -316,7 +316,7 @@ success_criteria = [
 id = "lib-docs"
 epic = "library-api"
 title = "Getting-started guide + rustdoc"
-status = "active"
+status = "completed"
 goal = "New user writes working GPU program in 30 min"
 success_criteria = [
     "Getting-started guide in docs/ or README",
@@ -355,7 +355,7 @@ id = "lib-cleanup.6"
 theme = "lib-cleanup"
 title = "Experiment: verify cargo doc --no-deps produces clean API docs"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["lib-cleanup.5"]
 
 # cooperative-compute themes/tasks archived — epic completed
@@ -376,7 +376,7 @@ id = "lib-docs.2"
 theme = "lib-docs"
 title = "Experiment: write getting-started guide + rustdoc examples"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["lib-docs.1", "lib-cleanup.6"]
 
 # --- kernel-perf themes ---

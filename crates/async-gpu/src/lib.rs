@@ -75,6 +75,7 @@ pub use gpu_host::Pipeline;
 pub use gpu_host::streams::GpuStream;
 
 /// Returns the path to the workspace `models/` directory.
+#[doc(hidden)]
 pub use gpu_host::model_dir;
 
 // ============================================================

@@ -9,18 +9,24 @@ use crate::nn::registry::KernelRegistry;
 use crate::nn::tensor::GpuTensor;
 
 /// GELU activation: y = x * 0.5 * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3))).
+///
+/// Uses vectorized V2 kernel (4 elements per thread) for higher throughput.
 pub fn gelu(input: &GpuTensor, registry: &Arc<KernelRegistry>) -> Result<GpuTensor> {
-    elementwise_activation(input, "gelu_forward", registry)
+    elementwise_activation(input, "gelu_forward_v2", registry)
 }
 
 /// SiLU (Swish) activation: y = x * sigmoid(x) = x / (1 + exp(-x)).
+///
+/// Uses vectorized V2 kernel (4 elements per thread) for higher throughput.
 pub fn silu(input: &GpuTensor, registry: &Arc<KernelRegistry>) -> Result<GpuTensor> {
-    elementwise_activation(input, "silu_forward", registry)
+    elementwise_activation(input, "silu_forward_v2", registry)
 }
 
 /// Sigmoid activation: y = 1 / (1 + exp(-x)).
+///
+/// Uses vectorized V2 kernel (4 elements per thread) for higher throughput.
 pub fn sigmoid(input: &GpuTensor, registry: &Arc<KernelRegistry>) -> Result<GpuTensor> {
-    elementwise_activation(input, "sigmoid_forward", registry)
+    elementwise_activation(input, "sigmoid_forward_v2", registry)
 }
 
 /// ReLU activation: y = max(0, x).
@@ -105,8 +111,8 @@ fn elementwise_activation(
     if input.requires_grad() {
         let op = match kernel_name {
             "gelu_forward" | "gelu_forward_v2" => crate::nn::autograd::OpKind::Gelu,
-            "silu_forward" => crate::nn::autograd::OpKind::Silu,
-            "sigmoid_forward" => crate::nn::autograd::OpKind::Sigmoid,
+            "silu_forward" | "silu_forward_v2" => crate::nn::autograd::OpKind::Silu,
+            "sigmoid_forward" | "sigmoid_forward_v2" => crate::nn::autograd::OpKind::Sigmoid,
             _ => crate::nn::autograd::OpKind::Relu,
         };
         if let Some(out_id) = crate::nn::autograd::alloc_tensor_id() {

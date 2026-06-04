@@ -17,8 +17,10 @@
 //   - Block dim = (C_in_chunk, C_out_chunk) threads for parallelism
 //   - Uses shared memory for input/filter transforms
 //
-// This kernel processes ONE sample at a time (no batch dim).
-// Host-side loops over batch.
+// Supports both single-sample and batched modes:
+//   - Single: input [C_in, H, W], output [C_out, H_out, W_out], batch_size=1
+//   - Batched: input [N, C_in, H, W], output [N, C_out, H_out, W_out], batch_size=N
+// In batched mode, grid.z encodes the batch index.
 
 extern "C" __global__ void winograd_filter_transform(
     const float* __restrict__ filter,   // [C_out, C_in, 3, 3]
@@ -103,9 +105,9 @@ extern "C" __global__ void winograd_filter_transform(
 }
 
 extern "C" __global__ void winograd_conv2d_f2x2(
-    const float* __restrict__ input,         // [C_in, H, W]
+    const float* __restrict__ input,         // [C_in, H, W] or [N, C_in, H, W]
     const float* __restrict__ filter_wino,   // [16, C_out, C_in] (pre-transformed)
-    float* __restrict__ output,              // [C_out, H_out, W_out]
+    float* __restrict__ output,              // [C_out, H_out, W_out] or [N, C_out, H_out, W_out]
     unsigned int C_in,
     unsigned int C_out,
     unsigned int H,
@@ -116,16 +118,18 @@ extern "C" __global__ void winograd_conv2d_f2x2(
     unsigned int n_tile_y,   // number of output tiles in y (height) direction
     unsigned int padding
 ) {
-    // Grid: (n_tiles, C_out_blocks, 1)
+    // Grid: (n_tiles, C_out_blocks, batch_size)
     // Block: (TILE_C_OUT, 1, 1) where TILE_C_OUT threads each handle one c_out
     //
-    // Each thread computes one 2×2 output tile for one output channel.
+    // Each thread computes one 2×2 output tile for one output channel and one batch sample.
     // The thread loops over all C_in channels, accumulating in Winograd domain.
+    // For single-sample mode, grid.z = 1. For batched mode, grid.z = N.
 
     const unsigned int TILE_C_OUT = 32;
 
     unsigned int tile_idx = blockIdx.x;  // which spatial tile
     unsigned int co_block = blockIdx.y;  // which block of output channels
+    unsigned int batch_idx = blockIdx.z; // which batch sample
     unsigned int co_local = threadIdx.x; // thread within block
 
     unsigned int co = co_block * TILE_C_OUT + co_local;
@@ -145,7 +149,10 @@ extern "C" __global__ void winograd_conv2d_f2x2(
     int in_y = (int)(out_y) - (int)padding;
     int in_x = (int)(out_x) - (int)padding;
 
-    // Shared memory for input tile transforms across all C_in
+    // Per-sample offsets into input/output arrays
+    unsigned int in_sample_offset = batch_idx * C_in * H * W;
+    unsigned int out_sample_offset = batch_idx * C_out * H_out * W_out;
+
     // Each thread accumulates 16 Winograd-domain values
     float m[16];
     for (int k = 0; k < 16; k++) m[k] = 0.0f;
@@ -160,7 +167,7 @@ extern "C" __global__ void winograd_conv2d_f2x2(
                 int iy = in_y + r;
                 int ix = in_x + c;
                 if (iy >= 0 && iy < (int)H && ix >= 0 && ix < (int)W) {
-                    d[r][c] = input[ci * H * W + iy * W + ix];
+                    d[r][c] = input[in_sample_offset + ci * H * W + iy * W + ix];
                 } else {
                     d[r][c] = 0.0f;
                 }
@@ -225,13 +232,14 @@ extern "C" __global__ void winograd_conv2d_f2x2(
     float y10 = at_m[1][0] + at_m[1][1] + at_m[1][2];
     float y11 = at_m[1][1] - at_m[1][2] - at_m[1][3];
 
-    // Write 2×2 output tile
+    // Write 2×2 output tile (offset by batch sample)
+    unsigned int out_base = out_sample_offset + co * H_out * W_out;
     if (out_y < H_out && out_x < W_out)
-        output[co * H_out * W_out + out_y * W_out + out_x] = y00;
+        output[out_base + out_y * W_out + out_x] = y00;
     if (out_y < H_out && out_x + 1 < W_out)
-        output[co * H_out * W_out + out_y * W_out + out_x + 1] = y01;
+        output[out_base + out_y * W_out + out_x + 1] = y01;
     if (out_y + 1 < H_out && out_x < W_out)
-        output[co * H_out * W_out + (out_y + 1) * W_out + out_x] = y10;
+        output[out_base + (out_y + 1) * W_out + out_x] = y10;
     if (out_y + 1 < H_out && out_x + 1 < W_out)
-        output[co * H_out * W_out + (out_y + 1) * W_out + out_x + 1] = y11;
+        output[out_base + (out_y + 1) * W_out + out_x + 1] = y11;
 }

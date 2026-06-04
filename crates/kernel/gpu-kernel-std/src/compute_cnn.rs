@@ -100,6 +100,70 @@ pub unsafe extern "gpu-kernel" fn silu_forward(
 }
 
 // ============================================================
+// Vectorized SiLU V2 — 4 elements per thread
+// ============================================================
+
+/// Vectorized SiLU: y = x * sigmoid(x), 4 elements per thread.
+///
+/// grid_dim = (ceil(n/1024), 1, 1), block_dim = (256, 1, 1).
+#[no_mangle]
+pub unsafe extern "gpu-kernel" fn silu_forward_v2(
+    input: *const f32,
+    output: *mut f32,
+    n: u32,
+    status: *mut u32,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let block_x = nvptx::_block_idx_x() as u32;
+        let base = (block_x * 256 + tid) * 4;
+
+        if base + 3 < n {
+            let x0 = *input.add(base as usize);
+            let x1 = *input.add((base + 1) as usize);
+            let x2 = *input.add((base + 2) as usize);
+            let x3 = *input.add((base + 3) as usize);
+
+            let s0 = 1.0 / (1.0 + gpu_exp_f32(-x0));
+            let s1 = 1.0 / (1.0 + gpu_exp_f32(-x1));
+            let s2 = 1.0 / (1.0 + gpu_exp_f32(-x2));
+            let s3 = 1.0 / (1.0 + gpu_exp_f32(-x3));
+
+            *output.add(base as usize) = x0 * s0;
+            *output.add((base + 1) as usize) = x1 * s1;
+            *output.add((base + 2) as usize) = x2 * s2;
+            *output.add((base + 3) as usize) = x3 * s3;
+        } else {
+            let mut i = 0u32;
+            while i < 4 {
+                let idx = base + i;
+                if idx < n {
+                    let x = *input.add(idx as usize);
+                    let s = 1.0 / (1.0 + gpu_exp_f32(-x));
+                    *output.add(idx as usize) = x * s;
+                }
+                i += 1;
+            }
+        }
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (input, output, n);
+    }
+
+    if tid == 0 {
+        let _prev: u32;
+        core::arch::asm!(
+            "atom.global.add.u32 {prev}, [{addr}], 1;",
+            prev = out(reg32) _prev,
+            addr = in(reg64) status,
+        );
+    }
+}
+
+// ============================================================
 // im2col kernel (yolo-inference.2)
 // ============================================================
 
@@ -387,6 +451,64 @@ pub unsafe extern "gpu-kernel" fn sigmoid_forward(
 
     if tid == 0 {
         *status = 0;
+    }
+}
+
+// ============================================================
+// Vectorized Sigmoid V2 — 4 elements per thread
+// ============================================================
+
+/// Vectorized sigmoid: y = 1 / (1 + exp(-x)), 4 elements per thread.
+///
+/// grid_dim = (ceil(n/1024), 1, 1), block_dim = (256, 1, 1).
+#[no_mangle]
+pub unsafe extern "gpu-kernel" fn sigmoid_forward_v2(
+    input: *const f32,
+    output: *mut f32,
+    n: u32,
+    status: *mut u32,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let block_x = nvptx::_block_idx_x() as u32;
+        let base = (block_x * 256 + tid) * 4;
+
+        if base + 3 < n {
+            let x0 = *input.add(base as usize);
+            let x1 = *input.add((base + 1) as usize);
+            let x2 = *input.add((base + 2) as usize);
+            let x3 = *input.add((base + 3) as usize);
+
+            *output.add(base as usize) = 1.0 / (1.0 + gpu_exp_f32(-x0));
+            *output.add((base + 1) as usize) = 1.0 / (1.0 + gpu_exp_f32(-x1));
+            *output.add((base + 2) as usize) = 1.0 / (1.0 + gpu_exp_f32(-x2));
+            *output.add((base + 3) as usize) = 1.0 / (1.0 + gpu_exp_f32(-x3));
+        } else {
+            let mut i = 0u32;
+            while i < 4 {
+                let idx = base + i;
+                if idx < n {
+                    let x = *input.add(idx as usize);
+                    *output.add(idx as usize) = 1.0 / (1.0 + gpu_exp_f32(-x));
+                }
+                i += 1;
+            }
+        }
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (input, output, n);
+    }
+
+    if tid == 0 {
+        let _prev: u32;
+        core::arch::asm!(
+            "atom.global.add.u32 {prev}, [{addr}], 1;",
+            prev = out(reg32) _prev,
+            addr = in(reg64) status,
+        );
     }
 }
 

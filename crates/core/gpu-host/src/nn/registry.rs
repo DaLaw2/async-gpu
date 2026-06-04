@@ -35,11 +35,13 @@ const ML_KERNELS: &[&str] = &[
     // CNN ops (compute_cnn.rs)
     "batchnorm_silu",
     "silu_forward",
+    "silu_forward_v2",
     "im2col",
     "maxpool2d",
     "upsample_nearest_2x",
     "concat_channels",
     "sigmoid_forward",
+    "sigmoid_forward_v2",
     "bias_add_chw",
     "elementwise_mul",
     "elementwise_sub",

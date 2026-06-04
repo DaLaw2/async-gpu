@@ -269,7 +269,9 @@ pub fn conv2d(
 
 /// Batched conv2d: input [N, C_in, H, W] → output [N, C_out, H_out, W_out].
 ///
-/// Runs im2col per sample, concatenates columns, then ONE matmul.
+/// Routes to optimized single-launch kernels for each conv variant.
+/// Fallback im2col path runs im2col + transpose per sample on GPU,
+/// then ONE big matmul for all samples combined.
 #[allow(clippy::too_many_arguments)]
 fn conv2d_batched(
     input: &GpuTensor,
@@ -287,37 +289,38 @@ fn conv2d_batched(
     let kh = weight.shape()[2];
     let kw = weight.shape()[3];
 
-    // Route 1×1 batched convolutions through GEMM per-sample.
+    // Route 1×1 batched convolutions through single-launch GEMM.
     if kh == 1 && kw == 1 {
         return conv2d_batched_direct(input, weight, bias, stride, padding, registry, true);
     }
 
-    // Route 3×3 stride=1 batched convolutions through Winograd per-sample.
+    // Route 3×3 stride=1 batched convolutions through single-launch Winograd.
     #[cfg(feature = "cublas")]
     if kh == 3 && kw == 3 && stride == 1 {
         return conv2d_batched_winograd(input, weight, bias, padding, registry);
     }
 
-    // Route 5×5, 7×7 (and other non-3×3) batched convolutions through direct conv.
+    // Route 5×5, 7×7 (and other non-3×3) batched convolutions through
+    // single-launch direct conv.
     #[cfg(feature = "cublas")]
     if kh * kw > 1 {
         return conv2d_batched_direct(input, weight, bias, stride, padding, registry, false);
     }
 
+    // Fallback: im2col path (no cublas feature, non-1×1 kernel)
+    // Run im2col + GPU transpose per sample, assemble on host,
+    // then ONE big matmul for all samples combined.
     let h_out = (h + 2 * padding - kh) / stride + 1;
     let w_out = (w + 2 * padding - kw) / stride + 1;
     let col_h = c_in * kh * kw;
     let col_w = h_out * w_out;
 
     let dev = registry.device();
-    let input_host = input.to_host()?;
-
-    // im2col per sample, collect columns into [K, batch*col_w] layout.
-    // Target layout: all_cols_t[k * big_col_w + b * col_w + s] for batch b,
-    // K-row k, spatial position s.
-    let big_col_w = batch * col_w;
-    let mut all_cols_t = vec![0.0f32; col_h * big_col_w];
     let status_dev = dev.htod_sync_copy(&[0u32])?;
+
+    let big_col_w = batch * col_w;
+    let input_host = input.to_host()?;
+    let mut all_cols_t = vec![0.0f32; col_h * big_col_w];
 
     for b in 0..batch {
         let sample = &input_host[b * c_in * h * w..(b + 1) * c_in * h * w];
@@ -349,21 +352,40 @@ fn conv2d_batched(
             .map_err(NnError::Cuda)?;
         }
 
-        // Transpose from [spatial, K] to [K, spatial] and place into
-        // the correct batch-column slice of the big matrix.
-        let col_raw = dev.dtoh_sync_copy(&col_dev)?;
-        for s in 0..col_w {
-            for k in 0..col_h {
-                all_cols_t[k * big_col_w + b * col_w + s] = col_raw[s * col_h + k];
-            }
+        // Transpose on GPU, then download
+        let mut col_transposed = dev.alloc_zeros::<f32>(col_h * col_w)?;
+        let f_transpose = registry.get("matrix_transpose")?;
+        let transpose_total = (col_w * col_h) as u32;
+        let transpose_cfg = KernelRegistry::config_1d(transpose_total);
+        unsafe {
+            f_transpose
+                .launch(
+                    transpose_cfg,
+                    (
+                        &col_dev,
+                        &mut col_transposed,
+                        col_w as u32,
+                        col_h as u32,
+                        &status_dev,
+                    ),
+                )
+                .map_err(NnError::Cuda)?;
+        }
+
+        // Download transposed column and place into big matrix
+        let col_t_host = dev.dtoh_sync_copy(&col_transposed)?;
+        for k in 0..col_h {
+            let dst_start = k * big_col_w + b * col_w;
+            let src_start = k * col_w;
+            all_cols_t[dst_start..dst_start + col_w]
+                .copy_from_slice(&col_t_host[src_start..src_start + col_w]);
         }
     }
 
     // ONE big matmul: W[c_out, K] × BigCol[K, batch*spatial]
-    let w_host = weight.to_host()?;
-    let w_tensor = GpuTensor::from_host(&w_host, &[c_out, col_h], dev)?;
+    let w_reshaped = weight.reshape(&[c_out, col_h])?;
     let big_col = GpuTensor::from_host(&all_cols_t, &[col_h, big_col_w], dev)?;
-    let gemm_out = super::matmul(&w_tensor, &big_col, registry)?;
+    let gemm_out = super::matmul(&w_reshaped, &big_col, registry)?;
 
     // Result [c_out, batch*spatial] → [batch, c_out, h_out, w_out]
     let mut result = gemm_out.to_host()?;
@@ -380,12 +402,10 @@ fn conv2d_batched(
     }
 
     // Reshape from [c_out, batch*spatial] to [batch, c_out, h_out, w_out]
-    // The GEMM output is [c_out, batch*col_w]. We need to rearrange.
     let mut output_data = vec![0.0f32; batch * c_out * h_out * w_out];
     for b in 0..batch {
         for ch in 0..c_out {
             for s in 0..col_w {
-                // GEMM result: result[ch * big_col_w + b * col_w + s]
                 output_data[b * c_out * col_w + ch * col_w + s] =
                     result[ch * big_col_w + b * col_w + s];
             }
@@ -427,8 +447,11 @@ fn conv2d_batched(
     Ok(output)
 }
 
-/// Batched Winograd F(2×2, 3×3): processes each sample through the Winograd path,
-/// then assembles into `[N, C_out, H_out, W_out]`.
+/// Batched Winograd F(2×2, 3×3): single kernel launch for all N samples.
+///
+/// Input `[N, C_in, H, W]` → output `[N, C_out, H_out, W_out]`.
+/// The Winograd kernel uses `grid.z = N` to process all batch samples
+/// in one launch, eliminating per-sample launch overhead.
 #[cfg(feature = "cublas")]
 fn conv2d_batched_winograd(
     input: &GpuTensor,
@@ -442,25 +465,12 @@ fn conv2d_batched_winograd(
     let h = input.shape()[2];
     let w = input.shape()[3];
     let c_out = weight.shape()[0];
-    let h_out = h + 2 * padding - 2; // stride=1, kh=3
-    let w_out = w + 2 * padding - 2;
 
     let dev = registry.device();
-    let sample_out_size = c_out * h_out * w_out;
-    let mut output_host = vec![0.0f32; batch * sample_out_size];
-    let input_host = input.to_host()?;
 
-    for b in 0..batch {
-        let sample_start = b * c_in * h * w;
-        let sample_end = sample_start + c_in * h * w;
-        let sample =
-            GpuTensor::from_host(&input_host[sample_start..sample_end], &[c_in, h, w], dev)?;
-        let result = conv2d_winograd_f2x2(&sample, weight, bias, padding, dev)?;
-        let result_host = result.to_host()?;
-        output_host[b * sample_out_size..(b + 1) * sample_out_size].copy_from_slice(&result_host);
-    }
-
-    let mut output = GpuTensor::from_host(&output_host, &[batch, c_out, h_out, w_out], dev)?;
+    // Single-launch batched Winograd: input/output treated as contiguous
+    // [N, C_in, H, W] / [N, C_out, H_out, W_out] with batch offset in kernel.
+    let mut output = conv2d_winograd_f2x2_impl(input, weight, bias, padding, dev, batch)?;
 
     // Record on autograd tape
     if input.requires_grad() {
@@ -570,28 +580,159 @@ fn conv2d_1x1(
     }
 }
 
+/// Batched 1×1 convolution as a single matrix multiplication.
+///
+/// Input `[N, C_in, H, W]` is reshaped to `[C_in, N*H*W]`, then a single
+/// matmul `W[C_out, C_in] × input[C_in, N*H*W]` produces `[C_out, N*H*W]`.
+/// The result is rearranged to `[N, C_out, H_out, W_out]`.
+///
+/// For stride=1, padding=0 (the common case), no rearrangement is needed
+/// beyond reshaping.
+fn conv2d_1x1_batched(
+    input: &GpuTensor,
+    weight: &GpuTensor,
+    bias: Option<&GpuTensor>,
+    stride: usize,
+    padding: usize,
+    registry: &Arc<KernelRegistry>,
+) -> Result<GpuTensor> {
+    let batch = input.shape()[0];
+    let c_in = input.shape()[1];
+    let h = input.shape()[2];
+    let w = input.shape()[3];
+    let c_out = weight.shape()[0];
+
+    let h_out = (h + 2 * padding - 1) / stride + 1;
+    let w_out = (w + 2 * padding - 1) / stride + 1;
+
+    // Reshape weight from [C_out, C_in, 1, 1] to [C_out, C_in]
+    let w_2d = weight.reshape(&[c_out, c_in])?;
+
+    if stride == 1 && padding == 0 {
+        // Fast path: input [N, C_in, H, W] is contiguous as [C_in, N*H*W]
+        // when we treat batch and spatial dims together.
+        // However, the memory layout is [N][C_in][H][W], so to get [C_in][N*H*W]
+        // we need to transpose batch and channel dims.
+        //
+        // Actually, input layout: for sample b, channel c, row r, col k:
+        //   input[b * C_in*H*W + c * H*W + r * W + k]
+        //
+        // We want matrix [C_in, N*H*W] where column (b*H*W + r*W + k) has all C_in values.
+        // This means: result[c][b*H*W + r*W + k] = input[b][c][r][k]
+        //
+        // The input is stored as [b][c][h][w], so for a fixed (b, h, w), the C_in values
+        // are NOT contiguous — they're strided by H*W.
+        //
+        // Approach: transpose input from [N, C_in, H, W] to [C_in, N, H, W] = [C_in, N*H*W]
+        // using the existing transpose op.
+        let input_transposed = input.transpose(0, 1)?;
+        // input_transposed is [C_in, N, H, W], contiguous
+        let input_2d = input_transposed.reshape(&[c_in, batch * h * w])?;
+        let gemm_out = super::matmul(&w_2d, &input_2d, registry)?;
+        // gemm_out is [C_out, N*H*W] = [C_out, N, H, W] in memory
+        // Reshape to [C_out, N, H_out, W_out], then transpose to [N, C_out, H_out, W_out]
+        let gemm_reshaped = gemm_out.reshape(&[c_out, batch, h_out, w_out])?;
+        let mut output = gemm_reshaped.transpose(0, 1)?;
+
+        if let Some(bias_tensor) = bias {
+            // Bias add: broadcast bias[C_out] across batch and spatial dims
+            let bias_host = bias_tensor.to_host()?;
+            let mut out_host = output.to_host()?;
+            for b in 0..batch {
+                let sample_offset = b * c_out * h_out * w_out;
+                for co in 0..c_out {
+                    let bv = bias_host[co];
+                    let base = sample_offset + co * h_out * w_out;
+                    for i in 0..h_out * w_out {
+                        out_host[base + i] += bv;
+                    }
+                }
+            }
+            let dev = registry.device();
+            output = GpuTensor::from_host(&out_host, &[batch, c_out, h_out, w_out], dev)?;
+        }
+        Ok(output)
+    } else {
+        // Stride > 1 or padding > 0: transpose + full matmul + subsample
+        let input_transposed = input.transpose(0, 1)?;
+        let input_2d = input_transposed.reshape(&[c_in, batch * h * w])?;
+        let gemm_out = super::matmul(&w_2d, &input_2d, registry)?;
+        // gemm_out is [C_out, N*H*W], reshape to [C_out, N, H, W]
+        let gemm_reshaped = gemm_out.reshape(&[c_out, batch, h, w])?;
+        // Transpose to [N, C_out, H, W]
+        let full_out = gemm_reshaped.transpose(0, 1)?;
+
+        // Subsample on host (padding + stride for 1x1 is rare, correctness > speed)
+        let full_host = full_out.to_host()?;
+        let mut output_data = vec![0.0f32; batch * c_out * h_out * w_out];
+        for b in 0..batch {
+            for co in 0..c_out {
+                for oh in 0..h_out {
+                    for ow in 0..w_out {
+                        let ih = oh * stride;
+                        let iw = ow * stride;
+                        let ih = ih as isize - padding as isize;
+                        let iw = iw as isize - padding as isize;
+                        if ih >= 0 && ih < h as isize && iw >= 0 && iw < w as isize {
+                            output_data[b * c_out * h_out * w_out
+                                + co * h_out * w_out
+                                + oh * w_out
+                                + ow] = full_host
+                                [b * c_out * h * w + co * h * w + ih as usize * w + iw as usize];
+                        }
+                    }
+                }
+            }
+        }
+        let dev = registry.device();
+        let mut output = GpuTensor::from_host(&output_data, &[batch, c_out, h_out, w_out], dev)?;
+
+        if let Some(bias_tensor) = bias {
+            let bias_host = bias_tensor.to_host()?;
+            let mut out_host = output.to_host()?;
+            for b in 0..batch {
+                let sample_offset = b * c_out * h_out * w_out;
+                for co in 0..c_out {
+                    let bv = bias_host[co];
+                    let base = sample_offset + co * h_out * w_out;
+                    for i in 0..h_out * w_out {
+                        out_host[base + i] += bv;
+                    }
+                }
+            }
+            output = GpuTensor::from_host(&out_host, &[batch, c_out, h_out, w_out], dev)?;
+        }
+        Ok(output)
+    }
+}
+
 /// Direct convolution CUDA kernel source (NVRTC compiled).
 ///
 /// Handles arbitrary kernel sizes (5×5, 7×7, etc.) with register tiling.
-/// Each thread computes a 2×2 output tile. Input tiles are loaded to shared
+/// Each thread computes one output element. Input tiles are loaded to shared
 /// memory, filter weights are loaded per-thread into registers.
+///
+/// Supports both single-sample and batched modes via `batch_size` parameter.
+/// In batched mode, `blockIdx.z` encodes `batch_idx * C_out + c_out`.
 ///
 /// This avoids im2col's memory expansion (25× for 5×5, 49× for 7×7).
 #[cfg(feature = "cublas")]
 static DIRECT_CONV_SRC: &str = r#"
-// Direct convolution kernel with shared memory input tiling.
+// Direct convolution kernel with batching support.
 //
-// Grid:  (ceil(W_out / TW), ceil(H_out / TH), C_out)
+// Grid:  (ceil(W_out / TW), ceil(H_out / TH), batch_size * C_out)
 // Block: (TW, TH, 1)  where TW=16, TH=16
 //
+// blockIdx.z = batch_idx * C_out + c_out
+//
 // Each thread computes ONE output element.
-// Input tile loaded to shared memory. Filter weights in registers.
+// Filter weights in registers.
 //
 // Parameters:
-//   input:   [C_in, H, W]      (row-major)
+//   input:   [N, C_in, H, W] (row-major, or [C_in, H, W] when N=1)
 //   weight:  [C_out, C_in, KH, KW] (row-major)
 //   bias:    [C_out] or nullptr
-//   output:  [C_out, H_out, W_out] (row-major)
+//   output:  [N, C_out, H_out, W_out] (row-major, or [C_out, H_out, W_out] when N=1)
 
 #define TILE_W 16
 #define TILE_H 16
@@ -612,16 +753,16 @@ extern "C" __global__ void direct_conv2d(
     // Output element this thread computes
     unsigned int ow = blockIdx.x * TILE_W + threadIdx.x;
     unsigned int oh = blockIdx.y * TILE_H + threadIdx.y;
-    unsigned int co = blockIdx.z;
 
-    if (ow >= W_out || oh >= H_out || co >= C_out) return;
+    // Decode batch index and output channel from blockIdx.z
+    unsigned int batch_idx = blockIdx.z / C_out;
+    unsigned int co = blockIdx.z % C_out;
 
-    // Input tile dimensions needed for this output tile
-    // The input region for this output tile spans:
-    //   rows: [oh*stride - padding, oh*stride - padding + KH - 1 + (TILE_H-1)*stride]
-    //   cols: [ow*stride - padding, ow*stride - padding + KW - 1 + (TILE_W-1)*stride]
-    // But we process one output element per thread, so we iterate over C_in
-    // and accumulate in registers.
+    if (ow >= W_out || oh >= H_out) return;
+
+    // Per-sample offsets
+    unsigned int in_sample_offset = batch_idx * C_in * H * W;
+    unsigned int out_sample_offset = batch_idx * C_out * H_out * W_out;
 
     float acc = 0.0f;
 
@@ -637,7 +778,7 @@ extern "C" __global__ void direct_conv2d(
                 int iw = (int)(ow * stride + fw) - (int)padding;
 
                 if (ih >= 0 && ih < (int)H && iw >= 0 && iw < (int)W) {
-                    float in_val = input[ci * H * W + ih * W + iw];
+                    float in_val = input[in_sample_offset + ci * H * W + ih * W + iw];
                     float w_val = w_ptr[fh * KW + fw];
                     acc = fmaf(in_val, w_val, acc);
                 }
@@ -650,12 +791,13 @@ extern "C" __global__ void direct_conv2d(
         acc += bias[co];
     }
 
-    output[co * H_out * W_out + oh * W_out + ow] = acc;
+    output[out_sample_offset + co * H_out * W_out + oh * W_out + ow] = acc;
 }
 
 // Tiled direct convolution with shared memory for input data.
 //
-// Each thread block computes a TILE_H x TILE_W output tile for one output channel.
+// Each thread block computes a TILE_H x TILE_W output tile for one output
+// channel and one batch sample. blockIdx.z = batch_idx * C_out + c_out.
 // Input data for the required receptive field is loaded into shared memory.
 // Filter weights are loaded into registers per-thread.
 //
@@ -687,9 +829,14 @@ extern "C" __global__ void direct_conv2d_tiled(
     unsigned int ty = threadIdx.y;
     unsigned int ow = blockIdx.x * TILE_W + tx;
     unsigned int oh = blockIdx.y * TILE_H + ty;
-    unsigned int co = blockIdx.z;
 
-    if (co >= C_out) return;
+    // Decode batch index and output channel from blockIdx.z
+    unsigned int batch_idx = blockIdx.z / C_out;
+    unsigned int co = blockIdx.z % C_out;
+
+    // Per-sample offsets
+    unsigned int in_sample_offset = batch_idx * C_in * H * W;
+    unsigned int out_sample_offset = batch_idx * C_out * H_out * W_out;
 
     // Shared memory tile dimensions
     unsigned int smem_h = TILE_H * stride + KH - stride;
@@ -727,7 +874,7 @@ extern "C" __global__ void direct_conv2d_tiled(
 
             float val = 0.0f;
             if (ih >= 0 && ih < (int)H && iw >= 0 && iw < (int)W && ci_global < C_in) {
-                val = input[ci_global * H * W + ih * W + iw];
+                val = input[in_sample_offset + ci_global * H * W + ih * W + iw];
             }
             smem[ci_local * smem_plane + sh * smem_w + sw] = val;
         }
@@ -761,7 +908,7 @@ extern "C" __global__ void direct_conv2d_tiled(
         if (has_bias) {
             acc += bias[co];
         }
-        output[co * H_out * W_out + oh * W_out + ow] = acc;
+        output[out_sample_offset + co * H_out * W_out + oh * W_out + ow] = acc;
     }
 }
 "#;
@@ -771,8 +918,12 @@ extern "C" __global__ void direct_conv2d_tiled(
 /// Handles arbitrary kernel sizes with shared memory tiling for input data
 /// and register blocking for filter weights. Avoids im2col memory expansion.
 ///
-/// Input: `[C_in, H, W]`, weight: `[C_out, C_in, kH, kW]`, optional bias: `[C_out]`.
-/// Output: `[C_out, H_out, W_out]`.
+/// Supports both single-sample and batched modes:
+/// - Single: `input [C_in, H, W]` → `output [C_out, H_out, W_out]`
+/// - Batched: `input [N, C_in, H, W]` → `output [N, C_out, H_out, W_out]`
+///
+/// The `batch_size` parameter controls the grid z-dimension:
+/// `blockIdx.z = batch_idx * C_out + c_out`.
 #[cfg(feature = "cublas")]
 fn conv2d_direct(
     input: &GpuTensor,
@@ -782,12 +933,32 @@ fn conv2d_direct(
     padding: usize,
     dev: &Arc<cudarc::driver::CudaDevice>,
 ) -> Result<GpuTensor> {
+    conv2d_direct_impl(input, weight, bias, stride, padding, dev, 1)
+}
+
+/// Inner implementation of direct convolution supporting batching.
+///
+/// When `batch_size > 1`, the input must be `[N, C_in, H, W]` and the output
+/// is `[N, C_out, H_out, W_out]`. The kernel uses `blockIdx.z` to encode
+/// `batch_idx * C_out + c_out`.
+#[cfg(feature = "cublas")]
+fn conv2d_direct_impl(
+    input: &GpuTensor,
+    weight: &GpuTensor,
+    bias: Option<&GpuTensor>,
+    stride: usize,
+    padding: usize,
+    dev: &Arc<cudarc::driver::CudaDevice>,
+    batch_size: usize,
+) -> Result<GpuTensor> {
     use cudarc::driver::LaunchAsync;
     use cudarc::nvrtc::compile_ptx_with_opts;
 
-    let c_in = input.shape()[0];
-    let h = input.shape()[1];
-    let w = input.shape()[2];
+    let (c_in, h, w) = if batch_size > 1 {
+        (input.shape()[1], input.shape()[2], input.shape()[3])
+    } else {
+        (input.shape()[0], input.shape()[1], input.shape()[2])
+    };
     let c_out = weight.shape()[0];
     let kh = weight.shape()[2];
     let kw = weight.shape()[3];
@@ -815,7 +986,12 @@ fn conv2d_direct(
         true
     });
 
-    let mut output = GpuTensor::zeros(&[c_out, h_out, w_out], dev)?;
+    let output_shape = if batch_size > 1 {
+        vec![batch_size, c_out, h_out, w_out]
+    } else {
+        vec![c_out, h_out, w_out]
+    };
+    let mut output = GpuTensor::zeros(&output_shape, dev)?;
 
     // Decide whether to use the tiled (shared memory) or simple kernel.
     // Tiled kernel needs shared memory: C_IN_CHUNK * smem_h * smem_w * 4 bytes
@@ -842,6 +1018,48 @@ fn conv2d_direct(
 
     let has_bias: u32 = if bias.is_some() { 1 } else { 0 };
 
+    // Grid z-dim: batch_size * C_out (kernel decodes batch_idx and c_out)
+    let grid_z = (batch_size * c_out) as u32;
+
+    // Build raw kernel parameter array (15 params exceeds cudarc's 12-tuple limit,
+    // so we use the raw void-pointer launch interface).
+    let mut c_in_v = c_in as u32;
+    let mut h_v = h as u32;
+    let mut w_v = w as u32;
+    let mut c_out_v = c_out as u32;
+    let mut kh_v = kh as u32;
+    let mut kw_v = kw as u32;
+    let mut stride_v = stride as u32;
+    let mut padding_v = padding as u32;
+    let mut h_out_v = h_out as u32;
+    let mut w_out_v = w_out as u32;
+    let mut has_bias_v = has_bias;
+
+    // Device pointers — we need raw CUdeviceptr values
+    use cudarc::driver::DevicePtr;
+    let mut in_ptr = *input.data().device_ptr();
+    let mut w_ptr = *weight.data().device_ptr();
+    let mut bias_ptr_raw = *bias_ptr.device_ptr();
+    let mut out_ptr = *output.data_mut().device_ptr();
+
+    let mut params: Vec<*mut std::ffi::c_void> = vec![
+        &mut in_ptr as *mut _ as *mut std::ffi::c_void,
+        &mut w_ptr as *mut _ as *mut std::ffi::c_void,
+        &mut bias_ptr_raw as *mut _ as *mut std::ffi::c_void,
+        &mut out_ptr as *mut _ as *mut std::ffi::c_void,
+        &mut c_in_v as *mut _ as *mut std::ffi::c_void,
+        &mut h_v as *mut _ as *mut std::ffi::c_void,
+        &mut w_v as *mut _ as *mut std::ffi::c_void,
+        &mut c_out_v as *mut _ as *mut std::ffi::c_void,
+        &mut kh_v as *mut _ as *mut std::ffi::c_void,
+        &mut kw_v as *mut _ as *mut std::ffi::c_void,
+        &mut stride_v as *mut _ as *mut std::ffi::c_void,
+        &mut padding_v as *mut _ as *mut std::ffi::c_void,
+        &mut h_out_v as *mut _ as *mut std::ffi::c_void,
+        &mut w_out_v as *mut _ as *mut std::ffi::c_void,
+        &mut has_bias_v as *mut _ as *mut std::ffi::c_void,
+    ];
+
     if use_tiled {
         let func =
             dev.get_func("direct_conv", "direct_conv2d_tiled")
@@ -853,34 +1071,14 @@ fn conv2d_direct(
             grid_dim: (
                 (w_out as u32).div_ceil(tile_w),
                 (h_out as u32).div_ceil(tile_h),
-                c_out as u32,
+                grid_z,
             ),
             block_dim: (tile_w, tile_h, 1),
             shared_mem_bytes: smem_bytes,
         };
 
         unsafe {
-            func.launch(
-                config,
-                (
-                    input.data(),
-                    weight.data(),
-                    bias_ptr,
-                    output.data_mut(),
-                    c_in as u32,
-                    h as u32,
-                    w as u32,
-                    c_out as u32,
-                    kh as u32,
-                    kw as u32,
-                    stride as u32,
-                    padding as u32,
-                    h_out as u32,
-                    w_out as u32,
-                    has_bias,
-                ),
-            )
-            .map_err(NnError::Cuda)?;
+            func.launch(config, &mut params).map_err(NnError::Cuda)?;
         }
     } else {
         // Fallback: simple direct conv (no shared memory, each thread reads global)
@@ -894,45 +1092,25 @@ fn conv2d_direct(
             grid_dim: (
                 (w_out as u32).div_ceil(tile_w),
                 (h_out as u32).div_ceil(tile_h),
-                c_out as u32,
+                grid_z,
             ),
             block_dim: (tile_w, tile_h, 1),
             shared_mem_bytes: 0,
         };
 
         unsafe {
-            func.launch(
-                config,
-                (
-                    input.data(),
-                    weight.data(),
-                    bias_ptr,
-                    output.data_mut(),
-                    c_in as u32,
-                    h as u32,
-                    w as u32,
-                    c_out as u32,
-                    kh as u32,
-                    kw as u32,
-                    stride as u32,
-                    padding as u32,
-                    h_out as u32,
-                    w_out as u32,
-                    has_bias,
-                ),
-            )
-            .map_err(NnError::Cuda)?;
+            func.launch(config, &mut params).map_err(NnError::Cuda)?;
         }
     }
 
     Ok(output)
 }
 
-/// Batched direct/1×1 convolution: processes each sample individually,
-/// then assembles into `[N, C_out, H_out, W_out]`.
+/// Batched direct/1×1 convolution via single kernel launch.
 ///
-/// When `is_1x1` is true, routes through `conv2d_1x1`. Otherwise routes
-/// through `conv2d_direct` (NVRTC compiled).
+/// When `is_1x1` is true, routes through batched GEMM (`conv2d_1x1_batched`).
+/// Otherwise routes through `conv2d_direct_impl` with `batch_size=N` for a
+/// single kernel launch covering all samples.
 fn conv2d_batched_direct(
     input: &GpuTensor,
     weight: &GpuTensor,
@@ -950,42 +1128,24 @@ fn conv2d_batched_direct(
     let kh = weight.shape()[2];
     let kw = weight.shape()[3];
 
-    let h_out = (h + 2 * padding - kh) / stride + 1;
-    let w_out = (w + 2 * padding - kw) / stride + 1;
-
     let dev = registry.device();
-    let sample_out_size = c_out * h_out * w_out;
-    let mut output_host = vec![0.0f32; batch * sample_out_size];
-    let input_host = input.to_host()?;
 
-    for b in 0..batch {
-        let sample_start = b * c_in * h * w;
-        let sample_end = sample_start + c_in * h * w;
-        let sample =
-            GpuTensor::from_host(&input_host[sample_start..sample_end], &[c_in, h, w], dev)?;
-
-        let result = if is_1x1 {
-            conv2d_1x1(&sample, weight, bias, stride, padding, registry)?
-        } else {
-            #[cfg(feature = "cublas")]
-            {
-                conv2d_direct(&sample, weight, bias, stride, padding, dev)?
-            }
-            #[cfg(not(feature = "cublas"))]
-            {
-                // Fallback: should not reach here since routing only calls this
-                // with is_1x1=false when cublas feature is enabled.
-                return Err(NnError::KernelNotFound {
-                    name: "direct_conv2d (cublas feature required)",
-                });
-            }
-        };
-
-        let result_host = result.to_host()?;
-        output_host[b * sample_out_size..(b + 1) * sample_out_size].copy_from_slice(&result_host);
-    }
-
-    let mut output = GpuTensor::from_host(&output_host, &[batch, c_out, h_out, w_out], dev)?;
+    let mut output = if is_1x1 {
+        conv2d_1x1_batched(input, weight, bias, stride, padding, registry)?
+    } else {
+        #[cfg(feature = "cublas")]
+        {
+            conv2d_direct_impl(input, weight, bias, stride, padding, dev, batch)?
+        }
+        #[cfg(not(feature = "cublas"))]
+        {
+            // Fallback: should not reach here since routing only calls this
+            // with is_1x1=false when cublas feature is enabled.
+            return Err(NnError::KernelNotFound {
+                name: "direct_conv2d (cublas feature required)",
+            });
+        }
+    };
 
     // Record on autograd tape
     if input.requires_grad() {
@@ -1020,17 +1180,9 @@ fn conv2d_batched_direct(
     Ok(output)
 }
 
-/// Winograd F(2×2, 3×3) convolution — NVRTC compiled.
+/// Winograd F(2×2, 3×3) convolution — single sample wrapper.
 ///
-/// Reduces FLOPs for 3×3 stride=1 convolutions by ~2.25× compared to direct.
-/// Input: `[C_in, H, W]`, weight: `[C_out, C_in, 3, 3]`, optional bias: `[C_out]`.
-/// Output: `[C_out, H_out, W_out]`.
-///
-/// The algorithm:
-/// 1. Filter transform: G·g·Gᵀ (done once, 3×3 → 4×4 Winograd domain)
-/// 2. Input transform: Bᵀ·d·B (per 4×4 input tile)
-/// 3. Element-wise multiply in Winograd domain (16 muls per tile)
-/// 4. Output transform: Aᵀ·m·A (4×4 → 2×2 output tile)
+/// Delegates to `conv2d_winograd_f2x2_impl` with `batch_size=1`.
 #[cfg(feature = "cublas")]
 fn conv2d_winograd_f2x2(
     input: &GpuTensor,
@@ -1039,12 +1191,41 @@ fn conv2d_winograd_f2x2(
     padding: usize,
     dev: &Arc<cudarc::driver::CudaDevice>,
 ) -> Result<GpuTensor> {
+    conv2d_winograd_f2x2_impl(input, weight, bias, padding, dev, 1)
+}
+
+/// Winograd F(2×2, 3×3) convolution — NVRTC compiled.
+///
+/// Reduces FLOPs for 3×3 stride=1 convolutions by ~2.25× compared to direct.
+///
+/// Supports both single-sample and batched modes:
+/// - `batch_size=1`: input `[C_in, H, W]` → output `[C_out, H_out, W_out]`
+/// - `batch_size=N`: input `[N, C_in, H, W]` → output `[N, C_out, H_out, W_out]`
+///
+/// The kernel uses `grid.z = batch_size` to process all samples in one launch.
+///
+/// The algorithm:
+/// 1. Filter transform: G·g·Gᵀ (done once, 3×3 → 4×4 Winograd domain)
+/// 2. Input transform: Bᵀ·d·B (per 4×4 input tile)
+/// 3. Element-wise multiply in Winograd domain (16 muls per tile)
+/// 4. Output transform: Aᵀ·m·A (4×4 → 2×2 output tile)
+#[cfg(feature = "cublas")]
+fn conv2d_winograd_f2x2_impl(
+    input: &GpuTensor,
+    weight: &GpuTensor,
+    bias: Option<&GpuTensor>,
+    padding: usize,
+    dev: &Arc<cudarc::driver::CudaDevice>,
+    batch_size: usize,
+) -> Result<GpuTensor> {
     use cudarc::driver::LaunchAsync;
     use cudarc::nvrtc::compile_ptx_with_opts;
 
-    let c_in = input.shape()[0];
-    let h = input.shape()[1];
-    let w = input.shape()[2];
+    let (c_in, h, w) = if batch_size > 1 {
+        (input.shape()[1], input.shape()[2], input.shape()[3])
+    } else {
+        (input.shape()[0], input.shape()[1], input.shape()[2])
+    };
     let c_out = weight.shape()[0];
 
     let h_out = h + 2 * padding - 2; // stride=1, kh=3: (h + 2p - 3)/1 + 1 = h + 2p - 2
@@ -1101,7 +1282,13 @@ fn conv2d_winograd_f2x2(
     }
 
     // 2. Winograd convolution: input tiles × transformed filters → output tiles
-    let mut output = GpuTensor::zeros(&[c_out, h_out, w_out], dev)?;
+    // grid.z = batch_size to process all samples in one launch
+    let output_shape = if batch_size > 1 {
+        vec![batch_size, c_out, h_out, w_out]
+    } else {
+        vec![c_out, h_out, w_out]
+    };
+    let mut output = GpuTensor::zeros(&output_shape, dev)?;
 
     let tile_c_out: u32 = 32;
     let conv_func = dev
@@ -1110,7 +1297,11 @@ fn conv2d_winograd_f2x2(
             name: "winograd_conv2d_f2x2",
         })?;
     let conv_config = cudarc::driver::LaunchConfig {
-        grid_dim: (total_tiles as u32, (c_out as u32).div_ceil(tile_c_out), 1),
+        grid_dim: (
+            total_tiles as u32,
+            (c_out as u32).div_ceil(tile_c_out),
+            batch_size as u32,
+        ),
         block_dim: (tile_c_out, 1, 1),
         shared_mem_bytes: 0,
     };
@@ -1138,18 +1329,20 @@ fn conv2d_winograd_f2x2(
 
     // 3. Add bias if present
     if let Some(bias_tensor) = bias {
-        // Simple host-side bias add for correctness; uses existing GPU bias_add_chw
-        // when called from full conv2d path (which wraps this).
+        // Bias add for all samples: bias[C_out] broadcast across batch and spatial dims
         let bias_host = bias_tensor.to_host()?;
         let mut out_host = output.to_host()?;
-        for co in 0..c_out {
-            let b = bias_host[co];
-            let base = co * h_out * w_out;
-            for i in 0..h_out * w_out {
-                out_host[base + i] += b;
+        for b in 0..batch_size {
+            let sample_offset = b * c_out * h_out * w_out;
+            for co in 0..c_out {
+                let bv = bias_host[co];
+                let base = sample_offset + co * h_out * w_out;
+                for i in 0..h_out * w_out {
+                    out_host[base + i] += bv;
+                }
             }
         }
-        output = GpuTensor::from_host(&out_host, &[c_out, h_out, w_out], dev)?;
+        output = GpuTensor::from_host(&out_host, &output_shape, dev)?;
     }
 
     Ok(output)

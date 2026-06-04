@@ -1,8 +1,5 @@
 #![allow(clippy::needless_range_loop)]
 mod bench_harness;
-mod error;
-mod hostcall;
-mod mapped_mem;
 mod tests_basic;
 mod tests_benchmark;
 mod tests_cnn;
@@ -18,7 +15,7 @@ mod tests_transformer;
 mod tests_warp;
 
 use cudarc::driver::CudaDevice;
-use error::{GpuHostError, Result};
+use gpu_host::error::{GpuHostError, Result};
 use std::sync::Arc;
 
 // PTX constants re-exported from the library crate.
@@ -831,7 +828,7 @@ fn run_std_thread_spawn_demo(dev: Arc<CudaDevice>) -> Result<()> {
         .get_func("std_thread", "std_thread_spawn_demo")
         .ok_or(GpuHostError::KernelNotFound("std_thread_spawn_demo"))?;
 
-    let session = crate::hostcall::HostcallSession::start(64)?;
+    let session = gpu_host::hostcall::HostcallSession::start(64)?;
     let mut result_dev: cudarc::driver::CudaSlice<u32> = dev.alloc_zeros::<u32>(3)?;
 
     let config = LaunchConfig {
@@ -889,7 +886,7 @@ fn run_real_std_thread_spawn(dev: Arc<CudaDevice>) -> Result<()> {
         .ok_or(GpuHostError::KernelNotFound("real_std_thread_spawn"))?;
 
     // Use start_with_print to capture GPU println! output from spawned threads
-    let session = crate::hostcall::HostcallSession::start_with_print(64, |msg| {
+    let session = gpu_host::hostcall::HostcallSession::start_with_print(64, |msg| {
         let s = String::from_utf8_lossy(msg);
         println!("  [GPU] {}", s.trim());
     })?;
@@ -939,7 +936,7 @@ fn run_std_thread_spawn_minimal(dev: Arc<CudaDevice>) -> Result<()> {
         .get_func("std_thread_min", "std_thread_spawn_minimal")
         .ok_or(GpuHostError::KernelNotFound("std_thread_spawn_minimal"))?;
 
-    let session = crate::hostcall::HostcallSession::start_with_print(64, |msg| {
+    let session = gpu_host::hostcall::HostcallSession::start_with_print(64, |msg| {
         let s = String::from_utf8_lossy(msg);
         println!("  [GPU] {}", s.trim());
     })?;
@@ -1041,7 +1038,7 @@ fn run_kernel_std_smoke(dev: Arc<CudaDevice>) -> Result<()> {
 
     // Test 2: println (1 thread, with hostcall)
     {
-        let session = crate::hostcall::HostcallSession::start(64)?;
+        let session = gpu_host::hostcall::HostcallSession::start(64)?;
         let mut result_dev: cudarc::driver::CudaSlice<u32> = dev.alloc_zeros::<u32>(1)?;
         let f = dev
             .get_func("kstd_smoke", "kernel_std_println_smoke")

@@ -129,6 +129,15 @@ name = "gpu-protocol"
 version = "0.1.0"
 
 [[package]]
+name = "gpu-test-harness"
+version = "0.1.0"
+dependencies = [
+ "cudarc",
+ "gpu-host",
+ "tokio",
+]
+
+[[package]]
 name = "hashbrown"
 version = "0.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

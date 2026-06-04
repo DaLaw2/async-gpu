@@ -27,7 +27,7 @@ for f in $PTX_STUBS; do
 done
 
 # --- fmt checks ---
-CRATES_FMT="core/gpu-host core/gpu-protocol macro/warp-macro core/gpu-atomics core/gpu-runtime core/gpu-libc"
+CRATES_FMT="core/gpu-host core/gpu-protocol macro/warp-macro core/gpu-atomics core/gpu-runtime core/gpu-libc test/gpu-test-harness"
 for c in $CRATES_FMT; do
     run "fmt $(basename $c)" "cargo +stable fmt --manifest-path crates/$c/Cargo.toml -- --check"
 done
@@ -52,6 +52,7 @@ run "doc gpu-runtime" "cargo +stable doc --manifest-path crates/core/gpu-runtime
 
 # --- host check ---
 run "check gpu-host" "cargo +stable check --manifest-path crates/core/gpu-host/Cargo.toml"
+run "check gpu-test-harness" "cargo +stable check --manifest-path crates/test/gpu-test-harness/Cargo.toml --features gpt2"
 
 # --- PTX kernel builds (nightly + nvptx64) ---
 # Must cd into each dir so .cargo/config.toml (target, build-std) is picked up.

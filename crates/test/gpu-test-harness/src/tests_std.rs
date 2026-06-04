@@ -4,9 +4,9 @@ use std::sync::Arc;
 
 use cudarc::driver::{CudaDevice, CudaSlice, LaunchAsync, LaunchConfig};
 
-use crate::error::{GpuHostError, Result};
-use crate::hostcall;
-use crate::mapped_mem::{alloc_mapped_result_array, alloc_mapped_u32, free_mapped_mem};
+use gpu_host::error::{GpuHostError, Result};
+use gpu_host::hostcall;
+use gpu_host::mapped_mem::{alloc_mapped_result_array, alloc_mapped_u32, free_mapped_mem};
 
 /// Test: GPU kernels compiled with -Zbuild-std=std and patched std source.
 pub(crate) fn run_std_build_test(dev: Arc<CudaDevice>) -> Result<()> {

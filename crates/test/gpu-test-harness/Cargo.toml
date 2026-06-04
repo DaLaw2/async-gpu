@@ -1,0 +1,22 @@
+[package]
+name = "gpu-test-harness"
+version = "0.1.0"
+edition = "2021"
+description = "Test harness binary for gpu-host — all integration tests and benchmarks"
+
+[[bin]]
+name = "gpu-tests"
+path = "src/main.rs"
+required-features = ["gpt2"]
+
+[features]
+default = ["gpt2"]
+gpt2 = ["gpu-host/gpt2"]
+nn = ["gpu-host/nn"]
+cublas = ["gpu-host/cublas"]
+async = ["gpu-host/async", "dep:tokio"]
+
+[dependencies]
+gpu-host = { path = "../../core/gpu-host" }
+cudarc = { version = "0.12", features = ["cuda-12060"] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "sync", "macros", "time"], optional = true }

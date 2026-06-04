@@ -6,8 +6,8 @@ use std::sync::Arc;
 use cudarc::driver::sys::lib as cuda_lib;
 use cudarc::driver::{CudaDevice, CudaSlice, LaunchAsync, LaunchConfig};
 
-use crate::error::{GpuHostError, Result};
-use crate::mapped_mem::{alloc_mapped_result_array, free_mapped_mem};
+use gpu_host::error::{GpuHostError, Result};
+use gpu_host::mapped_mem::{alloc_mapped_result_array, free_mapped_mem};
 
 /// MMA diagnostic: compare full_gemm_f32in vs gemm_f32 at all GPT-2 dimensions.
 pub(crate) fn run_mma_diag(dev: Arc<CudaDevice>) -> Result<()> {

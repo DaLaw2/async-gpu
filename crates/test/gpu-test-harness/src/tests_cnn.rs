@@ -5,8 +5,8 @@ use std::sync::Arc;
 
 use cudarc::driver::{CudaDevice, CudaSlice, LaunchAsync, LaunchConfig};
 
-use crate::error::{GpuHostError, Result};
-use crate::mapped_mem::{alloc_mapped_result_array, free_mapped_mem};
+use gpu_host::error::{GpuHostError, Result};
+use gpu_host::mapped_mem::{alloc_mapped_result_array, free_mapped_mem};
 
 /// Test fused BatchNorm + SiLU kernel.
 ///
@@ -681,20 +681,19 @@ pub(crate) fn run_yolo_io_test() -> Result<()> {
             gpu_host::model_dir(Some(env!("CARGO_MANIFEST_DIR"))).join("yolov8n.safetensors");
         if model_path.exists() {
             let weights = gpu_host::model_yolo::load_yolo_weights(&model_path).map_err(|e| {
-                crate::error::GpuHostError::Verification {
+                gpu_host::error::GpuHostError::Verification {
                     test: "yolo_weights",
                     detail: format!("weight load failed: {e}"),
                 }
             })?;
 
             // Verify first conv layer
-            let conv0 =
-                weights
-                    .conv_bn_silu(0)
-                    .map_err(|e| crate::error::GpuHostError::Verification {
-                        test: "yolo_weights",
-                        detail: format!("conv0 load failed: {e}"),
-                    })?;
+            let conv0 = weights.conv_bn_silu(0).map_err(|e| {
+                gpu_host::error::GpuHostError::Verification {
+                    test: "yolo_weights",
+                    detail: format!("conv0 load failed: {e}"),
+                }
+            })?;
             // model.0: Conv 3x3, 3->16
             assert_eq!(conv0.conv_shape, vec![16, 3, 3, 3], "conv0 shape");
             assert_eq!(conv0.bn_weight.len(), 16, "conv0 BN gamma");

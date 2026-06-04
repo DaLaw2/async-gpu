@@ -5,8 +5,8 @@ use std::sync::Arc;
 
 use cudarc::driver::{CudaDevice, CudaSlice, LaunchAsync, LaunchConfig};
 
-use crate::error::{GpuHostError, Result};
-use crate::mapped_mem::{alloc_mapped_result_array, free_mapped_mem};
+use gpu_host::error::{GpuHostError, Result};
+use gpu_host::mapped_mem::{alloc_mapped_result_array, free_mapped_mem};
 
 /// LayerNorm test (transformer-layer.1): validate against CPU reference.
 pub(crate) fn run_layer_norm_test(dev: Arc<CudaDevice>) -> Result<()> {

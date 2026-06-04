@@ -4,9 +4,9 @@ use std::sync::Arc;
 
 use cudarc::driver::{CudaDevice, LaunchAsync, LaunchConfig};
 
-use crate::error::{GpuHostError, Result};
-use crate::hostcall;
-use crate::mapped_mem::{alloc_mapped_result_array, free_mapped_mem};
+use gpu_host::error::{GpuHostError, Result};
+use gpu_host::hostcall;
+use gpu_host::mapped_mem::{alloc_mapped_result_array, free_mapped_mem};
 
 pub(crate) fn run_warp_intrinsics_test(dev: Arc<CudaDevice>) -> Result<()> {
     println!("\n--- Warp Intrinsics Test (warp-future.3) ---");
@@ -940,7 +940,7 @@ pub(crate) fn run_hybrid_stress_test(dev: Arc<CudaDevice>) -> Result<()> {
 pub(crate) fn run_warp_try_test(dev: Arc<CudaDevice>) -> Result<()> {
     println!("\n--- Warp ? operator test (warp-async-v2.2) ---");
 
-    use crate::hostcall;
+    use gpu_host::hostcall;
 
     // Capture print messages via callback
     let msgs: std::sync::Arc<std::sync::Mutex<Vec<String>>> =
@@ -957,7 +957,7 @@ pub(crate) fn run_warp_try_test(dev: Arc<CudaDevice>) -> Result<()> {
         detail: format!("session start failed: {e}"),
     })?;
 
-    let (result_host, result_dev) = unsafe { crate::mapped_mem::alloc_mapped_u32(&dev)? };
+    let (result_host, result_dev) = unsafe { gpu_host::mapped_mem::alloc_mapped_u32(&dev)? };
     unsafe { std::ptr::write_volatile(result_host, 0u32) };
 
     let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
@@ -985,7 +985,7 @@ pub(crate) fn run_warp_try_test(dev: Arc<CudaDevice>) -> Result<()> {
     let captured = msgs.lock().unwrap().clone();
     session.shutdown();
 
-    unsafe { crate::mapped_mem::free_mapped_mem(result_host)? };
+    unsafe { gpu_host::mapped_mem::free_mapped_mem(result_host)? };
 
     println!("  Result: 0x{result_val:08X}");
     println!("  Messages: {:?}", captured);
@@ -1020,7 +1020,7 @@ pub(crate) fn run_warp_try_test(dev: Arc<CudaDevice>) -> Result<()> {
 pub(crate) fn run_warp_await_test(dev: Arc<CudaDevice>) -> Result<()> {
     println!("\n--- Warp .await test (warp-async-v2.3) ---");
 
-    use crate::hostcall;
+    use gpu_host::hostcall;
 
     // Capture print messages via callback
     let msgs: std::sync::Arc<std::sync::Mutex<Vec<String>>> =
@@ -1037,7 +1037,7 @@ pub(crate) fn run_warp_await_test(dev: Arc<CudaDevice>) -> Result<()> {
         detail: format!("session start failed: {e}"),
     })?;
 
-    let (result_host, result_dev) = unsafe { crate::mapped_mem::alloc_mapped_u32(&dev)? };
+    let (result_host, result_dev) = unsafe { gpu_host::mapped_mem::alloc_mapped_u32(&dev)? };
     unsafe { std::ptr::write_volatile(result_host, 0u32) };
 
     let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
@@ -1065,7 +1065,7 @@ pub(crate) fn run_warp_await_test(dev: Arc<CudaDevice>) -> Result<()> {
     let captured = msgs.lock().unwrap().clone();
     session.shutdown();
 
-    unsafe { crate::mapped_mem::free_mapped_mem(result_host)? };
+    unsafe { gpu_host::mapped_mem::free_mapped_mem(result_host)? };
 
     println!("  Result: {result_val} (1=true, 0=false)");
     println!("  Messages: {:?}", captured);
@@ -1101,7 +1101,7 @@ pub(crate) fn run_warp_await_test(dev: Arc<CudaDevice>) -> Result<()> {
 pub(crate) fn run_warp_e2e_test(dev: Arc<CudaDevice>) -> Result<()> {
     println!("\n--- Warp end-to-end test (warp-async-v2.4) ---");
 
-    use crate::hostcall;
+    use gpu_host::hostcall;
 
     let msgs: std::sync::Arc<std::sync::Mutex<Vec<String>>> =
         std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -1117,7 +1117,7 @@ pub(crate) fn run_warp_e2e_test(dev: Arc<CudaDevice>) -> Result<()> {
         detail: format!("session start failed: {e}"),
     })?;
 
-    let (result_host, result_dev) = unsafe { crate::mapped_mem::alloc_mapped_u32(&dev)? };
+    let (result_host, result_dev) = unsafe { gpu_host::mapped_mem::alloc_mapped_u32(&dev)? };
     unsafe { std::ptr::write_volatile(result_host, 0u32) };
 
     let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
@@ -1144,7 +1144,7 @@ pub(crate) fn run_warp_e2e_test(dev: Arc<CudaDevice>) -> Result<()> {
     let captured = msgs.lock().unwrap().clone();
     session.shutdown();
 
-    unsafe { crate::mapped_mem::free_mapped_mem(result_host)? };
+    unsafe { gpu_host::mapped_mem::free_mapped_mem(result_host)? };
 
     println!("  Result: {result_val} (1=true, 0=false)");
     println!("  Messages: {:?}", captured);
@@ -1181,7 +1181,7 @@ pub(crate) fn run_warp_e2e_test(dev: Arc<CudaDevice>) -> Result<()> {
 pub(crate) fn run_rustc_async_baseline_test(dev: Arc<CudaDevice>) -> Result<()> {
     println!("\n--- rustc async baseline test (rustc-warp.1) ---");
 
-    let (result_host, result_dev) = unsafe { crate::mapped_mem::alloc_mapped_u32(&dev)? };
+    let (result_host, result_dev) = unsafe { gpu_host::mapped_mem::alloc_mapped_u32(&dev)? };
     unsafe { std::ptr::write_volatile(result_host, 0u32) };
 
     let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
@@ -1203,7 +1203,7 @@ pub(crate) fn run_rustc_async_baseline_test(dev: Arc<CudaDevice>) -> Result<()> 
     dev.synchronize()?;
 
     let result_val = unsafe { std::ptr::read_volatile(result_host) };
-    unsafe { crate::mapped_mem::free_mapped_mem(result_host)? };
+    unsafe { gpu_host::mapped_mem::free_mapped_mem(result_host)? };
 
     let val1 = result_val & 0xFFFF;
     let val2 = (result_val >> 16) & 0xFFFF;

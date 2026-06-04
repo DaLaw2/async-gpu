@@ -5,9 +5,9 @@ use std::sync::Arc;
 use cudarc::driver::sys::{self, lib as cuda_lib};
 use cudarc::driver::{CudaDevice, CudaSlice, LaunchAsync, LaunchConfig};
 
-use crate::error::{GpuHostError, Result};
-use crate::hostcall;
-use crate::mapped_mem::{alloc_mapped_result_array, alloc_mapped_u32, free_mapped_mem};
+use gpu_host::error::{GpuHostError, Result};
+use gpu_host::hostcall;
+use gpu_host::mapped_mem::{alloc_mapped_result_array, alloc_mapped_u32, free_mapped_mem};
 
 /// Step 8: Hostcall print test (hostcall.4).
 pub(crate) fn run_hostcall_print_hello(dev: Arc<CudaDevice>) -> Result<()> {

@@ -3,7 +3,7 @@
 //! Covers: simple English, punctuation, numbers, unicode, whitespace,
 //! code snippets, empty string, single character, special tokens, and more.
 
-use crate::error::Result;
+use gpu_host::error::Result;
 use gpu_host::tokenizer::{Gpt2Tokenizer, ENDOFTEXT_TOKEN_ID, GPT2_VOCAB_SIZE};
 
 /// Validate GPT-2 tokenizer: encode, decode, special tokens, vocab size.

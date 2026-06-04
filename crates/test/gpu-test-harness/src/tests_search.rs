@@ -5,9 +5,9 @@ use std::sync::Arc;
 use cudarc::driver::sys::lib as cuda_lib;
 use cudarc::driver::{CudaDevice, CudaSlice, LaunchAsync, LaunchConfig};
 
-use crate::error::{GpuHostError, Result};
-use crate::hostcall;
-use crate::mapped_mem::{alloc_mapped_result_array, free_mapped_mem};
+use gpu_host::error::{GpuHostError, Result};
+use gpu_host::hostcall;
+use gpu_host::mapped_mem::{alloc_mapped_result_array, free_mapped_mem};
 
 /// ml-workload.1: f32 math validation on GPU.
 pub(crate) fn run_f32_math_test(dev: Arc<CudaDevice>) -> Result<()> {

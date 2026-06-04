@@ -5,8 +5,8 @@ use std::sync::Arc;
 
 use cudarc::driver::{CudaDevice, CudaSlice, LaunchAsync, LaunchConfig};
 
-use crate::error::{GpuHostError, Result};
-use crate::mapped_mem::{alloc_mapped_u32, free_mapped_mem};
+use gpu_host::error::{GpuHostError, Result};
+use gpu_host::mapped_mem::{alloc_mapped_u32, free_mapped_mem};
 
 pub(crate) fn run_write_thread_idx(dev: Arc<CudaDevice>) -> Result<()> {
     const N: usize = 64;

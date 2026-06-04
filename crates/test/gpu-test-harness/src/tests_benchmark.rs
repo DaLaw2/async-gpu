@@ -5,9 +5,9 @@ use std::sync::Arc;
 use cudarc::driver::{CudaDevice, LaunchAsync, LaunchConfig};
 
 use crate::bench_harness::{self, BenchmarkResult};
-use crate::error::{GpuHostError, Result};
-use crate::hostcall;
-use crate::mapped_mem::{alloc_mapped_u64_array, free_mapped_u64_array};
+use gpu_host::error::{GpuHostError, Result};
+use gpu_host::hostcall;
+use gpu_host::mapped_mem::{alloc_mapped_u64_array, free_mapped_u64_array};
 
 /// Compute percentile from a sorted slice (nearest-rank method).
 pub(super) fn percentile(sorted: &[f64], p: f64) -> f64 {

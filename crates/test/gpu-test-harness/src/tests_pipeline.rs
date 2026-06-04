@@ -5,9 +5,9 @@ use std::sync::Arc;
 use cudarc::driver::sys::lib as cuda_lib;
 use cudarc::driver::{CudaDevice, LaunchAsync, LaunchConfig};
 
-use crate::error::{GpuHostError, Result};
-use crate::hostcall;
-use crate::mapped_mem::{
+use gpu_host::error::{GpuHostError, Result};
+use gpu_host::hostcall;
+use gpu_host::mapped_mem::{
     alloc_mapped_result_array, alloc_mapped_u32, alloc_mapped_u64_array, free_mapped_mem,
     free_mapped_u64_array,
 };

@@ -4,12 +4,8 @@ version = "0.1.0"
 edition = "2021"
 description = "Host-side GPU runtime: kernel management, hostcall communication, pinned memory"
 
-[[bin]]
-name = "gpu-host"
-required-features = ["gpt2"]
-
 [features]
-default = ["gpt2"]
+default = []
 gpt2 = ["dep:safetensors", "dep:tiktoken-rs"]
 nn = ["dep:smallvec"]
 cublas = ["cudarc/cublas"]

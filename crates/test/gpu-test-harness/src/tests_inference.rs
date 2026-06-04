@@ -5,8 +5,8 @@ use std::sync::Arc;
 
 use cudarc::driver::{CudaDevice, CudaSlice, LaunchAsync, LaunchConfig};
 
-use crate::error::{GpuHostError, Result};
-use crate::mapped_mem::{alloc_mapped_result_array, free_mapped_mem};
+use gpu_host::error::{GpuHostError, Result};
+use gpu_host::mapped_mem::{alloc_mapped_result_array, free_mapped_mem};
 
 /// full-inference.2: 12-layer GPT-2 forward pass with real weights.
 ///

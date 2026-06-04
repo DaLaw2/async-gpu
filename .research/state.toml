@@ -75,7 +75,7 @@ success_criteria = [
 id = "cooperative-compute"
 title = "Cooperative Compute — GPU-internal all-warp parallel computation"
 tier = 1
-status = "pending"
+status = "active"
 priority = "high"
 # North Star: This is the COMPUTE PILLAR of the unified kernel. From sequential I/O context,
 #   switch to all-warp data-parallel compute, then back. I/O + Compute in one fn main().
@@ -102,6 +102,23 @@ success_criteria = [
     "GpuChannel<T> auto-selects transport: shfl.sync (same warp), shared memory (same block), global (cross-block)",
     "Cancellation propagates down scope hierarchy — parent cancel kills all children",
     "Demo: producer-consumer pipeline using BlockScope with automatic shared memory channels",
+]
+
+[[epics]]
+id = "library-api"
+title = "Library API — async-gpu as a usable crate, not a demo collection"
+tier = 1
+status = "active"
+priority = "highest"
+# North Star: A user adds `async-gpu = "0.1"` to Cargo.toml and writes GPU programs
+#   using a clean, documented public API. No sysroot hacks, no copy-pasting from examples.
+# Litmus Test: A new user clones the repo, runs `cargo install`, and writes a working
+#   GPU kernel + host program in under 30 minutes using only the docs.
+success_criteria = [
+    "Single `async-gpu` facade crate re-exports gpu::run/launch/custom + kernel-side runtime",
+    "Public API surface is documented (rustdoc) — internal types are pub(crate)",
+    "Toolchain setup is scripted: one command gives the user a working patched toolchain",
+    "Getting-started guide: from zero to running GPU kernel in documented steps",
 ]
 
 [[epics]]
@@ -327,6 +344,105 @@ title = "Experiment: rewrite remaining examples with builder API + std kernel-si
 kind = "experiment"
 status = "done"
 depends = ["native-api.5"]
+
+# --- T1: cooperative-compute themes ---
+
+[[themes]]
+id = "coop-api"
+epic = "cooperative-compute"
+title = "Cooperative API ergonomics — safe data passing + return values"
+status = "active"
+goal = "cooperative_map() with data passing, no global atomics"
+success_criteria = [
+    "cooperative_map(in_ptr, out_ptr, n, closure) passes data without global atomics",
+    "Seamless sequential → cooperative → sequential with zero ceremony",
+]
+
+[[themes]]
+id = "coop-compute"
+epic = "cooperative-compute"
+title = "Kernel-side compute library — matmul callable from cooperative()"
+status = "active"
+goal = "Matmul and basic ops callable from within a kernel"
+success_criteria = [
+    "Naive kernel-side matmul (triple loop, row-partitioned across warps)",
+    "cooperative_map-based matmul callable from sequential kernel context",
+]
+
+[[themes]]
+id = "coop-demo"
+epic = "cooperative-compute"
+title = "Unified I/O+Compute demo — File::read → matmul → File::write"
+status = "pending"
+goal = "End-to-end demo proving the vision in one kernel"
+success_criteria = [
+    "Read two matrix files, cooperative matmul, write result — single kernel",
+    "Host-side verification matches CPU reference",
+]
+
+[[tasks]]
+id = "coop-api.1"
+theme = "coop-api"
+title = "Investigation: cooperative() data passing without global atomics"
+kind = "investigation"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "coop-api.2"
+theme = "coop-api"
+title = "Experiment: implement cooperative_map + cooperative_reduce"
+kind = "experiment"
+status = "pending"
+depends = ["coop-api.1"]
+
+[[tasks]]
+id = "coop-api.3"
+theme = "coop-api"
+title = "Experiment: rewrite unified_io_compute with cooperative_map"
+kind = "experiment"
+status = "pending"
+depends = ["coop-api.2"]
+
+[[tasks]]
+id = "coop-compute.1"
+theme = "coop-compute"
+title = "Investigation: kernel-side matmul architecture design"
+kind = "investigation"
+status = "pending"
+depends = ["coop-api.1"]
+
+[[tasks]]
+id = "coop-compute.2"
+theme = "coop-compute"
+title = "Experiment: naive kernel-side matmul MVP via cooperative_map"
+kind = "experiment"
+status = "pending"
+depends = ["coop-compute.1", "coop-api.2"]
+
+[[tasks]]
+id = "coop-compute.3"
+theme = "coop-compute"
+title = "Experiment: tiled kernel-side matmul for performance"
+kind = "experiment"
+status = "pending"
+depends = ["coop-compute.2"]
+
+[[tasks]]
+id = "coop-demo.1"
+theme = "coop-demo"
+title = "Experiment: litmus test — File::read → matmul → File::write in one kernel"
+kind = "experiment"
+status = "pending"
+depends = ["coop-compute.2", "coop-api.3"]
+
+[[tasks]]
+id = "coop-demo.2"
+theme = "coop-demo"
+title = "Experiment: multi-stage pipeline demo (read → matmul → softmax → write)"
+kind = "experiment"
+status = "pending"
+depends = ["coop-demo.1"]
 
 # --- kernel-perf themes ---
 
@@ -667,6 +783,8 @@ themes_parked = []
 themes_completed = []
 key_insight = "NN axis saturated. Breadth wins where async/await adds unique value. classical-ml + gpu-dynamic + graph-algorithms are top 3."
 
+# Brainstorm 110 archived (cycle 560)
+
 [[brainstorms]]
 seq = 111
 at_cycle = 605
@@ -678,3 +796,15 @@ new_epics_spawned = []
 themes_parked = []
 themes_completed = ["std-thread-integration"]
 key_insight = "std-thread-gpu cleared T0. native-rust-dx needs gpu-kernel ABI migration + builder API for remaining examples. User chose to keep criteria, not weaken them."
+
+[[brainstorms]]
+seq = 112
+at_cycle = 607
+trigger = "T0 cleared, T1 activation — cooperative-compute epic needs themes/tasks"
+level = "standard"
+new_tasks_spawned = ["coop-api.1", "coop-api.2", "coop-api.3", "coop-compute.1", "coop-compute.2", "coop-compute.3", "coop-demo.1", "coop-demo.2"]
+new_themes_spawned = ["coop-api", "coop-compute", "coop-demo"]
+new_epics_spawned = []
+themes_parked = []
+themes_completed = ["native-api", "std-thread-integration"]
+key_insight = "cooperative() prototype works but has 3 gaps: API ergonomics (global atomics), kernel-side compute (no callable matmul), full demo. Critical path: coop-api.1 → .2 → coop-compute.2 → coop-demo.1."

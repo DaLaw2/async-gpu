@@ -42,6 +42,9 @@ pub(crate) const STATUS_ASSIGNED: u32 = 1;
 const STATUS_RUNNING: u32 = 2;
 pub(crate) const STATUS_DONE: u32 = 3;
 const STATUS_EXIT: u32 = 4;
+/// Warp trapped (panic handler sets this before calling `trap;`).
+/// Used by `BlockScope::join_all()` to detect dead warps.
+pub(crate) const STATUS_TRAPPED: u32 = 6;
 
 #[allow(clippy::declare_interior_mutable_const)]
 const ATOMIC_U32_ZERO: AtomicU32 = AtomicU32::new(STATUS_IDLE);

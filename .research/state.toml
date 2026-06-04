@@ -15,11 +15,11 @@ status = "running"     # ready | running | blocked | completed
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
 current_step = "dispatch"
-current_task_id = "sc-resource.2,sc-channel.2"
+current_task_id = "sc-runtime.2,sc-resource.3"
 
 # Sequence counters
 brainstorm_seq = 115
-tasks_since_brainstorm = 6   # reset after brainstorm 114
+tasks_since_brainstorm = 10   # reset after brainstorm 114
 
 # ============================================================
 # Epics — Tiered (T0 → T3), sorted by tier then priority
@@ -865,7 +865,7 @@ id = "sc-design.3"
 theme = "sc-design"
 title = "Design: cancellation propagation semantics across nested scopes"
 kind = "design"
-status = "pending"
+status = "done"
 depends = ["sc-design.2"]
 
 # --- structured-concurrency: resource ---
@@ -891,7 +891,7 @@ id = "sc-resource.3"
 theme = "sc-resource"
 title = "Experiment: GridScope global memory allocator + Drop cleanup on scope exit"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["sc-resource.1"]
 
 # --- structured-concurrency: channel ---
@@ -953,7 +953,7 @@ id = "sc-runtime.1"
 theme = "sc-runtime"
 title = "Investigation: warp scheduling model for nested scopes — fork/join vs work-stealing"
 kind = "investigation"
-status = "pending"
+status = "done"
 depends = ["sc-design.2"]
 
 [[tasks]]
@@ -961,7 +961,7 @@ id = "sc-runtime.2"
 theme = "sc-runtime"
 title = "Experiment: BlockScope warp fork/join within a single thread block"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["sc-runtime.1"]
 
 [[tasks]]

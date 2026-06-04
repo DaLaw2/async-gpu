@@ -246,6 +246,10 @@ macro_rules! panic_handler {
                     $crate::panic::send_panic_hostcall(buf, msg);
                 }
 
+                // Signal that this warp has trapped, so BlockScope::join_all()
+                // can detect the dead warp instead of spinning forever.
+                $crate::panic::set_warp_trapped();
+
                 // Terminate this GPU thread
                 #[cfg(target_arch = "nvptx64")]
                 core::arch::asm!("trap;", options(noreturn));

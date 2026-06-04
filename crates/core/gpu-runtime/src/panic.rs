@@ -60,6 +60,20 @@ pub unsafe fn write_panic_to_result(msg: &[u8]) {
     (*result).set_err(err, thread_idx, block_idx, msg);
 }
 
+/// Set this warp's status to `STATUS_TRAPPED` before calling `trap;`.
+///
+/// This allows `BlockScope::join_all()` to detect the dead warp instead of
+/// spinning forever. Only lane 0 of the current warp performs the store.
+#[inline(always)]
+pub unsafe fn set_warp_trapped() {
+    let lid = crate::index::thread_idx_x() % 32;
+    if lid == 0 {
+        let wid = (crate::index::thread_idx_x() / 32) as usize;
+        use core::sync::atomic::Ordering;
+        crate::thread::WARP_STATUS[wid].store(crate::thread::STATUS_TRAPPED, Ordering::Release);
+    }
+}
+
 /// Fixed-size buffer for formatting panic messages on GPU (no allocator needed).
 pub struct PanicBuf {
     pub buf: [u8; PANIC_MAX_MSG_LEN],

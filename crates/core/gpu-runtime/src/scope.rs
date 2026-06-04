@@ -1,18 +1,27 @@
-//! Block-level structured concurrency with lifetime-bounded shared memory allocation.
+//! Structured concurrency scopes with lifetime-bounded memory allocation.
 //!
-//! Provides [`BlockScope`] — a scoped concurrency primitive that owns a region of
-//! shared memory and guarantees all spawned work completes before the scope exits.
-//! The `'scope` lifetime prevents shared memory references from escaping their
-//! hardware scope, enforced entirely by the Rust borrow checker at compile time.
+//! Provides two scope primitives:
+//!
+//! - [`BlockScope`] — block-level scope over shared memory, coordinates warps
+//!   within a single block.
+//! - [`GridScope`] — grid-level scope over a pre-allocated global memory pool,
+//!   coordinates work across multiple blocks via system-scope atomics.
+//!
+//! Both use the `for<'scope>` higher-ranked trait bound pattern (like Rayon's
+//! `scope()`) to prevent allocated references from escaping their scope.
 //!
 //! # Key types
 //!
 //! - [`SharedMemAllocator`] — watermark/bump allocator over shared memory
 //! - [`BlockScope`] — structured concurrency scope for a single block
-//! - [`ScopeJoinHandle`] — handle to a task spawned within a scope
+//! - [`ScopeJoinHandle`] — handle to a task spawned within a BlockScope
 //! - [`block_scope()`] — entry function that creates a `BlockScope`
+//! - [`GridScope`] — structured concurrency scope across GPU blocks
+//! - [`grid_scope()`] — entry function that creates a `GridScope`
 //!
-//! # Example
+//! # Examples
+//!
+//! ## BlockScope (shared memory, intra-block)
 //!
 //! ```rust,ignore
 //! use gpu_runtime::scope::block_scope;
@@ -29,13 +38,29 @@
 //! });
 //! ```
 //!
+//! ## GridScope (global memory, cross-block)
+//!
+//! ```rust,ignore
+//! use gpu_runtime::scope::grid_scope;
+//!
+//! // pool is a pre-allocated global memory region (at least 8 bytes for header)
+//! unsafe {
+//!     grid_scope(pool, pool_size, |gscope| {
+//!         let data = gscope.alloc::<f32>(1024);
+//!         // ... distribute work across blocks ...
+//!         // Blocks signal completion via gscope.completion_counter_ptr()
+//!     });
+//! }
+//! ```
+//!
 //! # Safety model
 //!
-//! - Only warp 0 may call `block_scope()` and `scope.alloc()`.
-//! - The `for<'scope>` HRTB on `block_scope` prevents scope-allocated references
-//!   from escaping the closure.
+//! - Only warp 0 (block 0 for GridScope) may call scope entry and `alloc()`.
+//! - The `for<'scope>` HRTB on entry functions prevents scope-allocated
+//!   references from escaping the closure.
 //! - `PhantomData<&'scope mut &'scope ()>` enforces lifetime invariance.
 //! - `T: Copy` is required for all allocations (no Drop, no destructors needed).
+//! - GridScope uses system-scope atomics for cross-block visibility.
 
 use core::cell::UnsafeCell;
 use core::marker::PhantomData;
@@ -43,7 +68,8 @@ use core::sync::atomic::Ordering;
 
 use crate::thread::{
     lane_id, nanosleep_short, warp_id, NUM_WARPS, SCRATCH, SCRATCH_SIZE, STATUS_ASSIGNED,
-    STATUS_COOPERATIVE, STATUS_DONE, STATUS_IDLE, WARP_DATA, WARP_FN, WARP_RESULT, WARP_STATUS,
+    STATUS_COOPERATIVE, STATUS_DONE, STATUS_IDLE, STATUS_TRAPPED, WARP_DATA, WARP_FN, WARP_RESULT,
+    WARP_STATUS,
 };
 
 // ============================================================
@@ -210,6 +236,9 @@ pub struct BlockScope<'scope> {
     spawn_count: u32,
     /// Byte offset of the cancellation flag in shared memory.
     cancel_flag_offset: u32,
+    /// Bitmask of warps that trapped (panicked) during execution.
+    /// Each set bit corresponds to a warp that entered STATUS_TRAPPED.
+    error_mask: u32,
     /// Invariant lifetime — prevents covariance from allowing escape.
     _marker: PhantomData<&'scope mut &'scope ()>,
 }
@@ -386,7 +415,7 @@ impl<'scope> BlockScope<'scope> {
     ///     });
     /// });
     /// ```
-    pub fn spawn_all<F>(&self, f: F)
+    pub fn spawn_all<F>(&mut self, f: F)
     where
         F: Fn(u32, u32) + Send + Sync + 'scope,
     {
@@ -394,6 +423,14 @@ impl<'scope> BlockScope<'scope> {
             warp_id(),
             0,
             "scope.spawn_all() can only be called from warp 0"
+        );
+
+        // Safety: spawn_all wakes ALL worker warps with STATUS_COOPERATIVE.
+        // If any warps are still in-flight from a prior spawn(), their status
+        // would be corrupted. Assert that all spawned warps have been joined.
+        assert!(
+            self.spawned_warps == 0,
+            "scope.spawn_all: all spawned tasks must be joined before calling spawn_all"
         );
 
         let n_warps = NUM_WARPS.load(Ordering::Acquire) as usize;
@@ -449,13 +486,18 @@ impl<'scope> BlockScope<'scope> {
             f(0, total as u32);
         }
 
-        // Join all workers
+        // Join all workers (with trap detection)
         #[allow(clippy::needless_range_loop)]
         for i in 1..total {
             loop {
                 let s = WARP_STATUS[i].load(Ordering::Acquire);
                 if s == STATUS_DONE {
                     WARP_STATUS[i].store(STATUS_IDLE, Ordering::Release);
+                    break;
+                }
+                if s == STATUS_TRAPPED {
+                    // Warp is dead — record in error mask, do not reset to IDLE.
+                    self.error_mask |= 1 << i;
                     break;
                 }
                 nanosleep_short();
@@ -483,17 +525,32 @@ impl<'scope> BlockScope<'scope> {
         }
     }
 
-    /// Join all spawned warps that have not yet been joined.
-    /// Called automatically at scope exit.
-    fn join_all(&mut self) {
+    /// Join all spawned warps that have not yet been joined, and reset
+    /// the bitmask so the warps can be reused.
+    ///
+    /// Detects `STATUS_TRAPPED` warps (panicked) and records them in the
+    /// error mask instead of spinning forever. Trapped warps are NOT reset
+    /// to `STATUS_IDLE` because they are dead and cannot re-enter the
+    /// worker loop.
+    ///
+    /// Can be called explicitly mid-scope to synchronize, or is called
+    /// automatically at scope exit (via `Drop`).
+    pub fn join_all(&mut self) {
         let mut mask = self.spawned_warps;
         while mask != 0 {
             let wid = mask.trailing_zeros() as usize;
-            // Spin-wait until the warp finishes
+            // Spin-wait until the warp finishes or traps
             loop {
                 let status = WARP_STATUS[wid].load(Ordering::Acquire);
                 if status == STATUS_DONE {
                     WARP_STATUS[wid].store(STATUS_IDLE, Ordering::Release);
+                    break;
+                }
+                if status == STATUS_TRAPPED {
+                    // Warp is dead — record in error mask.
+                    // Do NOT reset to IDLE; the warp cannot re-enter
+                    // the worker loop after a trap.
+                    self.error_mask |= 1 << wid;
                     break;
                 }
                 nanosleep_short();
@@ -502,6 +559,17 @@ impl<'scope> BlockScope<'scope> {
         }
         self.spawned_warps = 0;
         self.spawn_count = 0;
+    }
+
+    /// Returns the error bitmask. Each set bit corresponds to a warp
+    /// that trapped (panicked) during execution within this scope.
+    pub fn error_mask(&self) -> u32 {
+        self.error_mask
+    }
+
+    /// Returns `true` if any spawned warp trapped during this scope.
+    pub fn has_errors(&self) -> bool {
+        self.error_mask != 0
     }
 }
 
@@ -536,12 +604,23 @@ impl<'scope, T> ScopeJoinHandle<'scope, T> {
     /// Block (spin-wait) until the spawned warp completes and return its result.
     ///
     /// Resets the warp to idle so it can be reused.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the spawned warp trapped (GPU panic). The warp is dead
+    /// and cannot produce a result.
     pub fn join(self) -> T {
-        // Spin until the warp is done
+        // Spin until the warp is done or trapped
         loop {
             let status = WARP_STATUS[self.warp_id].load(Ordering::Acquire);
             if status == STATUS_DONE {
                 break;
+            }
+            if status == STATUS_TRAPPED {
+                panic!(
+                    "ScopeJoinHandle::join: warp {} trapped (GPU panic)",
+                    self.warp_id
+                );
             }
             nanosleep_short();
         }
@@ -620,6 +699,7 @@ where
         spawned_warps: 0,
         spawn_count: 0,
         cancel_flag_offset,
+        error_mask: 0,
         _marker: PhantomData,
     };
 
@@ -632,6 +712,317 @@ where
     // 6. Pop allocator watermark (via Drop)
     //    The Drop impl will pop the watermark. We let it run naturally
     //    when `scope` goes out of scope here.
+
+    result
+}
+
+// ============================================================
+// GridScope — structured concurrency scope across GPU blocks
+// ============================================================
+
+/// Size of the GridScope header in the global memory pool.
+///
+/// Layout: `[completion_counter: u32, cancel_flag: u32]` = 8 bytes.
+/// The pool offset starts after this header, so user allocations
+/// begin at byte 8.
+const GRID_SCOPE_HEADER_SIZE: u32 = 8;
+
+/// A structured concurrency scope that coordinates across GPU blocks.
+///
+/// Allocations come from a pre-allocated global memory pool. Block
+/// completion is tracked via an atomic counter in global memory using
+/// system-scope atomics for cross-block visibility.
+///
+/// Created by [`grid_scope()`]. The `'scope` lifetime prevents global
+/// memory references from escaping the scope closure.
+///
+/// # Memory layout
+///
+/// The first 8 bytes of the pool are reserved for internal bookkeeping:
+/// - Bytes 0..4: `completion_counter` (u32, system-scope atomic)
+/// - Bytes 4..8: `cancel_flag` (u32, system-scope atomic)
+///
+/// User allocations via [`alloc()`](Self::alloc) begin at byte 8 (or later,
+/// after alignment).
+///
+/// # GridScope does NOT nest
+///
+/// Unlike `BlockScope` (which supports up to 4 levels of nesting),
+/// `GridScope` has no nesting support. The bump allocator is a simple
+/// offset with no watermark stack.
+pub struct GridScope<'scope> {
+    /// Global memory pool base pointer (caller-owned).
+    pool_base: *mut u8,
+    /// Current allocation offset within the pool (bytes from pool_base).
+    /// Wrapped in `UnsafeCell` because `alloc()` takes `&self` but must
+    /// bump this offset. Only the coordinator block/warp mutates this.
+    pool_offset: UnsafeCell<u32>,
+    /// Pool capacity in bytes.
+    pool_capacity: u32,
+    /// Atomic completion counter (in global memory, at pool_base + 0).
+    /// Incremented by each block when it finishes its scope work.
+    completion_counter: *mut u32,
+    /// Total number of completions expected before the scope can exit.
+    /// Wrapped in `UnsafeCell` because `set_expected_completions()` takes
+    /// `&self`. Only the coordinator block/warp mutates this.
+    expected_completions: UnsafeCell<u32>,
+    /// Cancellation flag in global memory (at pool_base + 4).
+    cancel_flag: *mut u32,
+    /// Invariant lifetime marker — prevents covariance from allowing escape.
+    _marker: PhantomData<&'scope mut &'scope ()>,
+}
+
+impl<'scope> GridScope<'scope> {
+    /// Allocate a zero-initialized mutable slice of `count` elements from
+    /// the global memory pool.
+    ///
+    /// Returns `&'scope mut [T]` — the slice is valid for the lifetime of
+    /// this scope. When the scope exits, the pool offset is reset and this
+    /// memory is logically reclaimed (the pool itself is not freed — it is
+    /// caller-owned).
+    ///
+    /// # Panics
+    ///
+    /// Panics if the allocation would exceed the pool capacity.
+    ///
+    /// # Alignment
+    ///
+    /// Automatically aligns to `core::mem::align_of::<T>()`.
+    pub fn alloc<T: Copy>(&self, count: usize) -> &'scope mut [T] {
+        let size = core::mem::size_of::<T>() * count;
+        let align = core::mem::align_of::<T>();
+
+        // SAFETY: Only the coordinator block/warp calls alloc() — single writer.
+        let offset = unsafe { *self.pool_offset.get() };
+
+        // Bump allocator: round up offset to alignment, then advance
+        let aligned = (offset as usize + align - 1) & !(align - 1);
+        let new_offset = aligned + size;
+        assert!(
+            new_offset <= self.pool_capacity as usize,
+            "GridScope::alloc: global memory pool exhausted"
+        );
+
+        unsafe { *self.pool_offset.get() = new_offset as u32 };
+
+        unsafe {
+            let ptr = self.pool_base.add(aligned) as *mut T;
+            // Zero-initialize the region
+            core::ptr::write_bytes(ptr, 0, count);
+            core::slice::from_raw_parts_mut(ptr, count)
+        }
+    }
+
+    /// Allocate a mutable slice WITHOUT zero-initialization.
+    ///
+    /// # Safety
+    ///
+    /// The caller must initialize all elements before reading them.
+    pub unsafe fn alloc_uninit<T: Copy>(&self, count: usize) -> &'scope mut [T] {
+        let size = core::mem::size_of::<T>() * count;
+        let align = core::mem::align_of::<T>();
+
+        let offset = *self.pool_offset.get();
+        let aligned = (offset as usize + align - 1) & !(align - 1);
+        let new_offset = aligned + size;
+        assert!(
+            new_offset <= self.pool_capacity as usize,
+            "GridScope::alloc_uninit: global memory pool exhausted"
+        );
+
+        *self.pool_offset.get() = new_offset as u32;
+
+        let ptr = self.pool_base.add(aligned) as *mut T;
+        core::slice::from_raw_parts_mut(ptr, count)
+    }
+
+    /// Allocate a single value in global memory, initialized to `val`.
+    pub fn alloc_val<T: Copy>(&self, val: T) -> &'scope mut T {
+        let slot = self.alloc::<T>(1);
+        slot[0] = val;
+        &mut slot[0]
+    }
+
+    /// Returns the number of bytes remaining in the global memory pool.
+    ///
+    /// This is approximate — does not account for alignment padding of
+    /// the next allocation.
+    pub fn available_bytes(&self) -> usize {
+        let offset = unsafe { *self.pool_offset.get() };
+        (self.pool_capacity as usize).saturating_sub(offset as usize)
+    }
+
+    /// Request cooperative cancellation of all blocks in this scope.
+    ///
+    /// Sets a flag in global memory using a system-scope release store.
+    /// Blocks should check [`is_cancelled()`](Self::is_cancelled) at
+    /// checkpoints and return early. This is cooperative — blocks are
+    /// not forcibly stopped.
+    pub fn cancel(&self) {
+        unsafe {
+            gpu_atomics::sys_store_release_u32(self.cancel_flag, 1);
+        }
+    }
+
+    /// Check if this scope has been cancelled.
+    ///
+    /// Uses a system-scope acquire load for cross-block visibility.
+    pub fn is_cancelled(&self) -> bool {
+        unsafe { gpu_atomics::sys_load_acquire_u32(self.cancel_flag as *const u32) != 0 }
+    }
+
+    /// Spin-wait until the completion counter reaches `expected`.
+    ///
+    /// Blocks (from block 0, warp 0) call this to wait for all dispatched
+    /// work to finish. Each worker block increments the completion counter
+    /// (via [`completion_counter_ptr()`](Self::completion_counter_ptr))
+    /// when it finishes its portion of work.
+    ///
+    /// Uses system-scope spin-load (with nanosleep) to avoid LLVM
+    /// hoisting the load out of the loop.
+    pub fn wait_for_completions(&self, expected: u32) {
+        loop {
+            let done = unsafe {
+                gpu_atomics::sys_spin_load_acquire_u32(self.completion_counter as *const u32)
+            };
+            if done >= expected {
+                break;
+            }
+        }
+    }
+
+    /// Returns the raw pointer to the completion counter in global memory.
+    ///
+    /// Worker blocks should atomically increment this counter (using
+    /// `gpu_atomics::sys_fetch_add_u32(ptr, 1)`) when they finish their
+    /// portion of scope work. The coordinator block uses
+    /// [`wait_for_completions()`](Self::wait_for_completions) to poll
+    /// this counter.
+    pub fn completion_counter_ptr(&self) -> *mut u32 {
+        self.completion_counter
+    }
+
+    /// Returns the raw pointer to the cancellation flag in global memory.
+    ///
+    /// Worker blocks can poll this flag (using
+    /// `gpu_atomics::sys_load_acquire_u32(ptr)`) to check for cooperative
+    /// cancellation. Non-zero means cancelled.
+    pub fn cancel_flag_ptr(&self) -> *const u32 {
+        self.cancel_flag as *const u32
+    }
+
+    /// Returns the number of completions expected.
+    pub fn expected_completions(&self) -> u32 {
+        unsafe { *self.expected_completions.get() }
+    }
+
+    /// Set the number of completions to wait for at scope exit.
+    ///
+    /// This is set by the user after dispatching work to blocks.
+    /// The scope's `Drop` (and `grid_scope()` exit) will spin-wait
+    /// until the completion counter reaches this value.
+    pub fn set_expected_completions(&self, n: u32) {
+        // SAFETY: Only the coordinator block/warp mutates this.
+        unsafe { *self.expected_completions.get() = n };
+    }
+}
+
+impl<'scope> Drop for GridScope<'scope> {
+    fn drop(&mut self) {
+        // Wait for all expected completions before exiting.
+        // This ensures all blocks have finished their work.
+        let expected = *self.expected_completions.get_mut();
+        if expected > 0 {
+            self.wait_for_completions(expected);
+        }
+
+        // Reset pool offset to 0 — logically frees all allocations.
+        // The pool memory itself is caller-owned and not freed here.
+        *self.pool_offset.get_mut() = 0;
+    }
+}
+
+// ============================================================
+// grid_scope() — entry function
+// ============================================================
+
+/// Enter a grid-level structured concurrency scope.
+///
+/// The closure receives a `&GridScope<'scope>` handle for allocating
+/// global memory and coordinating block-level work. All dispatched
+/// blocks should be joined (via the completion counter) before this
+/// function returns.
+///
+/// `pool` is a pre-allocated global memory region for scope allocations.
+/// `pool_size` is its size in bytes. The first 8 bytes are reserved for
+/// internal bookkeeping (completion counter + cancel flag).
+///
+/// # Lifetime guarantee
+///
+/// The `'scope` lifetime is shorter than any reference the closure borrows
+/// from the enclosing function. This means `scope.alloc()` returns
+/// `&'scope mut [T]` that cannot escape the `grid_scope` call.
+///
+/// # Safety
+///
+/// - `pool` must point to valid global device memory of at least `pool_size` bytes.
+/// - `pool_size` must be at least 8 (for the header). Larger pools allow user
+///   allocations.
+/// - Must be called from the coordinator block (typically block 0, warp 0).
+/// - The pool must be exclusively owned by this scope for its duration (no
+///   concurrent access from other code paths).
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use gpu_runtime::scope::grid_scope;
+///
+/// unsafe {
+///     grid_scope(pool, pool_size, |gscope| {
+///         let buf = gscope.alloc::<f32>(256);
+///         // ... fill buf, dispatch to blocks ...
+///         gscope.set_expected_completions(num_blocks);
+///     });
+///     // Scope exited: all blocks completed, pool is logically freed.
+/// }
+/// ```
+pub unsafe fn grid_scope<F, R>(pool: *mut u8, pool_size: u32, f: F) -> R
+where
+    F: for<'scope> FnOnce(&GridScope<'scope>) -> R,
+{
+    assert!(
+        pool_size >= GRID_SCOPE_HEADER_SIZE,
+        "grid_scope: pool_size must be at least {} bytes for header",
+        GRID_SCOPE_HEADER_SIZE
+    );
+
+    // 1. Initialize completion counter and cancel flag in the pool header.
+    //    Layout: [completion_counter: u32 @ offset 0, cancel_flag: u32 @ offset 4]
+    let completion_counter = pool as *mut u32;
+    let cancel_flag = pool.add(4) as *mut u32;
+
+    // Use system-scope release stores for cross-block visibility.
+    gpu_atomics::sys_store_release_u32(completion_counter, 0);
+    gpu_atomics::sys_store_release_u32(cancel_flag, 0);
+
+    // 2. Construct GridScope with pool_base, offset past the header.
+    let scope = GridScope {
+        pool_base: pool,
+        pool_offset: UnsafeCell::new(GRID_SCOPE_HEADER_SIZE),
+        pool_capacity: pool_size,
+        completion_counter,
+        expected_completions: UnsafeCell::new(0),
+        cancel_flag,
+        _marker: PhantomData,
+    };
+
+    // 3. Call the closure
+    let result = f(&scope);
+
+    // 4. Wait for completions and reset pool (via Drop).
+    //    Drop will spin-wait on the completion counter if expected_completions > 0,
+    //    then reset pool_offset to 0.
+    drop(scope);
 
     result
 }

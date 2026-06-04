@@ -1,4 +1,4 @@
-# Autonomous Research Loop State File
+# Dev Loop State File
 # Three-level hierarchy: Epic → Theme → Task
 # ACTIVE/PENDING/PARKED items only — completed items in archive/
 
@@ -14,13 +14,13 @@ status = "running"     # ready | running | blocked | completed
 # No GPU concepts leak. VectorWare's I/O strength + async-gpu's compute strength, unified.
 
 # Current cycle position within Think/Do
-current_mode = "do"
-current_step = "do.route"
+current_mode = "think"
+current_step = "think.triage"
 current_task_id = ""
 
 # Sequence counters
 brainstorm_seq = 110
-tasks_since_brainstorm = 12   # Proactive trigger at >= 10
+tasks_since_brainstorm = 12   # >= 10 → brainstorm triggered
 
 # ============================================================
 # Epics — Tiered (T0 → T3), sorted by tier then priority
@@ -476,65 +476,8 @@ success_criteria = [
 # Done tasks archived (cycle 604): thread-spawn.1, .2, .3, native-api.1,
 # perf-attn-v3.1, .2, perf-conv.1, perf-fusion.1, perf-elem-fix.1
 
-# --- warp-batch-io (parked) ---
-
-[[tasks]]
-id = "warp-batch-io.2"
-theme = "warp-batch-io"
-title = "Experiment: implement lane-0-submits pattern in GpuOpenFuture"
-kind = "experiment"
-status = "pending"
-depends = ["warp-batch-io.1"]
-
-[[tasks]]
-id = "warp-batch-io.3"
-theme = "warp-batch-io"
-title = "Experiment: full 32-lane pipeline with shared hostcall packets"
-kind = "experiment"
-status = "pending"
-depends = ["warp-batch-io.2"]
-
-[[tasks]]
-id = "warp-batch-io.4"
-theme = "warp-batch-io"
-title = "Experiment: benchmark per-lane vs batched hostcall throughput"
-kind = "experiment"
-status = "pending"
-depends = ["warp-batch-io.3"]
-
-# --- classical-ml (parked) ---
-
-[[tasks]]
-id = "cml-tree.1"
-theme = "cml-tree"
-title = "Investigation: design tree data structure for GPU (node array with left/right/feature/threshold)"
-kind = "investigation"
-status = "pending"
-depends = []
-
-[[tasks]]
-id = "cml-tree.2"
-theme = "cml-tree"
-title = "Experiment: GPU decision tree inference kernel + CPU reference comparison"
-kind = "experiment"
-status = "pending"
-depends = ["cml-tree.1"]
-
-[[tasks]]
-id = "cml-tree.3"
-theme = "cml-tree"
-title = "Experiment: GPU random forest (100 trees) with majority vote aggregation"
-kind = "experiment"
-status = "pending"
-depends = ["cml-tree.2"]
-
-[[tasks]]
-id = "cml-kmeans.1"
-theme = "cml-kmeans"
-title = "Experiment: GPU k-means (assign + update kernels) with convergence loop"
-kind = "experiment"
-status = "pending"
-depends = []
+# Parked tasks archived (cycle 604): warp-batch-io.2-4, cml-tree.1-3, cml-kmeans.1
+# (recreate when parent themes activate)
 
 # --- kernel-perf: attention ---
 
@@ -611,7 +554,7 @@ id = "perf-layernorm.2"
 theme = "perf-layernorm"
 title = "Experiment: float4 vectorized loads + fused residual-add variant"
 kind = "experiment"
-status = "active"
+status = "pending"
 depends = ["perf-layernorm.1"]
 
 [[tasks]]
@@ -708,17 +651,7 @@ depends = ["perf-conv.5", "perf-elementwise.2"]
 # Brainstorms (last 2 — older → archive/)
 # ============================================================
 
-[[brainstorms]]
-seq = 109
-at_cycle = 535
-trigger = "All tasks done, active epics have unmet criteria"
-level = "standard"
-new_tasks_spawned = ["onnx-gpt2-gen.1", "onnx-gpt2-gen.2", "onnx-conv-prepad.1"]
-new_themes_spawned = ["onnx-gpt2-gen", "onnx-conv-prepad"]
-new_epics_spawned = []
-themes_parked = []
-themes_completed = []
-key_insight = "ONNX epic has 3 unmet criteria: GPT-2 text gen, Conv prepad perf, MobileNet. GPT-2 forward pass is the highest priority."
+# Brainstorm 109 archived (cycle 535, onnx-inference — epic now completed/archived)
 
 [[brainstorms]]
 seq = 110

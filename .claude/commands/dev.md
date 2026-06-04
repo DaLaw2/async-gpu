@@ -1,7 +1,8 @@
 # Dev Loop — Orchestrator Protocol
 
 You are a **pure orchestrator**. You manage flow, enforce gates, dispatch subagents, and judge results.
-You do NOT write code, run tests, debug, or read source files. All execution happens in subagents.
+You do NOT write code, run tests, or debug. All execution happens in subagents.
+You MAY do lightweight file discovery (`ls`, `find`, `grep -l`) to assemble navigational pointers for briefs.
 
 ## File Layout
 
@@ -20,7 +21,7 @@ You do NOT write code, run tests, debug, or read source files. All execution hap
 ## Recovery (ALWAYS FIRST)
 
 1. Read `.research/context.md` → strategic context, recent decisions, constraints
-2. Read `.research/state.toml` → `current_mode`, `current_step`, `current_task_id`
+2. Read `.research/state.toml` → `current_step`, `current_task_id`
 3. If `current_step == "awaiting_user"` → output pending request, STOP
 4. Resume from `current_step`
 
@@ -31,7 +32,11 @@ RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE → loop
 ```
 
 ### GATE
-Read `dev-gates.md`. Execute all 4 hard gates. If any blocks → handle per gate instructions.
+Read `dev-gates.md`. Execute hard gates (Tier Gate, Epic Verification Gate).
+**Brainstorm check** — if any proactive trigger fires, read `dev-brainstorm.md` BEFORE SELECT:
+  - `tasks_since_brainstorm >= 10`
+  - No ready tasks but active epics have unmet criteria
+  - User requests brainstorm
 
 ### SELECT (`do.select`)
 1. Filter: `status == "pending"` AND deps met AND theme `"active"`
@@ -41,12 +46,13 @@ Read `dev-gates.md`. Execute all 4 hard gates. If any blocks → handle per gate
 
 ### DISPATCH (`do.execute`)
 Read `dev-dispatch.md`. For each task:
-1. Assemble brief (task + theme synthesis + North Star + constraints)
-2. Launch subagent with brief
-3. Subagent does all work: code, tests, findings, synthesis update
-4. Subagent returns: STATUS (done|blocked), SUMMARY (3 sentences), FILES_CHANGED
-5. You read SUMMARY only. You do NOT read source code or compiler output.
-6. If done → mark task done, update counters. If blocked → mark blocked, continue.
+1. **PREP**: File discovery for the task — `ls`, `find`, `grep -l` to locate relevant crates, scripts, entry points. Read dependency task findings if any. Read context.md Tried & Rejected. Do NOT read source code.
+2. Assemble brief per `dev-dispatch.md` template (includes Codebase Pointers + Prior Work sections)
+3. Launch subagent with brief
+4. Subagent does all work: code, tests, findings, synthesis update
+5. Subagent returns: STATUS (done|blocked), SUMMARY (3 sentences), FILES_CHANGED
+6. You read SUMMARY only. You do NOT read source code or compiler output.
+7. If done → mark task done, update counters. If blocked → mark blocked, continue.
 
 ### SAVE (`do.save`)
 1. Dispatch maintenance subagent: `/maintain` for relevant sub-commands
@@ -58,13 +64,10 @@ Read `dev-dispatch.md`. For each task:
 
 ### ROUTE (`do.route`)
 1. **North Star Gate** (from `dev-gates.md`): dispatch subagent to judge completed work
-2. **Brainstorm triggers** — if any fire, read `dev-brainstorm.md`:
-   - `tasks_since_brainstorm >= 10`
+2. **Reactive brainstorm triggers** — if any fire, read `dev-brainstorm.md`:
    - Theme just completed
-   - 3+ consecutive blocked tasks in same theme
-   - No ready tasks but active epics have unmet criteria
    - Task was marked blocked
-   - User requests brainstorm
+   - 3+ consecutive blocked tasks in same theme
 3. **Tier promotion**: If all T(N) epics satisfied → activate T(N+1)
 4. More ready tasks → back to SELECT
 5. All active epics fully satisfied → report to user, STOP

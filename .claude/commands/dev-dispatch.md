@@ -5,7 +5,8 @@ or make strategic decisions. The main agent (orchestrator) assembles the brief a
 
 ## Brief Template
 
-Every task subagent receives this structure:
+Every task subagent receives this structure. The orchestrator assembles it during the PREP sub-step
+of DISPATCH — using `ls`, `find`, `grep -l` (not reading source code) to fill Codebase Pointers.
 
 ```
 ## Task
@@ -14,8 +15,20 @@ Kind: {investigation | experiment | design}
 
 ## Context
 Theme: {theme_id} — {theme_title}
+Epic: {epic_id} — {epic_title}
 Epic North Star: {one_sentence_from_state_toml}
+Epic Success Criteria: {list from state.toml}
+This task resolves: {which specific criterion or sub-goal}
 Theme synthesis: {paste findings/themes/{theme_id}-synthesis.md, or "First task in this theme"}
+
+## Prior Work
+Tried & Rejected: {from context.md — what NOT to do and why}
+Dependency findings: {paste findings from depends tasks, or "None"}
+
+## Codebase Pointers
+Relevant crates: {paths found via ls/find}
+Relevant scripts: {paths found via ls/find}
+Entry point: {specific file, script, or function to start from}
 
 ## Constraints
 - {relevant active constraints from context.md}

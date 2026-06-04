@@ -1,6 +1,7 @@
-# Dev Gates — 3 Hard Gates
+# Dev Gates — Hard Gates
 
 Binary pass/fail. No exceptions. No judgment calls.
+Executed at GATE step. Brainstorm triggers are in dev.md (GATE + ROUTE), not here.
 
 ## Gate 1: Tier Gate
 

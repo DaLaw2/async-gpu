@@ -15,11 +15,11 @@ status = "running"     # ready | running | blocked | completed
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
 current_step = "dispatch"
-current_task_id = "iter-design.1,fusion-analysis.1"
+current_task_id = "iter-design.2,fusion-analysis.2"
 
 # Sequence counters
 brainstorm_seq = 116
-tasks_since_brainstorm = 2   # reset after brainstorm 116
+tasks_since_brainstorm = 4   # reset after brainstorm 116
 
 # ============================================================
 # Epics — Tiered (T0 → T3), sorted by tier then priority
@@ -1264,7 +1264,7 @@ id = "iter-design.2"
 theme = "iter-design"
 title = "Design: ParallelIterator trait API surface + closure capture rules"
 kind = "design"
-status = "pending"
+status = "done"
 depends = ["iter-design.1"]
 
 [[tasks]]
@@ -1350,9 +1350,9 @@ depends = []
 [[tasks]]
 id = "fusion-analysis.2"
 theme = "fusion-analysis"
-title = "Design: MIR pass pattern matching rules for fusion candidates"
+title = "Design: tape-level pattern matching rules for fusion candidates"
 kind = "design"
-status = "pending"
+status = "done"
 depends = ["fusion-analysis.1"]
 
 [[tasks]]

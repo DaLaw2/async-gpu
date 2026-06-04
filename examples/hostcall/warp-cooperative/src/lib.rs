@@ -2,6 +2,11 @@
 #![feature(abi_gpu_kernel)]
 #![feature(asm_experimental_arch)]
 
+#[panic_handler]
+fn panic(_: &core::panic::PanicInfo) -> ! {
+    loop {}
+}
+
 use core::future::Future;
 use core::pin::Pin;
 use core::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};

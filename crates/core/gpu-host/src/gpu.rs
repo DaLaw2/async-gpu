@@ -457,11 +457,7 @@ impl GpuStdModule {
 
         let dev = CudaDevice::new(0).map_err(GpuHostError::CudaInit)?;
 
-        let effective_cubin = if !cubin.is_empty() {
-            cubin
-        } else {
-            &[]
-        };
+        let effective_cubin = if !cubin.is_empty() { cubin } else { &[] };
 
         let cu_module: sys::CUmodule =
             unsafe { load_module_cubin_or_ptx(ptx_src, effective_cubin)? };

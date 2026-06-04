@@ -9,8 +9,7 @@
 
 use gpu_host::gpu;
 
-const SIMPLE_PTX: &str = include_str!("../minimal.ptx");
-const FULL_PTX: &str = include_str!("../kernel.ptx");
+const KERNEL_PTX: &str = include_str!(concat!(env!("OUT_DIR"), "/kernel.ptx"));
 const WARP_SIZE: u32 = 32;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -20,7 +19,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("--- Test 1: test_simple_warp ---");
     {
         let ctx = gpu::custom("test_simple_warp")
-            .ptx(SIMPLE_PTX)
+            .ptx(KERNEL_PTX)
             .threads(WARP_SIZE)
             .prepare()?;
 
@@ -49,7 +48,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("--- Test 2: test_multi_await ---");
     {
         match gpu::custom("test_multi_await")
-            .ptx(FULL_PTX)
+            .ptx(KERNEL_PTX)
             .threads(WARP_SIZE)
             .prepare()
         {
@@ -86,7 +85,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("--- Test 3: test_async_pipeline ---");
     {
         match gpu::custom("test_async_pipeline")
-            .ptx(FULL_PTX)
+            .ptx(KERNEL_PTX)
             .threads(WARP_SIZE)
             .prepare()
         {

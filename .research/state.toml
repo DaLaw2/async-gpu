@@ -14,7 +14,7 @@ status = "running"     # ready | running | blocked | completed
 # No GPU concepts leak. VectorWare's I/O strength + async-gpu's compute strength, unified.
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
-current_step = "gate"
+current_step = "do.save"
 current_task_id = ""
 
 # Sequence counters
@@ -277,7 +277,7 @@ id = "std-thread-integration.1"
 theme = "std-thread-integration"
 title = "Investigation: debug std::thread::spawn hang — bar.sync + std init interaction"
 kind = "investigation"
-status = "pending"
+status = "done"
 depends = []
 
 [[tasks]]
@@ -285,7 +285,7 @@ id = "std-thread-integration.2"
 theme = "std-thread-integration"
 title = "Experiment: fix hang + verify std::thread::spawn example with println!"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["std-thread-integration.1"]
 
 [[tasks]]
@@ -293,7 +293,7 @@ id = "native-api.2"
 theme = "native-api"
 title = "Experiment: rewrite examples/ to use gpu::run() native Rust style"
 kind = "experiment"
-status = "active"
+status = "done"
 depends = ["native-api.1"]
 
 # --- kernel-perf themes ---

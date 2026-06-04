@@ -15,11 +15,11 @@ status = "running"     # ready | running | blocked | completed
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
 current_step = "dispatch"
-current_task_id = "perf-conv.2,perf-layernorm.2"
+current_task_id = "perf-conv.3,perf-layernorm.3"
 
 # Sequence counters
 brainstorm_seq = 115
-tasks_since_brainstorm = 22   # reset after brainstorm 114
+tasks_since_brainstorm = 24   # reset after brainstorm 114
 
 # ============================================================
 # Epics — Tiered (T0 → T3), sorted by tier then priority
@@ -1047,7 +1047,7 @@ id = "perf-conv.3"
 theme = "perf-conv"
 title = "Experiment: direct conv kernel for 1×1, 5×5, 7×7 with register tiling"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["perf-gemm.3"]
 
 [[tasks]]
@@ -1081,7 +1081,7 @@ id = "perf-layernorm.3"
 theme = "perf-layernorm"
 title = "Experiment: benchmark + integrate into nn::ops::layer_norm"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["perf-layernorm.2"]
 
 # --- kernel-perf: elementwise ---

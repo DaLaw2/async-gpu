@@ -14,8 +14,8 @@ status = "running"     # ready | running | blocked | completed
 # No GPU concepts leak. VectorWare's I/O strength + async-gpu's compute strength, unified.
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
-current_step = "do.select"
-current_task_id = ""
+current_step = "do.execute"
+current_task_id = "native-api.4,native-api.6"
 
 # Sequence counters
 brainstorm_seq = 111
@@ -301,7 +301,7 @@ id = "native-api.3"
 theme = "native-api"
 title = "Investigation: gpu-kernel ABI availability + migration plan"
 kind = "investigation"
-status = "pending"
+status = "done"
 depends = []
 
 [[tasks]]
@@ -309,7 +309,7 @@ id = "native-api.4"
 theme = "native-api"
 title = "Experiment: migrate all kernels from extern ptx-kernel to extern gpu-kernel"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["native-api.3"]
 
 [[tasks]]
@@ -317,7 +317,7 @@ id = "native-api.5"
 theme = "native-api"
 title = "Design: gpu::run_custom() builder API for multi-argument kernels"
 kind = "design"
-status = "pending"
+status = "done"
 depends = []
 
 [[tasks]]
@@ -325,7 +325,7 @@ id = "native-api.6"
 theme = "native-api"
 title = "Experiment: rewrite remaining examples with builder API + std kernel-side APIs"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["native-api.5"]
 
 # --- kernel-perf themes ---

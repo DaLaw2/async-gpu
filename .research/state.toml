@@ -13,9 +13,8 @@ status = "running"     # ready | running | blocked | completed
 # I/O walks hostcall, compute walks all-warp cooperative, both look like plain Rust.
 # No GPU concepts leak. VectorWare's I/O strength + async-gpu's compute strength, unified.
 
-# Current cycle position within Think/Do
-current_mode = "think"
-current_step = "think.triage"
+# Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
+current_step = "gate"
 current_task_id = ""
 
 # Sequence counters
@@ -59,7 +58,6 @@ title = "std::thread on GPU — thread::spawn() maps to warp"
 tier = 0
 status = "active"
 priority = "highest"
-depends_on = []
 # North Star: thread::spawn() on GPU just works — this is the I/O PILLAR of the unified kernel.
 #   Sequential I/O (file read/write, println!) happens in warp-as-thread mode.
 # Litmus Test: VectorWare "threads on GPU" blog example compiles and runs on async-gpu.
@@ -79,7 +77,6 @@ title = "Cooperative Compute — GPU-internal all-warp parallel computation"
 tier = 1
 status = "pending"
 priority = "high"
-depends_on = ["native-rust-dx", "std-thread-gpu"]
 # North Star: This is the COMPUTE PILLAR of the unified kernel. From sequential I/O context,
 #   switch to all-warp data-parallel compute, then back. I/O + Compute in one fn main().
 # Litmus Test: File::read → matmul → File::write in a single kernel, no mode-switch boilerplate.
@@ -96,7 +93,6 @@ title = "Structured Concurrency — scope-based parallelism mapped to GPU hardwa
 tier = 1
 status = "pending"
 priority = "high"
-depends_on = ["std-thread-gpu"]
 # North Star: Task scope = hardware scope. BlockScope uses shared memory, GridScope uses global.
 #   Resources auto-reclaim when scope ends. Channels pick the fastest path automatically.
 # Litmus Test: Users never manually choose shared vs global memory — the scope decides.
@@ -132,7 +128,6 @@ title = "CUDA Graph Scheduling — static async pipelines compile to CUDA Graphs
 tier = 2
 status = "pending"
 priority = "medium"
-depends_on = ["cooperative-compute"]
 # North Star: Users write async pipelines, the compiler automatically identifies static
 #   portions and emits CUDA Graphs. No code changes needed for the speedup.
 # Litmus Test: An async pipeline runs faster with zero user-facing API changes.
@@ -149,7 +144,6 @@ title = "Unified Runtime — one async fn spans CPU and GPU transparently"
 tier = 2
 status = "pending"
 priority = "medium"
-depends_on = ["native-rust-dx", "cooperative-compute"]
 # North Star: Users write one async fn mixing I/O and compute. The runtime decides
 #   what runs where. Data moves automatically. No cudaMemcpy anywhere.
 # Litmus Test: A pipeline that reads a file, does matmul, writes result — user never
@@ -167,7 +161,6 @@ title = "Cross-Vendor GPU — same code runs on NVIDIA, AMD, Vulkan"
 tier = 2
 status = "pending"
 priority = "low"
-depends_on = ["native-rust-dx"]
 # North Star: Users write Rust GPU code once, it runs on any GPU vendor.
 # Litmus Test: The same example binary runs on both NVIDIA and AMD hardware.
 success_criteria = [
@@ -185,7 +178,6 @@ title = "GPU Actor Model — warp-as-actor with message passing"
 tier = 3
 status = "pending"
 priority = "low"
-depends_on = ["std-thread-gpu", "structured-concurrency"]
 # North Star: An alternative to async/await for task parallelism — each warp is an actor
 #   with a mailbox, no shared mutable state, fault isolation.
 # Litmus Test: A producer-consumer pipeline written with actors is shorter and clearer
@@ -203,7 +195,6 @@ title = "Formal Verification — MIR pass correctness for arbitrary async fn"
 tier = 3
 status = "pending"
 priority = "low"
-depends_on = ["native-rust-dx"]
 # North Star: Users can trust that the MIR pass won't generate wrong code for any
 #   valid async fn — proven, not just tested.
 # Litmus Test: A formal proof that sync insertion is sound for all reachable async states.
@@ -304,55 +295,6 @@ title = "Experiment: rewrite examples/ to use gpu::run() native Rust style"
 kind = "experiment"
 status = "active"
 depends = ["native-api.1"]
-
-# --- Parked ---
-
-[[themes]]
-id = "warp-batch-io"
-epic = "async-std"
-title = "Warp-batched hostcall — 32 lanes share 1 packet"
-status = "parked"
-goal = "Lane 0 submits hostcall, result broadcast via shfl.sync to all lanes"
-success_criteria = [
-    "GpuOpenFuture with lane-0-submits pattern",
-    "Full pipeline with 32 active lanes sharing hostcall",
-    "Benchmark: >=10x throughput improvement on uniform I/O vs per-lane",
-]
-
-[[themes]]
-id = "onnx-gpt2-gen"
-epic = "onnx-inference"
-title = "GPT-2 ONNX text generation"
-status = "parked"
-goal = "Run GPT-2 ONNX and generate coherent text"
-success_criteria = [
-    "GPT-2 ONNX forward pass runs without errors",
-    "Generate at least 10 tokens of coherent text",
-    "Benchmark single forward pass latency",
-]
-
-[[themes]]
-id = "cml-tree"
-epic = "classical-ml"
-title = "Decision tree + random forest inference on GPU"
-status = "parked"
-goal = "GPU-parallel tree traversal for classification"
-success_criteria = [
-    "Decision tree kernel: per-thread tree walk",
-    "Random forest: ensemble aggregation with majority vote",
-    "Accuracy matches CPU scikit-learn reference",
-]
-
-[[themes]]
-id = "cml-kmeans"
-epic = "classical-ml"
-title = "k-means clustering on GPU"
-status = "parked"
-goal = "Lloyd's algorithm with GPU distance computation + centroid update"
-success_criteria = [
-    "GPU k-means converges to correct clusters",
-    "Speedup >= 5x over CPU reference",
-]
 
 # --- kernel-perf themes ---
 
@@ -470,14 +412,42 @@ success_criteria = [
     "No accuracy regression vs im2col path",
 ]
 
+[[themes]]
+id = "perf-int8-tiled"
+epic = "kernel-perf"
+title = "INT8 tiled dp4a — shared memory tiled INT8 GEMM for competitive inference"
+status = "parked"
+goal = "INT8 GEMM via tiled dp4a >= 2x f32 FMA throughput"
+# From deferred int8-inference epic. Naive dp4a is 7-10x slower than tiled f32.
+# Tiled dp4a with shared memory should unlock 2-4x speedup over f32.
+success_criteria = [
+    "Tiled dp4a kernel with shared memory staging (same tiling strategy as SGEMM V4)",
+    "INT8 GEMM throughput >= 2x f32 FMA at 4096x4096",
+    "GPT-2 full INT8 inference produces coherent text (top-5 match f32 for >= 2/3 prompts)",
+]
+
+[[themes]]
+id = "perf-gemm-fusion"
+epic = "kernel-perf"
+title = "Fused GEMM+activation in nn API — fused_prepadded_b path"
+status = "parked"
+goal = "Linear layer dispatches fused GEMM+bias+activation, measurable GPT-2 speedup"
+# From deferred kernel-fusion + kernel-fusion-v2 epics. fused kernels exist but
+# pre-padded B path is faster than unfused; needs fused_prepadded_b to combine both.
+success_criteria = [
+    "fused_prepadded_b kernel: pre-padded weight matrix + GEMM + bias + activation in one launch",
+    "nn::Linear detects subsequent activation and dispatches fused path automatically",
+    "GPT-2 per-token latency reduced >= 10% from GEMM fusion (vs pre-padded unfused baseline)",
+]
+
 # ============================================================
 # Tasks (active/pending only — done → archive/)
 # ============================================================
 # Done tasks archived (cycle 604): thread-spawn.1, .2, .3, native-api.1,
 # perf-attn-v3.1, .2, perf-conv.1, perf-fusion.1, perf-elem-fix.1
 
-# Parked tasks archived (cycle 604): warp-batch-io.2-4, cml-tree.1-3, cml-kmeans.1
-# (recreate when parent themes activate)
+# Orphaned parked tasks removed (cycle 604): warp-batch-io.2-4, cml-tree.1-3, cml-kmeans.1
+# (parent epics archived — brainstorm will recreate if epic reactivates)
 
 # --- kernel-perf: attention ---
 

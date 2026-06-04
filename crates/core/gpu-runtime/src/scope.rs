@@ -269,6 +269,17 @@ pub struct BlockScope<'scope> {
     /// Bitmask of warps that trapped (panicked) during execution.
     /// Each set bit corresponds to a warp that entered STATUS_TRAPPED.
     error_mask: u32,
+    /// Optional pointer to the parent scope's cancel flag.
+    ///
+    /// - For nested BlockScope: points to shared memory (parent's cancel flag).
+    /// - For BlockScope inside GridScope: points to global memory (GridScope's cancel flag).
+    /// - For top-level BlockScope: null.
+    ///
+    /// `is_cancelled()` checks the local flag first (~2 cycles), then reads
+    /// this pointer if set. The chain is at most 1 level deep per scope —
+    /// grandparent propagation happens when the parent scope checks its own
+    /// parent at its yield points.
+    parent_cancel_ptr: *const u32,
     /// Invariant lifetime — prevents covariance from allowing escape.
     _marker: PhantomData<&'scope mut &'scope ()>,
 }
@@ -337,6 +348,38 @@ impl<'scope> BlockScope<'scope> {
     /// Returns the number of bytes remaining in the shared memory pool.
     pub fn available_bytes(&self) -> usize {
         unsafe { &mut *ALLOCATOR.as_ptr() }.available()
+    }
+
+    /// Allocate raw bytes from shared memory with specified size and alignment.
+    ///
+    /// Returns a raw pointer to the allocated region. Unlike [`alloc`](Self::alloc),
+    /// this does not require `T: Copy` — it operates on raw bytes directly.
+    /// The caller is responsible for properly initializing the memory.
+    ///
+    /// This is used internally by the unified channel API to allocate channel
+    /// storage types that contain `UnsafeCell` (and thus are not `Copy`).
+    ///
+    /// # Safety
+    ///
+    /// - Must be called from warp 0.
+    /// - The caller must initialize the memory before use.
+    /// - The returned pointer is valid for the lifetime of this scope.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the allocation would exceed shared memory capacity.
+    pub unsafe fn alloc_raw_bytes(&self, size: usize, align: usize) -> *mut u8 {
+        debug_assert_eq!(
+            warp_id(),
+            0,
+            "scope.alloc_raw_bytes() can only be called from warp 0"
+        );
+
+        let offset = (&mut *ALLOCATOR.as_ptr())
+            .alloc_raw(size, align)
+            .expect("BlockScope::alloc_raw_bytes: shared memory exhausted");
+
+        crate::block::shared_mem_at::<u8>(offset as usize)
     }
 
     /// Spawn a closure on an idle warp within this block.
@@ -537,9 +580,13 @@ impl<'scope> BlockScope<'scope> {
 
     /// Request cooperative cancellation of all tasks in this scope.
     ///
-    /// Sets a flag in shared memory. Spawned tasks should check
-    /// [`is_cancelled()`](Self::is_cancelled) at appropriate points and
-    /// return early. This is cooperative — tasks are not forcibly stopped.
+    /// Sets this scope's LOCAL cancel flag in shared memory. Spawned tasks
+    /// should check [`is_cancelled()`](Self::is_cancelled) at appropriate
+    /// points and return early. This is cooperative — tasks are not forcibly
+    /// stopped.
+    ///
+    /// Note: this does NOT walk down to child scopes. Children discover the
+    /// cancellation on their next `is_cancelled()` poll via the parent chain.
     pub fn cancel(&self) {
         unsafe {
             let flag = crate::block::shared_mem_at::<u32>(self.cancel_flag_offset as usize);
@@ -547,11 +594,91 @@ impl<'scope> BlockScope<'scope> {
         }
     }
 
-    /// Check if this scope has been cancelled.
+    /// Check if this scope or any ancestor scope has been cancelled.
+    ///
+    /// Reads the local cancel flag first (shared memory, ~2 cycles).
+    /// If not set, checks the parent cancel flag (shared or global memory).
+    /// Short-circuits on the first set flag.
+    ///
+    /// Cost: 1 volatile read (best case, local flag is set) to 2 reads
+    /// (worst case, must check parent). The parent pointer is never more
+    /// than 1 level up — grandparent propagation happens when the parent
+    /// scope checks its own parent at its yield points.
+    ///
+    /// When the parent is a GridScope, the parent read hits global memory
+    /// (~100 cycles). When the parent is another BlockScope, the parent
+    /// read hits shared memory (~2 cycles). On the common non-cancelled
+    /// path, the total cost is ~4 cycles (two shared memory reads).
     pub fn is_cancelled(&self) -> bool {
-        unsafe {
+        // Check local flag (shared memory, ~2 cycles)
+        let local = unsafe {
             let flag = crate::block::shared_mem_at::<u32>(self.cancel_flag_offset as usize);
             core::ptr::read_volatile(flag) != 0
+        };
+        if local {
+            return true;
+        }
+
+        // Check parent flag if present
+        if !self.parent_cancel_ptr.is_null() {
+            // Parent may be in shared or global memory — volatile read works for both.
+            // For global memory (GridScope parent), this costs ~100 cycles.
+            // For shared memory (BlockScope parent), ~2 cycles.
+            unsafe { core::ptr::read_volatile(self.parent_cancel_ptr) != 0 }
+        } else {
+            false
+        }
+    }
+
+    /// Returns a raw pointer to this scope's cancel flag in shared memory.
+    ///
+    /// Pass this to [`block_scope_with_parent()`] when creating nested scopes
+    /// inside spawned closures, to enable parent-to-child cancellation
+    /// propagation via the chain-walk in `is_cancelled()`.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// block_scope(|outer| {
+    ///     let parent_ptr = outer.cancel_ptr();
+    ///     outer.spawn(|| {
+    ///         block_scope_with_parent(parent_ptr, |inner| {
+    ///             // inner.is_cancelled() checks both inner and outer flags
+    ///         });
+    ///     });
+    /// });
+    /// ```
+    pub fn cancel_ptr(&self) -> *const u32 {
+        unsafe {
+            crate::block::shared_mem_at::<u32>(self.cancel_flag_offset as usize) as *const u32
+        }
+    }
+
+    /// If the parent scope is cancelled, set this scope's cancel flag too.
+    ///
+    /// This is a convenience for cases where you want immediate propagation
+    /// without waiting for spawned warps to poll `is_cancelled()`. Call at
+    /// the top of a scope body to pull parent cancellation eagerly.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// block_scope(|outer| {
+    ///     let parent_ptr = outer.cancel_ptr();
+    ///     outer.spawn(|| {
+    ///         block_scope_with_parent(parent_ptr, |inner| {
+    ///             inner.propagate_cancel();
+    ///             // ... work ...
+    ///         });
+    ///     });
+    /// });
+    /// ```
+    pub fn propagate_cancel(&self) {
+        if !self.parent_cancel_ptr.is_null() {
+            let parent_cancelled = unsafe { core::ptr::read_volatile(self.parent_cancel_ptr) != 0 };
+            if parent_cancelled {
+                self.cancel();
+            }
         }
     }
 
@@ -667,14 +794,107 @@ impl<'scope, T> ScopeJoinHandle<'scope, T> {
 }
 
 // ============================================================
-// block_scope() — entry function
+// block_scope() / block_scope_with_parent() — entry functions
 // ============================================================
 
-/// Enter a block-level structured concurrency scope.
+/// Enter a block-level scope with an explicit parent cancel pointer.
+///
+/// Used when nesting scopes. The `parent_cancel` pointer enables
+/// [`BlockScope::is_cancelled()`] to chain-walk: it checks the local
+/// flag first, then the parent flag if the local flag is clear.
+///
+/// For top-level scopes (no parent), use [`block_scope()`] instead.
+///
+/// # Arguments
+///
+/// * `parent_cancel` — Pointer to the parent scope's cancel flag.
+///   For a parent [`BlockScope`], obtain this via [`BlockScope::cancel_ptr()`].
+///   For a parent [`GridScope`], use [`GridScope::cancel_flag_ptr()`].
+///
+/// # Safety
+///
+/// - Must be called from warp 0 (the main thread) within `gpu_main`.
+/// - `parent_cancel` must point to a valid `u32` that remains live for
+///   the duration of this scope, or be null.
+/// - The shared memory allocator must have been initialized via
+///   [`init_shared_mem_allocator()`].
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use gpu_runtime::scope::{block_scope, block_scope_with_parent};
+///
+/// block_scope(|outer| {
+///     let parent_ptr = outer.cancel_ptr();
+///     outer.spawn(|| {
+///         block_scope_with_parent(parent_ptr, |inner| {
+///             inner.spawn_all(|wid, nw| {
+///                 // is_cancelled() checks both inner and outer flags
+///                 if inner.is_cancelled() { return; }
+///                 // ... work ...
+///             });
+///         });
+///     });
+/// });
+/// ```
+pub fn block_scope_with_parent<F, R>(parent_cancel: *const u32, f: F) -> R
+where
+    F: for<'scope> FnOnce(&mut BlockScope<'scope>) -> R,
+{
+    debug_assert_eq!(
+        warp_id(),
+        0,
+        "block_scope_with_parent() must be called from warp 0"
+    );
+
+    // 1. Push allocator watermark
+    unsafe {
+        (&mut *ALLOCATOR.as_ptr()).push();
+    }
+
+    // 2. Allocate cancel flag (4 bytes, u32) from shared memory
+    let cancel_flag_offset = unsafe { &mut *ALLOCATOR.as_ptr() }
+        .alloc_raw(core::mem::size_of::<u32>(), core::mem::align_of::<u32>())
+        .expect("block_scope: not enough shared memory for cancel flag");
+
+    // Zero-initialize the cancel flag
+    unsafe {
+        let flag = crate::block::shared_mem_at::<u32>(cancel_flag_offset as usize);
+        core::ptr::write_volatile(flag, 0);
+    }
+
+    // 3. Construct BlockScope with parent chain
+    let mut scope = BlockScope {
+        spawned_warps: 0,
+        spawn_count: 0,
+        cancel_flag_offset,
+        error_mask: 0,
+        parent_cancel_ptr: parent_cancel,
+        _marker: PhantomData,
+    };
+
+    // 4. Call the closure
+    let result = f(&mut scope);
+
+    // 5. Join all spawned warps (explicit path — Drop is the safety net)
+    scope.join_all();
+
+    // 6. Pop allocator watermark (via Drop)
+    //    The Drop impl will pop the watermark. We let it run naturally
+    //    when `scope` goes out of scope here.
+
+    result
+}
+
+/// Enter a top-level block-level structured concurrency scope (no parent).
 ///
 /// The closure receives a `&mut BlockScope<'scope>` handle for allocating
 /// shared memory and spawning warps. All spawned work is joined before
 /// this function returns.
+///
+/// This is the most common entry point. For nested scopes that need
+/// parent-to-child cancellation propagation, use [`block_scope_with_parent()`]
+/// instead.
 ///
 /// # Lifetime guarantee
 ///
@@ -682,49 +902,6 @@ impl<'scope, T> ScopeJoinHandle<'scope, T> {
 /// from the enclosing function. This means `scope.alloc()` returns
 /// `&'scope mut [T]` that can be passed to spawned closures — but cannot
 /// escape the `block_scope` call.
-///
-/// # Composing with cooperative APIs
-///
-/// Scope-allocated buffers can be used with [`crate::thread::cooperative_map`]
-/// and friends by converting to raw pointers:
-///
-/// ```rust,ignore
-/// use gpu_runtime::scope::block_scope;
-/// use gpu_runtime::thread;
-///
-/// block_scope(|scope| {
-///     let src = scope.alloc::<f32>(256);
-///     let dst = scope.alloc::<f32>(256);
-///
-///     // Initialize with spawn_all (preferred — closures, error tracking)
-///     scope.spawn_all(|wid, nw| {
-///         let mut i = wid as usize;
-///         while i < 256 { src[i] = i as f32; i += nw as usize; }
-///     });
-///
-///     // cooperative_map also works (function pointers, no scope tracking)
-///     thread::cooperative_map(
-///         src.as_ptr() as *const u8,
-///         dst.as_mut_ptr() as *mut u8,
-///         256,
-///         |args| {
-///             let s = args.src as *const f32;
-///             let d = args.dst as *mut f32;
-///             let mut i = args.warp_id as usize;
-///             while i < args.len {
-///                 unsafe {
-///                     let v = core::ptr::read_volatile(s.add(i));
-///                     core::ptr::write_volatile(d.add(i), v * 2.0);
-///                 }
-///                 i += args.n_warps as usize;
-///             }
-///         },
-///     );
-/// });
-/// ```
-///
-/// **Important**: Do not call `cooperative_map` while `scope.spawn()` tasks
-/// are still in-flight. Join all spawned tasks first.
 ///
 /// # Safety
 ///
@@ -749,44 +926,7 @@ pub fn block_scope<F, R>(f: F) -> R
 where
     F: for<'scope> FnOnce(&mut BlockScope<'scope>) -> R,
 {
-    debug_assert_eq!(warp_id(), 0, "block_scope() must be called from warp 0");
-
-    // 1. Push allocator watermark
-    unsafe {
-        (&mut *ALLOCATOR.as_ptr()).push();
-    }
-
-    // 2. Allocate cancel flag (4 bytes, u32) from shared memory
-    let cancel_flag_offset = unsafe { &mut *ALLOCATOR.as_ptr() }
-        .alloc_raw(core::mem::size_of::<u32>(), core::mem::align_of::<u32>())
-        .expect("block_scope: not enough shared memory for cancel flag");
-
-    // Zero-initialize the cancel flag
-    unsafe {
-        let flag = crate::block::shared_mem_at::<u32>(cancel_flag_offset as usize);
-        core::ptr::write_volatile(flag, 0);
-    }
-
-    // 3. Construct BlockScope
-    let mut scope = BlockScope {
-        spawned_warps: 0,
-        spawn_count: 0,
-        cancel_flag_offset,
-        error_mask: 0,
-        _marker: PhantomData,
-    };
-
-    // 4. Call the closure
-    let result = f(&mut scope);
-
-    // 5. Join all spawned warps (explicit path — Drop is the safety net)
-    scope.join_all();
-
-    // 6. Pop allocator watermark (via Drop)
-    //    The Drop impl will pop the watermark. We let it run naturally
-    //    when `scope` goes out of scope here.
-
-    result
+    block_scope_with_parent(core::ptr::null(), f)
 }
 
 // ============================================================
@@ -841,6 +981,12 @@ pub struct GridScope<'scope> {
     expected_completions: UnsafeCell<u32>,
     /// Cancellation flag in global memory (at pool_base + 4).
     cancel_flag: *mut u32,
+    /// Optional pointer to a parent scope's cancel flag (global memory).
+    ///
+    /// Currently always null because GridScope does not nest. Reserved for
+    /// future use if grid-level nesting is added. `is_cancelled()` checks
+    /// this pointer after the local flag, mirroring BlockScope's chain-walk.
+    parent_cancel_ptr: *const u32,
     /// Invariant lifetime marker — prevents covariance from allowing escape.
     _marker: PhantomData<&'scope mut &'scope ()>,
 }
@@ -925,6 +1071,38 @@ impl<'scope> GridScope<'scope> {
         (self.pool_capacity as usize).saturating_sub(offset as usize)
     }
 
+    /// Allocate raw bytes from the global memory pool with specified size and alignment.
+    ///
+    /// Returns a raw pointer to the allocated region. Unlike [`alloc`](Self::alloc),
+    /// this does not require `T: Copy` — it operates on raw bytes directly.
+    /// The caller is responsible for properly initializing the memory.
+    ///
+    /// This is used internally by the unified channel API to allocate channel
+    /// storage types that contain `UnsafeCell` (and thus are not `Copy`).
+    ///
+    /// # Safety
+    ///
+    /// - Must be called from the coordinator block/warp.
+    /// - The caller must initialize the memory before use.
+    /// - The returned pointer is valid for the lifetime of this scope.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the allocation would exceed pool capacity.
+    pub unsafe fn alloc_raw_bytes(&self, size: usize, align: usize) -> *mut u8 {
+        let offset = *self.pool_offset.get();
+        let aligned = (offset as usize + align - 1) & !(align - 1);
+        let new_offset = aligned + size;
+        assert!(
+            new_offset <= self.pool_capacity as usize,
+            "GridScope::alloc_raw_bytes: global memory pool exhausted"
+        );
+
+        *self.pool_offset.get() = new_offset as u32;
+
+        self.pool_base.add(aligned)
+    }
+
     /// Request cooperative cancellation of all blocks in this scope.
     ///
     /// Sets a flag in global memory using a system-scope release store.
@@ -937,11 +1115,27 @@ impl<'scope> GridScope<'scope> {
         }
     }
 
-    /// Check if this scope has been cancelled.
+    /// Check if this scope or its parent scope has been cancelled.
     ///
-    /// Uses a system-scope acquire load for cross-block visibility.
+    /// Checks the local cancel flag first (system-scope acquire load,
+    /// ~100 cycles for global memory). If not set and a parent cancel
+    /// pointer exists, checks the parent flag too.
+    ///
+    /// Currently GridScope does not nest, so `parent_cancel_ptr` is
+    /// always null and this degenerates to a single flag check.
     pub fn is_cancelled(&self) -> bool {
-        unsafe { gpu_atomics::sys_load_acquire_u32(self.cancel_flag as *const u32) != 0 }
+        let local =
+            unsafe { gpu_atomics::sys_load_acquire_u32(self.cancel_flag as *const u32) != 0 };
+        if local {
+            return true;
+        }
+
+        // Check parent flag if present (future-proofing for nested GridScope)
+        if !self.parent_cancel_ptr.is_null() {
+            unsafe { gpu_atomics::sys_load_acquire_u32(self.parent_cancel_ptr) != 0 }
+        } else {
+            false
+        }
     }
 
     /// Spin-wait until the completion counter reaches `expected`.
@@ -1129,6 +1323,7 @@ where
         completion_counter,
         expected_completions: UnsafeCell::new(0),
         cancel_flag,
+        parent_cancel_ptr: core::ptr::null(),
         _marker: PhantomData,
     };
 

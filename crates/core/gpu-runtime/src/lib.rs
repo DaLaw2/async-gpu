@@ -570,6 +570,31 @@ pub mod channel;
 /// Values must be `Copy` — no Drop support on GPU.
 pub mod block_channel;
 
+/// Unified channel API — auto-selects transport based on scope.
+///
+/// Provides `ScopedOneshotSender`/`ScopedOneshotReceiver` and
+/// `ScopedMpscSender`/`ScopedMpscReceiver` that dispatch to the correct
+/// transport (shared memory CTA atomics or global memory system atomics)
+/// based on how they were created.
+///
+/// Instead of choosing between `block_channel` and `channel` explicitly,
+/// users call `scope.oneshot()` / `gscope.oneshot()` and the right
+/// transport is selected automatically.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use gpu_runtime::scope::block_scope;
+///
+/// // Block scope: auto-selects shared memory + CTA-scope atomics
+/// block_scope(|scope| {
+///     let (tx, rx) = scope.oneshot::<u32>();
+///     scope.spawn(move || unsafe { tx.send(42) });
+///     let val = unsafe { rx.recv_spin() }; // Ok(42)
+/// });
+/// ```
+pub mod unified_channel;
+
 /// GPU synchronization primitives — Mutex, MutexGuard.
 ///
 /// Provides cross-warp/cross-block mutual exclusion on GPU using system-scope

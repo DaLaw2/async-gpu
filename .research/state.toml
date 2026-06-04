@@ -15,11 +15,11 @@ status = "running"     # ready | running | blocked | completed
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
 current_step = "dispatch"
-current_task_id = "sc-channel.3,sc-runtime.3"
+current_task_id = "sc-channel.4,sc-design.5"
 
 # Sequence counters
 brainstorm_seq = 115
-tasks_since_brainstorm = 16   # reset after brainstorm 114
+tasks_since_brainstorm = 18   # reset after brainstorm 114
 
 # ============================================================
 # Epics — Tiered (T0 → T3), sorted by tier then priority
@@ -979,6 +979,24 @@ title = "Experiment: scopes compose with gpu::cooperative() — bridge old and n
 kind = "experiment"
 status = "done"
 depends = ["sc-runtime.2", "sc-resource.2"]
+
+# --- structured-concurrency: epic verification gap tasks ---
+
+[[tasks]]
+id = "sc-channel.4"
+theme = "sc-channel"
+title = "Experiment: unified GpuChannel<T> enum that auto-selects block/grid transport"
+kind = "experiment"
+status = "done"
+depends = ["sc-channel.2"]
+
+[[tasks]]
+id = "sc-design.5"
+theme = "sc-design"
+title = "Experiment: implement cancellation chain-walk — parent cancel propagates to children"
+kind = "experiment"
+status = "done"
+depends = ["sc-design.3", "sc-resource.2"]
 
 # --- kernel-perf: attention ---
 

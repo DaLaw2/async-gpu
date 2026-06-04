@@ -56,3 +56,9 @@ pub use crate::executor::{ExecutorError, ExecutorStats, GpuExecutor, TaskId};
 
 // --- Collections ---
 pub use crate::collections::GpuHashMap;
+
+// --- Unified channels ---
+pub use crate::unified_channel::{
+    ScopedMpscReceiver, ScopedMpscSendError, ScopedMpscSender, ScopedOneshotClosed,
+    ScopedOneshotReceiver, ScopedOneshotSender,
+};

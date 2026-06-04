@@ -214,6 +214,10 @@ fn main() -> Result<()> {
                 run_thread_spawn_test(Arc::clone(&dev))?;
                 return Ok(());
             }
+            "gpu_run" => {
+                run_gpu_api_test()?;
+                return Ok(());
+            }
             "cnn" => {
                 tests_cnn::run_batchnorm_silu_test(Arc::clone(&dev))?;
                 tests_cnn::run_cnn_ops_test(Arc::clone(&dev))?;
@@ -550,6 +554,27 @@ fn main() -> Result<()> {
     tests_pipeline::run_newton_sqrt_test(Arc::clone(&dev))?;
 
     println!("\nAll tests PASSED.");
+    Ok(())
+}
+
+/// Test the gpu::run() one-liner API.
+fn run_gpu_api_test() -> Result<()> {
+    use gpu_host::gpu;
+
+    println!("\n--- gpu::run() API test (native-rust-dx) ---");
+
+    // Test: gpu::compute launches thread_spawn_test and returns output
+    println!("  gpu::compute(\"thread_spawn_test\", 4, 128)...");
+    let result: Vec<u32> = gpu::compute("thread_spawn_test", 4, 128)
+        .map_err(|e| GpuHostError::Verification { test: "gpu_run", detail: format!("{e}") })?;
+    println!("    result = {:?}", result);
+    assert_eq!(result[0], 42, "thread 1 should return 42");
+    assert_eq!(result[1], 99, "thread 2 should return 99");
+    assert_eq!(result[2], 3, "available_parallelism should be 3");
+    assert_eq!(result[3], 0, "main thread should be warp 0");
+    println!("  gpu::compute — PASSED");
+
+    println!("  gpu::run() API test — ALL PASSED");
     Ok(())
 }
 

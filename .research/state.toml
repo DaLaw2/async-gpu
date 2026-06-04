@@ -11,7 +11,7 @@ status = "running"     # ready | running | blocked | completed
 # Current cycle position within Think/Do
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "thread-spawn.1"
+current_task_id = "native-api.1"
 
 # Sequence counters
 brainstorm_seq = 110
@@ -282,13 +282,29 @@ success_criteria = [
 id = "native-api"
 epic = "native-rust-dx"
 title = "gpu::run() one-liner launcher + clean examples"
-status = "pending"
+status = "active"
 goal = "Host-side launch is one line, examples look like normal Rust"
 success_criteria = [
     "gpu::run(kernel_fn) wraps PTX load + launch + sync",
     "All examples/ rewritten to use gpu::run() style",
     "A Rust dev can read examples without GPU knowledge",
 ]
+
+[[tasks]]
+id = "native-api.1"
+theme = "native-api"
+title = "Experiment: implement gpu::run() one-liner API + vector_add example"
+kind = "experiment"
+status = "active"
+depends = []
+
+[[tasks]]
+id = "native-api.2"
+theme = "native-api"
+title = "Experiment: rewrite examples/ to use gpu::run() native Rust style"
+kind = "experiment"
+status = "pending"
+depends = ["native-api.1"]
 
 # --- Parked ---
 
@@ -486,7 +502,7 @@ id = "thread-spawn.2"
 theme = "thread-spawn"
 title = "Experiment: test kernel — spawn 2+ warps, join, println results"
 kind = "experiment"
-status = "active"
+status = "done"
 depends = ["thread-spawn.1"]
 
 [[tasks]]
@@ -494,7 +510,7 @@ id = "thread-spawn.3"
 theme = "thread-spawn"
 title = "Experiment: wire thread module into std patches (std::thread::spawn on GPU)"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["thread-spawn.2"]
 
 # --- warp-batch-io (parked) ---

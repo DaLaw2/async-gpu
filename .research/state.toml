@@ -75,7 +75,7 @@ success_criteria = [
 id = "cooperative-compute"
 title = "Cooperative Compute — GPU-internal all-warp parallel computation"
 tier = 1
-status = "active"
+status = "completed"
 priority = "high"
 # North Star: This is the COMPUTE PILLAR of the unified kernel. From sequential I/O context,
 #   switch to all-warp data-parallel compute, then back. I/O + Compute in one fn main().
@@ -480,8 +480,9 @@ id = "lib-cleanup.2"
 theme = "lib-cleanup"
 title = "Experiment: move model/yolo/tokenizer demo code out of gpu-host"
 kind = "experiment"
-status = "pending"
+status = "blocked"
 depends = ["lib-extract.2"]
+blocked_reason = "50+ call sites across test harness + examples. Need gpu-models crate — larger refactor."
 
 [[tasks]]
 id = "lib-cleanup.3"

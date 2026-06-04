@@ -2,7 +2,6 @@
 //!
 //! Run with: cargo test -p gpu-host --features nn,cublas --test conv2d_bench -- --nocapture
 
-use std::sync::Arc;
 use std::time::Instant;
 
 #[test]

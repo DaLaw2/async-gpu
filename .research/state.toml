@@ -15,11 +15,11 @@ status = "running"     # ready | running | blocked | completed
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
 current_step = "dispatch"
-current_task_id = "perf-conv.4,perf-elementwise.2"
+current_task_id = "perf-conv.5,perf-e2e.1"
 
 # Sequence counters
 brainstorm_seq = 115
-tasks_since_brainstorm = 27   # reset after brainstorm 114
+tasks_since_brainstorm = 30   # reset after brainstorm 114
 
 # ============================================================
 # Epics — Tiered (T0 → T3), sorted by tier then priority
@@ -1063,7 +1063,7 @@ id = "perf-conv.5"
 theme = "perf-conv"
 title = "Experiment: benchmark all conv shapes, integrate into nn::ops::conv2d"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["perf-conv.2", "perf-conv.3", "perf-conv.4"]
 
 # --- kernel-perf: layernorm ---
@@ -1164,7 +1164,7 @@ id = "perf-e2e.1"
 theme = "perf-e2e"
 title = "Experiment: GPT-2 end-to-end benchmark with all optimized kernels"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["perf-gemm.5", "perf-attention.4", "perf-layernorm.3", "perf-elementwise.2"]
 
 [[tasks]]

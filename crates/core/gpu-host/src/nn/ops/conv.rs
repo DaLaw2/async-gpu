@@ -164,6 +164,9 @@ pub fn conv2d(
         return Ok(output);
     }
 
+    // Fallback: im2col + GEMM path (used when cublas feature is disabled
+    // and kernel is not 1×1). This path has higher memory usage due to
+    // im2col expansion but works for all kernel sizes and strides.
     let h_out = (h + 2 * padding - kh) / stride + 1;
     let w_out = (w + 2 * padding - kw) / stride + 1;
     let col_h = c_in * kh * kw; // K dimension
@@ -966,10 +969,9 @@ fn conv2d_direct_impl(
     let h_out = (h + 2 * padding - kh) / stride + 1;
     let w_out = (w + 2 * padding - kw) / stride + 1;
 
-    // Compile direct conv kernels via NVRTC (cached)
-    use std::sync::OnceLock;
-    static COMPILED: OnceLock<bool> = OnceLock::new();
-    COMPILED.get_or_init(|| {
+    // Compile direct conv kernels via NVRTC (cached per device).
+    // Check if already loaded by probing for the function; compile + load if missing.
+    if dev.get_func("direct_conv", "direct_conv2d").is_none() {
         let opts = cudarc::nvrtc::CompileOptions {
             arch: Some("sm_75"),
             use_fast_math: Some(true),
@@ -983,8 +985,7 @@ fn conv2d_direct_impl(
             &["direct_conv2d", "direct_conv2d_tiled"],
         )
         .expect("direct_conv PTX load failed");
-        true
-    });
+    }
 
     let output_shape = if batch_size > 1 {
         vec![batch_size, c_out, h_out, w_out]
@@ -1236,12 +1237,14 @@ fn conv2d_winograd_f2x2_impl(
     let n_tile_x = w_out.div_ceil(2);
     let total_tiles = n_tile_x * n_tile_y;
 
-    // Compile Winograd CUDA kernels via NVRTC (cached)
+    // Compile Winograd CUDA kernels via NVRTC (cached per device).
+    // Check if already loaded by probing for the function; compile + load if missing.
     static WINOGRAD_SRC: &str = include_str!("winograd_f2x2.cu");
 
-    use std::sync::OnceLock;
-    static COMPILED: OnceLock<bool> = OnceLock::new();
-    COMPILED.get_or_init(|| {
+    if dev
+        .get_func("winograd_f2x2", "winograd_filter_transform")
+        .is_none()
+    {
         let opts = cudarc::nvrtc::CompileOptions {
             arch: Some("sm_75"),
             use_fast_math: Some(true),
@@ -1255,8 +1258,7 @@ fn conv2d_winograd_f2x2_impl(
             &["winograd_filter_transform", "winograd_conv2d_f2x2"],
         )
         .expect("winograd_f2x2 PTX load failed");
-        true
-    });
+    }
 
     // 1. Filter transform: weight[C_out, C_in, 3, 3] → filter_wino[16, C_out, C_in]
     let filter_plane = c_out * c_in;

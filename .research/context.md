@@ -1,7 +1,8 @@
 ## Current Focus
-**structured-concurrency EPIC COMPLETED** (2026-06-05). All 5 success criteria verified.
-18 tasks completed across 5 themes in one session. T1 highest-priority epic done.
-kernel-perf (T1, medium) still active. Next: brainstorm for T2 activation or kernel-perf wrap-up.
+**T2 ACTIVATED** (2026-06-05). All T1 epics completed (5/5). Phase 2 begins.
+gpu-iterator (T2, HIGH) activated — iter-design theme active, first task: iter-design.1.
+auto-fusion (T2, MEDIUM) activated — fusion-analysis theme active (investigation only).
+Staggered start: fusion codegen waits for iterator MIR infrastructure.
 
 ## Recent Decisions
 - 2026-06-05: structured-concurrency epic COMPLETED — all criteria verified
@@ -35,7 +36,7 @@ kernel-perf (T1, medium) still active. Next: brainstorm for T2 activation or ker
 - 6 demo kernels: producer-consumer, cooperative parallel, nested scopes, combined, grid reduce, channel bench
 
 ## Next
-1. Brainstorm trigger: tasks_since_brainstorm >= 10, structured-concurrency completed
-2. T1 remaining: kernel-perf (medium priority) — attention, conv, e2e
-3. T2 epics pending: gpu-iterator, auto-fusion, unified-runtime (depend on structured-concurrency ✓)
-4. Consider tier promotion: all T1 highest satisfied → T2 activation
+1. iter-design.1: Investigation — Rust Iterator/Rayon traits mapping to GPU (critical path)
+2. fusion-analysis.1: Investigation — fusable MIR patterns (parallel with iter-design.1)
+3. iter-design.2 + fusion-analysis.2: design tasks after investigations complete
+4. Phase 3 (unified-runtime) waits for Phase 2 completion

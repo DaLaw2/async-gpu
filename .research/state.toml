@@ -14,12 +14,12 @@ status = "running"     # ready | running | blocked | completed
 # No GPU concepts leak. VectorWare's I/O strength + async-gpu's compute strength, unified.
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
-current_step = "gate"
-current_task_id = ""
+current_step = "dispatch"
+current_task_id = "iter-design.1,fusion-analysis.1"
 
 # Sequence counters
-brainstorm_seq = 115
-tasks_since_brainstorm = 30   # reset after brainstorm 114
+brainstorm_seq = 116
+tasks_since_brainstorm = 2   # reset after brainstorm 116
 
 # ============================================================
 # Epics — Tiered (T0 → T3), sorted by tier then priority
@@ -212,7 +212,7 @@ success_criteria = [
 id = "gpu-iterator"
 title = "GPU Iterator — par_iter() compiles to warp-parallel GPU kernels"
 tier = 2
-status = "pending"
+status = "active"
 priority = "high"
 depends_on = "structured-concurrency"
 # North Star: Iterator chains are Rust's native way to express data-parallel compute.
@@ -231,7 +231,7 @@ success_criteria = [
 id = "auto-fusion"
 title = "Auto Kernel Fusion — compile-time elementwise operation fusion"
 tier = 2
-status = "pending"
+status = "active"
 priority = "medium"
 # North Star: Users write idiomatic decomposed Rust and the compiler fuses the ops.
 #   No "fused kernel" concept leaks — performance optimization is the compiler's job.
@@ -702,7 +702,7 @@ success_criteria = [
 id = "iter-design"
 epic = "gpu-iterator"
 title = "Iterator API design — ParallelIterator trait for GPU"
-status = "pending"
+status = "active"
 goal = "Design gpu::par_iter() that maps Rust iterator semantics to GPU execution"
 success_criteria = [
     "ParallelIterator trait with map, filter, fold, collect methods",
@@ -753,7 +753,7 @@ success_criteria = [
 id = "fusion-analysis"
 epic = "auto-fusion"
 title = "Fusion analysis — MIR pattern matching for fusable op chains"
-status = "pending"
+status = "active"
 goal = "Identify elementwise operation chains that can be fused into single kernels"
 success_criteria = [
     "Pattern matcher identifies consecutive elementwise ops in MIR",
@@ -1256,7 +1256,7 @@ id = "iter-design.1"
 theme = "iter-design"
 title = "Investigation: Rust Iterator/Rayon traits — which semantics map to GPU, which don't"
 kind = "investigation"
-status = "pending"
+status = "done"
 depends = []
 
 [[tasks]]
@@ -1344,7 +1344,7 @@ id = "fusion-analysis.1"
 theme = "fusion-analysis"
 title = "Investigation: fusable patterns in MIR — elementwise chains, broadcast, reductions"
 kind = "investigation"
-status = "pending"
+status = "done"
 depends = []
 
 [[tasks]]
@@ -1559,69 +1559,7 @@ depends = ["om-demo.1"]
 # Brainstorms (last 2 — older → archive/)
 # ============================================================
 
-# Brainstorm 109 archived (cycle 535, onnx-inference — epic now completed/archived)
-
-[[brainstorms]]
-seq = 110
-at_cycle = 560
-trigger = "User requested: what epics to create, which to reopen, strategic direction"
-level = "deep"
-new_tasks_spawned = ["cml-tree.1", "cml-tree.2", "cml-tree.3", "cml-kmeans.1", "dyn-control.1", "dyn-control.2", "dyn-control.3", "graph-bfs.1", "graph-bfs.2", "graph-bfs.3", "int4-integrate.1", "mc-finance.1", "mc-finance.2", "mc-finance.3"]
-new_themes_spawned = ["cml-tree", "cml-kmeans", "dyn-control", "graph-bfs", "int4-integrate", "mc-finance"]
-new_epics_spawned = ["classical-ml", "gpu-dynamic", "graph-algorithms", "int4-gpt2", "monte-carlo"]
-themes_parked = []
-themes_completed = []
-key_insight = "NN axis saturated. Breadth wins where async/await adds unique value. classical-ml + gpu-dynamic + graph-algorithms are top 3."
-
-# Brainstorm 110 archived (cycle 560)
-
-[[brainstorms]]
-seq = 111
-at_cycle = 605
-trigger = "Proactive (tasks>=15), std-thread-gpu epic completed, native-rust-dx verification failed 2/4"
-level = "standard"
-new_tasks_spawned = ["native-api.3", "native-api.4", "native-api.5", "native-api.6"]
-new_themes_spawned = []
-new_epics_spawned = []
-themes_parked = []
-themes_completed = ["std-thread-integration"]
-key_insight = "std-thread-gpu cleared T0. native-rust-dx needs gpu-kernel ABI migration + builder API for remaining examples. User chose to keep criteria, not weaken them."
-
-[[brainstorms]]
-seq = 112
-at_cycle = 607
-trigger = "T0 cleared, T1 activation — cooperative-compute epic needs themes/tasks"
-level = "standard"
-new_tasks_spawned = ["coop-api.1", "coop-api.2", "coop-api.3", "coop-compute.1", "coop-compute.2", "coop-compute.3", "coop-demo.1", "coop-demo.2"]
-new_themes_spawned = ["coop-api", "coop-compute", "coop-demo"]
-new_epics_spawned = []
-themes_parked = []
-themes_completed = ["native-api", "std-thread-integration"]
-key_insight = "cooperative() prototype works but has 3 gaps: API ergonomics (global atomics), kernel-side compute (no callable matmul), full demo. Critical path: coop-api.1 → .2 → coop-compute.2 → coop-demo.1."
-
-[[brainstorms]]
-seq = 113
-at_cycle = 607
-trigger = "User feedback: we only write demos, not a usable library. library-api epic created."
-level = "standard"
-new_tasks_spawned = ["lib-extract.1", "lib-extract.2", "lib-extract.3", "lib-extract.4", "lib-facade.1", "lib-facade.2", "lib-toolchain.1", "lib-toolchain.2"]
-new_themes_spawned = ["lib-extract", "lib-facade", "lib-cleanup", "lib-toolchain", "lib-docs"]
-new_epics_spawned = ["library-api"]
-themes_parked = []
-themes_completed = []
-key_insight = "79% of gpu-host/src (23,735 lines) is test harness inside the library crate. Extract to gpu-test-harness, create async-gpu facade, clean pub API, single setup script."
-
-[[brainstorms]]
-seq = 114
-at_cycle = 607
-trigger = "No ready tasks but active epics have unmet criteria — state staleness"
-level = "standard"
-new_tasks_spawned = ["lib-cleanup.5", "lib-cleanup.6", "lib-docs.1", "lib-docs.2", "perf-gemm-v4.2.1"]
-new_themes_spawned = []
-new_epics_spawned = []
-themes_parked = []
-themes_completed = ["lib-extract", "lib-facade", "kernel-entry-dx", "coop-api"]
-key_insight = "State diverged from reality — 6 themes completed but not marked, native-rust-dx ready to close. SM75 blocks cp.async SGEMM; double-buffer is the alternative. library-api critical path: cleanup.5 → cleanup.6 → docs.2."
+# Brainstorms 109-114 archived (cycles 535-607)
 
 [[brainstorms]]
 seq = 115
@@ -1634,3 +1572,15 @@ new_epics_spawned = ["gpu-iterator", "auto-fusion", "std-completeness", "ownersh
 themes_parked = ["perf-attention", "perf-conv-wino"]
 themes_completed = []
 key_insight = "Core tech stack complete (36 epics archived). Shift from kernel-perf (wrap-up, relaxed targets) to structured-concurrency (T1 top priority). Roadmap: Phase 1 structured-concurrency + kernel-perf wrap-up → Phase 2 gpu-iterator + auto-fusion → Phase 3 unified-runtime. GPU par_iter + compile-time fusion = project's next narrative-defining features."
+
+[[brainstorms]]
+seq = 116
+at_cycle = 607
+trigger = "T1 cleared (all 5 epics completed), T2 tier activation"
+level = "standard"
+new_tasks_spawned = []
+new_themes_spawned = []
+new_epics_spawned = []
+themes_parked = []
+themes_completed = []
+key_insight = "T1 fully cleared (724 tasks). T2 activation: gpu-iterator (HIGH) activated with iter-design theme active. auto-fusion activated with fusion-analysis theme active (investigation-only start). Staggered activation maximizes throughput — fusion investigation parallels iterator design, fusion codegen waits for shared MIR infrastructure. Key risk: MIR pass feasibility for iterator chains must be assessed in iter-design.1."

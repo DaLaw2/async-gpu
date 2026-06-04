@@ -1,40 +1,41 @@
 ## Current Focus
-T0 CLEARED. T1: library-api COMPLETED, cooperative-compute COMPLETED. kernel-perf active (SGEMM done, attention/conv/e2e pending).
-structured-concurrency pending — needs brainstorm for themes/tasks.
-tasks_since_brainstorm = 6 (lib-cleanup.5, .6, lib-toolchain.2, lib-docs.2, perf-gemm-v4.2.1, lib-cleanup.6 verify).
+**structured-concurrency EPIC COMPLETED** (2026-06-05). All 5 success criteria verified.
+18 tasks completed across 5 themes in one session. T1 highest-priority epic done.
+kernel-perf (T1, medium) still active. Next: brainstorm for T2 activation or kernel-perf wrap-up.
 
 ## Recent Decisions
-- 2026-06-04: library-api epic COMPLETED — all 5 criteria verified by independent gate
-- 2026-06-04: SGEMM V4.1 achieves 90% cuBLAS (2691 GFLOPS at 4096³) — was 63% due to dispatch bug
-- 2026-06-04: mapped_mem + model_dir doc(hidden), ptx/cubin doc(hidden)
-- 2026-06-04: Getting-started guide: 5-step SAXPY, ~17 min target, facade-only imports
+- 2026-06-05: structured-concurrency epic COMPLETED — all criteria verified
+- 2026-06-05: Rayon scope model with for<'scope> HRTB + PhantomData invariance
+- 2026-06-05: Library-only enforcement sufficient, no MIR pass changes needed
+- 2026-06-05: Cancellation chain-walk: parent_cancel_ptr + is_cancelled() walks up
+- 2026-06-05: Unified ScopedOneshot/ScopedMpsc enum auto-selects CTA vs system atomics
+- 2026-06-05: Fork/join warp-0-only scheduling confirmed, nested spawn not supported
+- 2026-06-05: GridScope uses pre-allocated pool + BlockWorkSlot coordination for SM75
 
 ## Tried & Rejected
-- bar.sync removal for cross-launch fix: doesn't work (L1 cache coherence)
-- Out-of-place elementwise_add: SLOWER than in-place (119 vs 160 GB/s)
-- Cooperative closure captures: GPU local memory per-warp isolation → ILLEGAL_ADDRESS
-- gpu::run_std() loading kernel_std.ptx at runtime: JIT too slow (>10min for 6MB PTX)
-- cp.async SGEMM on SM75: not available, need SM80+. Double-buffer works instead.
-- Moving model/yolo/tokenizer to separate crate: 50+ call sites. pub(crate)+feature gate instead.
-- Removing demo feature gate entirely: breaks test harness. Keep dual-cfg pattern.
+- bar.sync for scope join: deadlocks if not all warps participate
+- Shuffle as channel primitive: synchronous collective, not point-to-point
+- Runtime channel transport detection: shared memory can't be allocated retroactively
+- Work-stealing scheduler on GPU: CAS contention + complexity not worth it
+- MIR pass for scope enforcement: maintenance cost >> marginal safety gain
+- Nested block_scope from worker warps: allocator not thread-safe, warp exhaustion
 
 ## Active Constraints
 - GTX 1660 (sm_75): no tensor cores, 192 GB/s, 5 TFLOPS FP32, no cp.async
-- kernel_std.cubin must be pre-compiled (ptxas --gpu-name sm_75)
-- build.rs auto-rebuilds kernel PTX with stock nightly — use AUTO_BUILD_KERNEL=0
-- CUDA module statics persist across launches — must load into separate modules
-- cudarc types (CudaSlice<T>) not re-exported by async-gpu facade — noted API gap
+- 48KB shared memory per block — BlockScope allocations limited
+- Max 2 concurrent subagents (OOM risk)
+- Warp 0 only for scope allocation (single-writer invariant)
 
 ## Key Metrics
-- SGEMM V4.1: 2691 GFLOPS at 4096³ (90% cuBLAS) ← was 63% before dispatch fix
-- Flash Attention V3: 559 GFLOPS causal @ seq=512
-- Fused LN+residual: 2.01x speedup, 154 GB/s
-- In-place elementwise_add: 160 GB/s (83% peak)
-- cooperative_map: working, kernel-side naive matmul verified
-- API surface: gpu-host 6 pub modules, async-gpu clean facade
+- SGEMM V4.1: 2691 GFLOPS at 4096³ (90% cuBLAS)
+- BlockScope: watermark allocator, spawn/spawn_all, join_all with STATUS_TRAPPED
+- GridScope: global memory pool, completion counter, work slot dispatch
+- Block channels: CTA-scope atomics ~20-50x faster than system-scope
+- Unified channels: ScopedOneshot/ScopedMpsc auto-select transport
+- 6 demo kernels: producer-consumer, cooperative parallel, nested scopes, combined, grid reduce, channel bench
 
 ## Next
-1. kernel-perf remaining: attention ≥70% cuDNN, conv2d ≥70% cuDNN, GPT-2 <25ms
-2. structured-concurrency needs brainstorm to create themes/tasks
-3. Many kernel-perf tasks have dependency chains with missing predecessors — need cleanup
-4. Consider: which kernel-perf tasks are unblocked now that GEMM V4 is done?
+1. Brainstorm trigger: tasks_since_brainstorm >= 10, structured-concurrency completed
+2. T1 remaining: kernel-perf (medium priority) — attention, conv, e2e
+3. T2 epics pending: gpu-iterator, auto-fusion, unified-runtime (depend on structured-concurrency ✓)
+4. Consider tier promotion: all T1 highest satisfied → T2 activation

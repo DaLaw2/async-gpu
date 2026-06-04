@@ -91,7 +91,7 @@ success_criteria = [
 id = "structured-concurrency"
 title = "Structured Concurrency — scope-based parallelism mapped to GPU hardware"
 tier = 1
-status = "active"
+status = "completed"
 priority = "highest"
 # North Star: Task scope = hardware scope. BlockScope uses shared memory, GridScope uses global.
 #   Resources auto-reclaim when scope ends. Channels pick the fastest path automatically.
@@ -346,7 +346,7 @@ success_criteria = [
 id = "sc-design"
 epic = "structured-concurrency"
 title = "Scope API design — BlockScope/GridScope lifetime model"
-status = "active"
+status = "completed"
 goal = "Design scope types that map Rust lifetimes to GPU hardware scopes"
 success_criteria = [
     "BlockScope<'a> and GridScope<'a> type signatures designed with lifetime bounds",
@@ -359,7 +359,7 @@ success_criteria = [
 id = "sc-resource"
 epic = "structured-concurrency"
 title = "Scoped resource management — auto shared/global memory lifecycle"
-status = "pending"
+status = "completed"
 goal = "Resources auto-allocate in correct memory tier and auto-reclaim on scope exit"
 success_criteria = [
     "BlockScope allocates in shared memory, GridScope in global memory",
@@ -372,7 +372,7 @@ success_criteria = [
 id = "sc-channel"
 epic = "structured-concurrency"
 title = "GpuChannel<T> — auto-transport selection by scope distance"
-status = "pending"
+status = "completed"
 goal = "Channels auto-select fastest transport based on sender/receiver scope"
 success_criteria = [
     "Same warp: shfl.sync transport (register-level, zero latency)",
@@ -385,7 +385,7 @@ success_criteria = [
 id = "sc-demo"
 epic = "structured-concurrency"
 title = "Structured concurrency demo — producer-consumer with automatic channels"
-status = "pending"
+status = "completed"
 goal = "End-to-end demo proving scope-based parallelism works and is ergonomic"
 success_criteria = [
     "Producer-consumer pipeline using BlockScope with auto shared memory channels",
@@ -398,7 +398,7 @@ success_criteria = [
 id = "sc-runtime"
 epic = "structured-concurrency"
 title = "Scope runtime — warp scheduling for nested scopes"
-status = "pending"
+status = "completed"
 goal = "Scopes map to GPU warp fork/join with correct synchronization"
 success_criteria = [
     "BlockScope forks warps within a thread block, joins on scope exit",

@@ -14,7 +14,7 @@ status = "running"     # ready | running | blocked | completed
 # No GPU concepts leak. VectorWare's I/O strength + async-gpu's compute strength, unified.
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
-current_step = "do.save"
+current_step = "awaiting_user"
 current_task_id = ""
 
 # Sequence counters
@@ -108,7 +108,7 @@ success_criteria = [
 id = "library-api"
 title = "Library API — async-gpu as a usable crate, not a demo collection"
 tier = 1
-status = "active"
+status = "completed"
 priority = "highest"
 # North Star: A user adds `async-gpu = "0.1"` to Cargo.toml and writes GPU programs
 #   using a clean, documented public API. No sysroot hacks, no copy-pasting from examples.

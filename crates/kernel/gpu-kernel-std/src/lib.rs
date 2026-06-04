@@ -41,6 +41,7 @@ mod hybrid;
 mod pipeline;
 mod thread_test;
 mod warp;
+mod sc_demo;
 
 // === Std-specific kernel code below ===
 

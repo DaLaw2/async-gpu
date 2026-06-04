@@ -53,6 +53,36 @@
 //! }
 //! ```
 //!
+//! # Composing with cooperative APIs
+//!
+//! Scope-allocated shared memory composes cleanly with the cooperative APIs
+//! in [`crate::thread`] (`cooperative_map`, `cooperative_reduce`,
+//! `cooperative_map_with_params`). The key rules:
+//!
+//! 1. **Scope-allocated buffers as cooperative src/dst**: `scope.alloc::<T>(n)`
+//!    returns `&'scope mut [T]` backed by shared memory. Call `.as_ptr()` /
+//!    `.as_mut_ptr()` and cast to `*const u8` / `*mut u8` to pass to
+//!    `cooperative_map()`. The pointers remain valid for the scope's lifetime.
+//!
+//! 2. **cooperative_map inside a scope**: Works correctly as long as no
+//!    `scope.spawn()` tasks are in-flight (all must be joined first).
+//!    `cooperative_map` wakes all warps via `STATUS_COOPERATIVE`, which is
+//!    the same mechanism as `scope.spawn_all()`. After it returns, all
+//!    warps are back to `STATUS_IDLE`.
+//!
+//! 3. **Prefer `spawn_all` over `cooperative_map` inside scopes**:
+//!    `scope.spawn_all()` is the preferred way to do cooperative work within
+//!    a scope. It can capture scope-allocated references in its closure
+//!    (closures vs function pointers), provides error detection via
+//!    `error_mask()`, and integrates with the scope's warp tracking.
+//!    `cooperative_map` uses function pointers and global statics for
+//!    argument passing, which is more restrictive.
+//!
+//! 4. **Do NOT interleave spawn and cooperative_map**: If you call
+//!    `scope.spawn()` and a warp is still running, calling `cooperative_map()`
+//!    will corrupt that warp's status. Always `join_all()` before using any
+//!    cooperative API. `spawn_all()` already enforces this with an assertion.
+//!
 //! # Safety model
 //!
 //! - Only warp 0 (block 0 for GridScope) may call scope entry and `alloc()`.
@@ -652,6 +682,49 @@ impl<'scope, T> ScopeJoinHandle<'scope, T> {
 /// from the enclosing function. This means `scope.alloc()` returns
 /// `&'scope mut [T]` that can be passed to spawned closures — but cannot
 /// escape the `block_scope` call.
+///
+/// # Composing with cooperative APIs
+///
+/// Scope-allocated buffers can be used with [`crate::thread::cooperative_map`]
+/// and friends by converting to raw pointers:
+///
+/// ```rust,ignore
+/// use gpu_runtime::scope::block_scope;
+/// use gpu_runtime::thread;
+///
+/// block_scope(|scope| {
+///     let src = scope.alloc::<f32>(256);
+///     let dst = scope.alloc::<f32>(256);
+///
+///     // Initialize with spawn_all (preferred — closures, error tracking)
+///     scope.spawn_all(|wid, nw| {
+///         let mut i = wid as usize;
+///         while i < 256 { src[i] = i as f32; i += nw as usize; }
+///     });
+///
+///     // cooperative_map also works (function pointers, no scope tracking)
+///     thread::cooperative_map(
+///         src.as_ptr() as *const u8,
+///         dst.as_mut_ptr() as *mut u8,
+///         256,
+///         |args| {
+///             let s = args.src as *const f32;
+///             let d = args.dst as *mut f32;
+///             let mut i = args.warp_id as usize;
+///             while i < args.len {
+///                 unsafe {
+///                     let v = core::ptr::read_volatile(s.add(i));
+///                     core::ptr::write_volatile(d.add(i), v * 2.0);
+///                 }
+///                 i += args.n_warps as usize;
+///             }
+///         },
+///     );
+/// });
+/// ```
+///
+/// **Important**: Do not call `cooperative_map` while `scope.spawn()` tasks
+/// are still in-flight. Join all spawned tasks first.
 ///
 /// # Safety
 ///

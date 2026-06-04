@@ -15,11 +15,11 @@ status = "running"     # ready | running | blocked | completed
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
 current_step = "dispatch"
-current_task_id = "sc-runtime.2,sc-resource.3"
+current_task_id = "sc-demo.1,sc-runtime.4"
 
 # Sequence counters
 brainstorm_seq = 115
-tasks_since_brainstorm = 10   # reset after brainstorm 114
+tasks_since_brainstorm = 12   # reset after brainstorm 114
 
 # ============================================================
 # Epics — Tiered (T0 → T3), sorted by tier then priority
@@ -927,7 +927,7 @@ id = "sc-demo.1"
 theme = "sc-demo"
 title = "Experiment: producer-consumer pipeline using BlockScope with auto shared memory channels"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["sc-resource.2", "sc-channel.2"]
 
 [[tasks]]
@@ -977,7 +977,7 @@ id = "sc-runtime.4"
 theme = "sc-runtime"
 title = "Experiment: scopes compose with gpu::cooperative() — bridge old and new models"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["sc-runtime.2", "sc-resource.2"]
 
 # --- kernel-perf: attention ---

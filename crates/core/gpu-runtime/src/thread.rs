@@ -493,6 +493,21 @@ pub struct CoopMapArgs {
 /// });
 /// ```
 ///
+/// # Composing with `BlockScope`
+///
+/// Can be called inside a [`crate::scope::block_scope`] to process
+/// scope-allocated shared memory buffers. Pass `slice.as_ptr() as *const u8`
+/// for `src` and `slice.as_mut_ptr() as *mut u8` for `dst`. The pointers
+/// remain valid for the scope's lifetime.
+///
+/// **Prerequisite**: All `scope.spawn()` tasks must be joined before calling
+/// this function. `cooperative_map` wakes all warps via `STATUS_COOPERATIVE`,
+/// which would corrupt the status of any in-flight spawned task.
+///
+/// For new code inside scopes, prefer [`crate::scope::BlockScope::spawn_all`]
+/// which supports closures (can capture scope references directly) and
+/// integrates with the scope's error tracking.
+///
 /// # Safety guarantees
 ///
 /// - `src` and `dst` must be valid for the duration of the call

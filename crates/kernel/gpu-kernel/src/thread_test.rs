@@ -144,6 +144,54 @@ pub unsafe extern "gpu-kernel" fn cooperative_compute_test(result: *mut u32) {
     });
 }
 
+/// Test: cooperative_map — all warps double each element, zero global atomics.
+///
+/// Input: result[0..256] pre-filled with i (0..256)
+/// Output: result[i] = i * 2 for all i
+///
+/// Unlike cooperative_compute_test, this uses NO global atomics for data passing.
+/// All data flows through cooperative_map's explicit (src, dst, len) parameters.
+///
+/// Launch with: block_dim=(128,1,1)
+/// Output: result[i] = i * 2 for i in 0..256
+///
+/// The kernel allocates a Vec for input (heap → global address space, visible
+/// to all warps), passes pointers to cooperative_map, then copies results out.
+static CMAP_INPUT: [core::sync::atomic::AtomicU32; 256] = {
+    const Z: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+    [Z; 256]
+};
+
+#[no_mangle]
+pub unsafe extern "gpu-kernel" fn cooperative_map_test(result: *mut u32) {
+    thread::gpu_main(|| {
+        // Initialize input in global static (visible to all warps)
+        for i in 0..256u32 {
+            CMAP_INPUT[i as usize].store(i, core::sync::atomic::Ordering::Relaxed);
+        }
+
+        // cooperative_map: all warps double each element
+        // No global atomics, no unsafe, no closure captures
+        thread::cooperative_map(
+            CMAP_INPUT.as_ptr() as *const u8,
+            result as *mut u8,
+            256,
+            |args| {
+                let src = args.src as *const u32;
+                let dst = args.dst as *mut u32;
+                let mut i = args.warp_id as usize;
+                while i < args.len {
+                    unsafe {
+                        let v = core::ptr::read_volatile(src.add(i));
+                        core::ptr::write_volatile(dst.add(i), v * 2);
+                    }
+                    i += args.n_warps as usize;
+                }
+            },
+        );
+    });
+}
+
 /// Demo: extern "gpu-kernel" ABI — the native Rust GPU entry point.
 ///
 /// This is identical to thread_spawn_test but uses extern "gpu-kernel" ABI.

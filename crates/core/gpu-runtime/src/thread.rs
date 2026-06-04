@@ -425,6 +425,165 @@ pub unsafe fn cooperative<F: Fn()>(f: &F) {
     }
 }
 
+// ============================================================
+// Cooperative Map — data-parallel transform without global atomics
+// ============================================================
+
+/// Global argument block for cooperative_map.
+/// Written by warp 0, read by all warps via the trampoline.
+/// Layout: [in_ptr: u64, out_ptr: u64, len: u64, fn_ptr: u64]
+static COOP_MAP_ARGS: [AtomicU64; 4] = [ATOMIC_U64_ZERO; 4];
+
+/// Arguments passed to the cooperative_map user function.
+///
+/// Each warp receives this struct with its partition info, allowing
+/// data-parallel processing without closure captures or global atomics.
+#[derive(Clone, Copy)]
+pub struct CoopMapArgs {
+    /// Pointer to input data (read-only).
+    pub src: *const u8,
+    /// Pointer to output data (write).
+    pub dst: *mut u8,
+    /// Total number of elements.
+    pub len: usize,
+    /// This warp's ID (0-based, includes warp 0).
+    pub warp_id: u32,
+    /// Total number of warps participating.
+    pub n_warps: u32,
+}
+
+/// Execute a data-parallel map across all warps without closure captures.
+///
+/// This is the ergonomic alternative to `cooperative()`: instead of passing
+/// data via global atomics and reading them inside a zero-capture closure,
+/// the caller passes `(src, dst, len)` as explicit arguments. Each warp
+/// receives a [`CoopMapArgs`] struct with its partition info.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use gpu_runtime::thread;
+///
+/// thread::gpu_main(|| {
+///     let input: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0];
+///     let mut output: Vec<f32> = vec![0.0; 4];
+///
+///     // All warps cooperatively double each element
+///     thread::cooperative_map(
+///         input.as_ptr() as *const u8,
+///         output.as_mut_ptr() as *mut u8,
+///         input.len(),
+///         |args| {
+///             let src = args.src as *const f32;
+///             let dst = args.dst as *mut f32;
+///             let mut i = args.warp_id as usize;
+///             while i < args.len {
+///                 unsafe {
+///                     let v = core::ptr::read_volatile(src.add(i));
+///                     core::ptr::write_volatile(dst.add(i), v * 2.0);
+///                 }
+///                 i += args.n_warps as usize;
+///             }
+///         },
+///     );
+///     // output == [2.0, 4.0, 6.0, 8.0]
+/// });
+/// ```
+///
+/// # Safety guarantees
+///
+/// - `src` and `dst` must be valid for the duration of the call
+/// - The closure must partition work by `(warp_id, n_warps)` to avoid data races
+/// - Unlike `cooperative()`, this function is safe to call (no `unsafe` block needed)
+///   because it does not copy closure data across warp boundaries
+pub fn cooperative_map(src: *const u8, dst: *mut u8, len: usize, f: fn(&CoopMapArgs)) {
+    let n_warps = NUM_WARPS.load(Ordering::Acquire) as usize;
+    let total = if n_warps == 0 { 1 } else { n_warps };
+
+    // Warp 0 publishes the arguments to global memory
+    if lane_id() == 0 {
+        COOP_MAP_ARGS[0].store(src as u64, Ordering::Relaxed);
+        COOP_MAP_ARGS[1].store(dst as u64, Ordering::Relaxed);
+        COOP_MAP_ARGS[2].store(len as u64, Ordering::Relaxed);
+        COOP_MAP_ARGS[3].store(f as usize as u64, Ordering::Relaxed);
+    }
+
+    if total <= 1 {
+        // Single warp: just call directly
+        let args = CoopMapArgs {
+            src,
+            dst,
+            len,
+            warp_id: 0,
+            n_warps: 1,
+        };
+        if lane_id() == 0 {
+            f(&args);
+        }
+        return;
+    }
+
+    // Trampoline: reads args from COOP_MAP_ARGS, calls user fn
+    fn trampoline(_raw: *mut u8) {
+        let lid = crate::index::thread_idx_x() % 32;
+        if lid == 0 {
+            let src = COOP_MAP_ARGS[0].load(Ordering::Acquire) as *const u8;
+            let dst = COOP_MAP_ARGS[1].load(Ordering::Acquire) as *mut u8;
+            let len = COOP_MAP_ARGS[2].load(Ordering::Acquire) as usize;
+            let fn_ptr = COOP_MAP_ARGS[3].load(Ordering::Acquire);
+            let f: fn(&CoopMapArgs) = unsafe { core::mem::transmute(fn_ptr) };
+
+            let wid = crate::index::thread_idx_x() / 32;
+            let n_warps = NUM_WARPS.load(Ordering::Acquire);
+
+            let args = CoopMapArgs {
+                src,
+                dst,
+                len,
+                warp_id: wid,
+                n_warps,
+            };
+            f(&args);
+        }
+    }
+
+    let trampoline_fn = trampoline as fn(*mut u8);
+
+    // Wake worker warps
+    if lane_id() == 0 {
+        for i in 1..total {
+            WARP_FN[i].store(trampoline_fn as usize as u64, Ordering::Relaxed);
+            WARP_DATA[i].store(0, Ordering::Relaxed);
+            WARP_STATUS[i].store(STATUS_COOPERATIVE, Ordering::Release);
+        }
+    }
+
+    // Warp 0 also participates
+    if lane_id() == 0 {
+        let args = CoopMapArgs {
+            src,
+            dst,
+            len,
+            warp_id: 0,
+            n_warps: total as u32,
+        };
+        f(&args);
+    }
+
+    // Wait for all workers to finish
+    #[allow(clippy::needless_range_loop)]
+    for i in 1..total {
+        loop {
+            let s = WARP_STATUS[i].load(Ordering::Acquire);
+            if s == STATUS_DONE {
+                WARP_STATUS[i].store(STATUS_IDLE, Ordering::Release);
+                break;
+            }
+            nanosleep_short();
+        }
+    }
+}
+
 /// Sleep for approximately `nanos` nanoseconds.
 pub fn sleep_nanos(nanos: u32) {
     #[cfg(target_arch = "nvptx64")]

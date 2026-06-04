@@ -249,6 +249,30 @@ fn main() -> Result<()> {
                     if ok { "PASSED" } else { "FAILED" }
                 );
                 assert!(ok);
+
+                println!("\n--- Cooperative Map Test (no global atomics) ---");
+                let map_result: Vec<u32> = gpu_host::gpu::launch("cooperative_map_test", 256, 128)
+                    .map_err(|e| GpuHostError::Verification {
+                        test: "coop_map",
+                        detail: format!("{e}"),
+                    })?;
+                let mut map_ok = true;
+                for i in 0..256usize {
+                    let expected = (i * 2) as u32;
+                    if map_result[i] != expected {
+                        println!(
+                            "  MISMATCH at {i}: got {}, expected {expected}",
+                            map_result[i]
+                        );
+                        map_ok = false;
+                    }
+                }
+                println!(
+                    "  Cooperative map: {}",
+                    if map_ok { "PASSED" } else { "FAILED" }
+                );
+                assert!(map_ok);
+
                 return Ok(());
             }
             "std_thread_demo" => {

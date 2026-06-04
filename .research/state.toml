@@ -408,7 +408,7 @@ id = "lib-extract.1"
 theme = "lib-extract"
 title = "Investigation: inventory test harness deps on gpu-host internals"
 kind = "investigation"
-status = "active"
+status = "done"
 depends = []
 
 [[tasks]]
@@ -456,7 +456,7 @@ id = "lib-toolchain.1"
 theme = "lib-toolchain"
 title = "Investigation: minimum user setup requirements"
 kind = "investigation"
-status = "active"
+status = "done"
 depends = []
 
 [[tasks]]
@@ -507,7 +507,7 @@ id = "coop-api.1"
 theme = "coop-api"
 title = "Investigation: cooperative() data passing without global atomics"
 kind = "investigation"
-status = "active"
+status = "done"
 depends = []
 
 [[tasks]]

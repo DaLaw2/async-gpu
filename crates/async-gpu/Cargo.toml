@@ -1,0 +1,13 @@
+[package]
+name = "async-gpu"
+version = "0.1.0"
+edition = "2021"
+description = "Async/Await on GPU — write Rust GPU programs with familiar APIs"
+
+[features]
+default = []
+nn = ["gpu-host/nn"]
+async = ["gpu-host/async"]
+
+[dependencies]
+gpu-host = { path = "../core/gpu-host", default-features = false }

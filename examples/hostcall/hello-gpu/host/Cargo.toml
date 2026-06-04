@@ -7,4 +7,4 @@ edition = "2021"
 description = "Hello GPU — native Rust API for GPU compute, I/O, and threading"
 
 [dependencies]
-gpu-host = { path = "../../../../crates/core/gpu-host", default-features = false }
+async-gpu = { path = "../../../../crates/async-gpu" }

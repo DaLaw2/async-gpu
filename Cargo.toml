@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crates/async-gpu",
     "crates/core/gpu-host",
     "crates/core/gpu-protocol",
     "crates/macro/warp-macro",

@@ -8,9 +8,9 @@
 //! 2. GPU file I/O — kernel creates, writes, reads, and verifies a file
 //! 3. GPU threading — thread::spawn on separate warps, join results
 
-use gpu_host::gpu;
+use async_gpu::gpu;
 
-fn main() -> gpu_host::Result<()> {
+fn main() -> async_gpu::Result<()> {
     println!("=== Hello GPU Example ===\n");
 
     // ---- Demo 1: GPU println ----

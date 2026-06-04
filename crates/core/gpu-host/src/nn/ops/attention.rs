@@ -239,7 +239,7 @@ pub fn multi_head_flash_attention_v3(
     static COMPILED: OnceLock<bool> = OnceLock::new();
     COMPILED.get_or_init(|| {
         let opts = cudarc::nvrtc::CompileOptions {
-            arch: Some("sm_86"),
+            arch: Some("sm_75"),
             use_fast_math: Some(true),
             ..Default::default()
         };
@@ -260,7 +260,7 @@ pub fn multi_head_flash_attention_v3(
     let config = cudarc::driver::LaunchConfig {
         grid_dim: (n_heads as u32, n_q_tiles, 1),
         block_dim: (128, 1, 1),
-        shared_mem_bytes: 16384, // K_smem[32][64] + V_smem[32][64]
+        shared_mem_bytes: 16640, // K_smem[32][65] + V_smem[32][65] (padded stride)
     };
     let causal_flag: u32 = if causal { 1 } else { 0 };
 

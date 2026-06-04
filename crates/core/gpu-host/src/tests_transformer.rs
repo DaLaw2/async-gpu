@@ -2118,3 +2118,118 @@ pub(crate) fn run_kv_cache_attention_test(dev: Arc<CudaDevice>) -> Result<()> {
     println!("  KV cache attention — PASSED");
     Ok(())
 }
+
+/// Flash Attention V3 benchmark: correctness + throughput measurement.
+#[cfg(feature = "cublas")]
+pub(crate) fn run_flash_attention_v3_bench(dev: Arc<CudaDevice>) -> Result<()> {
+    use gpu_host::nn::ops::attention::multi_head_flash_attention_v3;
+    use gpu_host::nn::tensor::GpuTensor;
+
+    println!("\n--- Flash Attention V3 Benchmark (perf-attn-v3) ---");
+
+    const N_HEADS: usize = 12;
+    const D_HEAD: usize = 64;
+    let seq_lens: &[usize] = &[128, 256, 512];
+
+    for &seq_len in seq_lens {
+        let total = N_HEADS * seq_len * D_HEAD;
+
+        let mut q_data: Vec<f32> = Vec::with_capacity(total);
+        let mut k_data: Vec<f32> = Vec::with_capacity(total);
+        let mut v_data: Vec<f32> = Vec::with_capacity(total);
+        for i in 0..total {
+            q_data.push(((i * 7 + 3) % 11) as f32 * 0.01 - 0.05);
+            k_data.push(((i * 13 + 5) % 11) as f32 * 0.01 - 0.05);
+            v_data.push(((i * 17 + 9) % 11) as f32 * 0.01 - 0.05);
+        }
+
+        let q = GpuTensor::from_host(&q_data, &[N_HEADS * seq_len, D_HEAD], &dev)
+            .map_err(|e| GpuHostError::Verification {
+                test: "attn_v3",
+                detail: format!("{e}"),
+            })?;
+        let k = GpuTensor::from_host(&k_data, &[N_HEADS * seq_len, D_HEAD], &dev)
+            .map_err(|e| GpuHostError::Verification {
+                test: "attn_v3",
+                detail: format!("{e}"),
+            })?;
+        let v = GpuTensor::from_host(&v_data, &[N_HEADS * seq_len, D_HEAD], &dev)
+            .map_err(|e| GpuHostError::Verification {
+                test: "attn_v3",
+                detail: format!("{e}"),
+            })?;
+
+        // Correctness check (causal)
+        let out = multi_head_flash_attention_v3(&q, &k, &v, seq_len, N_HEADS, D_HEAD, true, &dev)
+            .map_err(|e| GpuHostError::Verification {
+                test: "attn_v3",
+                detail: format!("{e}"),
+            })?;
+        let out_host = out.to_host().map_err(|e| GpuHostError::Verification {
+            test: "attn_v3",
+            detail: format!("{e}"),
+        })?;
+
+        // Spot-check correctness: row 0 of head 0 should equal V[0]
+        let v_row0 = &v_data[0..D_HEAD];
+        let out_row0 = &out_host[0..D_HEAD];
+        let mut max_err: f32 = 0.0;
+        for d in 0..D_HEAD {
+            let err = (out_row0[d] - v_row0[d]).abs();
+            if err > max_err {
+                max_err = err;
+            }
+        }
+        if max_err > 1e-3 {
+            return Err(GpuHostError::Verification {
+                test: "attn_v3",
+                detail: format!(
+                    "seq={seq_len} row0 mismatch: max_err={max_err:.6} (expect ~V[0])"
+                ),
+            });
+        }
+
+        // Throughput benchmark
+        let warmup = 5;
+        let iters = 20;
+
+        for &(mode, label) in &[(true, "causal"), (false, "bidirectional")] {
+            for _ in 0..warmup {
+                let _ = multi_head_flash_attention_v3(
+                    &q, &k, &v, seq_len, N_HEADS, D_HEAD, mode, &dev,
+                );
+            }
+            dev.synchronize().map_err(|e| GpuHostError::Verification {
+                test: "attn_v3",
+                detail: format!("{e}"),
+            })?;
+
+            let start = std::time::Instant::now();
+            for _ in 0..iters {
+                let _ = multi_head_flash_attention_v3(
+                    &q, &k, &v, seq_len, N_HEADS, D_HEAD, mode, &dev,
+                );
+            }
+            dev.synchronize().map_err(|e| GpuHostError::Verification {
+                test: "attn_v3",
+                detail: format!("{e}"),
+            })?;
+            let elapsed = start.elapsed();
+            let ms_per_iter = elapsed.as_secs_f64() * 1000.0 / iters as f64;
+
+            // FLOPs: 2 * n_heads * seq^2 * d_head for each of Q·K^T and P·V
+            // Causal: ~half the work; bidirectional: full
+            let ratio = if mode { 0.5 } else { 1.0 };
+            let flops =
+                2.0 * 2.0 * ratio * N_HEADS as f64 * (seq_len as f64).powi(2) * D_HEAD as f64;
+            let gflops = flops / (ms_per_iter * 1e6);
+
+            println!(
+                "  seq={seq_len:>4} {label:>5}: {ms_per_iter:.3} ms, {gflops:.0} GFLOPS"
+            );
+        }
+    }
+
+    println!("  Flash Attention V3 Benchmark — DONE");
+    Ok(())
+}

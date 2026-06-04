@@ -8,8 +8,13 @@
 //
 // Score GEMM: each thread computes 8 scores S[my_row][group*8..group*8+7]
 // P·V GEMM:  each thread computes 16 outputs O[my_row][group*16..group*16+15]
+//
+// V3.1 optimizations:
+//   - Shared memory padding (stride 65) to eliminate bank conflicts
+//   - float4 global loads for K/V tiles
+//   - Cooperative Q load via shared memory (4x fewer global reads)
 
-extern "C" __global__ void flash_attn_v3(
+extern "C" __global__ __launch_bounds__(128, 3) void flash_attn_v3(
     const float* __restrict__ Q,
     const float* __restrict__ K,
     const float* __restrict__ V,
@@ -21,6 +26,7 @@ extern "C" __global__ void flash_attn_v3(
     const int BQ  = 32;
     const int BKV = 32;
     const int D   = 64;
+    const int STRIDE = 65;  // padded stride to avoid shared memory bank conflicts
 
     const int head    = blockIdx.x;
     const int q_tile  = blockIdx.y;
@@ -39,22 +45,55 @@ extern "C" __global__ void flash_attn_v3(
     const int q_row_global = q_tile * BQ + my_row;
     const float scale = rsqrtf((float)D);
 
-    // Shared memory: K[32][64] + V[32][64] = 16KB
+    // Shared memory: K[32][65] + V[32][65] = 16,640 bytes
+    // Stride=65 eliminates 4-way bank conflicts on K reads:
+    //   Without padding: bank = d % 32 (same for all groups → 4-way conflict)
+    //   With padding: bank = (row*65 + d) % 32 (different per row → no conflict)
     extern __shared__ float smem[];
-    float* K_smem = smem;
-    float* V_smem = smem + BKV * D;
 
-    // Load Q row into registers (all 4 threads per row load the same row)
+    // Phase 0: Cooperative Q load into smem, then copy to registers
+    // 128 threads load 2048 elements (32 rows × 64 cols) — 4x fewer global reads
+    // than per-thread loading where each of 4 threads per row loads the same row.
+    {
+        float* Q_smem = smem;  // reuse smem before K/V are loaded
+        const int TOTAL_F4 = BQ * D / 4;  // 512 float4s
+        for (int i4 = tid; i4 < TOTAL_F4; i4 += 128) {
+            int flat = i4 * 4;
+            int r = flat / D;
+            int c = flat - r * D;
+            int gr = q_tile * BQ + r;
+            if (gr < (int)seq_len) {
+                float4 qv = *reinterpret_cast<const float4*>(&q_base[gr * D + c]);
+                Q_smem[r * STRIDE + c]     = qv.x;
+                Q_smem[r * STRIDE + c + 1] = qv.y;
+                Q_smem[r * STRIDE + c + 2] = qv.z;
+                Q_smem[r * STRIDE + c + 3] = qv.w;
+            } else {
+                Q_smem[r * STRIDE + c]     = 0.0f;
+                Q_smem[r * STRIDE + c + 1] = 0.0f;
+                Q_smem[r * STRIDE + c + 2] = 0.0f;
+                Q_smem[r * STRIDE + c + 3] = 0.0f;
+            }
+        }
+        __syncthreads();
+
+        // Each thread copies its Q row from smem to registers
+        // (4 threads share a row, but register copy is private)
+    }
+
     float q_reg[64];
-    if (q_row_global < (int)seq_len) {
+    {
+        float* Q_smem = smem;
         #pragma unroll
         for (int d = 0; d < D; d++) {
-            q_reg[d] = q_base[q_row_global * D + d];
+            q_reg[d] = Q_smem[my_row * STRIDE + d];
         }
-    } else {
-        #pragma unroll
-        for (int d = 0; d < D; d++) q_reg[d] = 0.0f;
     }
+    __syncthreads();  // ensure all threads done reading Q_smem before it's reused
+
+    // Now smem is available for K/V
+    float* K_smem = smem;
+    float* V_smem = smem + BKV * STRIDE;
 
     // Online softmax state
     float m_val = -1e30f;
@@ -72,16 +111,36 @@ extern "C" __global__ void flash_attn_v3(
 
         if (causal && kv_start > q_tile * BQ + BQ - 1) break;
 
-        // Load K and V tiles cooperatively (128 threads, 2048 elements each)
-        #pragma unroll
-        for (int i = tid; i < BKV * D; i += 128) {
-            int r = i / D;
-            int c = i - r * D;
+        // Load K and V tiles cooperatively with float4
+        // 128 threads, 2048 elements each → 512 float4s → 4 per thread
+        const int TOTAL_F4 = BKV * D / 4;  // 512
+        for (int i4 = tid; i4 < TOTAL_F4; i4 += 128) {
+            int flat = i4 * 4;
+            int r = flat / D;
+            int c = flat - r * D;
             int gr = kv_start + r;
-            float kv = (gr < (int)seq_len) ? k_base[gr * D + c] : 0.0f;
-            K_smem[i] = kv;
-            float vv = (gr < (int)seq_len) ? v_base[gr * D + c] : 0.0f;
-            V_smem[i] = vv;
+            if (gr < (int)seq_len) {
+                float4 kv4 = *reinterpret_cast<const float4*>(&k_base[gr * D + c]);
+                K_smem[r * STRIDE + c]     = kv4.x;
+                K_smem[r * STRIDE + c + 1] = kv4.y;
+                K_smem[r * STRIDE + c + 2] = kv4.z;
+                K_smem[r * STRIDE + c + 3] = kv4.w;
+
+                float4 vv4 = *reinterpret_cast<const float4*>(&v_base[gr * D + c]);
+                V_smem[r * STRIDE + c]     = vv4.x;
+                V_smem[r * STRIDE + c + 1] = vv4.y;
+                V_smem[r * STRIDE + c + 2] = vv4.z;
+                V_smem[r * STRIDE + c + 3] = vv4.w;
+            } else {
+                K_smem[r * STRIDE + c]     = 0.0f;
+                K_smem[r * STRIDE + c + 1] = 0.0f;
+                K_smem[r * STRIDE + c + 2] = 0.0f;
+                K_smem[r * STRIDE + c + 3] = 0.0f;
+                V_smem[r * STRIDE + c]     = 0.0f;
+                V_smem[r * STRIDE + c + 1] = 0.0f;
+                V_smem[r * STRIDE + c + 2] = 0.0f;
+                V_smem[r * STRIDE + c + 3] = 0.0f;
+            }
         }
         __syncthreads();
 
@@ -97,7 +156,7 @@ extern "C" __global__ void flash_attn_v3(
                     scores[j] = -1e30f;
                 } else {
                     float dot = 0.0f;
-                    const float* k_row = K_smem + (col_start + j) * D;
+                    const float* k_row = K_smem + (col_start + j) * STRIDE;
                     #pragma unroll
                     for (int d = 0; d < D; d += 4) {
                         dot += q_reg[d]   * k_row[d];
@@ -118,7 +177,6 @@ extern "C" __global__ void flash_attn_v3(
         #pragma unroll
         for (int j = 1; j < 8; j++) local_max = fmaxf(local_max, scores[j]);
 
-        // Reduce max across 4 threads in same row
         float tile_max = local_max;
         tile_max = fmaxf(tile_max, __shfl_xor_sync(0xFFFFFFFF, tile_max, 1));
         tile_max = fmaxf(tile_max, __shfl_xor_sync(0xFFFFFFFF, tile_max, 2));
@@ -134,7 +192,6 @@ extern "C" __global__ void flash_attn_v3(
             local_sum += e;
         }
 
-        // Reduce sum across 4 threads
         float tile_sum = local_sum;
         tile_sum += __shfl_xor_sync(0xFFFFFFFF, tile_sum, 1);
         tile_sum += __shfl_xor_sync(0xFFFFFFFF, tile_sum, 2);
@@ -159,7 +216,7 @@ extern "C" __global__ void flash_attn_v3(
 
                 if (p_val > 1e-30f) {
                     int v_row = g * 8 + j;
-                    const float* v_ptr = V_smem + v_row * D + o_col_start;
+                    const float* v_ptr = V_smem + v_row * STRIDE + o_col_start;
 
                     #pragma unroll
                     for (int i = 0; i < 16; i += 4) {

@@ -4,18 +4,18 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 594
-completed_tasks = 705
+total_cycles = 595
+completed_tasks = 708
 status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "perf-attn-v3.1"
+current_task_id = "perf-fusion.1"
 
 # Sequence counters
 brainstorm_seq = 110
-tasks_since_brainstorm = 0   # Proactive trigger at >= 10
+tasks_since_brainstorm = 3   # Proactive trigger at >= 10
 
 # ============================================================
 # Epics — Tiered (T0 → T3), sorted by tier then priority
@@ -494,7 +494,7 @@ id = "perf-attn-v3.1"
 theme = "perf-attn-v3"
 title = "Investigation: design warp-cooperative attention — thread mapping, smem layout"
 kind = "investigation"
-status = "active"
+status = "done"
 depends = []
 
 [[tasks]]
@@ -502,7 +502,7 @@ id = "perf-attn-v3.2"
 theme = "perf-attn-v3"
 title = "Experiment: implement cooperative score GEMM (Q·K^T) with 128 threads"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["perf-attn-v3.1"]
 
 [[tasks]]
@@ -544,7 +544,7 @@ id = "perf-conv.1"
 theme = "perf-conv"
 title = "Investigation: study Winograd F(4×4, 3×3) — transform matrices, tile layout, numerical stability"
 kind = "investigation"
-status = "active"
+status = "done"
 depends = []
 
 [[tasks]]

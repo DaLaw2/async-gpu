@@ -516,7 +516,7 @@ extern "C" __global__ void gemm_f32_v4(
     static COMPILED: OnceLock<bool> = OnceLock::new();
     COMPILED.get_or_init(|| {
         let opts = cudarc::nvrtc::CompileOptions {
-            arch: Some("sm_86"),
+            arch: Some("sm_75"),
             fmad: Some(true),
             use_fast_math: Some(true),
             ..Default::default()

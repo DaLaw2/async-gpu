@@ -205,6 +205,11 @@ fn main() -> Result<()> {
                 tests_gemm::run_gemm_benchmark(Arc::clone(&dev))?;
                 return Ok(());
             }
+            #[cfg(feature = "cublas")]
+            "attn_bench" => {
+                tests_transformer::run_flash_attention_v3_bench(Arc::clone(&dev))?;
+                return Ok(());
+            }
             "cnn" => {
                 tests_cnn::run_batchnorm_silu_test(Arc::clone(&dev))?;
                 tests_cnn::run_cnn_ops_test(Arc::clone(&dev))?;

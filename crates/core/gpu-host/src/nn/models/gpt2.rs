@@ -164,17 +164,35 @@ impl TransformerBlock {
     }
 
     /// Forward pass: input `[seq_len, n_embd]` → output `[seq_len, n_embd]`.
+    ///
+    /// When the `cublas` feature is enabled, uses fused LN+residual kernels to
+    /// reduce kernel launches: `elementwise_add + layer_norm` becomes a single
+    /// `layer_norm_residual_dual` kernel that outputs both the sum (for the
+    /// residual stream) and the normalized result (for the FFN input).
     pub fn forward(&self, input: &GpuTensor) -> Result<GpuTensor> {
         // LN1 → MHA
         let ln1_out = self.ln_1.forward(input)?;
         let attn_out = self.attn.forward_causal(&ln1_out)?;
 
-        // residual = input + attn_out
-        let mut residual = input.clone_tensor()?;
-        ops::elementwise_add(&mut residual, &attn_out, &self.registry)?;
+        // Fused: compute residual = input + attn_out AND ln2_out = LN(residual)
+        // in a single kernel launch (saves 1 launch + 1 global memory read).
+        #[cfg(feature = "cublas")]
+        let (ln2_out, mut residual) = ops::layer_norm_residual_dual(
+            input,
+            &attn_out,
+            self.ln_2.gamma(),
+            self.ln_2.beta(),
+            self.layer_norm_eps,
+            &self.registry,
+        )?;
 
-        // Fused: ln2_out = LN2(residual) — but residual is already computed
-        let ln2_out = self.ln_2.forward(&residual)?;
+        #[cfg(not(feature = "cublas"))]
+        let (ln2_out, mut residual) = {
+            let mut res = input.clone_tensor()?;
+            ops::elementwise_add(&mut res, &attn_out, &self.registry)?;
+            let ln2 = self.ln_2.forward(&res)?;
+            (ln2, res)
+        };
 
         // FFN
         let ffn_hidden = self.ffn_up.forward(&ln2_out)?;
@@ -201,11 +219,27 @@ impl TransformerBlock {
         let (attn_out, new_k, new_v) = self
             .attn
             .forward_cached(&ln1_out, cached_k, cached_v, kv_len)?;
-        let mut residual = input.clone_tensor()?;
-        ops::elementwise_add(&mut residual, &attn_out, &self.registry)?;
 
-        // LN2 → FFN → residual
-        let ln2_out = self.ln_2.forward(&residual)?;
+        // Fused residual + LN2 (same optimization as forward())
+        #[cfg(feature = "cublas")]
+        let (ln2_out, mut residual) = ops::layer_norm_residual_dual(
+            input,
+            &attn_out,
+            self.ln_2.gamma(),
+            self.ln_2.beta(),
+            self.layer_norm_eps,
+            &self.registry,
+        )?;
+
+        #[cfg(not(feature = "cublas"))]
+        let (ln2_out, mut residual) = {
+            let mut res = input.clone_tensor()?;
+            ops::elementwise_add(&mut res, &attn_out, &self.registry)?;
+            let ln2 = self.ln_2.forward(&res)?;
+            (ln2, res)
+        };
+
+        // FFN → residual
         let ffn_hidden = self.ffn_up.forward(&ln2_out)?;
         let ffn_act = self.gelu.forward(&ffn_hidden)?;
         let ffn_out = self.ffn_down.forward(&ffn_act)?;

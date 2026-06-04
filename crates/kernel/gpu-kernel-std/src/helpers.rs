@@ -2,7 +2,7 @@
 //
 // All functions here are `pub(crate)` — they are internal helpers, not kernel entry points.
 
-use gpu_atomics::{membar_sys, sys_cas_u64, sys_load_acquire_u64, sys_spin_load_acquire_u32};
+use gpu_atomics::{sys_cas_u64, sys_load_acquire_u64};
 use gpu_protocol::*;
 
 // ============================================================
@@ -385,8 +385,3 @@ pub(crate) unsafe fn grep_buffer(
     matches
 }
 
-// Suppress unused import warnings when not building for nvptx64
-#[allow(unused_imports)]
-use membar_sys as _;
-#[allow(unused_imports)]
-use sys_spin_load_acquire_u32 as _;

@@ -1,9 +1,11 @@
+#![cfg(feature = "demo")]
 //! GPU integration tests — proof of concept for `cargo test` on GPU kernels.
 //!
-//! Run with: `cargo test --test gpu_integration -- --test-threads=1`
+//! Run with: `cargo test --features demo --test gpu_integration -- --test-threads=1`
 //!
-//! These tests require a CUDA-capable GPU. They will fail on machines without
-//! NVIDIA GPU + CUDA driver installed.
+//! These tests require a CUDA-capable GPU and the `demo` feature (for
+//! `mapped_mem` access). They will fail on machines without NVIDIA GPU +
+//! CUDA driver installed.
 
 use std::sync::{Arc, OnceLock};
 

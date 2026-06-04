@@ -34,12 +34,6 @@ pub enum GpuHostError {
     },
     /// Hostcall buffer allocation error.
     Hostcall(crate::hostcall::HostcallError),
-    /// GPU kernel returned an error via the result buffer.
-    #[allow(dead_code)]
-    KernelError(GpuKernelErrorInfo),
-    /// GPU kernel crashed without writing to the result buffer (TAG_UNINIT).
-    #[allow(dead_code)]
-    KernelCrash,
 }
 
 /// Structured error info extracted from a GPU kernel result buffer.
@@ -73,33 +67,6 @@ impl fmt::Display for GpuKernelErrorInfo {
             write!(f, ", msg=\"{}\"", self.message)?;
         }
         write!(f, ")")
-    }
-}
-
-/// Convert a GpuKernelResult to a host-side Result.
-///
-/// Call after kernel launch + synchronize. Reads the result buffer and returns:
-/// - `Ok(())` if TAG_OK
-/// - `Err(GpuHostError::KernelError)` if TAG_ERR
-/// - `Err(GpuHostError::KernelCrash)` if TAG_UNINIT (kernel crashed)
-#[allow(dead_code)]
-pub fn check_kernel_result(
-    result: &gpu_protocol::GpuKernelResult,
-) -> std::result::Result<(), GpuHostError> {
-    match result.tag {
-        gpu_protocol::TAG_OK => Ok(()),
-        gpu_protocol::TAG_ERR => {
-            let msg_bytes = result.message();
-            let message = String::from_utf8_lossy(msg_bytes).into_owned();
-            Err(GpuHostError::KernelError(GpuKernelErrorInfo {
-                category: result.category,
-                raw_errno: result.raw_errno,
-                thread_idx: result.thread_idx,
-                block_idx: result.block_idx,
-                message,
-            }))
-        }
-        _ => Err(GpuHostError::KernelCrash),
     }
 }
 
@@ -146,8 +113,6 @@ impl fmt::Display for GpuHostError {
                 write!(f, "{test}: timeout: {detail}")
             }
             Self::Hostcall(e) => write!(f, "hostcall error: {e}"),
-            Self::KernelError(info) => write!(f, "GPU kernel error: {info}"),
-            Self::KernelCrash => write!(f, "GPU kernel crashed (result buffer uninitialized)"),
         }
     }
 }

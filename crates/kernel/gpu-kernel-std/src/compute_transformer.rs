@@ -1639,6 +1639,82 @@ pub unsafe extern "gpu-kernel" fn zero_pad(buffer: *mut f32, start_offset: u32, 
 }
 
 // ============================================================
+// ReLU forward kernel (perf-elementwise.2)
+// ============================================================
+
+/// ReLU activation: y = max(0, x), 4 elements per thread.
+///
+/// grid_dim = (ceil(n/1024), 1, 1), block_dim = (256, 1, 1).
+/// Uses float4 vectorized loads for bandwidth-optimal throughput.
+#[no_mangle]
+pub unsafe extern "gpu-kernel" fn relu_forward(
+    input: *const f32,
+    output: *mut f32,
+    n: u32,
+    status: *mut u32,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let block_x = nvptx::_block_idx_x() as u32;
+        let base = (block_x * 256 + tid) * 4;
+
+        if base + 3 < n {
+            // float4 load
+            let x0: f32;
+            let x1: f32;
+            let x2: f32;
+            let x3: f32;
+            core::arch::asm!(
+                "ld.global.v4.f32 {{{x0}, {x1}, {x2}, {x3}}}, [{addr}];",
+                x0 = out(reg32) x0, x1 = out(reg32) x1,
+                x2 = out(reg32) x2, x3 = out(reg32) x3,
+                addr = in(reg64) input.add(base as usize),
+            );
+
+            // max(0, x) — branchless via PTX max instruction
+            let r0 = if x0 > 0.0 { x0 } else { 0.0 };
+            let r1 = if x1 > 0.0 { x1 } else { 0.0 };
+            let r2 = if x2 > 0.0 { x2 } else { 0.0 };
+            let r3 = if x3 > 0.0 { x3 } else { 0.0 };
+
+            // float4 store
+            core::arch::asm!(
+                "st.global.v4.f32 [{addr}], {{{r0}, {r1}, {r2}, {r3}}};",
+                addr = in(reg64) output.add(base as usize),
+                r0 = in(reg32) r0, r1 = in(reg32) r1,
+                r2 = in(reg32) r2, r3 = in(reg32) r3,
+            );
+        } else {
+            // Tail: scalar fallback
+            let mut i = 0u32;
+            while i < 4 {
+                let idx = base + i;
+                if idx < n {
+                    let x = *input.add(idx as usize);
+                    *output.add(idx as usize) = if x > 0.0 { x } else { 0.0 };
+                }
+                i += 1;
+            }
+        }
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (input, output, n);
+    }
+
+    if tid == 0 {
+        let _prev: u32;
+        core::arch::asm!(
+            "atom.global.add.u32 {prev}, [{addr}], 1;",
+            prev = out(reg32) _prev,
+            addr = in(reg64) status,
+        );
+    }
+}
+
+// ============================================================
 // Backward kernels for autograd
 // ============================================================
 

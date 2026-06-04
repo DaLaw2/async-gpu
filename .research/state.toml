@@ -14,12 +14,12 @@ status = "running"     # ready | running | blocked | completed
 # No GPU concepts leak. VectorWare's I/O strength + async-gpu's compute strength, unified.
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
-current_step = "do.execute"
-current_task_id = "coop-api.1,lib-extract.1,lib-toolchain.1"
+current_step = "do.save"
+current_task_id = ""
 
 # Sequence counters
-brainstorm_seq = 113
-tasks_since_brainstorm = 0   # reset after brainstorm
+brainstorm_seq = 114
+tasks_since_brainstorm = 0   # reset after brainstorm 114
 
 # ============================================================
 # Epics — Tiered (T0 → T3), sorted by tier then priority
@@ -39,7 +39,7 @@ tasks_since_brainstorm = 0   # reset after brainstorm
 id = "native-rust-dx"
 title = "Native Rust DX — GPU code looks like normal Rust"
 tier = 0
-status = "active"
+status = "completed"
 priority = "highest"
 # North Star: GPU code syntax is indistinguishable from normal Rust.
 #   This is the SYNTAX FOUNDATION for unified I/O + Compute — both must look native.
@@ -263,88 +263,8 @@ success_criteria = [
 # onnx-conv-prepad, onnx-resnet-acc, onnx-mobilenet, dyn-control, graph-bfs,
 # int4-integrate, mc-finance, bench-kernels, bench-e2e, perf-gemm
 
-# --- T0: std-thread-gpu themes ---
-
-[[themes]]
-id = "std-thread-integration"
-epic = "std-thread-gpu"
-title = "std::thread::spawn via patched std — fix bar.sync hang"
-status = "completed"
-goal = "std::thread::spawn() works on GPU via patched rustc std"
-success_criteria = [
-    "std::thread::spawn on GPU doesn't hang (bar.sync + std init interaction fixed)",
-    "Example: std::thread::spawn 2+ threads, join, println! — identical to CPU Rust",
-]
-
-# --- T0: native-rust-dx themes ---
-
-[[themes]]
-id = "native-api"
-epic = "native-rust-dx"
-title = "gpu::run() one-liner launcher + clean examples"
-status = "completed"
-goal = "Host-side launch is one line, examples look like normal Rust"
-success_criteria = [
-    "gpu::run(kernel_fn) wraps PTX load + launch + sync",
-    "All examples/ rewritten to use gpu::run() style",
-    "A Rust dev can read examples without GPU knowledge",
-]
-
-[[tasks]]
-id = "std-thread-integration.1"
-theme = "std-thread-integration"
-title = "Investigation: debug std::thread::spawn hang — bar.sync + std init interaction"
-kind = "investigation"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "std-thread-integration.2"
-theme = "std-thread-integration"
-title = "Experiment: fix hang + verify std::thread::spawn example with println!"
-kind = "experiment"
-status = "done"
-depends = ["std-thread-integration.1"]
-
-[[tasks]]
-id = "native-api.2"
-theme = "native-api"
-title = "Experiment: rewrite examples/ to use gpu::run() native Rust style"
-kind = "experiment"
-status = "done"
-depends = ["native-api.1"]
-
-[[tasks]]
-id = "native-api.3"
-theme = "native-api"
-title = "Investigation: gpu-kernel ABI availability + migration plan"
-kind = "investigation"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "native-api.4"
-theme = "native-api"
-title = "Experiment: migrate all kernels from extern ptx-kernel to extern gpu-kernel"
-kind = "experiment"
-status = "done"
-depends = ["native-api.3"]
-
-[[tasks]]
-id = "native-api.5"
-theme = "native-api"
-title = "Design: gpu::run_custom() builder API for multi-argument kernels"
-kind = "design"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "native-api.6"
-theme = "native-api"
-title = "Experiment: rewrite remaining examples with builder API + std kernel-side APIs"
-kind = "experiment"
-status = "done"
-depends = ["native-api.5"]
+# T0 themes/tasks archived: std-thread-integration (.1, .2), native-api (.2-.6)
+# Archived at cycle 607 — epics native-rust-dx + std-thread-gpu completed
 
 # --- T1: library-api themes ---
 
@@ -352,7 +272,7 @@ depends = ["native-api.5"]
 id = "lib-extract"
 epic = "library-api"
 title = "Extract test harness from gpu-host — pure library crate"
-status = "active"
+status = "completed"
 goal = "gpu-host is a pure library; test harness in separate crate"
 success_criteria = [
     "main.rs + 13 tests_*.rs + bench_harness.rs moved to crates/test/gpu-test-harness/",
@@ -363,7 +283,7 @@ success_criteria = [
 id = "lib-facade"
 epic = "library-api"
 title = "async-gpu facade crate with curated re-exports"
-status = "pending"
+status = "completed"
 goal = "Single async-gpu crate is the user's entry point"
 success_criteria = [
     "crates/async-gpu/ re-exports gpu::run/launch/custom + error types",
@@ -374,7 +294,7 @@ success_criteria = [
 id = "lib-cleanup"
 epic = "library-api"
 title = "Clean public API surface — hide internals, remove dead code"
-status = "pending"
+status = "active"
 goal = "cargo doc produces useful API docs"
 success_criteria = [
     "Internal modules pub(crate), protocol constants in submodules",
@@ -385,7 +305,7 @@ success_criteria = [
 id = "lib-toolchain"
 epic = "library-api"
 title = "One-command toolchain setup"
-status = "pending"
+status = "active"
 goal = "scripts/setup.sh gives working environment"
 success_criteria = [
     "setup.sh with quick/full/check modes",
@@ -396,245 +316,68 @@ success_criteria = [
 id = "lib-docs"
 epic = "library-api"
 title = "Getting-started guide + rustdoc"
-status = "pending"
+status = "active"
 goal = "New user writes working GPU program in 30 min"
 success_criteria = [
     "Getting-started guide in docs/ or README",
     "rustdoc with doc examples for all public types",
 ]
 
-[[tasks]]
-id = "lib-extract.1"
-theme = "lib-extract"
-title = "Investigation: inventory test harness deps on gpu-host internals"
-kind = "investigation"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "lib-extract.2"
-theme = "lib-extract"
-title = "Experiment: create gpu-test-harness crate, move main.rs + tests_*.rs"
-kind = "experiment"
-status = "done"
-depends = ["lib-extract.1"]
-
-[[tasks]]
-id = "lib-extract.3"
-theme = "lib-extract"
-title = "Experiment: remove [[bin]] from gpu-host, change default features to []"
-kind = "experiment"
-status = "done"
-depends = ["lib-extract.2"]
-
-[[tasks]]
-id = "lib-extract.4"
-theme = "lib-extract"
-title = "Experiment: verify test harness still passes from new location"
-kind = "experiment"
-status = "done"
-depends = ["lib-extract.3"]
-
-[[tasks]]
-id = "lib-facade.1"
-theme = "lib-facade"
-title = "Investigation: design async-gpu facade structure and re-export surface"
-kind = "investigation"
-status = "done"
-depends = ["lib-extract.1"]
-
-[[tasks]]
-id = "lib-facade.2"
-theme = "lib-facade"
-title = "Experiment: create crates/async-gpu/ with curated re-exports"
-kind = "experiment"
-status = "done"
-depends = ["lib-facade.1"]
-
-[[tasks]]
-id = "lib-toolchain.1"
-theme = "lib-toolchain"
-title = "Investigation: minimum user setup requirements"
-kind = "investigation"
-status = "done"
-depends = []
+# lib-extract tasks (.1-.4) archived — theme completed
+# lib-facade tasks (.1-.2) archived — theme completed
+# lib-toolchain.1 archived — done
 
 [[tasks]]
 id = "lib-toolchain.2"
 theme = "lib-toolchain"
-title = "Experiment: create scripts/setup.sh with quick/full/check modes"
-kind = "experiment"
-status = "parked"
-depends = ["lib-toolchain.1"]
-
-[[tasks]]
-id = "kernel-entry-dx"
-epic = "native-rust-dx"
-title = "Zero-boilerplate kernel entry — implicit hostcall injection"
-status = "active"
-goal = "extern 'gpu-kernel' fn kernel_main() with NO parameters, NO manual init"
-success_criteria = [
-    "Kernel entry fn kernel_main() — no buf/result parameters",
-    "stdio_init + gpu_libc_io_init happen automatically (compiler or runtime injection)",
-    "gpu_main_poll wrapper is implicit — user writes sequential code directly in fn body",
-    "Existing kernels in gpu-kernel-std work with the new entry style",
-]
-
-[[tasks]]
-id = "kernel-entry.1"
-theme = "kernel-entry-dx"
-title = "Investigation: how VectorWare injects hostcall buf — compiler transform vs runtime linker"
-kind = "investigation"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "kernel-entry.2"
-theme = "kernel-entry-dx"
-title = "Experiment: implement implicit hostcall injection for zero-param kernel entry"
-kind = "experiment"
-status = "done"
-depends = ["kernel-entry.1"]
-
-[[tasks]]
-id = "kernel-entry.3"
-theme = "kernel-entry-dx"
-title = "Experiment: rewrite gpu-kernel-std kernels to use zero-param entry"
-kind = "experiment"
-status = "done"
-depends = ["kernel-entry.2"]
-
-[[tasks]]
-id = "lib-cleanup.1"
-theme = "lib-cleanup"
-title = "Investigation: audit all files/functions — are they in the right crate?"
-kind = "investigation"
-status = "done"
-depends = ["lib-extract.2", "lib-facade.2"]
-
-[[tasks]]
-id = "lib-cleanup.2"
-theme = "lib-cleanup"
-title = "Experiment: move model/yolo/tokenizer demo code out of gpu-host"
-kind = "experiment"
-status = "blocked"
-depends = ["lib-extract.2"]
-blocked_reason = "50+ call sites across test harness + examples. Need gpu-models crate — larger refactor."
-
-[[tasks]]
-id = "lib-cleanup.3"
-theme = "lib-cleanup"
-title = "Experiment: migrate warp.rs off warp-macro DSL, then remove warp-macro crate"
-kind = "experiment"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "lib-cleanup.4"
-theme = "lib-cleanup"
-title = "Experiment: merge gpu-kernel + gpu-kernel-std into single kernel crate"
-kind = "experiment"
-status = "done"
-depends = ["lib-extract.2"]
-
-# --- T1: cooperative-compute themes ---
-
-[[themes]]
-id = "coop-api"
-epic = "cooperative-compute"
-title = "Cooperative API ergonomics — safe data passing + return values"
-status = "active"
-goal = "cooperative_map() with data passing, no global atomics"
-success_criteria = [
-    "cooperative_map(in_ptr, out_ptr, n, closure) passes data without global atomics",
-    "Seamless sequential → cooperative → sequential with zero ceremony",
-]
-
-[[themes]]
-id = "coop-compute"
-epic = "cooperative-compute"
-title = "Kernel-side compute library — matmul callable from cooperative()"
-status = "active"
-goal = "Matmul and basic ops callable from within a kernel"
-success_criteria = [
-    "Naive kernel-side matmul (triple loop, row-partitioned across warps)",
-    "cooperative_map-based matmul callable from sequential kernel context",
-]
-
-[[themes]]
-id = "coop-demo"
-epic = "cooperative-compute"
-title = "Unified I/O+Compute demo — File::read → matmul → File::write"
-status = "active"
-goal = "End-to-end demo proving the vision in one kernel"
-success_criteria = [
-    "Read two matrix files, cooperative matmul, write result — single kernel",
-    "Host-side verification matches CPU reference",
-]
-
-[[tasks]]
-id = "coop-api.1"
-theme = "coop-api"
-title = "Investigation: cooperative() data passing without global atomics"
-kind = "investigation"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "coop-api.2"
-theme = "coop-api"
-title = "Experiment: implement cooperative_map + cooperative_reduce"
-kind = "experiment"
-status = "done"
-depends = ["coop-api.1"]
-
-[[tasks]]
-id = "coop-api.3"
-theme = "coop-api"
-title = "Experiment: rewrite unified_io_compute with cooperative_map"
-kind = "experiment"
-status = "done"
-depends = ["coop-api.2"]
-
-[[tasks]]
-id = "coop-compute.1"
-theme = "coop-compute"
-title = "Investigation: kernel-side matmul architecture design"
-kind = "investigation"
-status = "done"
-depends = ["coop-api.1"]
-
-[[tasks]]
-id = "coop-compute.2"
-theme = "coop-compute"
-title = "Experiment: naive kernel-side matmul MVP via cooperative_map"
-kind = "experiment"
-status = "done"
-depends = ["coop-compute.1", "coop-api.2"]
-
-[[tasks]]
-id = "coop-compute.3"
-theme = "coop-compute"
-title = "Experiment: tiled kernel-side matmul for performance"
+title = "Experiment: polish scripts/setup.sh with quick/full/check modes + smoke test"
 kind = "experiment"
 status = "pending"
-depends = ["coop-compute.2"]
+depends = []
+
+# kernel-entry-dx theme + tasks (.1-.3) archived — native-rust-dx completed
+
+# lib-cleanup.1 (audit) archived — done
+# lib-cleanup.2 (model move) superseded by lib-cleanup.5 (pub(crate) approach)
+# lib-cleanup.3 (warp-macro removal) archived — done
+# lib-cleanup.4 (kernel crate merge) archived — done
 
 [[tasks]]
-id = "coop-demo.1"
-theme = "coop-demo"
-title = "Experiment: litmus test — File::read → matmul → File::write in one kernel"
-kind = "experiment"
-status = "done"
-depends = ["coop-compute.2", "coop-api.3"]
-
-[[tasks]]
-id = "coop-demo.2"
-theme = "coop-demo"
-title = "Experiment: multi-stage pipeline demo (read → matmul → softmax → write)"
+id = "lib-cleanup.5"
+theme = "lib-cleanup"
+title = "Experiment: pub(crate) visibility for demo modules + #![warn(missing_docs)]"
 kind = "experiment"
 status = "pending"
-depends = ["coop-demo.1"]
+depends = []
+
+[[tasks]]
+id = "lib-cleanup.6"
+theme = "lib-cleanup"
+title = "Experiment: verify cargo doc --no-deps produces clean API docs"
+kind = "experiment"
+status = "pending"
+depends = ["lib-cleanup.5"]
+
+# cooperative-compute themes/tasks archived — epic completed
+# coop-api (.1-.3), coop-compute (.1-.3), coop-demo (.1-.2) all archived at cycle 607
+
+# --- lib-docs tasks ---
+
+[[tasks]]
+id = "lib-docs.1"
+theme = "lib-docs"
+title = "Design: getting-started guide structure (5-step, under 30 min)"
+kind = "design"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "lib-docs.2"
+theme = "lib-docs"
+title = "Experiment: write getting-started guide + rustdoc examples"
+kind = "experiment"
+status = "pending"
+depends = ["lib-docs.1", "lib-cleanup.6"]
 
 # --- kernel-perf themes ---
 
@@ -902,8 +645,17 @@ id = "perf-gemm-v4.2"
 theme = "perf-gemm-v4"
 title = "Experiment: cp.async 3-stage pipeline (SM80+ async copy)"
 kind = "experiment"
-status = "pending"
+status = "parked"
 depends = ["perf-gemm-v4.1"]
+parked_reason = "cp.async requires SM80+; GTX 1660 is SM75"
+
+[[tasks]]
+id = "perf-gemm-v4.2.1"
+theme = "perf-gemm-v4"
+title = "Experiment: double-buffer shared memory SGEMM (SM75-compatible pipeline)"
+kind = "experiment"
+status = "pending"
+depends = []
 
 [[tasks]]
 id = "perf-gemm-v4.3"
@@ -911,7 +663,7 @@ theme = "perf-gemm-v4"
 title = "Experiment: benchmark V4, integrate, verify ≥70% cuBLAS"
 kind = "experiment"
 status = "pending"
-depends = ["perf-gemm-v4.2"]
+depends = ["perf-gemm-v4.2.1"]
 
 # --- kernel-perf: conv winograd ---
 
@@ -1012,3 +764,15 @@ new_epics_spawned = ["library-api"]
 themes_parked = []
 themes_completed = []
 key_insight = "79% of gpu-host/src (23,735 lines) is test harness inside the library crate. Extract to gpu-test-harness, create async-gpu facade, clean pub API, single setup script."
+
+[[brainstorms]]
+seq = 114
+at_cycle = 607
+trigger = "No ready tasks but active epics have unmet criteria — state staleness"
+level = "standard"
+new_tasks_spawned = ["lib-cleanup.5", "lib-cleanup.6", "lib-docs.1", "lib-docs.2", "perf-gemm-v4.2.1"]
+new_themes_spawned = []
+new_epics_spawned = []
+themes_parked = []
+themes_completed = ["lib-extract", "lib-facade", "kernel-entry-dx", "coop-api"]
+key_insight = "State diverged from reality — 6 themes completed but not marked, native-rust-dx ready to close. SM75 blocks cp.async SGEMM; double-buffer is the alternative. library-api critical path: cleanup.5 → cleanup.6 → docs.2."

@@ -1414,7 +1414,7 @@ pub unsafe fn block_on<F: Future>(future: F) -> Option<F::Output> {
 pub unsafe fn block_on_with<F: Future>(
     future: F,
     max_polls: u32,
-    #[allow(unused_variables)] nanosleep_ns: u32,
+    _nanosleep_ns: u32,
 ) -> Option<F::Output> {
     let mut future = future;
     // SAFETY: The future is stack-pinned here and never moved — we poll it
@@ -1436,7 +1436,7 @@ pub unsafe fn block_on_with<F: Future>(
                 {
                     // Yield SM scheduler slot — gives host time to respond
                     // and allows other warps to execute.
-                    match nanosleep_ns {
+                    match _nanosleep_ns {
                         64 => core::arch::asm!("nanosleep.u32 64;", options(nostack)),
                         1000 => core::arch::asm!("nanosleep.u32 1000;", options(nostack)),
                         _ => core::arch::asm!("nanosleep.u32 1000;", options(nostack)),

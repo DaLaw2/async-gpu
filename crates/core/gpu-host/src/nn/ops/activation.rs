@@ -25,11 +25,48 @@ pub fn sigmoid(input: &GpuTensor, registry: &Arc<KernelRegistry>) -> Result<GpuT
 
 /// ReLU activation: y = max(0, x).
 ///
-/// No dedicated kernel — computed on host for now.
-pub fn relu(input: &GpuTensor, _registry: &Arc<KernelRegistry>) -> Result<GpuTensor> {
-    let host = input.to_host()?;
-    let out: Vec<f32> = host.iter().map(|&x| x.max(0.0)).collect();
-    GpuTensor::from_host(&out, input.shape(), input.device())
+/// Uses vectorized float4 GPU kernel (4 elements per thread).
+pub fn relu(input: &GpuTensor, registry: &Arc<KernelRegistry>) -> Result<GpuTensor> {
+    let n = input.numel();
+    let dev = registry.device();
+    let mut output = GpuTensor::zeros(input.shape(), dev)?;
+
+    let status_dev = dev.htod_sync_copy(&[0u32])?;
+
+    let func = registry.get("relu_forward")?;
+    // V2-style: 4 elements per thread, 256 threads per block
+    let config = cudarc::driver::LaunchConfig {
+        grid_dim: ((n as u32 + 1023) / 1024, 1, 1),
+        block_dim: (256, 1, 1),
+        shared_mem_bytes: 0,
+    };
+    unsafe {
+        func.launch(
+            config,
+            (input.data(), output.data_mut(), n as u32, &status_dev),
+        )
+        .map_err(NnError::Cuda)?;
+    }
+
+    // Record on autograd tape
+    if input.requires_grad() {
+        if let Some(out_id) = crate::nn::autograd::alloc_tensor_id() {
+            output.set_tensor_id(out_id);
+            output.set_requires_grad(true);
+            let in_id = input
+                .tensor_id()
+                .unwrap_or(crate::nn::autograd::TensorId(u32::MAX));
+            crate::nn::autograd::record_op(crate::nn::autograd::TapeEntry {
+                op: crate::nn::autograd::OpKind::Relu,
+                inputs: vec![in_id],
+                output: out_id,
+                saved: vec![in_id],
+                meta: crate::nn::autograd::OpMeta::None,
+            });
+        }
+    }
+
+    Ok(output)
 }
 
 /// Generic element-wise activation launcher.

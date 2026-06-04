@@ -71,6 +71,9 @@
 pub mod error;
 pub mod hostcall;
 /// Low-level CUDA mapped memory allocation helpers.
+///
+/// Provides pinned device-mapped host memory allocation used by hostcall buffers,
+/// command buffers, and other CUDA memory primitives.
 pub mod mapped_mem;
 pub mod memory;
 pub mod runtime;
@@ -82,16 +85,26 @@ pub mod async_rt;
 #[cfg(feature = "nn")]
 pub mod nn;
 
-#[cfg(feature = "gpt2")]
+#[cfg(all(feature = "gpt2", feature = "demo"))]
 pub mod model;
-#[cfg(feature = "gpt2")]
+#[cfg(all(feature = "gpt2", not(feature = "demo")))]
+pub(crate) mod model;
+#[cfg(all(feature = "gpt2", feature = "demo"))]
 pub mod model_generic;
-#[cfg(feature = "gpt2")]
+#[cfg(all(feature = "gpt2", not(feature = "demo")))]
+pub(crate) mod model_generic;
+#[cfg(all(feature = "gpt2", feature = "demo"))]
 pub mod model_yolo;
-#[cfg(feature = "gpt2")]
+#[cfg(all(feature = "gpt2", not(feature = "demo")))]
+pub(crate) mod model_yolo;
+#[cfg(all(feature = "gpt2", feature = "demo"))]
 pub mod tokenizer;
-#[cfg(feature = "gpt2")]
+#[cfg(all(feature = "gpt2", not(feature = "demo")))]
+pub(crate) mod tokenizer;
+#[cfg(all(feature = "gpt2", feature = "demo"))]
 pub mod yolo_backbone;
+#[cfg(all(feature = "gpt2", not(feature = "demo")))]
+pub(crate) mod yolo_backbone;
 
 #[cfg(feature = "onnx")]
 #[allow(missing_docs)]

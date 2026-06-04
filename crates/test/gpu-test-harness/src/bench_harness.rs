@@ -196,12 +196,3 @@ pub fn write_results_json(
     writeln!(f, "]")?;
     Ok(())
 }
-
-/// Print a formatted benchmark report to stdout.
-#[allow(dead_code)]
-pub fn print_report(title: &str, results: &[BenchmarkResult]) {
-    println!("\n--- {} ---", title);
-    for r in results {
-        println!("  {}", r.summary_line());
-    }
-}

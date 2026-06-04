@@ -6,6 +6,7 @@ description = "Host-side GPU runtime: kernel management, hostcall communication,
 
 [features]
 default = []
+demo = []
 gpt2 = ["dep:safetensors", "dep:tiktoken-rs"]
 nn = ["dep:smallvec"]
 cublas = ["cudarc/cublas"]

@@ -207,6 +207,11 @@ fn main() -> Result<()> {
                 tests_transformer::run_flash_attention_v3_bench(Arc::clone(&dev))?;
                 return Ok(());
             }
+            #[cfg(feature = "nn")]
+            "elem_bench" => {
+                tests_transformer::run_elementwise_benchmark(Arc::clone(&dev))?;
+                return Ok(());
+            }
             "thread_spawn" => {
                 run_thread_spawn_test(Arc::clone(&dev))?;
                 return Ok(());
@@ -423,6 +428,11 @@ fn main() -> Result<()> {
             #[cfg(feature = "cublas")]
             "fusion_bench" => {
                 run_fusion_benchmark(Arc::clone(&dev))?;
+                return Ok(());
+            }
+            #[cfg(feature = "cublas")]
+            "sgemm_v4_bench" => {
+                run_sgemm_v4_benchmark(Arc::clone(&dev))?;
                 return Ok(());
             }
             "cnn" => {
@@ -934,6 +944,213 @@ fn run_fusion_benchmark(dev: Arc<CudaDevice>) -> Result<()> {
 
     println!("\n  Fused LN+Residual + elementwise Benchmark — DONE");
     Ok(())
+}
+
+/// SGEMM V4 benchmark: compare V4 (BK=8) vs V4.1 (BK=16) vs cuBLAS at 4096^3.
+#[cfg(feature = "cublas")]
+fn run_sgemm_v4_benchmark(dev: Arc<CudaDevice>) -> Result<()> {
+    use gpu_host::nn::ops::gemm;
+    use gpu_host::nn::tensor::GpuTensor;
+
+    println!("\n--- SGEMM V4 Double-Buffer Benchmark ---");
+
+    let shapes: &[(usize, usize, usize, &str)] = &[
+        (512, 512, 512, "512^3"),
+        (1024, 1024, 1024, "1024^3"),
+        (2048, 2048, 2048, "2048^3"),
+        (4096, 4096, 4096, "4096^3"),
+        (128, 768, 768, "GPT-2 128x768x768"),
+    ];
+
+    let warmup = 5;
+    let iters = 20;
+
+    println!(
+        "  {:>22}  {:>10} {:>10} {:>10} {:>8} {:>8}",
+        "Shape", "V4 (ms)", "V4.1 (ms)", "cuBLAS", "V4 GF", "V4.1 GF"
+    );
+    println!(
+        "  {:-<22}  {:-<10} {:-<10} {:-<10} {:-<8} {:-<8}",
+        "", "", "", "", "", ""
+    );
+
+    for &(m, k, n, label) in shapes {
+        // Generate deterministic test data
+        let a_data: Vec<f32> = (0..m * k)
+            .map(|i| ((i * 7 + 3) % 17) as f32 * 0.1 - 0.8)
+            .collect();
+        let b_data: Vec<f32> = (0..k * n)
+            .map(|i| ((i * 11 + 7) % 19) as f32 * 0.1 - 0.9)
+            .collect();
+
+        let a = TensorForBench::new(&a_data, &[m, k], &dev)?;
+        let b = TensorForBench::new(&b_data, &[k, n], &dev)?;
+
+        // --- V4 (original BK=8) ---
+        for _ in 0..warmup {
+            let _ = gemm::matmul_v4(&a.tensor, &b.tensor, m, k, n, &dev);
+        }
+        dev.synchronize().map_err(|e| GpuHostError::Verification {
+            test: "sgemm",
+            detail: format!("{e}"),
+        })?;
+
+        let start = std::time::Instant::now();
+        for _ in 0..iters {
+            let _ = gemm::matmul_v4(&a.tensor, &b.tensor, m, k, n, &dev);
+        }
+        dev.synchronize().map_err(|e| GpuHostError::Verification {
+            test: "sgemm",
+            detail: format!("{e}"),
+        })?;
+        let v4_ms = start.elapsed().as_secs_f64() * 1000.0 / iters as f64;
+
+        // --- V4.1 (BK=16, float4 A loads) ---
+        for _ in 0..warmup {
+            let _ = gemm::matmul_v4_1(&a.tensor, &b.tensor, m, k, n, &dev);
+        }
+        dev.synchronize().map_err(|e| GpuHostError::Verification {
+            test: "sgemm",
+            detail: format!("{e}"),
+        })?;
+
+        let start = std::time::Instant::now();
+        for _ in 0..iters {
+            let _ = gemm::matmul_v4_1(&a.tensor, &b.tensor, m, k, n, &dev);
+        }
+        dev.synchronize().map_err(|e| GpuHostError::Verification {
+            test: "sgemm",
+            detail: format!("{e}"),
+        })?;
+        let v41_ms = start.elapsed().as_secs_f64() * 1000.0 / iters as f64;
+
+        // --- cuBLAS reference ---
+        use cudarc::cublas::{CudaBlas, Gemm, GemmConfig};
+        let blas = CudaBlas::new(dev.clone()).map_err(|e| GpuHostError::Verification {
+            test: "sgemm",
+            detail: format!("{e:?}"),
+        })?;
+        let mut c_dev = dev
+            .alloc_zeros::<f32>(m * n)
+            .map_err(|e| GpuHostError::Verification {
+                test: "sgemm",
+                detail: format!("{e}"),
+            })?;
+        let cfg = GemmConfig {
+            transa: cudarc::cublas::sys::cublasOperation_t::CUBLAS_OP_N,
+            transb: cudarc::cublas::sys::cublasOperation_t::CUBLAS_OP_N,
+            m: n as i32,
+            n: m as i32,
+            k: k as i32,
+            alpha: 1.0f32,
+            lda: n as i32,
+            ldb: k as i32,
+            beta: 0.0f32,
+            ldc: n as i32,
+        };
+        for _ in 0..warmup {
+            unsafe {
+                blas.gemm(cfg, b.tensor.data(), a.tensor.data(), &mut c_dev)
+                    .ok();
+            }
+        }
+        dev.synchronize().map_err(|e| GpuHostError::Verification {
+            test: "sgemm",
+            detail: format!("{e}"),
+        })?;
+
+        let start = std::time::Instant::now();
+        for _ in 0..iters {
+            unsafe {
+                blas.gemm(cfg, b.tensor.data(), a.tensor.data(), &mut c_dev)
+                    .ok();
+            }
+        }
+        dev.synchronize().map_err(|e| GpuHostError::Verification {
+            test: "sgemm",
+            detail: format!("{e}"),
+        })?;
+        let cublas_ms = start.elapsed().as_secs_f64() * 1000.0 / iters as f64;
+
+        let flops = 2.0 * m as f64 * k as f64 * n as f64;
+        let v4_gflops = flops / (v4_ms * 1e6);
+        let v41_gflops = flops / (v41_ms * 1e6);
+        let cublas_gflops = flops / (cublas_ms * 1e6);
+
+        println!(
+            "  {label:>22}  {v4_ms:>10.3} {v41_ms:>10.3} {cublas_ms:>10.3} {v4_gflops:>7.0} {v41_gflops:>7.0}"
+        );
+        println!(
+            "  {:>22}  {:>9.1}% {:>9.1}% {:>10} {:>8} {:>8}",
+            "",
+            v4_gflops / cublas_gflops * 100.0,
+            v41_gflops / cublas_gflops * 100.0,
+            format!("{cublas_gflops:.0} GF"),
+            "",
+            ""
+        );
+
+        // Correctness check: compare V4.1 output vs cuBLAS at small size
+        if m <= 1024 {
+            let v41_result =
+                gemm::matmul_v4_1(&a.tensor, &b.tensor, m, k, n, &dev).map_err(|e| {
+                    GpuHostError::Verification {
+                        test: "sgemm",
+                        detail: format!("{e}"),
+                    }
+                })?;
+            let v41_host = v41_result
+                .to_host()
+                .map_err(|e| GpuHostError::Verification {
+                    test: "sgemm",
+                    detail: format!("{e}"),
+                })?;
+            let cublas_host: Vec<f32> =
+                dev.dtoh_sync_copy(&c_dev)
+                    .map_err(|e| GpuHostError::Verification {
+                        test: "sgemm",
+                        detail: format!("{e}"),
+                    })?;
+            let max_err = v41_host
+                .iter()
+                .zip(cublas_host.iter())
+                .map(|(a, b)| (a - b).abs())
+                .fold(0.0f32, f32::max);
+            let mean_val =
+                cublas_host.iter().map(|v| v.abs()).sum::<f32>() / cublas_host.len() as f32;
+            let rel_err = if mean_val > 0.0 {
+                max_err / mean_val
+            } else {
+                max_err
+            };
+            println!(
+                "  {:>22}  max_err={max_err:.4}, rel_err={rel_err:.6}",
+                "correctness"
+            );
+        }
+    }
+
+    println!("\n  SGEMM V4 Benchmark — DONE");
+    Ok(())
+}
+
+/// Helper for SGEMM benchmark: wraps GpuTensor creation.
+#[cfg(feature = "cublas")]
+struct TensorForBench {
+    tensor: gpu_host::nn::tensor::GpuTensor,
+}
+
+#[cfg(feature = "cublas")]
+impl TensorForBench {
+    fn new(data: &[f32], shape: &[usize], dev: &Arc<CudaDevice>) -> Result<Self> {
+        let tensor = gpu_host::nn::tensor::GpuTensor::from_host(data, shape, dev).map_err(|e| {
+            GpuHostError::Verification {
+                test: "sgemm",
+                detail: format!("{e}"),
+            }
+        })?;
+        Ok(Self { tensor })
+    }
 }
 
 /// Demo: std::thread::spawn on GPU with println!

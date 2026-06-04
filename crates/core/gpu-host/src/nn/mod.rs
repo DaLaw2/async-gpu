@@ -28,14 +28,35 @@
 //! ```
 
 pub mod autograd;
+/// CPU f64 reference implementations for numerical verification.
+///
+/// Internal testing utility — enable the `demo` feature to access from
+/// outside the crate.
+#[cfg(feature = "demo")]
 pub mod cpu_ref;
+#[cfg(not(feature = "demo"))]
+pub(crate) mod cpu_ref;
 pub mod error;
 pub mod layers;
+/// Pre-built model architectures (GPT-2, ResNet, YOLOv8).
+///
+/// These are demo/showcase models, not part of the stable public API.
+/// Enable the `demo` feature to access from outside the crate.
+#[cfg(feature = "demo")]
 pub mod models;
+#[cfg(not(feature = "demo"))]
+pub(crate) mod models;
 pub mod ops;
 pub mod registry;
 pub mod tensor;
+/// Numerical comparison utilities for GPU vs CPU testing.
+///
+/// Internal testing utility — enable the `demo` feature to access from
+/// outside the crate.
+#[cfg(feature = "demo")]
 pub mod test_utils;
+#[cfg(not(feature = "demo"))]
+pub(crate) mod test_utils;
 
 pub use error::{NnError, Result};
 pub use layers::Module;

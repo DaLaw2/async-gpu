@@ -95,6 +95,7 @@ const ML_KERNELS: &[&str] = &[
     "silu_backward",
     "sigmoid_backward",
     "relu_backward",
+    "relu_forward",
     "bias_add_backward",
 ];
 

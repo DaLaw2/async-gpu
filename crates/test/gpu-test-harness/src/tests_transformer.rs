@@ -2230,3 +2230,364 @@ pub(crate) fn run_flash_attention_v3_bench(dev: Arc<CudaDevice>) -> Result<()> {
     println!("  Flash Attention V3 Benchmark — DONE");
     Ok(())
 }
+
+/// Elementwise ops benchmark (perf-elementwise.2).
+///
+/// Benchmarks all elementwise operations with bandwidth measurement:
+/// - elementwise_add (in-place, V3 float4)
+/// - gelu_forward (V1 scalar)
+/// - gelu_forward_v2 (V2 4-elem/thread)
+/// - silu_forward (V1 scalar)
+/// - sigmoid_forward (V1 scalar)
+/// - relu_forward (V2 float4, NEW)
+///
+/// Reports GB/s for bandwidth-bound ops and GFLOPS for compute-bound ops.
+#[cfg(feature = "nn")]
+pub(crate) fn run_elementwise_benchmark(dev: Arc<CudaDevice>) -> Result<()> {
+    use gpu_host::nn::ops;
+    use gpu_host::nn::registry::KernelRegistry;
+    use gpu_host::nn::tensor::GpuTensor;
+
+    println!("\n--- Elementwise Ops Benchmark (perf-elementwise.2) ---");
+    println!("  GTX 1660: peak memory bandwidth = 192 GB/s, 5 TFLOPS FP32");
+
+    let registry = std::sync::Arc::new(
+        KernelRegistry::new(dev.clone(), crate::KERNEL_PTX).map_err(|e| {
+            GpuHostError::Verification {
+                test: "elem_bench",
+                detail: format!("{e}"),
+            }
+        })?,
+    );
+
+    // Test sizes: typical GPT-2 sizes
+    let sizes: &[(usize, &str)] = &[
+        (768 * 128, "128x768 (LN output)"),
+        (3072 * 128, "128x3072 (FFN hidden)"),
+        (786_432, "786432 (GPT-2 FFN)"),
+        (4_194_304, "4M (large tensor)"),
+    ];
+
+    let warmup_iters = 20;
+    let bench_iters = 200;
+
+    for &(n, label) in sizes {
+        println!(
+            "\n  Size: {label} ({n} elements, {:.2} MB)",
+            n as f64 * 4.0 / 1e6
+        );
+        println!(
+            "  {:>22} {:>10} {:>10} {:>10} {:>10}",
+            "Op", "ms/iter", "GB/s", "% peak", "notes"
+        );
+
+        // Generate input data: random-ish values in [-2, 2]
+        let input_data: Vec<f32> = (0..n)
+            .map(|i| ((i * 7 + 3) % 400) as f32 * 0.01 - 2.0)
+            .collect();
+        let b_data: Vec<f32> = (0..n)
+            .map(|i| ((i * 11 + 5) % 300) as f32 * 0.01 - 1.5)
+            .collect();
+
+        // --- elementwise_add (in-place a += b) ---
+        {
+            let b_tensor = GpuTensor::from_host(&b_data, &[n], &dev).map_err(|e| {
+                GpuHostError::Verification {
+                    test: "elem_bench",
+                    detail: format!("{e}"),
+                }
+            })?;
+
+            // Warmup
+            for _ in 0..warmup_iters {
+                let mut a = GpuTensor::from_host(&input_data, &[n], &dev).map_err(|e| {
+                    GpuHostError::Verification {
+                        test: "elem_bench",
+                        detail: format!("{e}"),
+                    }
+                })?;
+                ops::elementwise_add(&mut a, &b_tensor, &registry).map_err(|e| {
+                    GpuHostError::Verification {
+                        test: "elem_bench",
+                        detail: format!("{e}"),
+                    }
+                })?;
+            }
+            dev.synchronize().map_err(|e| GpuHostError::Verification {
+                test: "elem_bench",
+                detail: format!("{e}"),
+            })?;
+
+            // Benchmark: create a persistent tensor and repeatedly add
+            let mut a_persist = GpuTensor::from_host(&input_data, &[n], &dev).map_err(|e| {
+                GpuHostError::Verification {
+                    test: "elem_bench",
+                    detail: format!("{e}"),
+                }
+            })?;
+            let start = std::time::Instant::now();
+            for _ in 0..bench_iters {
+                ops::elementwise_add(&mut a_persist, &b_tensor, &registry).map_err(|e| {
+                    GpuHostError::Verification {
+                        test: "elem_bench",
+                        detail: format!("{e}"),
+                    }
+                })?;
+            }
+            dev.synchronize().map_err(|e| GpuHostError::Verification {
+                test: "elem_bench",
+                detail: format!("{e}"),
+            })?;
+            let elapsed = start.elapsed();
+            let ms_per = elapsed.as_secs_f64() * 1000.0 / bench_iters as f64;
+            // Bandwidth: read a (4B) + read b (4B) + write a (4B) = 12 bytes/elem
+            let bytes = n as f64 * 12.0;
+            let gbps = bytes / (ms_per * 1e6);
+            let pct_peak = gbps / 192.0 * 100.0;
+            println!(
+                "  {:>22} {:>10.4} {:>10.1} {:>9.0}% {:>10}",
+                "elementwise_add(V3)", ms_per, gbps, pct_peak, "in-place"
+            );
+        }
+
+        // --- gelu_forward (V1 scalar, 1 elem/thread) ---
+        {
+            let input_tensor = GpuTensor::from_host(&input_data, &[n], &dev).map_err(|e| {
+                GpuHostError::Verification {
+                    test: "elem_bench",
+                    detail: format!("{e}"),
+                }
+            })?;
+
+            for _ in 0..warmup_iters {
+                let _ = ops::gelu(&input_tensor, &registry);
+            }
+            dev.synchronize().map_err(|e| GpuHostError::Verification {
+                test: "elem_bench",
+                detail: format!("{e}"),
+            })?;
+
+            let start = std::time::Instant::now();
+            for _ in 0..bench_iters {
+                let _ = ops::gelu(&input_tensor, &registry);
+            }
+            dev.synchronize().map_err(|e| GpuHostError::Verification {
+                test: "elem_bench",
+                detail: format!("{e}"),
+            })?;
+            let elapsed = start.elapsed();
+            let ms_per = elapsed.as_secs_f64() * 1000.0 / bench_iters as f64;
+            // read input (4B) + write output (4B) = 8 bytes/elem
+            let bytes = n as f64 * 8.0;
+            let gbps = bytes / (ms_per * 1e6);
+            let pct_peak = gbps / 192.0 * 100.0;
+            println!(
+                "  {:>22} {:>10.4} {:>10.1} {:>9.0}% {:>10}",
+                "gelu(V1 tanh)", ms_per, gbps, pct_peak, "compute"
+            );
+        }
+
+        // --- gelu_forward_v2 (V2, 4 elem/thread, sigmoid approx) ---
+        {
+            let input_tensor = GpuTensor::from_host(&input_data, &[n], &dev).map_err(|e| {
+                GpuHostError::Verification {
+                    test: "elem_bench",
+                    detail: format!("{e}"),
+                }
+            })?;
+            let dev_ref = registry.device();
+            let mut output =
+                GpuTensor::zeros(&[n], dev_ref).map_err(|e| GpuHostError::Verification {
+                    test: "elem_bench",
+                    detail: format!("{e}"),
+                })?;
+            let status_dev = dev_ref.htod_sync_copy(&[0u32])?;
+
+            let func = registry
+                .get("gelu_forward_v2")
+                .map_err(|e| GpuHostError::Verification {
+                    test: "elem_bench",
+                    detail: format!("{e}"),
+                })?;
+            let config = LaunchConfig {
+                grid_dim: ((n as u32 + 1023) / 1024, 1, 1),
+                block_dim: (256, 1, 1),
+                shared_mem_bytes: 0,
+            };
+
+            for _ in 0..warmup_iters {
+                unsafe {
+                    func.clone()
+                        .launch(
+                            config,
+                            (
+                                input_tensor.data(),
+                                output.data_mut(),
+                                n as u32,
+                                &status_dev,
+                            ),
+                        )
+                        .map_err(|e| GpuHostError::Verification {
+                            test: "elem_bench",
+                            detail: format!("{e}"),
+                        })?;
+                }
+            }
+            dev.synchronize().map_err(|e| GpuHostError::Verification {
+                test: "elem_bench",
+                detail: format!("{e}"),
+            })?;
+
+            let start = std::time::Instant::now();
+            for _ in 0..bench_iters {
+                unsafe {
+                    func.clone()
+                        .launch(
+                            config,
+                            (
+                                input_tensor.data(),
+                                output.data_mut(),
+                                n as u32,
+                                &status_dev,
+                            ),
+                        )
+                        .map_err(|e| GpuHostError::Verification {
+                            test: "elem_bench",
+                            detail: format!("{e}"),
+                        })?;
+                }
+            }
+            dev.synchronize().map_err(|e| GpuHostError::Verification {
+                test: "elem_bench",
+                detail: format!("{e}"),
+            })?;
+            let elapsed = start.elapsed();
+            let ms_per = elapsed.as_secs_f64() * 1000.0 / bench_iters as f64;
+            let bytes = n as f64 * 8.0;
+            let gbps = bytes / (ms_per * 1e6);
+            let pct_peak = gbps / 192.0 * 100.0;
+            println!(
+                "  {:>22} {:>10.4} {:>10.1} {:>9.0}% {:>10}",
+                "gelu(V2 sigmoid)", ms_per, gbps, pct_peak, "compute"
+            );
+        }
+
+        // --- silu_forward (V1 scalar) ---
+        {
+            let input_tensor = GpuTensor::from_host(&input_data, &[n], &dev).map_err(|e| {
+                GpuHostError::Verification {
+                    test: "elem_bench",
+                    detail: format!("{e}"),
+                }
+            })?;
+
+            for _ in 0..warmup_iters {
+                let _ = ops::silu(&input_tensor, &registry);
+            }
+            dev.synchronize().map_err(|e| GpuHostError::Verification {
+                test: "elem_bench",
+                detail: format!("{e}"),
+            })?;
+
+            let start = std::time::Instant::now();
+            for _ in 0..bench_iters {
+                let _ = ops::silu(&input_tensor, &registry);
+            }
+            dev.synchronize().map_err(|e| GpuHostError::Verification {
+                test: "elem_bench",
+                detail: format!("{e}"),
+            })?;
+            let elapsed = start.elapsed();
+            let ms_per = elapsed.as_secs_f64() * 1000.0 / bench_iters as f64;
+            let bytes = n as f64 * 8.0;
+            let gbps = bytes / (ms_per * 1e6);
+            let pct_peak = gbps / 192.0 * 100.0;
+            println!(
+                "  {:>22} {:>10.4} {:>10.1} {:>9.0}% {:>10}",
+                "silu(V1 scalar)", ms_per, gbps, pct_peak, "compute"
+            );
+        }
+
+        // --- sigmoid_forward (V1 scalar) ---
+        {
+            let input_tensor = GpuTensor::from_host(&input_data, &[n], &dev).map_err(|e| {
+                GpuHostError::Verification {
+                    test: "elem_bench",
+                    detail: format!("{e}"),
+                }
+            })?;
+
+            for _ in 0..warmup_iters {
+                let _ = ops::sigmoid(&input_tensor, &registry);
+            }
+            dev.synchronize().map_err(|e| GpuHostError::Verification {
+                test: "elem_bench",
+                detail: format!("{e}"),
+            })?;
+
+            let start = std::time::Instant::now();
+            for _ in 0..bench_iters {
+                let _ = ops::sigmoid(&input_tensor, &registry);
+            }
+            dev.synchronize().map_err(|e| GpuHostError::Verification {
+                test: "elem_bench",
+                detail: format!("{e}"),
+            })?;
+            let elapsed = start.elapsed();
+            let ms_per = elapsed.as_secs_f64() * 1000.0 / bench_iters as f64;
+            let bytes = n as f64 * 8.0;
+            let gbps = bytes / (ms_per * 1e6);
+            let pct_peak = gbps / 192.0 * 100.0;
+            println!(
+                "  {:>22} {:>10.4} {:>10.1} {:>9.0}% {:>10}",
+                "sigmoid(V1 scalar)", ms_per, gbps, pct_peak, "compute"
+            );
+        }
+
+        // --- relu_forward (NEW, float4 vectorized) ---
+        {
+            let input_tensor = GpuTensor::from_host(&input_data, &[n], &dev).map_err(|e| {
+                GpuHostError::Verification {
+                    test: "elem_bench",
+                    detail: format!("{e}"),
+                }
+            })?;
+
+            for _ in 0..warmup_iters {
+                let _ = ops::relu(&input_tensor, &registry);
+            }
+            dev.synchronize().map_err(|e| GpuHostError::Verification {
+                test: "elem_bench",
+                detail: format!("{e}"),
+            })?;
+
+            let start = std::time::Instant::now();
+            for _ in 0..bench_iters {
+                let _ = ops::relu(&input_tensor, &registry);
+            }
+            dev.synchronize().map_err(|e| GpuHostError::Verification {
+                test: "elem_bench",
+                detail: format!("{e}"),
+            })?;
+            let elapsed = start.elapsed();
+            let ms_per = elapsed.as_secs_f64() * 1000.0 / bench_iters as f64;
+            // ReLU: read input (4B) + write output (4B) = 8 bytes/elem, purely bandwidth-bound
+            let bytes = n as f64 * 8.0;
+            let gbps = bytes / (ms_per * 1e6);
+            let pct_peak = gbps / 192.0 * 100.0;
+            println!(
+                "  {:>22} {:>10.4} {:>10.1} {:>9.0}% {:>10}",
+                "relu(GPU float4)", ms_per, gbps, pct_peak, "bandwidth"
+            );
+        }
+    }
+
+    println!("\n  --- Summary ---");
+    println!("  Hardware: GTX 1660 (sm_75), peak BW=192 GB/s, FP32=5 TFLOPS");
+    println!("  elementwise_add: bandwidth-bound (read a + read b + write a = 12B/elem)");
+    println!("  gelu/silu/sigmoid: compute-bound (exp/tanh), effective BW < peak");
+    println!("  relu: bandwidth-bound (no transcendentals), should approach peak BW");
+    println!("  240 GB/s target EXCEEDS 192 GB/s peak — recalibrating to % of peak");
+    println!("\n  Elementwise Benchmark — DONE");
+    Ok(())
+}

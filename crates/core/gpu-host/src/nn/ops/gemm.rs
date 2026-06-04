@@ -556,6 +556,247 @@ extern "C" __global__ void gemm_f32_v4(
     ))
 }
 
+/// NVRTC-compiled GEMM V4.1: optimized double-buffer SGEMM for SM75.
+///
+/// Improvements over V4:
+/// - BK=16 (was 8): doubles compute per global load, FMA:load ratio 256:1
+/// - Float4 vectorized global loads for BOTH A and B
+/// - Tighter inner loop: no bounds check inside unrolled K loop
+/// - Float4 vectorized output writes
+/// - A loaded with coalesced float4, stored transposed for bank-conflict-free reads
+#[cfg(feature = "cublas")]
+pub fn matmul_v4_1(
+    a: &GpuTensor,
+    b: &GpuTensor,
+    m: usize,
+    k: usize,
+    n: usize,
+    dev: &std::sync::Arc<cudarc::driver::CudaDevice>,
+) -> Result<GpuTensor> {
+    use cudarc::driver::LaunchAsync;
+
+    static GEMM_V41_SRC: &str = r#"
+// GEMM V4.1: 128x128 tile, BK=16, 8x8 register blocking, float4 loads
+// SM75 software double-buffer: overlap global loads with shared memory compute
+// A: [M, K] row-major, B: [K, N] row-major, D: [M, N] row-major
+// 256 threads = 16x16 thread grid, each thread computes 8x8 outputs
+
+#define BM 128
+#define BN 128
+#define BK 16
+#define A_STRIDE (BM + 4)  // 132 -- padding avoids bank conflicts
+
+extern "C" __global__ void gemm_f32_v4_1(
+    const float* __restrict__ A,
+    const float* __restrict__ B,
+    float* __restrict__ D,
+    unsigned int M, unsigned int N, unsigned int K
+) {
+    const unsigned int tid = threadIdx.x;
+    const unsigned int bm = blockIdx.x;
+    const unsigned int bn = blockIdx.y;
+
+    // Stage size for one buffer: A[BK][A_STRIDE] + B[BK][BN]
+    const unsigned int STAGE = BK * A_STRIDE + BK * BN;
+    __shared__ float smem[2 * (BK * A_STRIDE + BK * BN)];
+
+    // Thread mapping: 16x16 grid, each computes 8x8 outputs
+    const unsigned int tr = tid / 16;  // 0..15
+    const unsigned int tc = tid % 16;  // 0..15
+
+    // 64 accumulators
+    float c[8][8];
+    #pragma unroll
+    for (int i = 0; i < 8; i++)
+        #pragma unroll
+        for (int j = 0; j < 8; j++)
+            c[i][j] = 0.0f;
+
+    const unsigned int a_base = bm * BM;
+    const unsigned int b_base = bn * BN;
+    const unsigned int k_tiles = (K + BK - 1) / BK;
+
+    // === Tile loading macro ===
+    // A tile: BM x BK = 128 x 16 = 2048 elements
+    // 256 threads, 8 elements each (2 float4 loads)
+    // B tile: BK x BN = 16 x 128 = 2048 elements
+    // 256 threads, 8 elements each (2 float4 loads)
+    #define LOAD_TILE_V41(buf, k_start) do { \
+        float* a_smem = smem + (buf) * STAGE; \
+        float* b_smem = smem + (buf) * STAGE + BK * A_STRIDE; \
+        /* Load A: coalesced float4 reads, transposed store into smem */ \
+        /* Layout: tid covers 8 elements. BK=16 => 4 float4s per row. */ \
+        /* tid 0..3 cover row 0, tid 4..7 cover row 1, etc. */ \
+        /* Pass 0: rows 0..63, Pass 1: rows 64..127 */ \
+        for (int pass = 0; pass < 2; pass++) { \
+            unsigned int elem_base = pass * 1024 + tid * 4; \
+            unsigned int a_row = elem_base / BK; \
+            unsigned int a_col = elem_base % BK; \
+            unsigned int g_row = a_base + a_row; \
+            unsigned int g_col = (k_start) + a_col; \
+            if (g_row < M && g_col + 3 < K) { \
+                float4 av = *reinterpret_cast<const float4*>(&A[g_row * K + g_col]); \
+                a_smem[(a_col    ) * A_STRIDE + a_row] = av.x; \
+                a_smem[(a_col + 1) * A_STRIDE + a_row] = av.y; \
+                a_smem[(a_col + 2) * A_STRIDE + a_row] = av.z; \
+                a_smem[(a_col + 3) * A_STRIDE + a_row] = av.w; \
+            } else { \
+                for (int e = 0; e < 4; e++) { \
+                    unsigned int erow = a_row; \
+                    unsigned int ecol = a_col + e; \
+                    unsigned int gr = a_base + erow; \
+                    unsigned int gc = (k_start) + ecol; \
+                    float val = (gr < M && gc < K) ? A[gr * K + gc] : 0.0f; \
+                    a_smem[ecol * A_STRIDE + erow] = val; \
+                } \
+            } \
+        } \
+        /* Load B: coalesced float4 reads, direct store */ \
+        /* BK x BN = 16 x 128. tid covers 8 elements (2 float4 loads) */ \
+        for (int pass = 0; pass < 2; pass++) { \
+            unsigned int elem_base = pass * 1024 + tid * 4; \
+            unsigned int b_row = elem_base / BN; \
+            unsigned int b_col = elem_base % BN; \
+            unsigned int g_row = (k_start) + b_row; \
+            unsigned int g_col = b_base + b_col; \
+            if (g_row < K && g_col + 3 < N) { \
+                float4 bv = *reinterpret_cast<const float4*>(&B[g_row * N + g_col]); \
+                b_smem[b_row * BN + b_col    ] = bv.x; \
+                b_smem[b_row * BN + b_col + 1] = bv.y; \
+                b_smem[b_row * BN + b_col + 2] = bv.z; \
+                b_smem[b_row * BN + b_col + 3] = bv.w; \
+            } else { \
+                for (int e = 0; e < 4; e++) { \
+                    unsigned int erow = b_row; \
+                    unsigned int ecol = b_col + e; \
+                    unsigned int gr = (k_start) + erow; \
+                    unsigned int gc = b_base + ecol; \
+                    float val = (gr < K && gc < N) ? B[gr * N + gc] : 0.0f; \
+                    b_smem[erow * BN + ecol] = val; \
+                } \
+            } \
+        } \
+    } while(0)
+
+    // Load first tile into buffer 0
+    unsigned int buf = 0;
+    LOAD_TILE_V41(0, 0);
+    __syncthreads();
+
+    for (unsigned int t = 0; t < k_tiles; t++) {
+        // Prefetch next tile into alternate buffer
+        if (t + 1 < k_tiles) {
+            LOAD_TILE_V41(1 - buf, (t + 1) * BK);
+        }
+
+        // Compute on current buffer
+        float* a_s = smem + buf * STAGE;
+        float* b_s = smem + buf * STAGE + BK * A_STRIDE;
+
+        const unsigned int arb = tr * 8;
+        const unsigned int bcb = tc * 8;
+
+        // Inner K loop with register blocking -- fully unrolled BK=16
+        #pragma unroll
+        for (unsigned int kk = 0; kk < BK; kk++) {
+            // Load A fragment: 8 values via 2x float4 from transposed shared mem
+            float a_frag[8];
+            {
+                float4 av0 = *reinterpret_cast<float4*>(&a_s[kk * A_STRIDE + arb]);
+                float4 av1 = *reinterpret_cast<float4*>(&a_s[kk * A_STRIDE + arb + 4]);
+                a_frag[0] = av0.x; a_frag[1] = av0.y; a_frag[2] = av0.z; a_frag[3] = av0.w;
+                a_frag[4] = av1.x; a_frag[5] = av1.y; a_frag[6] = av1.z; a_frag[7] = av1.w;
+            }
+
+            // Load B fragment: 8 values via 2x float4
+            float b_frag[8];
+            {
+                float4 bv0 = *reinterpret_cast<float4*>(&b_s[kk * BN + bcb]);
+                float4 bv1 = *reinterpret_cast<float4*>(&b_s[kk * BN + bcb + 4]);
+                b_frag[0] = bv0.x; b_frag[1] = bv0.y; b_frag[2] = bv0.z; b_frag[3] = bv0.w;
+                b_frag[4] = bv1.x; b_frag[5] = bv1.y; b_frag[6] = bv1.z; b_frag[7] = bv1.w;
+            }
+
+            // 8x8 outer product via fmaf
+            #pragma unroll
+            for (int i = 0; i < 8; i++)
+                #pragma unroll
+                for (int j = 0; j < 8; j++)
+                    c[i][j] = fmaf(a_frag[i], b_frag[j], c[i][j]);
+        }
+
+        __syncthreads();
+        buf = 1 - buf;
+    }
+
+    // Write output with float4 vectorized stores where possible
+    const unsigned int or_ = a_base + tr * 8;
+    const unsigned int oc_ = b_base + tc * 8;
+    #pragma unroll
+    for (int i = 0; i < 8; i++) {
+        if (or_ + i < M && oc_ + 7 < N) {
+            // Full row fits: use 2x float4 store
+            *reinterpret_cast<float4*>(&D[(or_ + i) * N + oc_]) =
+                make_float4(c[i][0], c[i][1], c[i][2], c[i][3]);
+            *reinterpret_cast<float4*>(&D[(or_ + i) * N + oc_ + 4]) =
+                make_float4(c[i][4], c[i][5], c[i][6], c[i][7]);
+        } else if (or_ + i < M) {
+            #pragma unroll
+            for (int j = 0; j < 8; j++) {
+                if (oc_ + j < N)
+                    D[(or_ + i) * N + oc_ + j] = c[i][j];
+            }
+        }
+    }
+}
+"#;
+
+    // Cache compiled kernel
+    use std::sync::OnceLock;
+    static COMPILED_V41: OnceLock<bool> = OnceLock::new();
+    COMPILED_V41.get_or_init(|| {
+        let opts = cudarc::nvrtc::CompileOptions {
+            arch: Some("sm_75"),
+            fmad: Some(true),
+            use_fast_math: Some(true),
+            ..Default::default()
+        };
+        let ptx = cudarc::nvrtc::compile_ptx_with_opts(GEMM_V41_SRC, opts)
+            .expect("NVRTC GEMM V4.1 compile failed");
+        dev.load_ptx(ptx, "gemm_v4_1", &["gemm_f32_v4_1"])
+            .expect("GEMM V4.1 PTX load failed");
+        true
+    });
+
+    let func = dev
+        .get_func("gemm_v4_1", "gemm_f32_v4_1")
+        .ok_or(NnError::KernelNotFound {
+            name: "gemm_f32_v4_1",
+        })?;
+
+    let mut d_dev = dev.alloc_zeros::<f32>(m * n).map_err(NnError::Cuda)?;
+    // BK=16: 2 * (16*132 + 16*128) * 4 = 33280 bytes
+    let config = cudarc::driver::LaunchConfig {
+        grid_dim: (m.div_ceil(128) as u32, n.div_ceil(128) as u32, 1),
+        block_dim: (256, 1, 1),
+        shared_mem_bytes: 2 * (16 * 132 + 16 * 128) * 4,
+    };
+
+    unsafe {
+        func.launch(
+            config,
+            (a.data(), b.data(), &mut d_dev, m as u32, n as u32, k as u32),
+        )
+        .map_err(NnError::Cuda)?;
+    }
+
+    Ok(GpuTensor::from_data(
+        d_dev,
+        &[m, n],
+        std::sync::Arc::clone(dev),
+    ))
+}
+
 /// Activation type for fused GEMM.
 #[derive(Copy, Clone, Debug)]
 pub enum FusedActivation {

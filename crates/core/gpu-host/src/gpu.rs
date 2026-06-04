@@ -422,7 +422,6 @@ pub fn run_zero_param_with_config(
 /// module.finish();
 /// ```
 pub struct GpuStdModule {
-    #[allow(dead_code)]
     dev: std::sync::Arc<CudaDevice>,
     cu_module: cudarc::driver::sys::CUmodule,
     cu_func: cudarc::driver::sys::CUfunction,
@@ -866,7 +865,7 @@ impl GpuContext {
 
         Ok(GpuResult {
             dev: self.dev,
-            session: self.session,
+            _session: self.session,
         })
     }
 }
@@ -879,8 +878,7 @@ impl GpuContext {
 pub struct GpuResult {
     dev: std::sync::Arc<CudaDevice>,
     /// Held for its `Drop` impl which shuts down the hostcall listener.
-    #[allow(dead_code)]
-    session: Option<HostcallSession>,
+    _session: Option<HostcallSession>,
 }
 
 impl GpuResult {

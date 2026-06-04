@@ -434,7 +434,6 @@ impl HostcallBuffer {
 
     /// Reinitialize packet pool for reuse between kernel launches.
     ///
-    #[allow(dead_code)]
     /// Resets free stacks (all packets available), ready stacks (empty),
     /// and all packet control flags. Resets sideband bump allocator.
     ///
@@ -1895,7 +1894,6 @@ impl HostcallSession {
     }
 
     /// Get the sideband device pointer for bulk transfer args.
-    #[allow(dead_code)]
     pub fn sideband_dev_ptr(&self) -> sys::CUdeviceptr {
         self.buf.sideband_dev_ptr
     }
@@ -1999,11 +1997,10 @@ impl Pipeline {
 ///
 /// The host writes commands to a ring buffer; the GPU kernel polls
 /// `write_idx` and processes commands sequentially.
-#[allow(dead_code)]
 pub struct CommandBuffer {
     host_ptr: *mut u8,
     dev_ptr: sys::CUdeviceptr,
-    size: usize,
+    _size: usize,
     capacity: u32,
 }
 
@@ -2015,7 +2012,6 @@ unsafe impl Send for CommandBuffer {}
 unsafe impl Sync for CommandBuffer {}
 
 /// Command to submit to the GPU via command buffer.
-#[allow(dead_code)]
 pub enum Command {
     /// No-op (for testing).
     Nop,
@@ -2039,7 +2035,6 @@ pub enum Command {
     Exit,
 }
 
-#[allow(dead_code)]
 impl CommandBuffer {
     /// Allocate a command buffer with the given slot capacity.
     pub fn new(capacity: u32) -> Result<Self, HostcallError> {
@@ -2080,7 +2075,7 @@ impl CommandBuffer {
         Ok(Self {
             host_ptr,
             dev_ptr,
-            size,
+            _size: size,
             capacity,
         })
     }
@@ -2197,11 +2192,10 @@ impl Drop for CommandBuffer {
 /// to print the last N events for post-mortem analysis.
 ///
 /// [`dump()`]: FlightRecorder::dump
-#[allow(dead_code)]
 pub struct FlightRecorder {
     host_ptr: *mut u8,
     dev_ptr: sys::CUdeviceptr,
-    size: usize,
+    _size: usize,
     capacity: u32,
 }
 
@@ -2212,7 +2206,6 @@ pub struct FlightRecorder {
 unsafe impl Send for FlightRecorder {}
 unsafe impl Sync for FlightRecorder {}
 
-#[allow(dead_code)]
 impl FlightRecorder {
     /// Allocate a flight recorder with the given event slot capacity.
     pub fn new(capacity: u32) -> Result<Self, HostcallError> {
@@ -2252,7 +2245,7 @@ impl FlightRecorder {
         Ok(Self {
             host_ptr,
             dev_ptr,
-            size,
+            _size: size,
             capacity,
         })
     }

@@ -26,8 +26,10 @@ pub use gemm::{
     int4_matmul, int8_matmul, matmul, matmul_fused, matmul_prepadded_b, matmul_v2, FusedActivation,
 };
 #[cfg(feature = "cublas")]
-pub use norm::layer_norm_residual;
+pub use gemm::{matmul_v4, matmul_v4_1};
 pub use norm::{batch_norm, batch_norm_silu, layer_norm};
+#[cfg(feature = "cublas")]
+pub use norm::{layer_norm_residual, layer_norm_residual_dual};
 pub use pool::max_pool2d;
 #[cfg(feature = "cublas")]
 pub use reshape::elementwise_add_out;

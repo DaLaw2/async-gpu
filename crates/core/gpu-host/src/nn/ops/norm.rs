@@ -210,6 +210,169 @@ extern "C" __global__ void layer_norm_residual(
     Ok(output)
 }
 
+/// Fused layer normalization + residual add with dual output:
+/// `norm_out = LN(input + residual)` and `sum_out = input + residual`.
+///
+/// Returns `(norm_out, sum_out)`. Saves 1 kernel launch vs separate
+/// `elementwise_add` + `layer_norm` while preserving the un-normalized sum
+/// for downstream residual connections (e.g., GPT-2 transformer blocks).
+/// Uses NVRTC-compiled CUDA C kernel with float4 vectorized loads.
+/// Requires `d_model % 4 == 0`.
+#[cfg(feature = "cublas")]
+pub fn layer_norm_residual_dual(
+    input: &GpuTensor,
+    residual: &GpuTensor,
+    gamma: &GpuTensor,
+    beta: &GpuTensor,
+    eps: f32,
+    registry: &Arc<KernelRegistry>,
+) -> Result<(GpuTensor, GpuTensor)> {
+    use cudarc::nvrtc::compile_ptx;
+
+    let ndim = input.ndim();
+    let d_model = input.shape()[ndim - 1];
+    let num_rows = input.numel() / d_model;
+    let dev = registry.device();
+    let mut norm_out = GpuTensor::zeros(input.shape(), dev)?;
+    let mut sum_out = GpuTensor::zeros(input.shape(), dev)?;
+
+    assert!(
+        d_model % 4 == 0,
+        "layer_norm_residual_dual requires d_model divisible by 4, got {d_model}"
+    );
+
+    static LN_RESIDUAL_DUAL_SRC: &str = r#"
+// Fused LayerNorm + residual add with dual output and float4 vectorized loads.
+// norm_out = LN(input + residual), sum_out = input + residual.
+// d_model must be divisible by 4.
+extern "C" __global__ void layer_norm_residual_dual(
+    const float* __restrict__ input,
+    const float* __restrict__ residual,
+    float* __restrict__ norm_out,
+    float* __restrict__ sum_out,
+    const float* __restrict__ gamma,
+    const float* __restrict__ beta,
+    unsigned int d_model,
+    float eps
+) {
+    unsigned int row = blockIdx.x;
+    unsigned int tid = threadIdx.x;
+
+    extern __shared__ float smem[];
+
+    const float4* in_row  = (const float4*)(input    + row * d_model);
+    const float4* res_row = (const float4*)(residual + row * d_model);
+    float4*       nrm_row = (float4*)(norm_out + row * d_model);
+    float4*       sum_row = (float4*)(sum_out  + row * d_model);
+    const float4* g4      = (const float4*)gamma;
+    const float4* b4      = (const float4*)beta;
+
+    unsigned int d_model_v4 = d_model / 4;
+
+    // Phase 1: compute sums, write sum_out, accumulate statistics
+    float local_sum = 0.0f;
+    float local_sq_sum = 0.0f;
+    for (unsigned int v = tid; v < d_model_v4; v += 256) {
+        float4 iv = in_row[v];
+        float4 rv = res_row[v];
+        float4 sv;
+        sv.x = iv.x + rv.x;
+        sv.y = iv.y + rv.y;
+        sv.z = iv.z + rv.z;
+        sv.w = iv.w + rv.w;
+        sum_row[v] = sv;  // write un-normalized sum
+        local_sum += sv.x + sv.y + sv.z + sv.w;
+        local_sq_sum += sv.x*sv.x + sv.y*sv.y + sv.z*sv.z + sv.w*sv.w;
+    }
+
+    // Warp reduction
+    for (int offset = 16; offset > 0; offset >>= 1) {
+        local_sum += __shfl_xor_sync(0xFFFFFFFF, local_sum, offset);
+        local_sq_sum += __shfl_xor_sync(0xFFFFFFFF, local_sq_sum, offset);
+    }
+
+    // Block reduction via smem
+    unsigned int warp_id = tid / 32;
+    unsigned int lane_id = tid % 32;
+    if (lane_id == 0) {
+        smem[warp_id] = local_sum;
+        smem[warp_id + 8] = local_sq_sum;
+    }
+    __syncthreads();
+
+    float mean, inv_std;
+    if (tid == 0) {
+        float total_sum = 0.0f, total_sq = 0.0f;
+        for (int w = 0; w < 8; w++) {
+            total_sum += smem[w];
+            total_sq += smem[w + 8];
+        }
+        mean = total_sum / d_model;
+        float var = total_sq / d_model - mean * mean;
+        inv_std = rsqrtf(var + eps);
+        smem[16] = mean;
+        smem[17] = inv_std;
+    }
+    __syncthreads();
+    mean = smem[16];
+    inv_std = smem[17];
+
+    // Phase 2: normalize and write norm_out (read sum_out back from global)
+    for (unsigned int v = tid; v < d_model_v4; v += 256) {
+        float4 sv = sum_row[v];  // read back from sum_out
+        float4 gv = g4[v];
+        float4 bv = b4[v];
+        float4 result;
+        result.x = gv.x * (sv.x - mean) * inv_std + bv.x;
+        result.y = gv.y * (sv.y - mean) * inv_std + bv.y;
+        result.z = gv.z * (sv.z - mean) * inv_std + bv.z;
+        result.w = gv.w * (sv.w - mean) * inv_std + bv.w;
+        nrm_row[v] = result;
+    }
+}
+"#;
+
+    use std::sync::OnceLock;
+    static COMPILED_DUAL: OnceLock<bool> = OnceLock::new();
+    COMPILED_DUAL.get_or_init(|| {
+        let ptx = compile_ptx(LN_RESIDUAL_DUAL_SRC).expect("NVRTC LN+residual dual compile failed");
+        dev.load_ptx(ptx, "ln_res_dual", &["layer_norm_residual_dual"])
+            .expect("LN+residual dual PTX load failed");
+        true
+    });
+
+    let func = dev
+        .get_func("ln_res_dual", "layer_norm_residual_dual")
+        .ok_or(NnError::KernelNotFound {
+            name: "layer_norm_residual_dual",
+        })?;
+
+    let config = cudarc::driver::LaunchConfig {
+        grid_dim: (num_rows as u32, 1, 1),
+        block_dim: (256, 1, 1),
+        shared_mem_bytes: 2048,
+    };
+
+    unsafe {
+        func.launch(
+            config,
+            (
+                input.data(),
+                residual.data(),
+                norm_out.data_mut(),
+                sum_out.data_mut(),
+                gamma.data(),
+                beta.data(),
+                d_model as u32,
+                eps,
+            ),
+        )
+        .map_err(NnError::Cuda)?;
+    }
+
+    Ok((norm_out, sum_out))
+}
+
 /// Batch normalization for CHW tensors.
 ///
 /// Input: `[C, H, W]`, gamma/beta/mean/var: `[C]` → output: same shape.

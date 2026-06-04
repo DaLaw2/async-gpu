@@ -361,39 +361,6 @@ fn collect_await_fields(nodes: &[CfgNode]) -> Vec<(usize, Type)> {
     fields
 }
 
-/// Check if any CfgNode in the tree uses `.await`.
-#[allow(dead_code)]
-fn cfg_has_await(nodes: &[CfgNode]) -> bool {
-    for node in nodes {
-        match node {
-            CfgNode::Await { .. } => return true,
-            CfgNode::IfElse {
-                then_branch,
-                else_branch,
-                ..
-            } => {
-                if cfg_has_await(then_branch) || cfg_has_await(else_branch) {
-                    return true;
-                }
-            }
-            CfgNode::Loop { body } => {
-                if cfg_has_await(body) {
-                    return true;
-                }
-            }
-            CfgNode::Match { arms, .. } => {
-                for (_, arm_nodes) in arms {
-                    if cfg_has_await(arm_nodes) {
-                        return true;
-                    }
-                }
-            }
-            CfgNode::Call(_) | CfgNode::BreakIf { .. } => {}
-        }
-    }
-    false
-}
-
 /// Check if a slice of statements contains any warp_*!() macro calls or `.await` (recursive).
 fn stmts_contain_warp_call(stmts: &[Stmt]) -> bool {
     for stmt in stmts {

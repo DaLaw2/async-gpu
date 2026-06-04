@@ -171,9 +171,9 @@ pub fn multi_head_flash_attention(
     }
 
     // Fallback: Rust PTX flash_attention_v2 kernel
-    #[allow(unreachable_code)]
-    let func = registry.get("flash_attention_v2")?;
+    #[cfg(not(feature = "cublas"))]
     {
+        let func = registry.get("flash_attention_v2")?;
         let n_q_tiles = seq_len.div_ceil(32) as u32;
         let config = cudarc::driver::LaunchConfig {
             grid_dim: (n_heads as u32, n_q_tiles, 1),
@@ -200,7 +200,7 @@ pub fn multi_head_flash_attention(
 
         let _ = total;
         Ok(output)
-    } // end #[cfg(not(feature = "cublas"))]
+    }
 }
 
 /// Flash Attention V3 — cooperative 4-thread-per-row tiled GEMM.

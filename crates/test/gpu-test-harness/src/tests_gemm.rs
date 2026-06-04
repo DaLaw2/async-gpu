@@ -2320,28 +2320,6 @@ pub(crate) fn run_splitk_gemm_test(dev: Arc<CudaDevice>) -> Result<()> {
         let k = 16usize;
         let n = 16usize;
 
-        #[allow(dead_code)]
-        fn f32_to_f16_diag(val: f32) -> u16 {
-            let bits = val.to_bits();
-            let sign = (bits >> 31) & 1;
-            let exp = ((bits >> 23) & 0xFF) as i32;
-            let frac = bits & 0x7FFFFF;
-            if val == 0.0 {
-                return (sign << 15) as u16;
-            }
-            let new_exp = exp - 127 + 15;
-            if new_exp <= 0 {
-                return (sign << 15) as u16;
-            }
-            if new_exp >= 31 {
-                return ((sign << 15) | 0x7C00) as u16;
-            }
-            ((sign << 15) | ((new_exp as u32) << 10) | (frac >> 13)) as u16
-        }
-        #[allow(dead_code)]
-        fn pack_f16x2_diag(lo: f32, hi: f32) -> u32 {
-            f32_to_f16_diag(lo) as u32 | ((f32_to_f16_diag(hi) as u32) << 16)
-        }
         fn f16_to_f32_diag(bits: u16) -> f32 {
             let sign = ((bits >> 15) & 1) as u32;
             let exp = ((bits >> 10) & 0x1F) as i32;

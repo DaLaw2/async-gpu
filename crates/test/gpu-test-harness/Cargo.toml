@@ -10,7 +10,8 @@ path = "src/main.rs"
 required-features = ["gpt2"]
 
 [features]
-default = ["gpt2"]
+default = ["gpt2", "demo"]
+demo = ["gpu-host/demo"]
 gpt2 = ["gpu-host/gpt2"]
 nn = ["gpu-host/nn"]
 cublas = ["gpu-host/cublas"]

@@ -8,6 +8,7 @@ edition = "2021"
 [features]
 default = []
 sm_80 = []  # Enable sm_80+ features (MMA tensor cores, bf16, tf32)
+gpu_kernel_abi = []  # Enable extern "gpu-kernel" ABI (requires patched rustc)
 
 [lib]
 crate-type = ["cdylib"]

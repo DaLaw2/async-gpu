@@ -750,6 +750,18 @@ fn run_gpu_api_test() -> Result<()> {
     assert_eq!(result[3], 0, "main thread should be warp 0");
     println!("  gpu::compute — PASSED");
 
+    // Test: extern "gpu-kernel" ABI (if compiled with patched rustc)
+    println!("  gpu::compute(\"gpu_kernel_demo\", 2, 128)...");
+    match gpu::compute::<u32>("gpu_kernel_demo", 2, 128) {
+        Ok(r) => {
+            println!("    result = {:?}", r);
+            assert_eq!(r[0], 42);
+            assert_eq!(r[1], 99);
+            println!("  extern \"gpu-kernel\" ABI — PASSED");
+        }
+        Err(_) => println!("  (gpu_kernel_demo not in PTX — needs patched rustc + gpu_kernel_abi feature)"),
+    }
+
     println!("  gpu::run() API test — ALL PASSED");
     Ok(())
 }

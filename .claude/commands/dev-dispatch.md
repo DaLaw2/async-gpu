@@ -1,12 +1,9 @@
 # Dev Dispatch — Subagent Brief Protocol
 
 All execution happens in subagents. They receive a structured brief and do NOT read state.toml
-or make strategic decisions. The main agent (orchestrator) assembles the brief and judges results.
+or make strategic decisions. The orchestrator assembles the brief and judges results.
 
 ## Brief Template
-
-Every task subagent receives this structure. The orchestrator assembles it during the PREP sub-step
-of DISPATCH — using `ls`, `find`, `grep -l` (not reading source code) to fill Codebase Pointers.
 
 ```
 ## Task
@@ -26,13 +23,12 @@ Tried & Rejected: {from context.md — what NOT to do and why}
 Dependency findings: {paste findings from depends tasks, or "None"}
 
 ## Codebase Pointers
-Relevant crates: {paths found via ls/find}
-Relevant scripts: {paths found via ls/find}
+Relevant crates: {paths found by orchestrator via ls/find}
+Relevant scripts: {paths found by orchestrator via ls/find}
 Entry point: {specific file, script, or function to start from}
 
 ## Constraints
 - {relevant active constraints from context.md}
-- Host is read-only — no installing packages or system config changes
 - Experiment code goes in crates/ or examples/
 
 ## Deliverables
@@ -63,8 +59,7 @@ Entry point: {specific file, script, or function to start from}
 Full brief above. Subagent writes code, runs tests, produces findings + synthesis.
 
 ### type: verify
-Dispatched automatically after a task subagent reports STATUS=done. A different subagent verifies.
-Brief:
+Dispatched automatically after a task subagent reports STATUS=done. A separate subagent verifies.
 ```
 ## Verify: {task_id}
 Task goal: {title}
@@ -76,29 +71,39 @@ Findings file: .research/findings/tasks/{task_id}-c{cycle}.md
 1. Tests pass: run relevant tests for changed crates
 2. Lint clean: cargo +stable fmt --check && cargo +stable clippy -- -D warnings
 3. Findings file exists and has required sections (Summary, Findings, Open Questions)
-4. Theme synthesis updated: .research/findings/themes/{theme_id}-synthesis.md exists and is ≤30 lines
+4. Theme synthesis updated and ≤30 lines
 5. Goal check: do the changes actually resolve the task goal? Read the diff and findings.
 
 Return: PASS (all checks green) or FAIL (which check failed + evidence)
 ```
 
 ### type: north-star
-Brief: "Read findings: {paths}. Read North Star: {text}. Read Project North Star from state.toml [meta].
-Does this work advance both? Return: ALIGNED (1-sentence evidence) or DRIFT (1-sentence explanation)."
+```
+Read these completed task findings: {paths}
+Read this epic's North Star: {north_star_text}
+Read the Project North Star from state.toml [meta] section.
+Does this work advance BOTH?
+Return: ALIGNED (1-sentence evidence) or DRIFT (1-sentence explanation)
+```
 
 ### type: epic-verify
-Brief: "Epic: {id} — {title}. Litmus Test: {text}. Success Criteria: {list}.
-Verify each criterion by running/checking the observable outcome. Return: PASS/FAIL per criterion with evidence."
+```
+Epic: {epic_id} — {title}
+Litmus Test: {litmus_test_text}
+Success Criteria: {criteria_list}
+Verify EACH criterion by actually running/checking the observable outcome described.
+Return: PASS or FAIL with concrete evidence for each criterion.
+```
 
 ### type: brainstorm
-See `dev-brainstorm.md` for brainstorm-specific protocols.
+See `dev-brainstorm.md`.
 
 ### type: maintain
 Dispatch `/maintain` with relevant sub-commands based on what changed in this cycle.
 
 ## Extensibility
 
-To add a new dispatch type (e.g., cleanup, doc generation, perf audit):
+To add a new dispatch type:
 1. Create `dev-{type}.md` with the subagent brief template and return contract
 2. Add trigger condition to `dev.md` ROUTE step
 3. No changes to this file or the core loop needed

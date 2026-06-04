@@ -1,6 +1,7 @@
 # Dev Brainstorm — Think Phase
 
-Dispatched from `dev.md` GATE (proactive) or ROUTE (reactive) when a brainstorm trigger fires.
+Dispatched from `dev.md` when a brainstorm trigger fires.
+Proactive triggers are checked at GATE (before work). Reactive triggers are checked at ROUTE (after work).
 
 ## Pre-brainstorm (MANDATORY)
 
@@ -22,7 +23,7 @@ Dispatched from `dev.md` GATE (proactive) or ROUTE (reactive) when a brainstorm 
 Dispatch subagent with context (epics, theme syntheses, blocked tasks, open questions).
 Subagent writes structured analysis to `.research/findings/brainstorm/bs{N}.md`:
 - Epic progress assessment, technical feasibility, risks, skeptic challenges, recommendations.
-Read output. Update state.toml with task/theme changes.
+Read output. Orchestrator updates state.toml based on recommendations.
 
 ## High (Proposer + Skeptic)
 
@@ -30,7 +31,7 @@ Read output. Update state.toml with task/theme changes.
    Epic Assessment + Systems/Compiler/GPU Architecture Analysis + Concrete Recommendations
 2. Dispatch **skeptic** subagent (reads proposer's file) → `bs{N}-skeptic.md`
    Challenge every claim, find holes, identify untested assumptions
-3. Read both files. Write synthesis → `bs{N}.md`. Update state.toml.
+3. Read both files. Write synthesis → `bs{N}.md`. Orchestrator updates state.toml.
 
 ## Deep (Agent Team via TeamCreate)
 
@@ -49,8 +50,7 @@ Select 3-4 experts from: Systems Architect, Compiler Engineer, GPU Architect, Pe
 
 - Increment `brainstorm_seq`, reset `tasks_since_brainstorm = 0`
 - Record `[[brainstorms]]` entry with seq, trigger, level, key_insight
-- Commit + push
-- Transition → `current_step = "gate"`
+- Transition → `current_step = "gate"` (re-enter loop from top)
 
 ### Output rules by trigger
 - **No ready tasks** → **MUST produce** at least one new task (loop is stuck without new work)

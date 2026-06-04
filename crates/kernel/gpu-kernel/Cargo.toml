@@ -17,7 +17,6 @@ gpu-atomics = { path = "../../core/gpu-atomics" }
 gpu-libc = { path = "../../core/gpu-libc" }
 gpu-protocol = { path = "../../core/gpu-protocol" }
 gpu-runtime = { path = "../../core/gpu-runtime" }
-warp-macro = { path = "../../macro/warp-macro" }
 
 [profile.release]
 panic = "abort"

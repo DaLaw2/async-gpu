@@ -526,7 +526,7 @@ id = "lib-cleanup.3"
 theme = "lib-cleanup"
 title = "Experiment: migrate warp.rs off warp-macro DSL, then remove warp-macro crate"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = []
 
 [[tasks]]

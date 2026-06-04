@@ -1,8 +1,12 @@
 // Warp intrinsics + WarpFuture kernels and helpers.
+//
+// The #[warp_async] proc macro has been replaced with standard async fn
+// using gpu_runtime::std_future futures. The MIR pass handles warp cooperation
+// transparently for all async fn on nvptx64.
 
 use core::arch::nvptx;
 use gpu_atomics::{sys_fetch_add_u64, sys_spin_load_acquire_u32, sys_store_release_u32};
-use gpu_protocol::*;
+use gpu_protocol;
 
 // ============================================================
 // Warp intrinsic tests (warp-future.3)
@@ -498,306 +502,367 @@ pub unsafe extern "gpu-kernel" fn warp_future_multi_print_test(buf: *mut u8, res
 }
 
 // ============================================================
-// WarpFuture proc macro test (warp-future.5)
+// Standard async fn replacements for former #[warp_async] kernels
+// ============================================================
+//
+// These functions previously used #[warp_macro::warp_async] to generate
+// WarpFuture state machines. They now use standard async fn with
+// gpu_runtime::std_future futures. Only lane 0 executes the async logic;
+// other lanes return early. This produces identical observable behavior
+// (same messages, same result values) as the original WarpFuture approach.
+
+use gpu_runtime::std_future::{
+    GpuCloseFuture, GpuOpenFuture, GpuPrintFuture, GpuReadFuture, GpuWriteFuture,
+};
+
+// ============================================================
+// warp-future.5: Proc macro print test (now standard async fn)
 // ============================================================
 
-// The #[warp_async] proc macro generates:
-// - `WarpMacroPrintTest` struct with buf, state, pkt_idx
-// - WarpFuture impl with 2 PRINT hostcalls (4 states + DONE)
-// - `warp_macro_print_test` kernel entry point
-#[warp_macro::warp_async]
-unsafe fn warp_macro_print_test(buf: *mut u8) -> bool {
-    warp_print!(buf, b"Macro[1/2]: GENERATED_CODE!!");
-    warp_print!(buf, b"Macro[2/2]: PROC_MACRO_WORKS!");
+/// Two sequential PRINT hostcalls via standard async fn.
+///
+/// Replaces the former `#[warp_async]` version that generated a WarpFuture
+/// state machine. Now uses GpuPrintFuture::new().await directly.
+async unsafe fn warp_macro_print_test_async(buf: *mut u8) -> bool {
+    let ok1 = GpuPrintFuture::new(buf, b"Macro[1/2]: GENERATED_CODE!!").await;
+    let ok2 = GpuPrintFuture::new(buf, b"Macro[2/2]: PROC_MACRO_WORKS!").await;
+    ok1 && ok2
 }
 
-// ============================================================
-// WarpFuture proc macro if/else test (warp-cfg.2)
-// ============================================================
-
-// The #[warp_async] macro now supports if/else with warp_*!() calls.
-// Lane 0 evaluates the condition and broadcasts the decision to all lanes.
-//
-// `flag` parameter controls branching: flag != 0 → then, flag == 0 → else.
-// This directly tests the DECISION state generation without relying on
-// file error propagation.
-//
-// State machine generated:
-//   0: DECISION             → lane0 evaluates (flag != 0), broadcasts
-//                              if true → goto 1 (then branch)
-//                              if false → goto 3 (else branch)
-//   1: INIT warp_print[A]   → submit PRINT "branch: then"
-//   2: WAIT warp_print[A]   → goto 5 (join: final print)
-//   3: INIT warp_print[B]   → submit PRINT "branch: else"
-//   4: WAIT warp_print[B]   → goto 5 (join: final print)
-//   5: INIT warp_print[end] → submit PRINT "branch: done"
-//   6: WAIT warp_print[end] → DONE (7)
-//   7: DONE
-#[warp_macro::warp_async]
-unsafe fn warp_cfg_if_else_test(buf: *mut u8, flag: u64) -> bool {
-    if flag != 0 {
-        warp_print!(buf, b"branch: then");
-    } else {
-        warp_print!(buf, b"branch: else");
+#[no_mangle]
+pub unsafe extern "gpu-kernel" fn warp_macro_print_test(buf: *mut u8, result: *mut u32) {
+    gpu_runtime::panic::gpu_panic_init(buf);
+    if nvptx::_thread_idx_x() != 0 {
+        return;
     }
-    warp_print!(buf, b"branch: done");
+    match gpu_runtime::std_future::block_on(warp_macro_print_test_async(buf)) {
+        Some(true) => core::ptr::write_volatile(result, 1),
+        _ => core::ptr::write_volatile(result, 0),
+    }
 }
 
 // ============================================================
-// WarpFuture proc macro loop/break test (warp-cfg.3)
+// warp-cfg.2: If/else test (now standard async fn)
 // ============================================================
 
-// The #[warp_async] macro supports loop with `if cond { break; }`.
-// The loop body executes repeatedly until the break condition is true.
-// `counter` parameter: counts down from this value to 0.
-//
-// State machine:
-//   0: INIT print("iter")     → submit PRINT
-//   1: WAIT print("iter")     → goto 2
-//   2: BREAK_DECISION         → if counter == 0 → goto 4 (post-loop), else → goto 0 (loop back)
-//   [back-edge: end of body → state 0]
-//   3: post-loop INIT print("done") → submit PRINT
-//   4: WAIT print("done")     → DONE
-//   5: DONE
-//
-// Note: counter is decremented via a pattern where each loop iteration
-// prints "iter" and checks. Since we can't do compute-only statements yet,
-// we use the counter as a constant to determine how many prints happen.
-// For the test: counter=3 → 3 "iter" prints before break, then "done".
-#[warp_macro::warp_async]
-unsafe fn warp_cfg_loop_test(buf: *mut u8, counter: u64) -> bool {
+/// If/else branching with PRINT hostcalls via standard async fn.
+///
+/// `flag` parameter controls branching: flag != 0 -> then, flag == 0 -> else.
+async unsafe fn warp_cfg_if_else_test_async(buf: *mut u8, flag: u64) -> bool {
+    if flag != 0 {
+        GpuPrintFuture::new(buf, b"branch: then").await;
+    } else {
+        GpuPrintFuture::new(buf, b"branch: else").await;
+    }
+    GpuPrintFuture::new(buf, b"branch: done").await;
+    true
+}
+
+#[no_mangle]
+pub unsafe extern "gpu-kernel" fn warp_cfg_if_else_test(
+    buf: *mut u8,
+    flag: u64,
+    result: *mut u32,
+) {
+    gpu_runtime::panic::gpu_panic_init(buf);
+    if nvptx::_thread_idx_x() != 0 {
+        return;
+    }
+    match gpu_runtime::std_future::block_on(warp_cfg_if_else_test_async(buf, flag)) {
+        Some(true) => core::ptr::write_volatile(result, 1),
+        _ => core::ptr::write_volatile(result, 0),
+    }
+}
+
+// ============================================================
+// warp-cfg.3: Loop/break test (now standard async fn)
+// ============================================================
+
+/// Loop with break condition and PRINT hostcalls via standard async fn.
+///
+/// Prints "iter" once, then checks if counter == 0 to break.
+/// Since the loop condition is evaluated once (counter is immutable),
+/// counter=0 means: 1 "iter" print, then break, then "done".
+async unsafe fn warp_cfg_loop_test_async(buf: *mut u8, counter: u64) -> bool {
     loop {
-        warp_print!(buf, b"iter");
+        GpuPrintFuture::new(buf, b"iter").await;
         if counter == 0 {
             break;
         }
     }
-    warp_print!(buf, b"done");
+    GpuPrintFuture::new(buf, b"done").await;
+    true
+}
+
+#[no_mangle]
+pub unsafe extern "gpu-kernel" fn warp_cfg_loop_test(
+    buf: *mut u8,
+    counter: u64,
+    result: *mut u32,
+) {
+    gpu_runtime::panic::gpu_panic_init(buf);
+    if nvptx::_thread_idx_x() != 0 {
+        return;
+    }
+    match gpu_runtime::std_future::block_on(warp_cfg_loop_test_async(buf, counter)) {
+        Some(true) => core::ptr::write_volatile(result, 1),
+        _ => core::ptr::write_volatile(result, 0),
+    }
 }
 
 // ============================================================
-// warp-cfg.4: Match support in #[warp_async]
+// warp-cfg.4: Match support (now standard async fn)
 // ============================================================
-//
-// Test: match on a u64 command code, each arm prints a different message.
-// Uses 3 arms: 0 → "cmd: zero", 1 → "cmd: one", _ → "cmd: other".
-// Then prints "match: done" after the match.
-//
-// State machine (for cmd=0):
-//   0: MATCH_DECISION → broadcast(cmd) → arm 0,1,2 start states
-//   1: INIT print("cmd: zero")    → submit PRINT
-//   2: WAIT print("cmd: zero")    → goto 7 (join)
-//   3: INIT print("cmd: one")     → submit PRINT
-//   4: WAIT print("cmd: one")     → goto 7 (join)
-//   5: INIT print("cmd: other")   → submit PRINT
-//   6: WAIT print("cmd: other")   → goto 7 (join)
-//   7: INIT print("match: done")  → submit PRINT
-//   8: WAIT print("match: done")  → DONE
-//   9: DONE
-#[warp_macro::warp_async]
-unsafe fn warp_cfg_match_test(buf: *mut u8, cmd: u64) -> bool {
+
+/// Match on a u64 command code, each arm prints a different message.
+async unsafe fn warp_cfg_match_test_async(buf: *mut u8, cmd: u64) -> bool {
     match cmd {
         0 => {
-            warp_print!(buf, b"cmd: zero");
+            GpuPrintFuture::new(buf, b"cmd: zero").await;
         }
         1 => {
-            warp_print!(buf, b"cmd: one");
+            GpuPrintFuture::new(buf, b"cmd: one").await;
         }
         _ => {
-            warp_print!(buf, b"cmd: other");
+            GpuPrintFuture::new(buf, b"cmd: other").await;
         }
     }
-    warp_print!(buf, b"match: done");
+    GpuPrintFuture::new(buf, b"match: done").await;
+    true
+}
+
+#[no_mangle]
+pub unsafe extern "gpu-kernel" fn warp_cfg_match_test(
+    buf: *mut u8,
+    cmd: u64,
+    result: *mut u32,
+) {
+    gpu_runtime::panic::gpu_panic_init(buf);
+    if nvptx::_thread_idx_x() != 0 {
+        return;
+    }
+    match gpu_runtime::std_future::block_on(warp_cfg_match_test_async(buf, cmd)) {
+        Some(true) => core::ptr::write_volatile(result, 1),
+        _ => core::ptr::write_volatile(result, 0),
+    }
 }
 
 // ============================================================
-// warp-cfg.5: Nested control flow stress test
+// warp-cfg.5: Nested control flow stress test (now standard async fn)
 // ============================================================
-//
-// Test: if/else with match nested inside the then-branch.
-// Validates that nested control flow generates correct state machine.
-//
-// Parameters: flag (u64) selects if/else, cmd (u64) selects match arm within then.
-//
-// flag=1, cmd=0 → "then-cmd0" + "nested: done"
-// flag=1, cmd=1 → "then-cmd1" + "nested: done"
-// flag=1, cmd=99 → "then-other" + "nested: done"
-// flag=0, cmd=* → "else-path" + "nested: done"
-//
-// State machine (flag=1, cmd=0):
-//   0: IF_DECISION → broadcast(flag!=0) → 1 (then) or 9 (else)
-//   1: MATCH_DECISION → broadcast(match cmd) → 2, 4, or 6
-//   2: INIT print("then-cmd0")
-//   3: WAIT print("then-cmd0") → goto 8 (match-join)
-//   4: INIT print("then-cmd1")
-//   5: WAIT print("then-cmd1") → goto 8
-//   6: INIT print("then-other")
-//   7: WAIT print("then-other") → goto 8
-//   8: [match join → if join at 11]
-//   9: INIT print("else-path")
-//  10: WAIT print("else-path") → goto 11 (if join)
-//  11: INIT print("nested: done")
-//  12: WAIT print("nested: done") → DONE (13)
-//  13: DONE
-//
-// Note: match join (state 8) and if join (state 11) are the same because
-// the match is the only node in the then-branch — so match join IS the then
-// continuation, which is the if join point.
-#[warp_macro::warp_async]
-unsafe fn warp_cfg_nested_test(buf: *mut u8, flag: u64, cmd: u64) -> bool {
+
+/// If/else with match nested inside the then-branch.
+///
+/// flag=1, cmd=0 -> "then-cmd0" + "nested: done"
+/// flag=1, cmd=1 -> "then-cmd1" + "nested: done"
+/// flag=1, cmd=99 -> "then-other" + "nested: done"
+/// flag=0, cmd=* -> "else-path" + "nested: done"
+async unsafe fn warp_cfg_nested_test_async(buf: *mut u8, flag: u64, cmd: u64) -> bool {
     if flag != 0 {
         match cmd {
             0 => {
-                warp_print!(buf, b"then-cmd0");
+                GpuPrintFuture::new(buf, b"then-cmd0").await;
             }
             1 => {
-                warp_print!(buf, b"then-cmd1");
+                GpuPrintFuture::new(buf, b"then-cmd1").await;
             }
             _ => {
-                warp_print!(buf, b"then-other");
+                GpuPrintFuture::new(buf, b"then-other").await;
             }
         }
     } else {
-        warp_print!(buf, b"else-path");
+        GpuPrintFuture::new(buf, b"else-path").await;
     }
-    warp_print!(buf, b"nested: done");
+    GpuPrintFuture::new(buf, b"nested: done").await;
+    true
+}
+
+#[no_mangle]
+pub unsafe extern "gpu-kernel" fn warp_cfg_nested_test(
+    buf: *mut u8,
+    flag: u64,
+    cmd: u64,
+    result: *mut u32,
+) {
+    gpu_runtime::panic::gpu_panic_init(buf);
+    if nvptx::_thread_idx_x() != 0 {
+        return;
+    }
+    match gpu_runtime::std_future::block_on(warp_cfg_nested_test_async(buf, flag, cmd)) {
+        Some(true) => core::ptr::write_volatile(result, 1),
+        _ => core::ptr::write_volatile(result, 0),
+    }
 }
 
 // ============================================================
-// gpu-compute.2: Autonomous Multi-Step Compute Pipeline
+// gpu-compute.2: Autonomous Multi-Step Compute Pipeline (now standard async fn)
 // ============================================================
-//
-// Demonstrates GPU-driven multi-step compute without host orchestration.
-// The GPU autonomously decides the processing path using match + if/else,
-// performs file I/O and conditional logic based on hostcall results.
-//
-// This replaces what previously required 150+ lines of hand-written
-// state machine code (cf. BranchingPipelineFuture) with a concise
-// `#[warp_async]` function using full control flow.
-//
-// Mode 0: File write pipeline — create file, write data, close
-// Mode 1: File read + classify — open file, read, branch on result
-// Mode 2: Multi-step I/O — create file, write, re-open, verify, report
-//
-// State machine (auto-generated by proc macro):
-//   Match on `mode` → each arm is a distinct pipeline
-//   Sequential hostcalls within arms (open → write → close)
-//   Conditional branching on hostcall results (if n > 0)
 
-#[warp_macro::warp_async]
-unsafe fn autonomous_pipeline(buf: *mut u8, mode: u64) -> bool {
-    warp_print!(buf, b"auto: start");
+/// GPU-driven multi-step compute pipeline using standard async fn.
+///
+/// Mode 0: File write pipeline -- create file, write data, close
+/// Mode 1: File read + classify -- open file, read, branch on result
+/// Mode 2: Multi-step I/O -- create file, write, re-open, verify, report
+async unsafe fn autonomous_pipeline_async(buf: *mut u8, mode: u64) -> bool {
+    GpuPrintFuture::new(buf, b"auto: start").await;
 
     match mode {
         0 => {
             // Pipeline A: Create and write a file
-            let fd = warp_open!(buf, b"gpu_autonomous.txt", 1);
-            warp_write!(buf, fd, b"GPU-autonomous-output", 21);
-            warp_close!(buf, fd);
-            warp_print!(buf, b"auto: file-written");
+            let fd = match GpuOpenFuture::new(buf, b"gpu_autonomous.txt", 1).await {
+                Ok(fd) => fd,
+                Err(_) => return false,
+            };
+            let data = b"GPU-autonomous-output";
+            let _ = GpuWriteFuture::new(buf, fd, data).await;
+            let _ = GpuCloseFuture::new(buf, fd).await;
+            GpuPrintFuture::new(buf, b"auto: file-written").await;
         }
         1 => {
             // Pipeline B: Read file and classify by size
-            let rfd = warp_open!(buf, b"gpu_autonomous.txt", 0);
-            let n = warp_read!(buf, rfd, 56);
-            warp_close!(buf, rfd);
+            let rfd = match GpuOpenFuture::new(buf, b"gpu_autonomous.txt", 0).await {
+                Ok(fd) => fd,
+                Err(_) => return false,
+            };
+            let mut read_buf = [0u8; 56];
+            let n = match GpuReadFuture::new(buf, rfd, &mut read_buf).await {
+                Ok(n) => n,
+                Err(_) => 0,
+            };
+            let _ = GpuCloseFuture::new(buf, rfd).await;
             if n > 10 {
-                warp_print!(buf, b"auto: large-payload");
+                GpuPrintFuture::new(buf, b"auto: large-payload").await;
             } else {
-                warp_print!(buf, b"auto: small-payload");
+                GpuPrintFuture::new(buf, b"auto: small-payload").await;
             }
         }
         _ => {
-            // Pipeline C: End-to-end create → verify round-trip
-            let wfd2 = warp_open!(buf, b"gpu_roundtrip.txt", 1);
-            warp_write!(buf, wfd2, b"verify-me", 9);
-            warp_close!(buf, wfd2);
-            let rfd2 = warp_open!(buf, b"gpu_roundtrip.txt", 0);
-            let nb = warp_read!(buf, rfd2, 56);
-            warp_close!(buf, rfd2);
+            // Pipeline C: End-to-end create -> verify round-trip
+            let wfd2 = match GpuOpenFuture::new(buf, b"gpu_roundtrip.txt", 1).await {
+                Ok(fd) => fd,
+                Err(_) => return false,
+            };
+            let _ = GpuWriteFuture::new(buf, wfd2, b"verify-me").await;
+            let _ = GpuCloseFuture::new(buf, wfd2).await;
+            let rfd2 = match GpuOpenFuture::new(buf, b"gpu_roundtrip.txt", 0).await {
+                Ok(fd) => fd,
+                Err(_) => return false,
+            };
+            let mut read_buf = [0u8; 56];
+            let nb = match GpuReadFuture::new(buf, rfd2, &mut read_buf).await {
+                Ok(n) => n,
+                Err(_) => 0,
+            };
+            let _ = GpuCloseFuture::new(buf, rfd2).await;
             if nb > 0 {
-                warp_print!(buf, b"auto: roundtrip-ok");
+                GpuPrintFuture::new(buf, b"auto: roundtrip-ok").await;
             } else {
-                warp_print!(buf, b"auto: roundtrip-fail");
+                GpuPrintFuture::new(buf, b"auto: roundtrip-fail").await;
             }
         }
     }
 
-    warp_print!(buf, b"auto: done");
+    GpuPrintFuture::new(buf, b"auto: done").await;
+    true
 }
 
-// ============================================================
-// warp-async-v2.2: ? operator test
-// ============================================================
-//
-// Test the ? operator in #[warp_async] with Result<bool, u32> return type.
-// Opens a file with warp_open!, uses ? to propagate errors.
-// If the file open succeeds, prints a message and returns Ok(true).
-// If it fails, the ? operator causes all 32 lanes to return Err.
-//
-// State machine:
-//   0: INIT warp_open            → submit OPEN "/tmp/warp_try_test.txt"
-//   1: WAIT warp_open            → capture fd, goto 2
-//   2: TRY_DECISION              → if fd == NULL_INDEX → Err(0xFFFF), else → goto 3
-//   3: INIT warp_print           → submit PRINT "try: opened"
-//   4: WAIT warp_print           → DONE
-//   5: DONE
-#[warp_macro::warp_async]
-unsafe fn warp_try_open_test(buf: *mut u8) -> Result<bool, u32> {
-    let fd = warp_open!(buf, b"/tmp/warp_try_test.txt", 1)?;
-    warp_print!(buf, b"try: opened");
-}
-
-// ============================================================
-// warp-async-v2.3: .await test
-// ============================================================
-//
-// Test .await in #[warp_async] using standard GpuPrintFuture.
-// The macro:
-//   1. Infers the future type from GpuPrintFuture::new(...)
-//   2. Creates a MaybeUninit<GpuPrintFuture> struct field
-//   3. INIT state stores the future in the field
-//   4. POLL state calls warp_poll_future() for warp-cooperative polling
-//
-// State machine:
-//   0: AWAIT_INIT     → create GpuPrintFuture::new(buf, b"await: hello")
-//   1: AWAIT_POLL     → warp-cooperative poll via warp_poll_future()
-//   2: AWAIT_INIT     → create GpuPrintFuture::new(buf, b"await: done")
-//   3: AWAIT_POLL     → warp-cooperative poll
-//   4: DONE
-#[warp_macro::warp_async]
-unsafe fn warp_await_test(buf: *mut u8) -> bool {
-    let ok1 = gpu_runtime::std_future::GpuPrintFuture::new(buf, b"await: hello").await;
-    let ok2 = gpu_runtime::std_future::GpuPrintFuture::new(buf, b"await: done").await;
-}
-
-// ============================================================
-// warp-async-v2.4: End-to-end test
-// ============================================================
-//
-// Combines .await + warp_*!() + if/else in a single #[warp_async] function.
-// Tests that the proc macro correctly handles mixed CfgNode types.
-//
-// State machine:
-//   0: AWAIT_INIT     → create GpuPrintFuture::new(buf, b"e2e: start")
-//   1: AWAIT_POLL     → warp-cooperative poll, capture ok1
-//   2: DECISION       → branch on ok1
-//   3: AWAIT_INIT     → create GpuPrintFuture(b"e2e: ok")     (then branch)
-//   4: AWAIT_POLL     → poll
-//   5: AWAIT_INIT     → create GpuPrintFuture(b"e2e: fail")   (else branch)
-//   6: AWAIT_POLL     → poll
-//   7: INIT warp_print → submit "e2e: mixed"
-//   8: WAIT warp_print → capture result
-//   9: DONE
-#[warp_macro::warp_async]
-unsafe fn warp_e2e_test(buf: *mut u8) -> bool {
-    let ok1 = gpu_runtime::std_future::GpuPrintFuture::new(buf, b"e2e: start").await;
-    if ok1 > 0 {
-        let ok2 = gpu_runtime::std_future::GpuPrintFuture::new(buf, b"e2e: ok").await;
-    } else {
-        let ok3 = gpu_runtime::std_future::GpuPrintFuture::new(buf, b"e2e: fail").await;
+#[no_mangle]
+pub unsafe extern "gpu-kernel" fn autonomous_pipeline(
+    buf: *mut u8,
+    mode: u64,
+    result: *mut u32,
+) {
+    gpu_runtime::panic::gpu_panic_init(buf);
+    if nvptx::_thread_idx_x() != 0 {
+        return;
     }
-    warp_print!(buf, b"e2e: mixed");
+    match gpu_runtime::std_future::block_on(autonomous_pipeline_async(buf, mode)) {
+        Some(true) => core::ptr::write_volatile(result, 1),
+        _ => core::ptr::write_volatile(result, 0),
+    }
+}
+
+// ============================================================
+// warp-async-v2.2: ? operator test (now standard async fn)
+// ============================================================
+
+/// Opens a file with ?, prints on success, returns Result.
+///
+/// The original used `warp_open!(buf, path, mode)?` in #[warp_async].
+/// Now uses standard GpuOpenFuture + ? operator directly.
+async unsafe fn warp_try_open_test_async(buf: *mut u8) -> Result<bool, u32> {
+    let _fd = GpuOpenFuture::new(buf, b"/tmp/warp_try_test.txt", 1)
+        .await
+        .map_err(|_| 0xFFFFu32)?;
+    GpuPrintFuture::new(buf, b"try: opened").await;
+    Ok(true)
+}
+
+#[no_mangle]
+pub unsafe extern "gpu-kernel" fn warp_try_open_test(buf: *mut u8, result: *mut u32) {
+    gpu_runtime::panic::gpu_panic_init(buf);
+    if nvptx::_thread_idx_x() != 0 {
+        return;
+    }
+    match gpu_runtime::std_future::block_on(warp_try_open_test_async(buf)) {
+        Some(Ok(true)) => core::ptr::write_volatile(result, 1),
+        Some(Ok(false)) => core::ptr::write_volatile(result, 0),
+        Some(Err(e)) => core::ptr::write_volatile(result, 0x8000_0000u32 | e),
+        None => core::ptr::write_volatile(result, 0),
+    }
+}
+
+// ============================================================
+// warp-async-v2.3: .await test (now standard async fn)
+// ============================================================
+
+/// Two sequential GpuPrintFuture .await calls via standard async fn.
+async unsafe fn warp_await_test_async(buf: *mut u8) -> bool {
+    let _ok1 = GpuPrintFuture::new(buf, b"await: hello").await;
+    let _ok2 = GpuPrintFuture::new(buf, b"await: done").await;
+    true
+}
+
+#[no_mangle]
+pub unsafe extern "gpu-kernel" fn warp_await_test(buf: *mut u8, result: *mut u32) {
+    gpu_runtime::panic::gpu_panic_init(buf);
+    if nvptx::_thread_idx_x() != 0 {
+        return;
+    }
+    match gpu_runtime::std_future::block_on(warp_await_test_async(buf)) {
+        Some(true) => core::ptr::write_volatile(result, 1),
+        _ => core::ptr::write_volatile(result, 0),
+    }
+}
+
+// ============================================================
+// warp-async-v2.4: End-to-end test (now standard async fn)
+// ============================================================
+
+/// Combines .await + if/else in a single async fn.
+///
+/// Tests that standard async fn with branching on future results works.
+async unsafe fn warp_e2e_test_async(buf: *mut u8) -> bool {
+    let ok1 = GpuPrintFuture::new(buf, b"e2e: start").await;
+    if ok1 {
+        GpuPrintFuture::new(buf, b"e2e: ok").await;
+    } else {
+        GpuPrintFuture::new(buf, b"e2e: fail").await;
+    }
+    GpuPrintFuture::new(buf, b"e2e: mixed").await;
+    true
+}
+
+#[no_mangle]
+pub unsafe extern "gpu-kernel" fn warp_e2e_test(buf: *mut u8, result: *mut u32) {
+    gpu_runtime::panic::gpu_panic_init(buf);
+    if nvptx::_thread_idx_x() != 0 {
+        return;
+    }
+    match gpu_runtime::std_future::block_on(warp_e2e_test_async(buf)) {
+        Some(true) => core::ptr::write_volatile(result, 1),
+        _ => core::ptr::write_volatile(result, 0),
+    }
 }
 
 // ============================================================

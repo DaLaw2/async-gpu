@@ -27,13 +27,13 @@ for f in $PTX_STUBS; do
 done
 
 # --- fmt checks ---
-CRATES_FMT="async-gpu core/gpu-host core/gpu-protocol macro/warp-macro core/gpu-atomics core/gpu-runtime core/gpu-libc test/gpu-test-harness"
+CRATES_FMT="async-gpu core/gpu-host core/gpu-protocol core/gpu-atomics core/gpu-runtime core/gpu-libc test/gpu-test-harness"
 for c in $CRATES_FMT; do
     run "fmt $(basename $c)" "cargo +stable fmt --manifest-path crates/$c/Cargo.toml -- --check"
 done
 
 # --- clippy checks (stable-compatible crates only) ---
-CRATES_CLIPPY="async-gpu core/gpu-host core/gpu-protocol macro/warp-macro core/gpu-atomics core/gpu-runtime"
+CRATES_CLIPPY="async-gpu core/gpu-host core/gpu-protocol core/gpu-atomics core/gpu-runtime"
 for c in $CRATES_CLIPPY; do
     run "clippy $(basename $c)" "cargo +stable clippy --manifest-path crates/$c/Cargo.toml -- -D warnings"
 done
@@ -45,7 +45,7 @@ run "doc-tests gpu-protocol" "cargo +stable test --manifest-path crates/core/gpu
 run "doc async-gpu" "RUSTDOCFLAGS='-D missing_docs' cargo +stable doc --manifest-path crates/async-gpu/Cargo.toml --no-deps"
 run "doc gpu-host" "RUSTDOCFLAGS='-D missing_docs' cargo +stable doc --manifest-path crates/core/gpu-host/Cargo.toml --lib --no-default-features --no-deps"
 run "doc gpu-protocol" "RUSTDOCFLAGS='-D missing_docs' cargo +stable doc --manifest-path crates/core/gpu-protocol/Cargo.toml --no-deps"
-run "doc warp-macro" "RUSTDOCFLAGS='-D missing_docs' cargo +stable doc --manifest-path crates/macro/warp-macro/Cargo.toml --no-deps"
+# warp-macro removed (lib-cleanup.3) — its functionality replaced by standard async fn
 
 # --- cargo doc (no missing_docs) ---
 run "doc gpu-atomics" "cargo +stable doc --manifest-path crates/core/gpu-atomics/Cargo.toml --no-deps"

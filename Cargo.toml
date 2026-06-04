@@ -3,7 +3,6 @@ members = [
     "crates/async-gpu",
     "crates/core/gpu-host",
     "crates/core/gpu-protocol",
-    "crates/macro/warp-macro",
     "crates/test/gpu-test-harness",
 ]
 resolver = "2"

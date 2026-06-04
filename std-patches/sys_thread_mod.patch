@@ -1,0 +1,11 @@
+--- a/src/sys/thread/mod.rs	2026-06-04 08:51:24.112312903 +0800
++++ b/src/sys/thread/mod.rs	2026-06-04 08:51:24.114338748 +0800
+@@ -1,4 +1,8 @@
+ cfg_select! {
++    target_os = "cuda" => {
++        mod cuda;
++        pub use cuda::{Thread, available_parallelism, current_os_id, set_name, sleep, yield_now, DEFAULT_MIN_STACK_SIZE};
++    }
+     target_os = "hermit" => {
+         mod hermit;
+         pub use hermit::{Thread, available_parallelism, sleep, yield_now, DEFAULT_MIN_STACK_SIZE};

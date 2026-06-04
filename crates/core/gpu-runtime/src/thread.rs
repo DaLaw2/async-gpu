@@ -333,3 +333,61 @@ pub fn sleep_nanos(nanos: u32) {
         let _ = nanos;
     }
 }
+
+// ============================================================
+// C-FFI entry points for std patches
+// ============================================================
+// These functions are called from the patched std::sys::thread::cuda module
+// via `extern "C"`. They allow std::thread::spawn() to work on GPU without
+// std depending on gpu_runtime directly.
+
+/// Spawn a new warp thread. `trampoline` is a `fn(*mut u8)`, `data` is the
+/// argument pointer. Returns the warp ID (>0) or 0 if no warp available.
+#[unsafe(no_mangle)]
+pub extern "C" fn gpu_thread_spawn_raw(trampoline: u64, data: u64) -> u32 {
+    let n_warps = NUM_WARPS.load(Ordering::Acquire) as usize;
+    if n_warps <= 1 {
+        return 0;
+    }
+
+    // Find an idle warp
+    loop {
+        for i in 1..n_warps {
+            if WARP_STATUS[i].load(Ordering::Acquire) == STATUS_IDLE {
+                WARP_FN[i].store(trampoline, Ordering::Relaxed);
+                WARP_DATA[i].store(data, Ordering::Relaxed);
+                WARP_RESULT[i].store(0, Ordering::Relaxed);
+                WARP_STATUS[i].store(STATUS_ASSIGNED, Ordering::Release);
+                return i as u32;
+            }
+        }
+        nanosleep_short();
+    }
+}
+
+/// Wait for warp `warp_id` to finish. Blocks (spins) until done, then resets
+/// the slot to IDLE.
+#[unsafe(no_mangle)]
+pub extern "C" fn gpu_thread_join_warp(warp_id: u32) {
+    let wid = warp_id as usize;
+    loop {
+        if WARP_STATUS[wid].load(Ordering::Acquire) == STATUS_DONE {
+            break;
+        }
+        nanosleep_short();
+    }
+    WARP_STATUS[wid].store(STATUS_IDLE, Ordering::Release);
+}
+
+/// Return the number of available worker warps (total warps minus main warp).
+#[unsafe(no_mangle)]
+pub extern "C" fn gpu_thread_available_parallelism() -> u32 {
+    let n = NUM_WARPS.load(Ordering::Relaxed);
+    if n > 1 { n - 1 } else { 0 }
+}
+
+/// Return the current warp index (thread ID).
+#[unsafe(no_mangle)]
+pub extern "C" fn gpu_thread_current_id() -> u32 {
+    warp_id()
+}

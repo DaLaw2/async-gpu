@@ -478,7 +478,7 @@ id = "thread-spawn.1"
 theme = "thread-spawn"
 title = "Experiment: implement gpu_runtime::thread module — spawn, JoinHandle, gpu_main"
 kind = "experiment"
-status = "active"
+status = "done"
 depends = []
 
 [[tasks]]
@@ -486,7 +486,7 @@ id = "thread-spawn.2"
 theme = "thread-spawn"
 title = "Experiment: test kernel — spawn 2+ warps, join, println results"
 kind = "experiment"
-status = "pending"
+status = "active"
 depends = ["thread-spawn.1"]
 
 [[tasks]]

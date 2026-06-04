@@ -25,6 +25,7 @@ Baseline: `rustc 1.96.0-nightly (3b1b0ef4d 2026-03-11)`
 - `src/sys/net/connection/sgx.rs` → `std-patches/sys_net_connection_sgx.patch`
 - `src/sys/random/mod.rs` → `std-patches/sys_random_mod.patch`
 - `src/sys/stdio/mod.rs` → `std-patches/sys_stdio_mod.patch`
+- `src/sys/thread/mod.rs` → `std-patches/sys_thread_mod.patch`
 - `src/sys/thread_local/mod.rs` → `std-patches/sys_thread_local_mod.patch`
 
 ## New files
@@ -33,4 +34,5 @@ Baseline: `rustc 1.96.0-nightly (3b1b0ef4d 2026-03-11)`
 - `src/sys/fs/cuda.rs` → `std-patches/sys_fs_cuda.rs`
 - `src/sys/io/error/cuda.rs` → `std-patches/sys_io_error_cuda.rs`
 - `src/sys/stdio/cuda.rs` → `std-patches/sys_stdio_cuda.rs`
+- `src/sys/thread/cuda.rs` → `std-patches/sys_thread_cuda.rs`
 - `src/sys/thread_local/gpu_threads.rs` → `std-patches/sys_thread_local_gpu_threads.rs`

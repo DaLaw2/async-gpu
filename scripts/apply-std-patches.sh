@@ -53,6 +53,9 @@ patch -p1 --binary < "$PATCH_DIR/sys_random_mod.patch"
 echo "  [PATCH] src/sys/stdio/mod.rs"
 patch -p1 --binary < "$PATCH_DIR/sys_stdio_mod.patch"
 
+echo "  [PATCH] src/sys/thread/mod.rs"
+patch -p1 --binary < "$PATCH_DIR/sys_thread_mod.patch"
+
 echo "  [PATCH] src/sys/thread_local/mod.rs"
 patch -p1 --binary < "$PATCH_DIR/sys_thread_local_mod.patch"
 
@@ -71,6 +74,10 @@ cp "$PATCH_DIR/sys_io_error_cuda.rs" "src/sys/io/error/cuda.rs"
 echo "  [NEW]   src/sys/stdio/cuda.rs"
 mkdir -p "src/sys/stdio"
 cp "$PATCH_DIR/sys_stdio_cuda.rs" "src/sys/stdio/cuda.rs"
+
+echo "  [NEW]   src/sys/thread/cuda.rs"
+mkdir -p "src/sys/thread"
+cp "$PATCH_DIR/sys_thread_cuda.rs" "src/sys/thread/cuda.rs"
 
 echo "  [NEW]   src/sys/thread_local/gpu_threads.rs"
 mkdir -p "src/sys/thread_local"

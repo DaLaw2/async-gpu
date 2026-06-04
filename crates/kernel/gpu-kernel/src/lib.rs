@@ -22,10 +22,12 @@ mod compute_persistent;
 mod compute_physics;
 mod compute_gemm;
 mod compute_math;
+#[cfg(feature = "sm_80")]
 mod compute_mma;
 mod compute_search;
 mod compute_transformer;
 mod hostcall_kernels;
 mod hybrid;
 mod pipeline;
+mod thread_test;
 mod warp;

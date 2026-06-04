@@ -98,6 +98,24 @@ pub mod math;
 /// ```
 pub mod warp;
 
+/// GPU thread pool — `thread::spawn()` maps to warp execution.
+///
+/// Each GPU warp (32 SIMT lanes) acts as a single logical "thread".
+/// Warp 0 runs the user's main function; other warps park until work
+/// is assigned via `spawn()`.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use gpu_runtime::thread;
+///
+/// thread::gpu_main(|| {
+///     let h = thread::spawn(|| 42u32);
+///     assert_eq!(h.join(), 42);
+/// });
+/// ```
+pub mod thread;
+
 /// Block-level compute primitives — synchronization, shared memory, reductions.
 ///
 /// Functions require all threads in the block to participate (unless noted).

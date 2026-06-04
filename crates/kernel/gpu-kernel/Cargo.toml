@@ -5,6 +5,10 @@ name = "gpu-kernel"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = []
+sm_80 = []  # Enable sm_80+ features (MMA tensor cores, bf16, tf32)
+
 [lib]
 crate-type = ["cdylib"]
 

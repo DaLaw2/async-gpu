@@ -17,6 +17,7 @@ use core::arch::nvptx;
 ///
 /// Test uses all-1.0 matrices: every element of D should be 16.0
 /// (sum of 16 products of 1.0 x 1.0).
+#[cfg(feature = "sm_80")]
 #[no_mangle]
 pub unsafe extern "ptx-kernel" fn test_tiled_gemm(
     a_global: *const u32,
@@ -188,6 +189,7 @@ pub unsafe extern "ptx-kernel" fn test_softmax(
 /// Loops over K in tiles of 16, accumulating MMA results in f32 registers.
 /// A is row-major f16x2 packed [16][K/2] u32, B is row-major f16x2 packed [K][4] u32.
 /// D output is 16x8 f32 in thread-indexed layout (128 u32).
+#[cfg(feature = "sm_80")]
 #[no_mangle]
 pub unsafe extern "ptx-kernel" fn test_multi_tile_gemm(
     a_global: *const u32,
@@ -317,6 +319,7 @@ pub unsafe extern "ptx-kernel" fn test_multi_tile_gemm(
 ///
 /// This demonstrates GPU-autonomous multi-step compute: the host launches once,
 /// and the GPU executes the entire GEMM -> softmax pipeline without intervention.
+#[cfg(feature = "sm_80")]
 #[no_mangle]
 pub unsafe extern "ptx-kernel" fn test_gemm_softmax_pipeline(
     a_global: *const u32,
@@ -472,6 +475,7 @@ pub unsafe extern "ptx-kernel" fn test_gemm_softmax_pipeline(
 /// A is row-major f16x2 packed [32][K/2] u32.
 /// B is row-major f16x2 packed [K][8] u32 (N=16 -> 8 packed per row).
 /// D is row-major f32 [32][16].
+#[cfg(feature = "sm_80")]
 #[no_mangle]
 pub unsafe extern "ptx-kernel" fn multi_warp_gemm(
     a_global: *const u32,
@@ -618,6 +622,7 @@ pub unsafe extern "ptx-kernel" fn multi_warp_gemm(
 /// A is row-major f16x2 packed [M][K/2] u32.
 /// B is column-major f16x2 packed [N][K/2] u32.
 /// D is row-major f32 [M][N].
+#[cfg(feature = "sm_80")]
 #[no_mangle]
 pub unsafe extern "ptx-kernel" fn multi_block_gemm(
     a_global: *const u32,
@@ -768,6 +773,7 @@ pub unsafe extern "ptx-kernel" fn multi_block_gemm(
 /// A is row-major f16x2 packed [M][K/2] u32.
 /// B is column-major f16x2 packed [N][K/2] u32.
 /// D is row-major f32 [M][N].
+#[cfg(feature = "sm_80")]
 #[no_mangle]
 pub unsafe extern "ptx-kernel" fn full_gemm(
     a_global: *const u32,
@@ -920,6 +926,8 @@ pub unsafe extern "ptx-kernel" fn full_gemm(
 ///
 /// grid_dim = (M/32, N/16, 1), block_dim = (128, 1, 1).
 /// Shared memory: (256 + 128) * 4 = 1536 bytes (same as full_gemm).
+#[cfg(feature = "sm_80")]
+#[cfg(feature = "sm_80")]
 #[no_mangle]
 pub unsafe extern "ptx-kernel" fn full_gemm_f32in(
     a_global: *const f32,
@@ -1093,6 +1101,8 @@ pub unsafe extern "ptx-kernel" fn full_gemm_f32in(
 ///
 /// grid_dim = (M/32, N/16, 1), block_dim = (128, 1, 1).
 /// Shared memory: (256 + 128) * 4 = 1536 bytes.
+#[cfg(feature = "sm_80")]
+#[cfg(feature = "sm_80")]
 #[no_mangle]
 pub unsafe extern "ptx-kernel" fn full_gemm_bf16(
     a_global: *const f32,
@@ -1266,6 +1276,8 @@ pub unsafe extern "ptx-kernel" fn full_gemm_bf16(
 /// grid_dim = (M/32, N/16, 1), block_dim = (128, 1, 1).
 /// Shared memory: (256 + 128) * 4 = 1536 bytes (A[32][8] + B[16][8] f32).
 /// k_tiles = K / 8 (MMA k-dimension is 8 for TF32).
+#[cfg(feature = "sm_80")]
+#[cfg(feature = "sm_80")]
 #[no_mangle]
 pub unsafe extern "ptx-kernel" fn full_gemm_tf32(
     a_global: *const f32,
@@ -1420,6 +1432,8 @@ pub unsafe extern "ptx-kernel" fn full_gemm_tf32(
 /// shared_mem_bytes = (256 + 128) * 4 = 1536.
 ///
 /// z=0 writes directly (no atomic), z>0 uses atomicAdd to reduce contention.
+#[cfg(feature = "sm_80")]
+#[cfg(feature = "sm_80")]
 #[no_mangle]
 pub unsafe extern "ptx-kernel" fn full_gemm_splitk(
     a_global: *const f32,
@@ -2257,6 +2271,7 @@ unsafe fn gemm_v3_load_tile(
 ///   [352..383]: smem_b[0..31] (first 32 entries of b shared memory)
 ///
 /// grid_dim = (1, 1, 1), block_dim = (128, 1, 1), shared_mem = (256+128)*4
+#[cfg(feature = "sm_80")]
 #[no_mangle]
 pub unsafe extern "ptx-kernel" fn mma_diag(
     a_global: *const f32,

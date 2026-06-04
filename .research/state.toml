@@ -11,7 +11,7 @@ status = "running"     # ready | running | blocked | completed
 # Current cycle position within Think/Do
 current_mode = "do"
 current_step = "do.execute"
-current_task_id = "perf-fusion.1"
+current_task_id = "thread-spawn.1"
 
 # Sequence counters
 brainstorm_seq = 110
@@ -248,6 +248,50 @@ success_criteria = [
 # onnx-resnet-acc, onnx-mobilenet, dyn-control, graph-bfs, int4-integrate,
 # mc-finance, bench-kernels, bench-e2e, perf-gemm
 
+# --- T0: std-thread-gpu themes ---
+
+[[themes]]
+id = "thread-spawn"
+epic = "std-thread-gpu"
+title = "thread::spawn() maps to warp — core warp-as-thread protocol"
+status = "active"
+goal = "thread::spawn(closure) wakes a sleeping warp, returns JoinHandle"
+success_criteria = [
+    "gpu_main() wrapper dispatches warps: warp 0 runs main, others park",
+    "spawn() finds idle warp, passes boxed closure via global memory",
+    "JoinHandle::join() blocks until spawned warp completes",
+    "Test: spawn 2+ threads doing independent work, join results",
+]
+
+[[themes]]
+id = "thread-api"
+epic = "std-thread-gpu"
+title = "thread::current/sleep/yield/available_parallelism on GPU"
+status = "pending"
+goal = "Complete std::thread API surface for GPU"
+success_criteria = [
+    "thread::current() returns warp-based ThreadId",
+    "thread::sleep() maps to nanosleep PTX instruction",
+    "thread::yield_now() yields via nanosleep",
+    "thread::available_parallelism() returns available warps",
+]
+
+# --- T0: native-rust-dx themes ---
+
+[[themes]]
+id = "native-api"
+epic = "native-rust-dx"
+title = "gpu::run() one-liner launcher + clean examples"
+status = "pending"
+goal = "Host-side launch is one line, examples look like normal Rust"
+success_criteria = [
+    "gpu::run(kernel_fn) wraps PTX load + launch + sync",
+    "All examples/ rewritten to use gpu::run() style",
+    "A Rust dev can read examples without GPU knowledge",
+]
+
+# --- Parked ---
+
 [[themes]]
 id = "warp-batch-io"
 epic = "async-std"
@@ -426,6 +470,32 @@ success_criteria = [
 # Tasks (active/pending only — done → archive/)
 # ============================================================
 # Done tasks archived at workflow v2 migration (cycle 594)
+
+# --- T0: thread-spawn ---
+
+[[tasks]]
+id = "thread-spawn.1"
+theme = "thread-spawn"
+title = "Experiment: implement gpu_runtime::thread module — spawn, JoinHandle, gpu_main"
+kind = "experiment"
+status = "active"
+depends = []
+
+[[tasks]]
+id = "thread-spawn.2"
+theme = "thread-spawn"
+title = "Experiment: test kernel — spawn 2+ warps, join, println results"
+kind = "experiment"
+status = "pending"
+depends = ["thread-spawn.1"]
+
+[[tasks]]
+id = "thread-spawn.3"
+theme = "thread-spawn"
+title = "Experiment: wire thread module into std patches (std::thread::spawn on GPU)"
+kind = "experiment"
+status = "pending"
+depends = ["thread-spawn.2"]
 
 # --- warp-batch-io (parked) ---
 

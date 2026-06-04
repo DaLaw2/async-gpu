@@ -210,6 +210,10 @@ fn main() -> Result<()> {
                 tests_transformer::run_flash_attention_v3_bench(Arc::clone(&dev))?;
                 return Ok(());
             }
+            "thread_spawn" => {
+                run_thread_spawn_test(Arc::clone(&dev))?;
+                return Ok(());
+            }
             "cnn" => {
                 tests_cnn::run_batchnorm_silu_test(Arc::clone(&dev))?;
                 tests_cnn::run_cnn_ops_test(Arc::clone(&dev))?;
@@ -546,5 +550,85 @@ fn main() -> Result<()> {
     tests_pipeline::run_newton_sqrt_test(Arc::clone(&dev))?;
 
     println!("\nAll tests PASSED.");
+    Ok(())
+}
+
+/// Test thread::spawn on GPU — warp-as-thread model.
+fn run_thread_spawn_test(dev: Arc<CudaDevice>) -> Result<()> {
+    use cudarc::driver::{LaunchAsync, LaunchConfig};
+
+    println!("\n--- thread::spawn test (std-thread-gpu) ---");
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
+    match dev.load_ptx(
+        ptx,
+        "thread_test",
+        &["thread_spawn_test", "thread_reuse_test"],
+    ) {
+        Ok(_) => println!("  PTX loaded successfully"),
+        Err(e) => println!("  PTX load error: {e:?}"),
+    }
+
+    // --- Test 1: basic spawn + join ---
+    println!("  Test 1: spawn 2 threads, join results...");
+    let f = dev
+        .get_func("thread_test", "thread_spawn_test")
+        .ok_or(GpuHostError::KernelNotFound("thread_spawn_test"))?;
+
+    let mut result_dev: cudarc::driver::CudaSlice<u32> = dev.alloc_zeros::<u32>(4)?;
+
+    // 4 warps = 128 threads: warp 0 = main, warps 1-3 = workers
+    let config = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (128, 1, 1),
+        shared_mem_bytes: 0,
+    };
+    unsafe {
+        f.launch(config, (&mut result_dev,))?;
+    }
+    dev.synchronize()?;
+
+    let result: Vec<u32> = dev.dtoh_sync_copy(&result_dev)?;
+    println!("    result[0] (thread 1) = {} (expected 42)", result[0]);
+    println!("    result[1] (thread 2) = {} (expected 99)", result[1]);
+    println!(
+        "    result[2] (parallelism) = {} (expected 3)",
+        result[2]
+    );
+    println!("    result[3] (main tid) = {} (expected 0)", result[3]);
+
+    assert_eq!(result[0], 42, "thread 1 returned wrong value");
+    assert_eq!(result[1], 99, "thread 2 returned wrong value");
+    assert_eq!(result[2], 3, "wrong available_parallelism");
+    assert_eq!(result[3], 0, "main thread should be warp 0");
+
+    println!("  Test 1 — PASSED");
+
+    // --- Test 2: spawn + reuse (4 tasks on 3 warps) ---
+    println!("  Test 2: spawn 4 tasks with reuse...");
+    let f2 = dev
+        .get_func("thread_test", "thread_reuse_test")
+        .ok_or(GpuHostError::KernelNotFound("thread_reuse_test"))?;
+
+    let mut result2_dev: cudarc::driver::CudaSlice<u32> = dev.alloc_zeros::<u32>(5)?;
+    unsafe {
+        f2.launch(config, (&mut result2_dev,))?;
+    }
+    dev.synchronize()?;
+
+    let result2: Vec<u32> = dev.dtoh_sync_copy(&result2_dev)?;
+    println!(
+        "    tasks: [{}, {}, {}, {}] total={} (expected [10,20,30,40] total=100)",
+        result2[0], result2[1], result2[2], result2[3], result2[4]
+    );
+
+    assert_eq!(result2[0], 10, "task 0 wrong");
+    assert_eq!(result2[1], 20, "task 1 wrong");
+    assert_eq!(result2[2], 30, "task 2 wrong");
+    assert_eq!(result2[3], 40, "task 3 wrong");
+    assert_eq!(result2[4], 100, "total wrong");
+
+    println!("  Test 2 — PASSED");
+    println!("  thread::spawn test — ALL PASSED");
     Ok(())
 }

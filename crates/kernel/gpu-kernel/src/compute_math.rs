@@ -13,7 +13,7 @@ use crate::helpers::gpu_sqrtf;
 /// output[6] = cosine_sim([1,0], [0,1]) = 0.0
 /// output[7] = cosine_sim([1,0], [1,0]) = 1.0
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn f32_math_test(output: *mut f32) {
+pub unsafe extern "gpu-kernel" fn f32_math_test(output: *mut f32) {
     let tid = core::arch::nvptx::_thread_idx_x() as usize;
     if tid != 0 {
         return;

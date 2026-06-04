@@ -3,7 +3,7 @@
 
 #![no_main]
 #![feature(restricted_std)]
-#![feature(abi_ptx)]
+#![feature(abi_gpu_kernel)]
 #![feature(asm_experimental_arch)]
 
 use core::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
@@ -386,7 +386,7 @@ unsafe fn gpu_hostcall_stdin_raw(hc_buf: *mut u8, out_buf: *mut u8, max_len: u32
 }
 
 #[unsafe(no_mangle)]
-pub extern "ptx-kernel" fn std_hello_kernel(result: *mut u32) {
+pub extern "gpu-kernel" fn std_hello_kernel(result: *mut u32) {
     // Test that std types are available
     let v = vec![1u32, 2, 3, 4, 5];
     let sum: u32 = v.iter().sum();
@@ -401,7 +401,7 @@ pub extern "ptx-kernel" fn std_hello_kernel(result: *mut u32) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "ptx-kernel" fn std_format_kernel(result: *mut u32) {
+pub extern "gpu-kernel" fn std_format_kernel(result: *mut u32) {
     // Test format! macro (uses alloc + fmt)
     let formatted = format!("value = {}", 42u32);
     let len = formatted.len() as u32;
@@ -426,7 +426,7 @@ pub extern "ptx-kernel" fn std_format_kernel(result: *mut u32) {
 /// This forces the bump allocator to actually allocate because the Vec
 /// contents come from device memory at runtime.
 #[unsafe(no_mangle)]
-pub extern "ptx-kernel" fn std_dynamic_vec_kernel(
+pub extern "gpu-kernel" fn std_dynamic_vec_kernel(
     input: *const u32,
     input_len: u32,
     result: *mut u32,
@@ -453,7 +453,7 @@ pub extern "ptx-kernel" fn std_dynamic_vec_kernel(
 /// `value` = runtime u32 value to format
 /// `result` = output: length of formatted string
 #[unsafe(no_mangle)]
-pub extern "ptx-kernel" fn std_dynamic_format_kernel(
+pub extern "gpu-kernel" fn std_dynamic_format_kernel(
     value: u32,
     result: *mut u32,
 ) {
@@ -473,7 +473,7 @@ pub extern "ptx-kernel" fn std_dynamic_format_kernel(
 ///   [1] = sum of second Vec (odd indices)
 ///   [2] = total elements across both Vecs
 #[unsafe(no_mangle)]
-pub extern "ptx-kernel" fn std_dynamic_multi_vec_kernel(
+pub extern "gpu-kernel" fn std_dynamic_multi_vec_kernel(
     input: *const u32,
     input_len: u32,
     result: *mut u32,
@@ -509,7 +509,7 @@ pub extern "ptx-kernel" fn std_dynamic_multi_vec_kernel(
 /// `input_len` = number of elements
 /// `result` = output: sum of all elements
 #[unsafe(no_mangle)]
-pub extern "ptx-kernel" fn std_dynamic_vec_capacity_kernel(
+pub extern "gpu-kernel" fn std_dynamic_vec_capacity_kernel(
     input: *const u32,
     input_len: u32,
     result: *mut u32,
@@ -539,7 +539,7 @@ pub extern "ptx-kernel" fn std_dynamic_vec_capacity_kernel(
 /// `value` = runtime u32 value to format and print
 /// `result` = output: 1 on success, 0 on failure
 #[unsafe(no_mangle)]
-pub extern "ptx-kernel" fn std_println_kernel(
+pub extern "gpu-kernel" fn std_println_kernel(
     buf: *mut u8,
     value: u32,
     result: *mut u32,
@@ -565,7 +565,7 @@ pub extern "ptx-kernel" fn std_println_kernel(
 /// `input_len` = number of elements to print
 /// `result` = output: number of successful writes
 #[unsafe(no_mangle)]
-pub extern "ptx-kernel" fn std_println_multi_kernel(
+pub extern "gpu-kernel" fn std_println_multi_kernel(
     buf: *mut u8,
     input: *const u32,
     input_len: u32,
@@ -597,7 +597,7 @@ pub extern "ptx-kernel" fn std_println_multi_kernel(
 /// `input_len` = number of elements
 /// `result` = output: 1 on success
 #[unsafe(no_mangle)]
-pub extern "ptx-kernel" fn std_println_vec_kernel(
+pub extern "gpu-kernel" fn std_println_vec_kernel(
     buf: *mut u8,
     input: *const u32,
     input_len: u32,
@@ -643,7 +643,7 @@ pub extern "ptx-kernel" fn std_println_vec_kernel(
 ///   [1] = bytes read
 ///   [2] = first byte of data read (for verification)
 #[unsafe(no_mangle)]
-pub extern "ptx-kernel" fn std_stdin_kernel(
+pub extern "gpu-kernel" fn std_stdin_kernel(
     buf: *mut u8,
     result: *mut u32,
 ) {
@@ -677,7 +677,7 @@ pub extern "ptx-kernel" fn std_stdin_kernel(
 ///   [0] = 1 on success
 ///   [1] = bytes read from stdin
 #[unsafe(no_mangle)]
-pub extern "ptx-kernel" fn std_stdin_echo_kernel(
+pub extern "gpu-kernel" fn std_stdin_echo_kernel(
     buf: *mut u8,
     result: *mut u32,
 ) {
@@ -726,7 +726,7 @@ pub extern "ptx-kernel" fn std_stdin_echo_kernel(
 ///   [0] = 1 on success
 ///   [1] = number of stdout messages written
 #[unsafe(no_mangle)]
-pub extern "ptx-kernel" fn showcase_kernel(
+pub extern "gpu-kernel" fn showcase_kernel(
     buf: *mut u8,
     input: *const u32,
     input_len: u32,
@@ -825,7 +825,7 @@ pub extern "ptx-kernel" fn showcase_kernel(
 /// result[0] = 1 on success
 /// result[1] = number of println! calls completed
 #[unsafe(no_mangle)]
-pub extern "ptx-kernel" fn println_direct_test_kernel(
+pub extern "gpu-kernel" fn println_direct_test_kernel(
     buf: *mut u8,
     input_val: u32,
     result: *mut u32,
@@ -866,7 +866,7 @@ pub extern "ptx-kernel" fn println_direct_test_kernel(
 /// result[0] = 1 on success
 /// result[1] = number of successful alloc/dealloc cycles
 #[unsafe(no_mangle)]
-pub extern "ptx-kernel" fn slab_dealloc_test_kernel(
+pub extern "gpu-kernel" fn slab_dealloc_test_kernel(
     _buf: *mut u8,
     result: *mut u32,
 ) {
@@ -918,7 +918,7 @@ pub extern "ptx-kernel" fn slab_dealloc_test_kernel(
 /// result[0] = number of threads that completed all cycles successfully
 /// result[1] = total successful cycles across all threads
 #[unsafe(no_mangle)]
-pub extern "ptx-kernel" fn slab_concurrent_test_kernel(
+pub extern "gpu-kernel" fn slab_concurrent_test_kernel(
     _buf: *mut u8,
     result: *mut u32,
 ) {
@@ -972,7 +972,7 @@ pub extern "ptx-kernel" fn slab_concurrent_test_kernel(
 ///   [0] = 1 on success, error code on failure
 ///   [1] = bytes written
 #[unsafe(no_mangle)]
-pub extern "ptx-kernel" fn std_file_write_kernel(
+pub extern "gpu-kernel" fn std_file_write_kernel(
     buf: *mut u8,
     result: *mut u32,
 ) {
@@ -1013,7 +1013,7 @@ pub extern "ptx-kernel" fn std_file_write_kernel(
 ///   [1] = bytes read
 ///   [2] = first byte of data
 #[unsafe(no_mangle)]
-pub extern "ptx-kernel" fn std_file_read_kernel(
+pub extern "gpu-kernel" fn std_file_read_kernel(
     buf: *mut u8,
     result: *mut u32,
 ) {

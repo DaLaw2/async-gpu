@@ -8,7 +8,7 @@
 //! - pipeline_kernel: 4-step sequential async pipeline
 
 #![no_std]
-#![feature(abi_ptx)]
+#![feature(abi_gpu_kernel)]
 #![feature(asm_experimental_arch)]
 
 use core::future::Future;
@@ -224,7 +224,7 @@ static PIPELINE_TASK: TaskStorage<PipelineFuture> = TaskStorage::new();
 ///   [0] = poll rounds executed
 ///   [1] = 1 on success (host verifies 4 messages received)
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn pipeline_kernel(buf: *mut u8, result: *mut u32) {
+pub unsafe extern "gpu-kernel" fn pipeline_kernel(buf: *mut u8, result: *mut u32) {
     let global_idx: u32;
     core::arch::asm!(
         "mov.u32 {idx}, %tid.x;",

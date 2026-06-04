@@ -6,7 +6,7 @@
 // 3. format! macro works (core::fmt is no_std compatible)
 
 #![no_std]
-#![feature(abi_ptx)]
+#![feature(abi_gpu_kernel)]
 
 extern crate alloc;
 extern crate gpu_libc;
@@ -55,7 +55,7 @@ static ALLOCATOR: GpuAllocator = GpuAllocator;
 
 /// Initialize the GPU heap, then test Vec allocation.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn test_alloc_vec(heap: *mut u8, heap_size: u64, output: *mut u32) {
+pub unsafe extern "gpu-kernel" fn test_alloc_vec(heap: *mut u8, heap_size: u64, output: *mut u32) {
     // Initialize bump allocator
     gpu_libc::gpu_heap_init(heap, heap_size as usize);
 
@@ -66,7 +66,7 @@ pub unsafe extern "ptx-kernel" fn test_alloc_vec(heap: *mut u8, heap_size: u64, 
 
 /// Test format! macro with GPU heap.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn test_format(heap: *mut u8, heap_size: u64, output: *mut u32) {
+pub unsafe extern "gpu-kernel" fn test_format(heap: *mut u8, heap_size: u64, output: *mut u32) {
     gpu_libc::gpu_heap_init(heap, heap_size as usize);
 
     let s = format!("value = {}", 42u32);
@@ -75,7 +75,7 @@ pub unsafe extern "ptx-kernel" fn test_format(heap: *mut u8, heap_size: u64, out
 
 /// Test String operations.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn test_string(heap: *mut u8, heap_size: u64, output: *mut u32) {
+pub unsafe extern "gpu-kernel" fn test_string(heap: *mut u8, heap_size: u64, output: *mut u32) {
     gpu_libc::gpu_heap_init(heap, heap_size as usize);
 
     let mut s = String::from("Hello");
@@ -85,7 +85,7 @@ pub unsafe extern "ptx-kernel" fn test_string(heap: *mut u8, heap_size: u64, out
 
 /// Test calling gpu-libc's write stub (should return -1/ENOSYS).
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn test_write_stub(output: *mut i64) {
+pub unsafe extern "gpu-kernel" fn test_write_stub(output: *mut i64) {
     let msg = b"test\0";
     let result = gpu_libc::write(1, msg.as_ptr() as *const core::ffi::c_void, 4);
     *output = result as i64;

@@ -10,7 +10,7 @@
 //! - async_hostcall_two_kernel: two concurrent async prints (true async concurrency)
 
 #![no_std]
-#![feature(abi_ptx)]
+#![feature(abi_gpu_kernel)]
 #![feature(asm_experimental_arch)]
 
 use core::future::Future;
@@ -360,7 +360,7 @@ static SINGLE_TASK: TaskStorage<HostcallPrintFuture> = TaskStorage::new();
 /// `buf` = hostcall buffer (mapped memory)
 /// `result` = output array of u32[2]
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn async_hostcall_single_kernel(buf: *mut u8, result: *mut u32) {
+pub unsafe extern "gpu-kernel" fn async_hostcall_single_kernel(buf: *mut u8, result: *mut u32) {
     // Only thread 0 executes.
     let global_idx: u32;
     core::arch::asm!(
@@ -430,7 +430,7 @@ static TASK_B: TaskStorage<HostcallPrintFutureB> = TaskStorage::new();
 ///   [0] = poll rounds executed
 ///   [1] = 1 on success
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn async_hostcall_two_kernel(buf: *mut u8, result: *mut u32) {
+pub unsafe extern "gpu-kernel" fn async_hostcall_two_kernel(buf: *mut u8, result: *mut u32) {
     // Only thread 0 executes.
     let global_idx: u32;
     core::arch::asm!(
@@ -507,7 +507,7 @@ static JOIN_TASK: TaskStorage<JoinFuture> = TaskStorage::new();
 ///   [0] = poll rounds executed
 ///   [1] = 1 on success
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn futures_join_kernel(buf: *mut u8, result: *mut u32) {
+pub unsafe extern "gpu-kernel" fn futures_join_kernel(buf: *mut u8, result: *mut u32) {
     // Only thread 0 executes.
     let global_idx: u32;
     core::arch::asm!(
@@ -594,7 +594,7 @@ static MULTI_TASKS: [TaskStorage<HostcallPrintFuture>; MULTI_BLOCK_ASYNC_THREADS
 ///   [0] = number of threads that completed successfully
 ///   [1..N] = per-thread poll rounds
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn multi_block_async_kernel(buf: *mut u8, result: *mut u32) {
+pub unsafe extern "gpu-kernel" fn multi_block_async_kernel(buf: *mut u8, result: *mut u32) {
     let tid: u32;
     core::arch::asm!("mov.u32 {idx}, %tid.x;", idx = out(reg32) tid, options(nostack, readonly));
     let bid: u32;
@@ -693,7 +693,7 @@ static WARP_TASKS: [TaskStorage<HostcallPrintFuture>; WARP_SCALE_THREADS] = repe
 ///   [0] = number of threads that completed successfully
 ///   [1..32] = per-thread poll rounds
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn warp_scale_async_kernel(buf: *mut u8, result: *mut u32) {
+pub unsafe extern "gpu-kernel" fn warp_scale_async_kernel(buf: *mut u8, result: *mut u32) {
     let tid: u32;
     core::arch::asm!("mov.u32 {idx}, %tid.x;", idx = out(reg32) tid, options(nostack, readonly));
 

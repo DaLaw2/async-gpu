@@ -11,7 +11,7 @@
 //! hostcall packet pool under varying levels of contention.
 
 #![no_std]
-#![feature(abi_ptx)]
+#![feature(abi_gpu_kernel)]
 #![feature(asm_experimental_arch)]
 
 use core::panic::PanicInfo;
@@ -165,7 +165,7 @@ unsafe fn hostcall_print_sync(buf: *mut u8, msg: &[u8]) -> bool {
 /// `buf` = hostcall buffer (mapped memory, must have >= 64 packets)
 /// `result` = output array of u32[2]
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn multi_warp_sync_kernel(buf: *mut u8, result: *mut u32) {
+pub unsafe extern "gpu-kernel" fn multi_warp_sync_kernel(buf: *mut u8, result: *mut u32) {
     // Get thread ID within the block.
     let tid: u32;
     core::arch::asm!(
@@ -208,7 +208,7 @@ pub unsafe extern "ptx-kernel" fn multi_warp_sync_kernel(buf: *mut u8, result: *
 /// `buf` = hostcall buffer (mapped memory)
 /// `result` = output array of u32[2]
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn multi_block_sync_kernel(buf: *mut u8, result: *mut u32) {
+pub unsafe extern "gpu-kernel" fn multi_block_sync_kernel(buf: *mut u8, result: *mut u32) {
     // Get thread ID within the block.
     let tid: u32;
     core::arch::asm!(

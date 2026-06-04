@@ -13,7 +13,7 @@
 //! - sync_countdown_kernel: synchronous equivalent for register comparison
 
 #![no_std]
-#![feature(abi_ptx)]
+#![feature(abi_gpu_kernel)]
 
 use core::future::Future;
 use core::mem::MaybeUninit;
@@ -79,7 +79,7 @@ static TASK: TaskStorage<ImmediateFuture> = TaskStorage::new();
 ///
 /// Writes 1 to `result` on success.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn embassy_test_kernel(result: *mut u32) {
+pub unsafe extern "gpu-kernel" fn embassy_test_kernel(result: *mut u32) {
     // Initialize the executor in the static storage.
     let storage_ptr = &EXECUTOR_STORAGE.inner as *const MaybeUninit<Executor> as *mut MaybeUninit<Executor>;
     (*storage_ptr).write(Executor::new(core::ptr::null_mut()));
@@ -135,7 +135,7 @@ static COUNTDOWN_TASK: TaskStorage<CountdownFuture> = TaskStorage::new();
 /// The executor must poll 6 times total (5 Pending + 1 Ready).
 /// Writes the number of poll rounds to result[0], and 1 to result[1] on success.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn embassy_countdown_kernel(result: *mut u32) {
+pub unsafe extern "gpu-kernel" fn embassy_countdown_kernel(result: *mut u32) {
     let storage_ptr = &EXECUTOR_STORAGE_2.inner as *const MaybeUninit<Executor> as *mut MaybeUninit<Executor>;
     (*storage_ptr).write(Executor::new(core::ptr::null_mut()));
     let executor: &'static Executor = (*storage_ptr).assume_init_ref();
@@ -231,7 +231,7 @@ static TASK_B: TaskStorage<CountdownFutureB> = TaskStorage::new();
 /// result[0] = poll rounds executed
 /// result[1] = 1 if both tasks completed (success marker)
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn embassy_two_task_kernel(result: *mut u32) {
+pub unsafe extern "gpu-kernel" fn embassy_two_task_kernel(result: *mut u32) {
     let storage_ptr = &EXECUTOR_STORAGE_3.inner as *const MaybeUninit<Executor> as *mut MaybeUninit<Executor>;
     (*storage_ptr).write(Executor::new(core::ptr::null_mut()));
     let executor: &'static Executor = (*storage_ptr).assume_init_ref();
@@ -281,7 +281,7 @@ pub unsafe extern "ptx-kernel" fn embassy_two_task_kernel(result: *mut u32) {
 /// This provides a baseline for register usage comparison.
 /// Uses volatile reads to prevent the compiler from optimizing away the loop.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn sync_countdown_kernel(result: *mut u32) {
+pub unsafe extern "gpu-kernel" fn sync_countdown_kernel(result: *mut u32) {
     let mut remaining: u32 = 5;
     loop {
         let current = core::ptr::read_volatile(&remaining);

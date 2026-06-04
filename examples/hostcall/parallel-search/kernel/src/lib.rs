@@ -9,7 +9,7 @@
 //! This is the first example that uses ALL 32 lanes for compute.
 
 #![no_std]
-#![feature(abi_ptx)]
+#![feature(abi_gpu_kernel)]
 #![feature(asm_experimental_arch)]
 
 use gpu_runtime::prelude::*;
@@ -29,7 +29,7 @@ const MAX_DATA: usize = 4096;
 /// The search phase uses all 32 lanes — each lane searches 1/32 of the data.
 /// Results are gathered via `shfl.sync.idx` and summed by lane 0.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn parallel_search(
+pub unsafe extern "gpu-kernel" fn parallel_search(
     buf: *mut u8,
     sideband: *mut u8,
     pattern: *const u8,

@@ -1,5 +1,5 @@
 #![no_std]
-#![feature(abi_ptx)]
+#![feature(abi_gpu_kernel)]
 #![feature(asm_experimental_arch)]
 #![feature(register_attr)]
 #![register_attr(warp_cooperative)]
@@ -166,7 +166,7 @@ pub async fn async_pipeline(tid: u32) -> u32 {
 // ---------------------------------------------------------------------------
 
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn test_async_pipeline(output: *mut u32) {
+pub unsafe extern "gpu-kernel" fn test_async_pipeline(output: *mut u32) {
     let tid: u32;
     core::arch::asm!("mov.u32 {}, %tid.x;", out(reg32) tid);
 
@@ -196,7 +196,7 @@ pub unsafe extern "ptx-kernel" fn test_async_pipeline(output: *mut u32) {
 // ---------------------------------------------------------------------------
 
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn test_simple_warp(output: *mut u32) {
+pub unsafe extern "gpu-kernel" fn test_simple_warp(output: *mut u32) {
     let tid: u32;
     core::arch::asm!("mov.u32 {}, %tid.x;", out(reg32) tid);
 
@@ -219,7 +219,7 @@ pub unsafe extern "ptx-kernel" fn test_simple_warp(output: *mut u32) {
 // ---------------------------------------------------------------------------
 
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn test_multi_await(output: *mut u32) {
+pub unsafe extern "gpu-kernel" fn test_multi_await(output: *mut u32) {
     let tid: u32;
     core::arch::asm!("mov.u32 {}, %tid.x;", out(reg32) tid);
 

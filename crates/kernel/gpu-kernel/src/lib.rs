@@ -1,6 +1,5 @@
 #![no_std]
-#![feature(abi_ptx)]
-#![cfg_attr(feature = "gpu_kernel_abi", feature(abi_gpu_kernel))]
+#![feature(abi_gpu_kernel)]
 #![feature(stdarch_nvptx)]
 #![feature(asm_experimental_arch)]
 

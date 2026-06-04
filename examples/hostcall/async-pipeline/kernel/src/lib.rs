@@ -9,7 +9,7 @@
 //! barriers (`bar.warp.sync`), allowing other warps to run during I/O wait.
 
 #![no_std]
-#![feature(abi_ptx)]
+#![feature(abi_gpu_kernel)]
 #![feature(asm_experimental_arch)]
 #![feature(register_tool)]
 #![register_tool(warp_cooperative)]
@@ -100,7 +100,7 @@ pub async fn data_pipeline(buf: *mut u8) -> u32 {
 /// Currently single-thread because each hostcall Future allocates from a
 /// shared packet pool — multi-lane requires warp-batched hostcall (future work).
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn async_data_pipeline(buf: *mut u8, output: *mut u32) {
+pub unsafe extern "gpu-kernel" fn async_data_pipeline(buf: *mut u8, output: *mut u32) {
     let tid: u32;
     core::arch::asm!("mov.u32 {}, %tid.x;", out(reg32) tid);
     if tid != 0 {
@@ -186,7 +186,7 @@ pub async fn bulk_data_pipeline(buf: *mut u8, sideband: *mut u8) -> u32 {
 
 /// Entry point for async bulk I/O pipeline.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn async_bulk_pipeline(
+pub unsafe extern "gpu-kernel" fn async_bulk_pipeline(
     buf: *mut u8,
     sideband: *mut u8,
     output: *mut u32,

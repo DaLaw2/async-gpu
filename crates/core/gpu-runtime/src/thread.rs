@@ -11,7 +11,7 @@
 //!
 //! // Kernel entry: gpu_main dispatches warps
 //! #[no_mangle]
-//! pub unsafe extern "ptx-kernel" fn my_kernel(buf: *mut u8) {
+//! pub unsafe extern "gpu-kernel" fn my_kernel(buf: *mut u8) {
 //!     thread::gpu_main(|| {
 //!         let h1 = thread::spawn(|| 42u32);
 //!         let h2 = thread::spawn(|| 99u32);

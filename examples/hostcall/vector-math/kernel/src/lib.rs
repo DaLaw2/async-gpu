@@ -6,7 +6,7 @@
 //! 3. `softmax_inplace` — numerically stable softmax (host-assisted max/sum)
 
 #![no_std]
-#![feature(abi_ptx)]
+#![feature(abi_gpu_kernel)]
 #![feature(stdarch_nvptx)]
 #![feature(asm_experimental_arch)]
 
@@ -25,7 +25,7 @@ fn panic(_info: &core::panic::PanicInfo) -> ! {
 // ================================================================
 
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn saxpy(x: *const f32, y: *mut f32, a: f32, n: u32) {
+pub unsafe extern "gpu-kernel" fn saxpy(x: *const f32, y: *mut f32, a: f32, n: u32) {
     let idx = nvptx::_block_idx_x() as u32 * nvptx::_block_dim_x() as u32
         + nvptx::_thread_idx_x() as u32;
     if idx < n {
@@ -43,7 +43,7 @@ pub unsafe extern "ptx-kernel" fn saxpy(x: *const f32, y: *mut f32, a: f32, n: u
 /// This is the first step of a dot product: GPU does element-wise,
 /// host sums the result (demonstrating CPU-GPU cooperation).
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn elementwise_mul(
+pub unsafe extern "gpu-kernel" fn elementwise_mul(
     x: *const f32,
     y: *const f32,
     out: *mut f32,
@@ -63,7 +63,7 @@ pub unsafe extern "ptx-kernel" fn elementwise_mul(
 /// Computes out[i] = exp(input[i] - max_val) for each element.
 /// The host provides the pre-computed max_val for numerical stability.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn softmax_exp(
+pub unsafe extern "gpu-kernel" fn softmax_exp(
     input: *const f32,
     output: *mut f32,
     max_val: f32,
@@ -83,7 +83,7 @@ pub unsafe extern "ptx-kernel" fn softmax_exp(
 
 /// Computes output[i] = input[i] / sum for each element.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn softmax_normalize(
+pub unsafe extern "gpu-kernel" fn softmax_normalize(
     data: *mut f32,
     sum: f32,
     n: u32,

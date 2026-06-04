@@ -14,7 +14,7 @@ use core::arch::nvptx;
 /// Same tiling as gemm_f32: 32×16 output tile, 128 threads, 16-wide K tiles.
 /// Grid: (M_pad/32, N_pad/16, 1), Block: (128, 1, 1), Shared: (32*16 + 16*16)*4 bytes.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn gemm_bias_gelu(
+pub unsafe extern "gpu-kernel" fn gemm_bias_gelu(
     a_global: *const f32,
     b_global: *const f32,
     bias: *const f32,
@@ -157,7 +157,7 @@ pub unsafe extern "ptx-kernel" fn gemm_bias_gelu(
 ///
 /// Same structure as gemm_bias_gelu but with max(0, x) activation.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn gemm_bias_relu(
+pub unsafe extern "gpu-kernel" fn gemm_bias_relu(
     a_global: *const f32,
     b_global: *const f32,
     bias: *const f32,

@@ -11,7 +11,7 @@
 //! ```rust
 //! use gpu_runtime::thread;
 //!
-//! pub unsafe extern "ptx-kernel" fn thread_spawn_test(result: *mut u32) {
+//! pub unsafe extern "gpu-kernel" fn thread_spawn_test(result: *mut u32) {
 //!     thread::gpu_main(|| {
 //!         let h1 = thread::spawn(|| 42u32);
 //!         let h2 = thread::spawn(|| 99u32);

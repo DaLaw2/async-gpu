@@ -42,7 +42,7 @@ unsafe fn warp_reduce_sum_f32(mut val: f32) -> f32 {
 /// Input/output: f32 [num_rows][d_model].
 /// gamma, beta: f32 [d_model].
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn layer_norm(
+pub unsafe extern "gpu-kernel" fn layer_norm(
     input: *const f32,
     output: *mut f32,
     gamma: *const f32,
@@ -126,7 +126,7 @@ pub unsafe extern "ptx-kernel" fn layer_norm(
 /// Phase 1: Single-pass mean+M2 via Welford, then warp+block reduction in smem.
 /// Phase 2: Normalize + affine in single pass.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn layer_norm_v2(
+pub unsafe extern "gpu-kernel" fn layer_norm_v2(
     input: *const f32,
     output: *mut f32,
     gamma: *const f32,
@@ -226,7 +226,7 @@ pub unsafe extern "ptx-kernel" fn layer_norm_v2(
 /// grid_dim = (ceil(n/256), 1, 1), block_dim = (256, 1, 1).
 /// Each thread processes one element.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn gelu_forward(
+pub unsafe extern "gpu-kernel" fn gelu_forward(
     input: *const f32,
     output: *mut f32,
     n: u32,
@@ -289,7 +289,7 @@ pub unsafe extern "ptx-kernel" fn gelu_forward(
 /// Constraint: seq_len <= 32 (one thread per query position).
 /// causal_mask: 0 = no mask (bidirectional), 1 = causal (mask future positions).
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn attention_head(
+pub unsafe extern "gpu-kernel" fn attention_head(
     q_global: *const f32, // [n_heads][seq_len][d_head]
     k_global: *const f32, // [n_heads][seq_len][d_head]
     v_global: *const f32, // [n_heads][seq_len][d_head]
@@ -427,7 +427,7 @@ pub unsafe extern "ptx-kernel" fn attention_head(
 /// block_dim = (32, 1, 1)  — one warp
 /// Shared memory: k_tile[32][64] + v_tile[32][64] = 16384 bytes
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn flash_attention(
+pub unsafe extern "gpu-kernel" fn flash_attention(
     q_global: *const f32,
     k_global: *const f32,
     v_global: *const f32,
@@ -667,7 +667,7 @@ pub unsafe extern "ptx-kernel" fn flash_attention(
 ///
 /// Key optimization: process 4 K-rows per inner iteration to improve ILP.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn flash_attention_v2(
+pub unsafe extern "gpu-kernel" fn flash_attention_v2(
     q_global: *const f32,
     k_global: *const f32,
     v_global: *const f32,
@@ -898,7 +898,7 @@ pub unsafe extern "ptx-kernel" fn flash_attention_v2(
 /// block_dim = (32, 1, 1)
 /// Shared memory: k_tile[32][64] + v_tile[32][64] = 16384 bytes
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn flash_attention_kv(
+pub unsafe extern "gpu-kernel" fn flash_attention_kv(
     q_global: *const f32,
     k_global: *const f32,
     v_global: *const f32,
@@ -1117,7 +1117,7 @@ pub unsafe extern "ptx-kernel" fn flash_attention_kv(
 ///
 /// grid_dim = (ceil(seq_len * d_model / 256), 1, 1), block_dim = (256, 1, 1)
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn embedding_lookup(
+pub unsafe extern "gpu-kernel" fn embedding_lookup(
     wte: *const f32,
     wpe: *const f32,
     token_ids: *const u32,
@@ -1168,7 +1168,7 @@ pub unsafe extern "ptx-kernel" fn embedding_lookup(
 ///
 /// grid_dim = (ceil(total/256), 1, 1), block_dim = (256, 1, 1).
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn bias_add(
+pub unsafe extern "gpu-kernel" fn bias_add(
     data: *mut f32,
     bias: *const f32,
     n_cols: u32,
@@ -1211,7 +1211,7 @@ pub unsafe extern "ptx-kernel" fn bias_add(
 ///
 /// grid_dim = (ceil(n/256), 1, 1), block_dim = (256, 1, 1).
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn elementwise_add(a: *mut f32, b: *const f32, n: u32) {
+pub unsafe extern "gpu-kernel" fn elementwise_add(a: *mut f32, b: *const f32, n: u32) {
     let tid = nvptx::_thread_idx_x() as u32;
 
     #[cfg(target_arch = "nvptx64")]
@@ -1238,7 +1238,7 @@ pub unsafe extern "ptx-kernel" fn elementwise_add(a: *mut f32, b: *const f32, n:
 /// grid_dim = (ceil(n/1024), 1, 1), block_dim = (256, 1, 1).
 /// Each thread handles 4 consecutive elements for better memory coalescing.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn elementwise_add_v2(
+pub unsafe extern "gpu-kernel" fn elementwise_add_v2(
     a: *mut f32,
     b: *const f32,
     n: u32,
@@ -1291,7 +1291,7 @@ pub unsafe extern "ptx-kernel" fn elementwise_add_v2(
 /// Uses the SiLU-like approximation instead of tanh formula.
 /// grid_dim = (ceil(n/1024), 1, 1), block_dim = (256, 1, 1).
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn gelu_forward_v2(
+pub unsafe extern "gpu-kernel" fn gelu_forward_v2(
     input: *const f32,
     output: *mut f32,
     n: u32,
@@ -1362,7 +1362,7 @@ pub unsafe extern "ptx-kernel" fn gelu_forward_v2(
 ///
 /// grid_dim = (ceil(n/1024), 1, 1), block_dim = (256, 1, 1).
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn elementwise_add_v3(
+pub unsafe extern "gpu-kernel" fn elementwise_add_v3(
     a: *mut f32,
     b: *const f32,
     n: u32,
@@ -1436,7 +1436,7 @@ pub unsafe extern "ptx-kernel" fn elementwise_add_v3(
 /// grid_dim = (ceil(total_out/256), 1, 1), block_dim = (256, 1, 1).
 /// total_out = n_heads * seq_len * d_head (per output tensor).
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn split_qkv(
+pub unsafe extern "gpu-kernel" fn split_qkv(
     input: *const f32, // [seq_len, 3*d_model]
     q_out: *mut f32,   // [n_heads, seq_len, d_head]
     k_out: *mut f32,   // [n_heads, seq_len, d_head]
@@ -1487,7 +1487,7 @@ pub unsafe extern "ptx-kernel" fn split_qkv(
 /// grid_dim = (ceil(total/256), 1, 1), block_dim = (256, 1, 1).
 /// total = seq_len * d_model.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn concat_heads(
+pub unsafe extern "gpu-kernel" fn concat_heads(
     input: *const f32, // [n_heads][seq_len][d_head]
     output: *mut f32,  // [seq_len][d_model]
     seq_len: u32,
@@ -1531,7 +1531,7 @@ pub unsafe extern "ptx-kernel" fn concat_heads(
 /// grid_dim = (ceil(total_pairs/256), 1, 1), block_dim = (256, 1, 1).
 /// total_pairs = M * K / 2.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn f32_to_f16x2_pack(
+pub unsafe extern "gpu-kernel" fn f32_to_f16x2_pack(
     input: *const f32,
     output: *mut u32,
     total_pairs: u32,
@@ -1593,7 +1593,7 @@ pub unsafe extern "ptx-kernel" fn f32_to_f16x2_pack(
 ///
 /// Launch with grid = (n_heads * d_head).div_ceil(256), block = 256.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn kv_cache_append(
+pub unsafe extern "gpu-kernel" fn kv_cache_append(
     src: *const f32,
     cache: *mut f32,
     n_heads: u32,
@@ -1623,7 +1623,7 @@ pub unsafe extern "ptx-kernel" fn kv_cache_append(
 
 /// total_elems: total buffer size.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn zero_pad(buffer: *mut f32, start_offset: u32, total_elems: u32) {
+pub unsafe extern "gpu-kernel" fn zero_pad(buffer: *mut f32, start_offset: u32, total_elems: u32) {
     #[cfg(target_arch = "nvptx64")]
     {
         let gid = nvptx::_block_idx_x() as u32 * 256 + nvptx::_thread_idx_x() as u32;
@@ -1646,7 +1646,7 @@ pub unsafe extern "ptx-kernel" fn zero_pad(buffer: *mut f32, start_offset: u32, 
 ///
 /// grid_dim = (ceil(n/256), 1, 1), block_dim = (256, 1, 1).
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn gelu_backward(
+pub unsafe extern "gpu-kernel" fn gelu_backward(
     d_output: *const f32,
     input: *const f32,
     d_input: *mut f32,
@@ -1703,7 +1703,7 @@ pub unsafe extern "ptx-kernel" fn gelu_backward(
 ///
 /// grid_dim = (ceil(n/256), 1, 1), block_dim = (256, 1, 1).
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn silu_backward(
+pub unsafe extern "gpu-kernel" fn silu_backward(
     d_output: *const f32,
     input: *const f32,
     d_input: *mut f32,
@@ -1745,7 +1745,7 @@ pub unsafe extern "ptx-kernel" fn silu_backward(
 ///
 /// grid_dim = (ceil(n/256), 1, 1), block_dim = (256, 1, 1).
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn sigmoid_backward(
+pub unsafe extern "gpu-kernel" fn sigmoid_backward(
     d_output: *const f32,
     input: *const f32,
     d_input: *mut f32,
@@ -1786,7 +1786,7 @@ pub unsafe extern "ptx-kernel" fn sigmoid_backward(
 ///
 /// grid_dim = (ceil(n/256), 1, 1), block_dim = (256, 1, 1).
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn relu_backward(
+pub unsafe extern "gpu-kernel" fn relu_backward(
     d_output: *const f32,
     input: *const f32,
     d_input: *mut f32,
@@ -1827,7 +1827,7 @@ pub unsafe extern "ptx-kernel" fn relu_backward(
 /// grid_dim = (ceil(n_cols/256), 1, 1), block_dim = (256, 1, 1).
 /// Simple serial sum per column (n_rows is small for typical training).
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn bias_add_backward(
+pub unsafe extern "gpu-kernel" fn bias_add_backward(
     d_output: *const f32,
     d_bias: *mut f32,
     n_cols: u32,
@@ -1877,7 +1877,7 @@ pub unsafe extern "ptx-kernel" fn bias_add_backward(
 ///
 /// grid_dim = (ceil(total/256), 1, 1), block_dim = (256, 1, 1)
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn matrix_transpose(
+pub unsafe extern "gpu-kernel" fn matrix_transpose(
     input: *const f32,
     output: *mut f32,
     rows: u32,
@@ -1918,7 +1918,7 @@ pub unsafe extern "ptx-kernel" fn matrix_transpose(
 ///
 /// grid_dim = (ceil(rows_padded * cols_padded / 256), 1, 1)
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn matrix_pad(
+pub unsafe extern "gpu-kernel" fn matrix_pad(
     input: *const f32,
     output: *mut f32,
     rows: u32,
@@ -1966,7 +1966,7 @@ pub unsafe extern "ptx-kernel" fn matrix_pad(
 /// Copies [rows, cols] from [rows_padded, cols_padded] (skipping padding).
 /// grid_dim = (ceil(rows * cols / 256), 1, 1)
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn matrix_unpad(
+pub unsafe extern "gpu-kernel" fn matrix_unpad(
     input: *const f32,
     output: *mut f32,
     rows: u32,
@@ -2011,7 +2011,7 @@ pub unsafe extern "ptx-kernel" fn matrix_unpad(
 ///
 /// grid_dim = (ceil(n/256), 1, 1), block_dim = (256, 1, 1)
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn sgd_step(
+pub unsafe extern "gpu-kernel" fn sgd_step(
     param: *mut f32,
     grad: *const f32,
     lr: f32,

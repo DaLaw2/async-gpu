@@ -40,7 +40,7 @@ const SEQ_OFFSET: usize = 52;
 /// Grid: (1, 1, 1), Block: (1, 1, 1) — single thread for simplicity.
 /// For production: use multiple blocks with per-block slot assignment.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn persistent_worker(
+pub unsafe extern "gpu-kernel" fn persistent_worker(
     queue: *mut u8,
     n_slots: u32,
     items_processed: *mut u32,

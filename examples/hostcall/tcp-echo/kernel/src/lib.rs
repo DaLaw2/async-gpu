@@ -4,7 +4,7 @@
 //! response, and reports the response length to the host.
 
 #![no_std]
-#![feature(abi_ptx)]
+#![feature(abi_gpu_kernel)]
 #![feature(stdarch_nvptx)]
 #![feature(asm_experimental_arch)]
 
@@ -20,7 +20,7 @@ gpu_runtime::panic_handler!();
 /// 4. Writes response length to `output` (or 0xDEAD on error)
 /// 5. Closes the socket
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn tcp_echo_kernel(
+pub unsafe extern "gpu-kernel" fn tcp_echo_kernel(
     buf: *mut u8,
     _sideband: *mut u8,
     port: u32,

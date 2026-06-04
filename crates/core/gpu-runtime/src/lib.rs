@@ -12,12 +12,12 @@
 //!
 //! ```rust,ignore
 //! #![no_std]
-//! #![feature(abi_ptx)]
+//! #![feature(abi_gpu_kernel)]
 //!
 //! use gpu_runtime::prelude::*;
 //!
 //! #[no_mangle]
-//! pub unsafe extern "ptx-kernel" fn my_kernel(buf: *mut u8, result: *mut u32) {
+//! pub unsafe extern "gpu-kernel" fn my_kernel(buf: *mut u8, result: *mut u32) {
 //!     let msg = b"Hello from GPU!";
 //!     gpu_hostcall_print(buf, msg.as_ptr(), msg.len() as u32);
 //!     core::ptr::write_volatile(result, 1);

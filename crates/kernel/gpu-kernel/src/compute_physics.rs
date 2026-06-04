@@ -9,7 +9,7 @@ use core::arch::nvptx;
 ///
 /// Grid: (ceil(n_springs / 256), 1, 1), Block: (256, 1, 1).
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn spring_forces(
+pub unsafe extern "gpu-kernel" fn spring_forces(
     pos: *const f32,
     forces: *mut f32,
     spring_a: *const u32,
@@ -95,7 +95,7 @@ pub unsafe extern "ptx-kernel" fn spring_forces(
 ///
 /// Grid: (ceil(n / 256), 1, 1), Block: (256, 1, 1).
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn gravity_forces(
+pub unsafe extern "gpu-kernel" fn gravity_forces(
     pos: *const f32,
     forces: *mut f32,
     mass: *const f32,
@@ -163,7 +163,7 @@ pub unsafe extern "ptx-kernel" fn gravity_forces(
 /// Grid: (ceil(n*2 / 256), 1, 1), Block: (256, 1, 1).
 /// Each thread updates one component (x or y) of one particle.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn euler_step(
+pub unsafe extern "gpu-kernel" fn euler_step(
     pos: *mut f32,
     vel: *mut f32,
     forces: *const f32,

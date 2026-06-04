@@ -1,4 +1,4 @@
-// Basic asm/atomic test kernels — all are `pub unsafe extern "ptx-kernel"` entry points.
+// Basic asm/atomic test kernels — all are `pub unsafe extern "gpu-kernel"` entry points.
 
 use core::arch::nvptx;
 use gpu_atomics::{
@@ -12,7 +12,7 @@ use gpu_atomics::{
 
 /// Test: membar.sys via gpu-atomics crate
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn test_asm_membar_sys(output: *mut u32, len: u32) {
+pub unsafe extern "gpu-kernel" fn test_asm_membar_sys(output: *mut u32, len: u32) {
     membar_sys();
     let thread_x = nvptx::_thread_idx_x() as u32;
     let block_x = nvptx::_block_idx_x() as u32;
@@ -25,20 +25,20 @@ pub unsafe extern "ptx-kernel" fn test_asm_membar_sys(output: *mut u32, len: u32
 
 /// Test: st.release.sys.global.u32 via gpu-atomics crate
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn test_asm_st_release_sys(ptr: *mut u32, val: u32) {
+pub unsafe extern "gpu-kernel" fn test_asm_st_release_sys(ptr: *mut u32, val: u32) {
     sys_store_release_u32(ptr, val);
 }
 
 /// Test: ld.acquire.sys.global.u32 via gpu-atomics crate
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn test_asm_ld_acquire_sys(ptr: *const u32, output: *mut u32) {
+pub unsafe extern "gpu-kernel" fn test_asm_ld_acquire_sys(ptr: *const u32, output: *mut u32) {
     let result = sys_load_acquire_u32(ptr);
     st_global_u32(output, result);
 }
 
 /// Test: atom.cas.sys.global.b32 via gpu-atomics crate
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn test_asm_cas_sys(
+pub unsafe extern "gpu-kernel" fn test_asm_cas_sys(
     ptr: *mut u32,
     expected: u32,
     desired: u32,
@@ -54,14 +54,14 @@ pub unsafe extern "ptx-kernel" fn test_asm_cas_sys(
 
 /// Test: read_volatile — does it emit ld.volatile in PTX?
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn test_read_volatile(ptr: *const u32, output: *mut u32) {
+pub unsafe extern "gpu-kernel" fn test_read_volatile(ptr: *const u32, output: *mut u32) {
     let val = core::ptr::read_volatile(ptr);
     *output = val;
 }
 
 /// Test: write_volatile — does it emit st.volatile in PTX?
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn test_write_volatile(ptr: *mut u32, val: u32) {
+pub unsafe extern "gpu-kernel" fn test_write_volatile(ptr: *mut u32, val: u32) {
     core::ptr::write_volatile(ptr, val);
 }
 
@@ -80,7 +80,7 @@ pub unsafe extern "ptx-kernel" fn test_write_volatile(ptr: *mut u32, val: u32) {
 /// data write is ordered before it. No additional `membar.sys` is needed
 /// between two `st.release.sys` instructions.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn integration_sys_store(
+pub unsafe extern "gpu-kernel" fn integration_sys_store(
     data_ptr: *mut u32,
     flag_ptr: *mut u32,
     value: u32,
@@ -105,7 +105,7 @@ pub unsafe extern "ptx-kernel" fn integration_sys_store(
 
 /// A simple kernel that writes the global thread index into an output buffer.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn vector_add(a: *const f32, b: *const f32, c: *mut f32, len: u32) {
+pub unsafe extern "gpu-kernel" fn vector_add(a: *const f32, b: *const f32, c: *mut f32, len: u32) {
     let thread_x = nvptx::_thread_idx_x() as u32;
     let block_x = nvptx::_block_idx_x() as u32;
     let block_dim_x = nvptx::_block_dim_x() as u32;
@@ -119,7 +119,7 @@ pub unsafe extern "ptx-kernel" fn vector_add(a: *const f32, b: *const f32, c: *m
 
 /// A simpler kernel: write the thread index into an output buffer.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn write_thread_idx(output: *mut u32, len: u32) {
+pub unsafe extern "gpu-kernel" fn write_thread_idx(output: *mut u32, len: u32) {
     let thread_x = nvptx::_thread_idx_x() as u32;
     let block_x = nvptx::_block_idx_x() as u32;
     let block_dim_x = nvptx::_block_dim_x() as u32;
@@ -139,7 +139,7 @@ pub unsafe extern "ptx-kernel" fn write_thread_idx(output: *mut u32, len: u32) {
 /// Thread 0 attempts CAS on a u64: if *ptr == expected, set *ptr = desired.
 /// Returns the old value in output.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn test_u64_cas(
+pub unsafe extern "gpu-kernel" fn test_u64_cas(
     ptr: *mut u64,
     expected_lo: u32,
     expected_hi: u32,
@@ -158,7 +158,7 @@ pub unsafe extern "ptx-kernel" fn test_u64_cas(
 ///
 /// Thread 0 atomically adds val to *ptr, returns old value in output.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn test_u64_fetch_add(
+pub unsafe extern "gpu-kernel" fn test_u64_fetch_add(
     ptr: *mut u64,
     val_lo: u32,
     val_hi: u32,
@@ -173,7 +173,7 @@ pub unsafe extern "ptx-kernel" fn test_u64_fetch_add(
 ///
 /// Thread 0 atomically exchanges *ptr with val, returns old value in output.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn test_u64_exchange(
+pub unsafe extern "gpu-kernel" fn test_u64_exchange(
     ptr: *mut u64,
     val_lo: u32,
     val_hi: u32,
@@ -192,7 +192,7 @@ pub unsafe extern "ptx-kernel" fn test_u64_exchange(
 ///
 /// Reads *ptr using the spin-safe acquire load and writes to output.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn test_spin_load_u32(ptr: *const u32, output: *mut u32) {
+pub unsafe extern "gpu-kernel" fn test_spin_load_u32(ptr: *const u32, output: *mut u32) {
     let val = sys_spin_load_acquire_u32(ptr);
     st_global_u32(output, val);
 }
@@ -201,7 +201,7 @@ pub unsafe extern "ptx-kernel" fn test_spin_load_u32(ptr: *const u32, output: *m
 ///
 /// Each thread writes the active lane mask to output[idx].
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn test_activemask(output: *mut u32, len: u32) {
+pub unsafe extern "gpu-kernel" fn test_activemask(output: *mut u32, len: u32) {
     let thread_x = nvptx::_thread_idx_x() as u32;
     let block_x = nvptx::_block_idx_x() as u32;
     let block_dim_x = nvptx::_block_dim_x() as u32;
@@ -216,7 +216,7 @@ pub unsafe extern "ptx-kernel" fn test_activemask(output: *mut u32, len: u32) {
 ///
 /// Each thread writes its lane ID to output[idx].
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn test_lane_id(output: *mut u32, len: u32) {
+pub unsafe extern "gpu-kernel" fn test_lane_id(output: *mut u32, len: u32) {
     let thread_x = nvptx::_thread_idx_x() as u32;
     let block_x = nvptx::_block_idx_x() as u32;
     let block_dim_x = nvptx::_block_dim_x() as u32;
@@ -240,7 +240,7 @@ pub unsafe extern "ptx-kernel" fn test_lane_id(output: *mut u32, len: u32) {
 /// Launch with: block_dim=(32,1,1), grid_dim=(1,1,1)
 /// Args: heap (ptr to heap region), heap_size (u64), output (*mut u64, len>=32)
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn test_multithread_malloc(
+pub unsafe extern "gpu-kernel" fn test_multithread_malloc(
     heap: *mut u8,
     heap_size: u64,
     output: *mut u64,

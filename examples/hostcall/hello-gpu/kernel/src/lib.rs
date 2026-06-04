@@ -7,7 +7,7 @@
 //! 4. `bulk_read_demo` — OPEN + BULK_READ + CLOSE (read a file via sideband)
 
 #![no_std]
-#![feature(abi_ptx)]
+#![feature(abi_gpu_kernel)]
 #![feature(stdarch_nvptx)]
 #![feature(asm_experimental_arch)]
 
@@ -22,7 +22,7 @@ gpu_runtime::panic_handler!();
 
 /// Each thread computes `c[i] = a[i] + b[i]`.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn vector_add(
+pub unsafe extern "gpu-kernel" fn vector_add(
     a: *const f32,
     b: *const f32,
     c: *mut f32,
@@ -43,7 +43,7 @@ pub unsafe extern "ptx-kernel" fn vector_add(
 /// Send a greeting to the host via the PRINT hostcall service.
 /// Only thread 0 executes the hostcall.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn hello_gpu(buf: *mut u8, result: *mut u32) {
+pub unsafe extern "gpu-kernel" fn hello_gpu(buf: *mut u8, result: *mut u32) {
     let tid = core::arch::nvptx::_thread_idx_x() as u32;
     if tid != 0 {
         return;
@@ -61,7 +61,7 @@ pub unsafe extern "ptx-kernel" fn hello_gpu(buf: *mut u8, result: *mut u32) {
 
 /// Demonstrates OPEN → WRITE → CLOSE hostcall sequence.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn file_io_demo(buf: *mut u8, result: *mut u32) {
+pub unsafe extern "gpu-kernel" fn file_io_demo(buf: *mut u8, result: *mut u32) {
     let tid = core::arch::nvptx::_thread_idx_x() as u32;
     if tid != 0 {
         return;
@@ -131,7 +131,7 @@ pub unsafe extern "ptx-kernel" fn file_io_demo(buf: *mut u8, result: *mut u32) {
 /// Demonstrates OPEN → BULK_READ → CLOSE using the sideband buffer
 /// for data larger than the 56-byte packet payload limit.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn bulk_read_demo(
+pub unsafe extern "gpu-kernel" fn bulk_read_demo(
     buf: *mut u8,
     sideband: *mut u8,
     result: *mut u32,

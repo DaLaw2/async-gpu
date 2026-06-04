@@ -252,7 +252,7 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for HybridFuture {
 /// `results` = output u32[32] array (one per lane)
 /// `status` = output u32 (1 = success)
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn hybrid_executor_test(
+pub unsafe extern "gpu-kernel" fn hybrid_executor_test(
     buf: *mut u8,
     results: *mut u32,
     status: *mut u32,
@@ -442,7 +442,7 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for HybridStressFuture {
 /// `results` = output u32[64] array (32 per compute phase)
 /// `status` = output u32 (1 = success)
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn hybrid_stress_test(
+pub unsafe extern "gpu-kernel" fn hybrid_stress_test(
     buf: *mut u8,
     results: *mut u32,
     status: *mut u32,

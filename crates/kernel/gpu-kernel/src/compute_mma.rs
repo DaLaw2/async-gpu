@@ -18,7 +18,7 @@ use core::arch::nvptx;
 /// - d_out:  pointer to 4 f32 values per thread = 128 f32 output (as u32 bits)
 /// - status: 0 on entry, set to 1 on success
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn test_mma_m16n8k16(
+pub unsafe extern "gpu-kernel" fn test_mma_m16n8k16(
     c_vals: *const u32,
     d_out: *mut u32,
     status: *mut u32,
@@ -98,7 +98,7 @@ pub unsafe extern "ptx-kernel" fn test_mma_m16n8k16(
 /// Each thread writes its thread ID to shared memory, synchronizes,
 /// then reads its neighbor's value (tid XOR 1) and writes to output.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn test_shared_memory(output: *mut u32, n: u32, status: *mut u32) {
+pub unsafe extern "gpu-kernel" fn test_shared_memory(output: *mut u32, n: u32, status: *mut u32) {
     let tid = nvptx::_thread_idx_x() as u32;
     if tid >= n {
         return;
@@ -139,7 +139,7 @@ pub unsafe extern "ptx-kernel" fn test_shared_memory(output: *mut u32, n: u32, s
 
 /// gpu-pipeline.1: MMA with proper fragment-to-matrix index mapping.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn test_mma_mapped(
+pub unsafe extern "gpu-kernel" fn test_mma_mapped(
     a_global: *const u32,
     b_global: *const u32,
     d_global: *mut u32,

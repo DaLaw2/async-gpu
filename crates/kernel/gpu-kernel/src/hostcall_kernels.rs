@@ -28,7 +28,7 @@ use gpu_protocol::*;
 /// `buf` is the device-side pointer to the hostcall buffer (mapped memory).
 /// `result` is a device pointer where thread 0 writes 1 (success) or 0 (failure).
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn hostcall_print_hello(buf: *mut u8, result: *mut u32) {
+pub unsafe extern "gpu-kernel" fn hostcall_print_hello(buf: *mut u8, result: *mut u32) {
     let thread_x = nvptx::_thread_idx_x() as u32;
     let block_x = nvptx::_block_idx_x() as u32;
     let block_dim_x = nvptx::_block_dim_x() as u32;
@@ -50,7 +50,7 @@ pub unsafe extern "ptx-kernel" fn hostcall_print_hello(buf: *mut u8, result: *mu
 ///
 /// `buf` is the hostcall buffer, `num_msgs` is total number of messages to print.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn hostcall_print_multi(buf: *mut u8, success_count: *mut u32) {
+pub unsafe extern "gpu-kernel" fn hostcall_print_multi(buf: *mut u8, success_count: *mut u32) {
     let thread_x = nvptx::_thread_idx_x() as u32;
     let block_x = nvptx::_block_idx_x() as u32;
 
@@ -111,7 +111,7 @@ pub unsafe extern "ptx-kernel" fn hostcall_print_multi(buf: *mut u8, success_cou
 ///   [2] = bytes written (or 0xFFFFFFFF on error)
 ///   [3] = bytes read back (or 0xFFFFFFFF on error)
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn hostcall_file_test(buf: *mut u8, result: *mut u32) {
+pub unsafe extern "gpu-kernel" fn hostcall_file_test(buf: *mut u8, result: *mut u32) {
     let thread_x = nvptx::_thread_idx_x() as u32;
     let block_x = nvptx::_block_idx_x() as u32;
     let block_dim_x = nvptx::_block_dim_x() as u32;
@@ -204,7 +204,7 @@ pub unsafe extern "ptx-kernel" fn hostcall_file_test(buf: *mut u8, result: *mut 
 ///   [3] = 1 if stdin read succeeded, 0 if skipped/failed
 ///         (stdin test is optional — host may not provide input)
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn hostcall_stdin_time_test(
+pub unsafe extern "gpu-kernel" fn hostcall_stdin_time_test(
     buf: *mut u8,
     result: *mut u64,
     skip_stdin: u32,
@@ -270,7 +270,7 @@ pub unsafe extern "ptx-kernel" fn hostcall_stdin_time_test(
 ///   [4] = test1 fd (should be 0 since open failed)
 ///   [5] = number of tests passed
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn error_propagation_test(buf: *mut u8, result: *mut u32) {
+pub unsafe extern "gpu-kernel" fn error_propagation_test(buf: *mut u8, result: *mut u32) {
     let thread_x = nvptx::_thread_idx_x() as u32;
     if thread_x != 0 {
         return;
@@ -333,7 +333,7 @@ pub unsafe extern "ptx-kernel" fn error_propagation_test(buf: *mut u8, result: *
 /// `results` = output array, must have space for num_threads * 3 u64 entries
 /// `num_iters` = number of NOP hostcalls per thread
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn hostcall_latency_bench(
+pub unsafe extern "gpu-kernel" fn hostcall_latency_bench(
     buf: *mut u8,
     results: *mut u64,
     num_iters: u32,
@@ -420,7 +420,7 @@ pub unsafe extern "ptx-kernel" fn hostcall_latency_bench(
 ///   results[tid*3 + 1] = total CAS retries across all iterations
 ///   results[tid*3 + 2] = number of completed iterations
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn hostcall_latency_bench_v2(
+pub unsafe extern "gpu-kernel" fn hostcall_latency_bench_v2(
     buf: *mut u8,
     results: *mut u64,
     num_iters: u32,
@@ -569,7 +569,7 @@ impl core::future::Future for CounterFuture {
 ///   [9] = success flag (1 if all tasks completed)
 ///   [10] = phase marker (for debugging: shows how far init/spawn got)
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn executor_demo(executor_ptr: *mut u8, results: *mut u32) {
+pub unsafe extern "gpu-kernel" fn executor_demo(executor_ptr: *mut u8, results: *mut u32) {
     let thread_x = nvptx::_thread_idx_x() as u32;
 
     // Initialize result buffer (thread 0 only)
@@ -744,7 +744,7 @@ impl core::future::Future for OneshotConsumer {
 /// The channel slots are placed at the end of the executor memory region.
 /// executor_ptr must have enough space for GpuExecutor + 4 OneshotSlot<u32>.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn channel_oneshot_demo(
+pub unsafe extern "gpu-kernel" fn channel_oneshot_demo(
     executor_ptr: *mut u8,
     results: *mut u32,
 ) {
@@ -858,7 +858,7 @@ pub unsafe extern "ptx-kernel" fn channel_oneshot_demo(
 /// `results` = output array, must have space for (2 + num_iters * 6) u64 entries
 /// `num_iters` = number of full open-write-close-open-read-close cycles
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn file_io_bench(
+pub unsafe extern "gpu-kernel" fn file_io_bench(
     buf: *mut u8,
     results: *mut u64,
     num_iters: u32,
@@ -969,7 +969,7 @@ pub unsafe extern "ptx-kernel" fn file_io_bench(
 /// `num_iters` = number of NOP hostcalls per thread
 /// `num_threads_total` = total thread count (for computing header offset)
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn hostcall_latency_bench_v3(
+pub unsafe extern "gpu-kernel" fn hostcall_latency_bench_v3(
     buf: *mut u8,
     results: *mut u64,
     num_iters: u32,
@@ -1077,7 +1077,7 @@ pub unsafe extern "ptx-kernel" fn hostcall_latency_bench_v3(
 /// `result` = output u32 (set to 1 before panic — if host sees this AND the
 ///            panic message, the test passes)
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn panic_test_kernel(buf: *mut u8, result: *mut u32) {
+pub unsafe extern "gpu-kernel" fn panic_test_kernel(buf: *mut u8, result: *mut u32) {
     let thread_x = nvptx::_thread_idx_x() as u32;
     let block_x = nvptx::_block_idx_x() as u32;
     let block_dim_x = nvptx::_block_dim_x() as u32;
@@ -1112,7 +1112,7 @@ pub unsafe extern "ptx-kernel" fn panic_test_kernel(buf: *mut u8, result: *mut u
 ///   [2] = bytes read back
 ///   [3] = content match (1 if all bytes match)
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn bulk_io_test(buf: *mut u8, sideband: *mut u8, result: *mut u32) {
+pub unsafe extern "gpu-kernel" fn bulk_io_test(buf: *mut u8, sideband: *mut u8, result: *mut u32) {
     use gpu_runtime::sideband::{gpu_bulk_read, gpu_bulk_write, sideband_reset};
 
     let thread_x = nvptx::_thread_idx_x() as u32;
@@ -1210,7 +1210,7 @@ pub unsafe extern "ptx-kernel" fn bulk_io_test(buf: *mut u8, sideband: *mut u8, 
 /// sharded vs legacy buffers. Thread 0 of each block prints "Shard N".
 /// Increments `success_count` atomically on success.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn sharded_print_test(buf: *mut u8, success_count: *mut u32) {
+pub unsafe extern "gpu-kernel" fn sharded_print_test(buf: *mut u8, success_count: *mut u32) {
     let thread_x = nvptx::_thread_idx_x() as u32;
     let block_x = nvptx::_block_idx_x() as u32;
 
@@ -1260,7 +1260,7 @@ pub unsafe extern "ptx-kernel" fn sharded_print_test(buf: *mut u8, success_count
 ///
 /// `buf` = hostcall buffer, `success_count` = atomic counter (u32)
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn trace_multithread_test(buf: *mut u8, success_count: *mut u32) {
+pub unsafe extern "gpu-kernel" fn trace_multithread_test(buf: *mut u8, success_count: *mut u32) {
     let tid = nvptx::_thread_idx_x() as u32;
 
     gpu_runtime::panic::gpu_panic_init(buf);
@@ -1279,7 +1279,7 @@ pub unsafe extern "ptx-kernel" fn trace_multithread_test(buf: *mut u8, success_c
 ///
 /// `buf` = hostcall buffer, `success_count` = atomic counter (u32)
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn trace_assert_test(buf: *mut u8, success_count: *mut u32) {
+pub unsafe extern "gpu-kernel" fn trace_assert_test(buf: *mut u8, success_count: *mut u32) {
     let tid = nvptx::_thread_idx_x() as u32;
 
     gpu_runtime::panic::gpu_panic_init(buf);
@@ -1304,7 +1304,7 @@ pub unsafe extern "ptx-kernel" fn trace_assert_test(buf: *mut u8, success_count:
 /// Demonstrates that the hostcall session is active and working.
 /// Writes 0xCAFE to `shared_state` so Kernel B can verify persistence.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn session_kernel_a(buf: *mut u8, shared_state: *mut u32) {
+pub unsafe extern "gpu-kernel" fn session_kernel_a(buf: *mut u8, shared_state: *mut u32) {
     let tid = nvptx::_thread_idx_x() as u32;
     if tid != 0 {
         return;
@@ -1324,7 +1324,7 @@ pub unsafe extern "ptx-kernel" fn session_kernel_a(buf: *mut u8, shared_state: *
 /// Verifies that the hostcall session persisted across launches and that
 /// shared mapped memory is readable. Writes 1 to `result` if magic matches.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn session_kernel_b(
+pub unsafe extern "gpu-kernel" fn session_kernel_b(
     buf: *mut u8,
     shared_state: *mut u32,
     result: *mut u32,
@@ -1356,7 +1356,7 @@ pub unsafe extern "ptx-kernel" fn session_kernel_b(
 /// - CMD_EXIT: acknowledges and breaks
 /// - CMD_NOP / unknown: acknowledges and continues
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn multi_cmd_kernel(
+pub unsafe extern "gpu-kernel" fn multi_cmd_kernel(
     hc_buf: *mut u8,
     cmd_buf: *mut u8,
 ) {
@@ -1411,7 +1411,7 @@ pub unsafe extern "ptx-kernel" fn multi_cmd_kernel(
 /// Writes `buf[i] = (i + 1) * 100` for i in 0..count.
 /// Thread 0 only.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn pipeline_writer_kernel(
+pub unsafe extern "gpu-kernel" fn pipeline_writer_kernel(
     hc_buf: *mut u8,
     data: *mut u32,
     count: u32,
@@ -1436,7 +1436,7 @@ pub unsafe extern "ptx-kernel" fn pipeline_writer_kernel(
 /// Reads data[i], multiplies by 3, writes to result[i].
 /// Thread 0 only.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn pipeline_reader_kernel(
+pub unsafe extern "gpu-kernel" fn pipeline_reader_kernel(
     hc_buf: *mut u8,
     data: *const u32,
     result: *mut u32,
@@ -1466,7 +1466,7 @@ pub unsafe extern "ptx-kernel" fn pipeline_reader_kernel(
 ///
 /// Thread 0 only. Demonstrates autonomous data-dependent iteration.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn convergence_kernel(
+pub unsafe extern "gpu-kernel" fn convergence_kernel(
     hc_buf: *mut u8,
     input: *const u32,
     output: *mut u32,
@@ -1521,7 +1521,7 @@ pub unsafe extern "ptx-kernel" fn convergence_kernel(
 /// - iters[i]: per-element iteration counts
 /// - total_iters_ptr: sum of all iterations (single u32)
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn autonomous_pipeline_kernel(
+pub unsafe extern "gpu-kernel" fn autonomous_pipeline_kernel(
     hc_buf: *mut u8,
     input: *const u32,
     output: *mut u32,
@@ -1578,7 +1578,7 @@ pub unsafe extern "ptx-kernel" fn autonomous_pipeline_kernel(
 /// Thread 0 writes events with different levels, then optionally "crashes" if
 /// the crash flag in params is set.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn flight_recorder_test(
+pub unsafe extern "gpu-kernel" fn flight_recorder_test(
     hc_buf: *mut u8,
     fr_buf: *mut u8,
     should_crash: *const u32,
@@ -1655,7 +1655,7 @@ pub unsafe extern "ptx-kernel" fn flight_recorder_test(
 /// `buf` = hostcall buffer
 /// `result` = output: 1 = success, 0 = failure/timeout
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn std_future_print_kernel(buf: *mut u8, result: *mut u32) {
+pub unsafe extern "gpu-kernel" fn std_future_print_kernel(buf: *mut u8, result: *mut u32) {
     if nvptx::_thread_idx_x() != 0 {
         return;
     }
@@ -1677,7 +1677,7 @@ pub unsafe extern "ptx-kernel" fn std_future_print_kernel(buf: *mut u8, result: 
 /// `buf` = hostcall buffer
 /// `result` = output: 2 = both succeeded, 1 = first only, 0 = failure
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn std_future_two_prints_kernel(buf: *mut u8, result: *mut u32) {
+pub unsafe extern "gpu-kernel" fn std_future_two_prints_kernel(buf: *mut u8, result: *mut u32) {
     if nvptx::_thread_idx_x() != 0 {
         return;
     }
@@ -1718,7 +1718,7 @@ pub unsafe extern "ptx-kernel" fn std_future_two_prints_kernel(buf: *mut u8, res
 /// `result` = output: 1 = success (all 32 lanes saw Ready), 0 = failure
 /// `lane_results` = array of 32 u32 — each lane writes its ID on success
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn warp_cooperative_future_kernel(
+pub unsafe extern "gpu-kernel" fn warp_cooperative_future_kernel(
     buf: *mut u8,
     result: *mut u32,
     lane_results: *mut u32,
@@ -1766,7 +1766,7 @@ pub unsafe extern "ptx-kernel" fn warp_cooperative_future_kernel(
 /// `result` = output: 2 = both succeeded, 1 = first only, 0 = failure
 /// `lane_results` = array of 32 u32 — each lane writes its ID on success
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn warp_cooperative_two_futures_kernel(
+pub unsafe extern "gpu-kernel" fn warp_cooperative_two_futures_kernel(
     buf: *mut u8,
     result: *mut u32,
     lane_results: *mut u32,
@@ -1817,7 +1817,7 @@ pub unsafe extern "ptx-kernel" fn warp_cooperative_two_futures_kernel(
 /// `result` = output: 2 = both Ok, 0 = error
 /// `lane_results` = array of 32 u32
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn warp_result_future_kernel(
+pub unsafe extern "gpu-kernel" fn warp_result_future_kernel(
     buf: *mut u8,
     result: *mut u32,
     lane_results: *mut u32,
@@ -1867,7 +1867,7 @@ pub unsafe extern "ptx-kernel" fn warp_result_future_kernel(
 /// `sideband` = sideband buffer
 /// `result` = output: 1 if all prints + flush succeeded, 0 on error
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn buffered_print_test(
+pub unsafe extern "gpu-kernel" fn buffered_print_test(
     buf: *mut u8,
     sideband: *mut u8,
     result: *mut u32,
@@ -1946,7 +1946,7 @@ pub unsafe extern "ptx-kernel" fn buffered_print_test(
 ///
 /// Launch with 1 block × 1 thread.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn newton_sqrt_kernel(
+pub unsafe extern "gpu-kernel" fn newton_sqrt_kernel(
     input: *const f32,
     output: *mut f32,
     iterations: *mut u32,
@@ -2100,7 +2100,7 @@ impl core::future::Future for MpscConsumer {
 ///
 /// The MPSC channel is placed after the executor struct in mapped memory.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn channel_mpsc_demo(
+pub unsafe extern "gpu-kernel" fn channel_mpsc_demo(
     executor_ptr: *mut u8,
     results: *mut u32,
 ) {

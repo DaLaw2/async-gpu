@@ -353,7 +353,7 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for FileTransformFuture {
 /// `sideband` = sideband buffer for bulk data transfer (CUDA mapped memory)
 /// `status`   = output u32 (1 = success)
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn file_transform_pipeline(
+pub unsafe extern "gpu-kernel" fn file_transform_pipeline(
     buf: *mut u8,
     sideband: *mut u8,
     status: *mut u32,
@@ -740,7 +740,7 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for BranchingPipelineFuture {
 /// Try to open a file → if exists, close+print; if not, create+write+close+print.
 /// All 32 lanes take the same branch (state is broadcast from lane 0).
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn branching_pipeline(buf: *mut u8, status: *mut u32) {
+pub unsafe extern "gpu-kernel" fn branching_pipeline(buf: *mut u8, status: *mut u32) {
     gpu_runtime::panic::gpu_panic_init(buf);
 
     let mut future = BranchingPipelineFuture::new(buf);
@@ -1016,7 +1016,7 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for PipelinedComputeFuture {
 /// I/O operation is being processed by the host. The number of compute
 /// iterations completed during the I/O round-trip demonstrates the overlap.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn pipelined_compute(buf: *mut u8, status: *mut u32) {
+pub unsafe extern "gpu-kernel" fn pipelined_compute(buf: *mut u8, status: *mut u32) {
     gpu_runtime::panic::gpu_panic_init(buf);
 
     let mut future = PipelinedComputeFuture::new(buf);
@@ -1033,7 +1033,7 @@ pub unsafe extern "ptx-kernel" fn pipelined_compute(buf: *mut u8, status: *mut u
 
 /// Parallel file grep kernel: each thread opens, reads, and searches a file.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn parallel_grep_kernel(
+pub unsafe extern "gpu-kernel" fn parallel_grep_kernel(
     buf: *mut u8,
     sideband: *mut u8,
     results: *mut u64,

@@ -6,7 +6,7 @@
 
 #![no_main]
 #![feature(restricted_std)]
-#![feature(abi_ptx)]
+#![feature(abi_gpu_kernel)]
 #![feature(asm_experimental_arch)]
 
 use core::sync::atomic::{AtomicU32, AtomicU64, Ordering as AtomicOrdering};
@@ -156,7 +156,7 @@ pub fn gpu_print_buffer_flush() {
 
 /// Test kernel: println! via patched std (no custom macros).
 #[unsafe(no_mangle)]
-pub unsafe extern "ptx-kernel" fn std_println_test(buf: *mut u8) {
+pub unsafe extern "gpu-kernel" fn std_println_test(buf: *mut u8) {
     stdio_init(buf);
 
     println!("Hello from gpu-kernel-std!");
@@ -165,7 +165,7 @@ pub unsafe extern "ptx-kernel" fn std_println_test(buf: *mut u8) {
 
 /// Test kernel: Vec + String + format! via std allocator.
 #[unsafe(no_mangle)]
-pub unsafe extern "ptx-kernel" fn std_vec_format_test(buf: *mut u8) {
+pub unsafe extern "gpu-kernel" fn std_vec_format_test(buf: *mut u8) {
     stdio_init(buf);
 
     // Vec allocation and manipulation
@@ -189,7 +189,7 @@ pub unsafe extern "ptx-kernel" fn std_vec_format_test(buf: *mut u8) {
 
 /// Test kernel: multiple allocations and drops to verify allocator.
 #[unsafe(no_mangle)]
-pub unsafe extern "ptx-kernel" fn std_alloc_stress_test(buf: *mut u8) {
+pub unsafe extern "gpu-kernel" fn std_alloc_stress_test(buf: *mut u8) {
     stdio_init(buf);
 
     // Allocate and drop multiple Vecs to test allocator reuse
@@ -207,7 +207,7 @@ pub unsafe extern "ptx-kernel" fn std_alloc_stress_test(buf: *mut u8) {
 /// Demonstrates real std::fs on GPU — File::create(), write_all(), File::open(),
 /// read_to_string(). Errors are proper std::io::Error with errno propagation.
 #[unsafe(no_mangle)]
-pub unsafe extern "ptx-kernel" fn std_file_io_test(buf: *mut u8) {
+pub unsafe extern "gpu-kernel" fn std_file_io_test(buf: *mut u8) {
     stdio_init(buf);
 
     // Also initialize gpu-libc I/O for the libc→hostcall bridge
@@ -360,7 +360,7 @@ fn std_pipeline_inner() -> Result<(), std::io::Error> {
 /// - Multi-step I/O pipeline (generate → write → read → verify)
 /// - Proper std::io::Error propagation from GPU to host
 #[unsafe(no_mangle)]
-pub unsafe extern "ptx-kernel" fn std_pipeline_test(buf: *mut u8) {
+pub unsafe extern "gpu-kernel" fn std_pipeline_test(buf: *mut u8) {
     stdio_init(buf);
     gpu_libc::gpu_libc_io_init(buf);
 
@@ -380,7 +380,7 @@ pub unsafe extern "ptx-kernel" fn std_pipeline_test(buf: *mut u8) {
 /// then echoes it back via println!. Tests the full PAL chain:
 /// stdin().read_line() → Stdin::read() → gpu_stdin_read() → SERVICE_STDIN hostcall.
 #[unsafe(no_mangle)]
-pub unsafe extern "ptx-kernel" fn std_stdin_test(buf: *mut u8) {
+pub unsafe extern "gpu-kernel" fn std_stdin_test(buf: *mut u8) {
     stdio_init(buf);
 
     use std::io::BufRead;
@@ -414,7 +414,7 @@ pub unsafe extern "ptx-kernel" fn std_stdin_test(buf: *mut u8) {
 /// address-based seed, not fill_bytes). Tests insert, get, contains_key,
 /// and iteration.
 #[unsafe(no_mangle)]
-pub unsafe extern "ptx-kernel" fn std_hashmap_test(buf: *mut u8) {
+pub unsafe extern "gpu-kernel" fn std_hashmap_test(buf: *mut u8) {
     stdio_init(buf);
     gpu_libc::gpu_libc_io_init(buf);
 
@@ -469,7 +469,7 @@ fn get_tid() -> u32 {
 /// generates multiple 56-byte chunks). Verifies thread_local storage (panic
 /// count, etc.) is per-thread and does not cause data races.
 #[unsafe(no_mangle)]
-pub unsafe extern "ptx-kernel" fn std_multithread_println_test(buf: *mut u8, result: *mut u32) {
+pub unsafe extern "gpu-kernel" fn std_multithread_println_test(buf: *mut u8, result: *mut u32) {
     stdio_init(buf);
 
     let tid = get_tid();
@@ -493,7 +493,7 @@ pub unsafe extern "ptx-kernel" fn std_multithread_println_test(buf: *mut u8, res
 /// Each thread allocates a Vec, pushes elements, and writes the sum to output.
 /// Verifies that the allocator and thread_local state are thread-safe.
 #[unsafe(no_mangle)]
-pub unsafe extern "ptx-kernel" fn std_multithread_vec_test(result: *mut u32) {
+pub unsafe extern "gpu-kernel" fn std_multithread_vec_test(result: *mut u32) {
     let tid = get_tid();
 
     // Each thread allocates its own Vec and computes a sum
@@ -517,7 +517,7 @@ pub unsafe extern "ptx-kernel" fn std_multithread_vec_test(result: *mut u32) {
 ///
 /// Launch with: block_dim=(128,1,1), 1 block, hostcall enabled.
 #[unsafe(no_mangle)]
-pub unsafe extern "ptx-kernel" fn std_thread_spawn_demo(buf: *mut u8, result: *mut u32) {
+pub unsafe extern "gpu-kernel" fn std_thread_spawn_demo(buf: *mut u8, result: *mut u32) {
     let _ = buf;
 
     gpu_runtime::thread::gpu_main_poll(|| {
@@ -563,7 +563,7 @@ pub unsafe extern "ptx-kernel" fn std_thread_spawn_demo(buf: *mut u8, result: *m
 ///
 /// Launch with: block_dim=(128,1,1), 1 block, hostcall enabled.
 #[unsafe(no_mangle)]
-pub unsafe extern "ptx-kernel" fn real_std_thread_spawn(buf: *mut u8, result: *mut u32) {
+pub unsafe extern "gpu-kernel" fn real_std_thread_spawn(buf: *mut u8, result: *mut u32) {
     stdio_init(buf);
 
     extern "C" {
@@ -628,7 +628,7 @@ pub unsafe extern "ptx-kernel" fn real_std_thread_spawn(buf: *mut u8, result: *m
 ///
 /// Launch with 1 block × 1 thread.
 #[unsafe(no_mangle)]
-pub unsafe extern "ptx-kernel" fn std_buffered_println_test(
+pub unsafe extern "gpu-kernel" fn std_buffered_println_test(
     buf: *mut u8,
     sideband: *mut u8,
     result: *mut u32,
@@ -667,7 +667,7 @@ static NS_LEN: AtomicU32 = AtomicU32::new(0);
 ///
 /// Launch with: block_dim=(128,1,1), hostcall enabled.
 #[unsafe(no_mangle)]
-pub unsafe extern "ptx-kernel" fn north_star_demo(buf: *mut u8, result: *mut u32) {
+pub unsafe extern "gpu-kernel" fn north_star_demo(buf: *mut u8, result: *mut u32) {
     stdio_init(buf);
     gpu_libc::gpu_libc_io_init(buf);
 
@@ -750,7 +750,7 @@ pub unsafe extern "ptx-kernel" fn north_star_demo(buf: *mut u8, result: *mut u32
 /// Trivial write to verify kernel_std module loads and runs.
 /// Launch with: 1 block × 1 thread.
 #[unsafe(no_mangle)]
-pub unsafe extern "ptx-kernel" fn kernel_std_smoke_test(result: *mut u32) {
+pub unsafe extern "gpu-kernel" fn kernel_std_smoke_test(result: *mut u32) {
     unsafe {
         core::ptr::write_volatile(result, 0xBEEF_CAFE);
     }
@@ -758,7 +758,7 @@ pub unsafe extern "ptx-kernel" fn kernel_std_smoke_test(result: *mut u32) {
 
 /// Simple println test via kernel_std. Launch with 1×1, hostcall enabled.
 #[unsafe(no_mangle)]
-pub unsafe extern "ptx-kernel" fn kernel_std_println_smoke(buf: *mut u8, result: *mut u32) {
+pub unsafe extern "gpu-kernel" fn kernel_std_println_smoke(buf: *mut u8, result: *mut u32) {
     stdio_init(buf);
     println!("kernel_std_println_smoke: alive!");
     unsafe {
@@ -769,7 +769,7 @@ pub unsafe extern "ptx-kernel" fn kernel_std_println_smoke(buf: *mut u8, result:
 /// Thread pool test without spawn — just gpu_main_poll with no work.
 /// Launch with block_dim=(128,1,1), 1 block.
 #[unsafe(no_mangle)]
-pub unsafe extern "ptx-kernel" fn kernel_std_pool_smoke(result: *mut u32) {
+pub unsafe extern "gpu-kernel" fn kernel_std_pool_smoke(result: *mut u32) {
     gpu_runtime::thread::gpu_main_poll(|| {
         if gpu_runtime::index::thread_idx_x() == 0 {
             unsafe {
@@ -787,7 +787,7 @@ pub unsafe extern "ptx-kernel" fn kernel_std_pool_smoke(result: *mut u32) {
 /// This isolates whether the hang is from thread spawn or from println.
 /// Launch with: block_dim=(128,1,1), 1 block, hostcall enabled.
 #[unsafe(no_mangle)]
-pub unsafe extern "ptx-kernel" fn std_thread_spawn_minimal(buf: *mut u8, result: *mut u32) {
+pub unsafe extern "gpu-kernel" fn std_thread_spawn_minimal(buf: *mut u8, result: *mut u32) {
     stdio_init(buf);
 
     gpu_runtime::thread::gpu_main_poll(|| {

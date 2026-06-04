@@ -18,7 +18,7 @@ use core::arch::nvptx;
 ///
 /// Launch: grid_dim = (n.div_ceil(256), 1, 1), block_dim = (256, 1, 1)
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn batchnorm_silu(
+pub unsafe extern "gpu-kernel" fn batchnorm_silu(
     input: *const f32,
     output: *mut f32,
     gamma: *const f32,
@@ -70,7 +70,7 @@ pub unsafe extern "ptx-kernel" fn batchnorm_silu(
 ///
 /// Launch: grid_dim = (n.div_ceil(256), 1, 1), block_dim = (256, 1, 1)
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn silu_forward(
+pub unsafe extern "gpu-kernel" fn silu_forward(
     input: *const f32,
     output: *mut f32,
     n: u32,
@@ -119,7 +119,7 @@ pub unsafe extern "ptx-kernel" fn silu_forward(
 /// Launch: grid_dim = (total_output_elements.div_ceil(256), 1, 1), block_dim = (256, 1, 1)
 /// where total_output_elements = H_out * W_out * C_in * kH * kW
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn im2col(
+pub unsafe extern "gpu-kernel" fn im2col(
     input: *const f32,
     output: *mut f32,
     c_in: u32,
@@ -192,7 +192,7 @@ pub unsafe extern "ptx-kernel" fn im2col(
 ///
 /// Launch: grid_dim = (C * H_out * W_out).div_ceil(256), block_dim = (256, 1, 1)
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn maxpool2d(
+pub unsafe extern "gpu-kernel" fn maxpool2d(
     input: *const f32,
     output: *mut f32,
     c: u32,
@@ -259,7 +259,7 @@ pub unsafe extern "ptx-kernel" fn maxpool2d(
 ///
 /// Launch: grid_dim = (C * 2*H * 2*W).div_ceil(256), block_dim = (256, 1, 1)
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn upsample_nearest_2x(
+pub unsafe extern "gpu-kernel" fn upsample_nearest_2x(
     input: *const f32,
     output: *mut f32,
     c: u32,
@@ -312,7 +312,7 @@ pub unsafe extern "ptx-kernel" fn upsample_nearest_2x(
 ///
 /// Launch: grid_dim = ((C_a + C_b) * H * W).div_ceil(256), block_dim = (256, 1, 1)
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn concat_channels(
+pub unsafe extern "gpu-kernel" fn concat_channels(
     a: *const f32,
     b: *const f32,
     output: *mut f32,
@@ -362,7 +362,7 @@ pub unsafe extern "ptx-kernel" fn concat_channels(
 ///
 /// Launch: grid_dim = (n.div_ceil(256), 1, 1), block_dim = (256, 1, 1)
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn sigmoid_forward(
+pub unsafe extern "gpu-kernel" fn sigmoid_forward(
     input: *const f32,
     output: *mut f32,
     n: u32,
@@ -399,7 +399,7 @@ pub unsafe extern "ptx-kernel" fn sigmoid_forward(
 /// Total elements: n = C * H * W. hw = H * W.
 /// Launch: grid_dim = (n.div_ceil(256), 1, 1), block_dim = (256, 1, 1)
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn bias_add_chw(
+pub unsafe extern "gpu-kernel" fn bias_add_chw(
     input: *const f32,
     output: *mut f32,
     bias: *const f32,
@@ -434,7 +434,7 @@ pub unsafe extern "ptx-kernel" fn bias_add_chw(
 ///
 /// Grid: `(ceil(n / 256), 1, 1)`, Block: `(256, 1, 1)`.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn elementwise_mul(
+pub unsafe extern "gpu-kernel" fn elementwise_mul(
     a: *const f32,
     b: *const f32,
     output: *mut f32,
@@ -463,7 +463,7 @@ pub unsafe extern "ptx-kernel" fn elementwise_mul(
 
 /// Elementwise subtract: output[i] = a[i] - b[i].
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn elementwise_sub(
+pub unsafe extern "gpu-kernel" fn elementwise_sub(
     a: *const f32,
     b: *const f32,
     output: *mut f32,
@@ -492,7 +492,7 @@ pub unsafe extern "ptx-kernel" fn elementwise_sub(
 
 /// Elementwise negate: output[i] = -input[i].
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn elementwise_neg(
+pub unsafe extern "gpu-kernel" fn elementwise_neg(
     input: *const f32,
     output: *mut f32,
     n: u32,
@@ -519,7 +519,7 @@ pub unsafe extern "ptx-kernel" fn elementwise_neg(
 
 /// Scalar multiply: output[i] = input[i] * scalar.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn scalar_mul(
+pub unsafe extern "gpu-kernel" fn scalar_mul(
     input: *const f32,
     output: *mut f32,
     scalar: f32,
@@ -554,7 +554,7 @@ pub unsafe extern "ptx-kernel" fn scalar_mul(
 /// Grid: `(ceil(n / 256), 1, 1)`, Block: `(256, 1, 1)`.
 /// `n = channels * hw`, `hw = H * W`.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn channel_scale_chw(
+pub unsafe extern "gpu-kernel" fn channel_scale_chw(
     input: *const f32,
     output: *mut f32,
     scale: *const f32,
@@ -594,7 +594,7 @@ pub unsafe extern "ptx-kernel" fn channel_scale_chw(
 /// col: `[h_out*w_out, c_in*kh*kw]`, output: `[c_in, h, w]` (accumulates via addition).
 /// grid_dim = (ceil(total/256), 1, 1), block_dim = (256, 1, 1).
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn col2im(
+pub unsafe extern "gpu-kernel" fn col2im(
     col: *const f32,
     output: *mut f32,
     c_in: u32,
@@ -669,7 +669,7 @@ pub unsafe extern "ptx-kernel" fn col2im(
 /// Same as `im2col` but reads input from `input + base_offset` instead of `input`.
 /// This allows processing one sample from a batched `[N, C, H, W]` tensor.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn im2col_offset(
+pub unsafe extern "gpu-kernel" fn im2col_offset(
     input: *const f32,
     output: *mut f32,
     base_offset: u32,

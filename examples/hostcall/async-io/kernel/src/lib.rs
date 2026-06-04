@@ -5,7 +5,7 @@
 //! 2. `transform_pipeline` — read file → transform data → write result
 
 #![no_std]
-#![feature(abi_ptx)]
+#![feature(abi_gpu_kernel)]
 #![feature(stdarch_nvptx)]
 #![feature(asm_experimental_arch)]
 
@@ -20,7 +20,7 @@ gpu_runtime::panic_handler!();
 /// Demonstrates sequential multi-file I/O from a single GPU kernel.
 /// Creates files "gpu_file_0.txt", "gpu_file_1.txt", "gpu_file_2.txt".
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn write_pipeline(buf: *mut u8, result: *mut u32) {
+pub unsafe extern "gpu-kernel" fn write_pipeline(buf: *mut u8, result: *mut u32) {
     let tid = core::arch::nvptx::_thread_idx_x() as u32;
     if tid != 0 {
         return;
@@ -114,7 +114,7 @@ pub unsafe extern "ptx-kernel" fn write_pipeline(buf: *mut u8, result: *mut u32)
 /// Demonstrates read → transform → write pipeline.
 /// Reads "gpu_file_0.txt", converts to uppercase, writes "gpu_upper.txt".
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn transform_pipeline(
+pub unsafe extern "gpu-kernel" fn transform_pipeline(
     buf: *mut u8,
     sideband: *mut u8,
     result: *mut u32,

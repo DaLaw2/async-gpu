@@ -543,7 +543,7 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for VecSearchFuture {
 
 /// ml-workload.2: GPU-autonomous vector similarity search.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn vector_search_pipeline(
+pub unsafe extern "gpu-kernel" fn vector_search_pipeline(
     buf: *mut u8,
     sideband: *mut u8,
     status: *mut u32,
@@ -1126,7 +1126,7 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for BatchSearchFuture {
 /// ml-workload.3: GPU-autonomous batch vector search.
 /// Processes multiple queries against the same database in one kernel launch.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn batch_search_pipeline(
+pub unsafe extern "gpu-kernel" fn batch_search_pipeline(
     buf: *mut u8,
     sideband: *mut u8,
     status: *mut u32,

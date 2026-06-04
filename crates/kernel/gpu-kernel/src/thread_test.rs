@@ -1,5 +1,4 @@
 //! Test kernels for gpu_runtime::thread — warp-as-thread model.
-//! Also demonstrates extern "gpu-kernel" ABI (when compiled with patched rustc).
 //!
 //! thread_spawn_test: spawn 2 threads, each computes a value, join results.
 //! Launched with block_dim=(128, 1, 1) = 4 warps.
@@ -17,7 +16,7 @@ use gpu_runtime::thread;
 ///         result[2] = available_parallelism (3 with 4 warps)
 ///         result[3] = main_thread_id (0)
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn thread_spawn_test(result: *mut u32) {
+pub unsafe extern "gpu-kernel" fn thread_spawn_test(result: *mut u32) {
     thread::gpu_main(|| {
         // Record main thread info
         let main_id = thread::current_id();
@@ -50,7 +49,7 @@ pub unsafe extern "ptx-kernel" fn thread_spawn_test(result: *mut u32) {
 /// Launch with: block_dim=(128,1,1)
 /// Output: result[0..3] = sum of each spawned computation
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn thread_reuse_test(result: *mut u32) {
+pub unsafe extern "gpu-kernel" fn thread_reuse_test(result: *mut u32) {
     thread::gpu_main(|| {
         let mut total: u32 = 0;
 
@@ -82,7 +81,7 @@ static COOP_RESULT: [core::sync::atomic::AtomicU32; 4] = {
 };
 
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn cooperative_debug(result: *mut u32) {
+pub unsafe extern "gpu-kernel" fn cooperative_debug(result: *mut u32) {
     thread::gpu_main(|| {
         // Zero-capture closure: all data accessed via statics
         unsafe {
@@ -119,7 +118,7 @@ static COOP_OUT_PTR: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU
 static COOP_N: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
 
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn cooperative_compute_test(result: *mut u32) {
+pub unsafe extern "gpu-kernel" fn cooperative_compute_test(result: *mut u32) {
     thread::gpu_main(|| {
         // Pass data via global atomics (closure captures point to local memory)
         COOP_OUT_PTR.store(result as u64, core::sync::atomic::Ordering::Relaxed);
@@ -147,12 +146,10 @@ pub unsafe extern "ptx-kernel" fn cooperative_compute_test(result: *mut u32) {
 
 /// Demo: extern "gpu-kernel" ABI — the native Rust GPU entry point.
 ///
-/// This is identical to thread_spawn_test but uses extern "gpu-kernel" instead
-/// of extern "ptx-kernel". Requires patched rustc (feature = "gpu_kernel_abi").
+/// This is identical to thread_spawn_test but uses extern "gpu-kernel" ABI.
 ///
 /// Launch with: block_dim=(128,1,1)
 /// Output: result[0] = 42, result[1] = 99
-#[cfg(feature = "gpu_kernel_abi")]
 #[no_mangle]
 pub unsafe extern "gpu-kernel" fn gpu_kernel_demo(result: *mut u32) {
     thread::gpu_main(|| {

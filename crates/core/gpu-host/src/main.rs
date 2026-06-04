@@ -1084,17 +1084,15 @@ fn run_gpu_api_test() -> Result<()> {
     println!("  gpu::launch — PASSED");
 
     println!("  gpu::launch(\"gpu_kernel_demo\", 2, 128)...");
-    match gpu::launch::<u32>("gpu_kernel_demo", 2, 128) {
-        Ok(r) => {
-            println!("    result = {:?}", r);
-            assert_eq!(r[0], 42);
-            assert_eq!(r[1], 99);
-            println!("  extern \"gpu-kernel\" ABI — PASSED");
-        }
-        Err(_) => println!(
-            "  (gpu_kernel_demo not in PTX — needs patched rustc + gpu_kernel_abi feature)"
-        ),
-    }
+    let result2: Vec<u32> =
+        gpu::launch("gpu_kernel_demo", 2, 128).map_err(|e| GpuHostError::Verification {
+            test: "gpu_kernel_demo",
+            detail: format!("{e}"),
+        })?;
+    println!("    result = {:?}", result2);
+    assert_eq!(result2[0], 42);
+    assert_eq!(result2[1], 99);
+    println!("  extern \"gpu-kernel\" ABI — PASSED");
 
     println!("  gpu::run() API test — ALL PASSED");
     Ok(())

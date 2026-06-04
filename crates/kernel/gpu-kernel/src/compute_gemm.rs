@@ -19,7 +19,7 @@ use core::arch::nvptx;
 /// (sum of 16 products of 1.0 x 1.0).
 #[cfg(feature = "sm_80")]
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn test_tiled_gemm(
+pub unsafe extern "gpu-kernel" fn test_tiled_gemm(
     a_global: *const u32,
     b_global: *const u32,
     d_global: *mut u32,
@@ -113,7 +113,7 @@ pub unsafe extern "ptx-kernel" fn test_tiled_gemm(
 ///   3. Sum exp values via shared memory parallel reduction
 ///   4. Divide each exp by sum -> softmax output
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn test_softmax(
+pub unsafe extern "gpu-kernel" fn test_softmax(
     input: *const f32,
     output: *mut f32,
     n: u32,
@@ -191,7 +191,7 @@ pub unsafe extern "ptx-kernel" fn test_softmax(
 /// D output is 16x8 f32 in thread-indexed layout (128 u32).
 #[cfg(feature = "sm_80")]
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn test_multi_tile_gemm(
+pub unsafe extern "gpu-kernel" fn test_multi_tile_gemm(
     a_global: *const u32,
     b_global: *const u32,
     d_global: *mut u32,
@@ -321,7 +321,7 @@ pub unsafe extern "ptx-kernel" fn test_multi_tile_gemm(
 /// and the GPU executes the entire GEMM -> softmax pipeline without intervention.
 #[cfg(feature = "sm_80")]
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn test_gemm_softmax_pipeline(
+pub unsafe extern "gpu-kernel" fn test_gemm_softmax_pipeline(
     a_global: *const u32,
     b_global: *const u32,
     softmax_output: *mut f32,
@@ -477,7 +477,7 @@ pub unsafe extern "ptx-kernel" fn test_gemm_softmax_pipeline(
 /// D is row-major f32 [32][16].
 #[cfg(feature = "sm_80")]
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn multi_warp_gemm(
+pub unsafe extern "gpu-kernel" fn multi_warp_gemm(
     a_global: *const u32,
     b_global: *const u32,
     d_global: *mut f32,
@@ -624,7 +624,7 @@ pub unsafe extern "ptx-kernel" fn multi_warp_gemm(
 /// D is row-major f32 [M][N].
 #[cfg(feature = "sm_80")]
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn multi_block_gemm(
+pub unsafe extern "gpu-kernel" fn multi_block_gemm(
     a_global: *const u32,
     b_global: *const u32,
     d_global: *mut f32,
@@ -775,7 +775,7 @@ pub unsafe extern "ptx-kernel" fn multi_block_gemm(
 /// D is row-major f32 [M][N].
 #[cfg(feature = "sm_80")]
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn full_gemm(
+pub unsafe extern "gpu-kernel" fn full_gemm(
     a_global: *const u32,
     b_global: *const u32,
     d_global: *mut f32,
@@ -929,7 +929,7 @@ pub unsafe extern "ptx-kernel" fn full_gemm(
 #[cfg(feature = "sm_80")]
 #[cfg(feature = "sm_80")]
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn full_gemm_f32in(
+pub unsafe extern "gpu-kernel" fn full_gemm_f32in(
     a_global: *const f32,
     b_global: *const u32,
     d_global: *mut f32,
@@ -1104,7 +1104,7 @@ pub unsafe extern "ptx-kernel" fn full_gemm_f32in(
 #[cfg(feature = "sm_80")]
 #[cfg(feature = "sm_80")]
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn full_gemm_bf16(
+pub unsafe extern "gpu-kernel" fn full_gemm_bf16(
     a_global: *const f32,
     b_global: *const f32,
     d_global: *mut f32,
@@ -1279,7 +1279,7 @@ pub unsafe extern "ptx-kernel" fn full_gemm_bf16(
 #[cfg(feature = "sm_80")]
 #[cfg(feature = "sm_80")]
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn full_gemm_tf32(
+pub unsafe extern "gpu-kernel" fn full_gemm_tf32(
     a_global: *const f32,
     b_global: *const f32,
     d_global: *mut f32,
@@ -1435,7 +1435,7 @@ pub unsafe extern "ptx-kernel" fn full_gemm_tf32(
 #[cfg(feature = "sm_80")]
 #[cfg(feature = "sm_80")]
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn full_gemm_splitk(
+pub unsafe extern "gpu-kernel" fn full_gemm_splitk(
     a_global: *const f32,
     b_global: *const u32,
     d_global: *mut f32,
@@ -1660,7 +1660,7 @@ pub unsafe extern "ptx-kernel" fn full_gemm_splitk(
 /// Each block computes a 32x16 output tile. Each thread computes 4 output
 /// elements (2 rows x 2 cols). K dimension is tiled in chunks of 16.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn gemm_f32(
+pub unsafe extern "gpu-kernel" fn gemm_f32(
     a_global: *const f32,
     b_global: *const f32,
     d_global: *mut f32,
@@ -1836,7 +1836,7 @@ pub unsafe extern "ptx-kernel" fn gemm_f32(
 /// grid_dim = (ceil(M/128), ceil(N/64), 1), block_dim = (256, 1, 1).
 /// shared_mem_bytes = 2 * (8 * 132 + 8 * 64) * 4 = 12544.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn gemm_f32_v2(
+pub unsafe extern "gpu-kernel" fn gemm_f32_v2(
     a_global: *const f32,
     b_global: *const f32,
     d_global: *mut f32,
@@ -2087,7 +2087,7 @@ unsafe fn gemm_v2_load_tile_128x64(
 /// grid_dim = (ceil(M/128), ceil(N/128), 1), block_dim = (256, 1, 1).
 /// shared_mem_bytes = 2 * (8*132 + 8*128) * 4 = 16640.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn gemm_f32_v3(
+pub unsafe extern "gpu-kernel" fn gemm_f32_v3(
     a_global: *const f32,
     b_global: *const f32,
     d_global: *mut f32,
@@ -2273,7 +2273,7 @@ unsafe fn gemm_v3_load_tile(
 /// grid_dim = (1, 1, 1), block_dim = (128, 1, 1), shared_mem = (256+128)*4
 #[cfg(feature = "sm_80")]
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn mma_diag(
+pub unsafe extern "gpu-kernel" fn mma_diag(
     a_global: *const f32,
     b_global: *const u32,
     d_global: *mut f32,
@@ -2445,7 +2445,7 @@ pub unsafe extern "ptx-kernel" fn mma_diag(
 ///
 /// Grid: (ceil(M*N / 256), 1, 1), Block: (256, 1, 1).
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn int8_gemm_dp4a(
+pub unsafe extern "gpu-kernel" fn int8_gemm_dp4a(
     a_packed: *const u32,
     b_packed: *const u32,
     c_out: *mut i32,
@@ -2501,7 +2501,7 @@ pub unsafe extern "ptx-kernel" fn int8_gemm_dp4a(
 ///
 /// Grid: (ceil(n_total/256), 1, 1), Block: (256, 1, 1).
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn int8_dequantize(
+pub unsafe extern "gpu-kernel" fn int8_dequantize(
     c_int32: *const i32,
     out_f32: *mut f32,
     scale_a: f32,
@@ -2545,7 +2545,7 @@ pub unsafe extern "ptx-kernel" fn int8_dequantize(
 ///
 /// Grid: (ceil(M*N / 256), 1, 1), Block: (256, 1, 1).
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn int4_gemm_w4a16(
+pub unsafe extern "gpu-kernel" fn int4_gemm_w4a16(
     a: *const f32,
     w_packed: *const u32,
     scales: *const f32,

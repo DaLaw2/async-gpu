@@ -17,7 +17,7 @@ use gpu_protocol::*;
 ///
 /// `output` must have space for 32 u32 entries.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn test_warp_intrinsics(output: *mut u32) {
+pub unsafe extern "gpu-kernel" fn test_warp_intrinsics(output: *mut u32) {
     let lid = gpu_atomics::lane_id();
     let mask = gpu_atomics::activemask();
 
@@ -210,7 +210,7 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for WarpPrintFuture {
 /// `buf` = hostcall buffer
 /// `result` = output u32 (set to 1 if WarpFuture completed successfully)
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn warp_future_print_test(buf: *mut u8, result: *mut u32) {
+pub unsafe extern "gpu-kernel" fn warp_future_print_test(buf: *mut u8, result: *mut u32) {
     gpu_runtime::panic::gpu_panic_init(buf);
 
     let mut future = WarpPrintFuture::new(buf);
@@ -485,7 +485,7 @@ unsafe impl gpu_runtime::warp_future::WarpFuture for WarpMultiPrintFuture {
 /// `buf` = hostcall buffer
 /// `result` = output u32 (set to 1 if all 3 calls succeeded)
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn warp_future_multi_print_test(buf: *mut u8, result: *mut u32) {
+pub unsafe extern "gpu-kernel" fn warp_future_multi_print_test(buf: *mut u8, result: *mut u32) {
     gpu_runtime::panic::gpu_panic_init(buf);
 
     let mut future = WarpMultiPrintFuture::new(buf);
@@ -823,7 +823,7 @@ async fn one_yield(x: u32) -> u32 {
 /// Kernel entry point that drives the async fns with a manual spin-poll.
 /// This tests that rustc's async state machine compiles to valid PTX.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn rustc_async_baseline_test(result: *mut u32) {
+pub unsafe extern "gpu-kernel" fn rustc_async_baseline_test(result: *mut u32) {
     use core::future::Future;
     use core::pin::Pin;
     use core::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};

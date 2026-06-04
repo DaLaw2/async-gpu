@@ -18,7 +18,7 @@
 /// Stage kernel: warp softmax (one stage only).
 /// For multi-launch benchmark comparison.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn bench_stage_softmax(data: *mut f32, status: *mut u32) {
+pub unsafe extern "gpu-kernel" fn bench_stage_softmax(data: *mut f32, status: *mut u32) {
     #[cfg(target_arch = "nvptx64")]
     {
         use gpu_runtime::{index, nn};
@@ -34,7 +34,7 @@ pub unsafe extern "ptx-kernel" fn bench_stage_softmax(data: *mut f32, status: *m
 
 /// Stage kernel: element-wise GELU activation (one stage only).
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn bench_stage_gelu(data: *mut f32, status: *mut u32) {
+pub unsafe extern "gpu-kernel" fn bench_stage_gelu(data: *mut f32, status: *mut u32) {
     #[cfg(target_arch = "nvptx64")]
     {
         use gpu_runtime::{index, nn};
@@ -49,7 +49,7 @@ pub unsafe extern "ptx-kernel" fn bench_stage_gelu(data: *mut f32, status: *mut 
 
 /// Stage kernel: warp reduction sum + write result.
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn bench_stage_reduce(
+pub unsafe extern "gpu-kernel" fn bench_stage_reduce(
     data: *const f32,
     result: *mut f32,
     status: *mut u32,
@@ -78,7 +78,7 @@ pub unsafe extern "ptx-kernel" fn bench_stage_reduce(
 /// * Block: (32, 1, 1) — one full warp
 /// * Shared memory: 0
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn compute_pipeline_demo(
+pub unsafe extern "gpu-kernel" fn compute_pipeline_demo(
     output: *mut f32,
     status: *mut u32,
 ) {
@@ -155,7 +155,7 @@ pub unsafe extern "ptx-kernel" fn compute_pipeline_demo(
 /// * Block: (N, 1, 1) — N must be power of 2, ≤ 1024
 /// * Shared memory: N * 4 bytes
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn block_softmax_demo(
+pub unsafe extern "gpu-kernel" fn block_softmax_demo(
     input: *const f32,
     output: *mut f32,
     n: u32,
@@ -204,7 +204,7 @@ pub unsafe extern "ptx-kernel" fn block_softmax_demo(
 /// * Block: (32, 1, 1) — one full warp
 /// * Shared memory: 0
 #[no_mangle]
-pub unsafe extern "ptx-kernel" fn warp_layer_norm_demo(
+pub unsafe extern "gpu-kernel" fn warp_layer_norm_demo(
     input: *const f32,
     gamma: *const f32,
     beta: *const f32,

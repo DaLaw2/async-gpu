@@ -1871,7 +1871,7 @@ pub fn warp_async(attr: TokenStream, item: TokenStream) -> TokenStream {
         }
 
         #[no_mangle]
-        pub unsafe extern "ptx-kernel" fn #fn_name(
+        pub unsafe extern "gpu-kernel" fn #fn_name(
             #(#kernel_params,)*
             result: *mut u32,
         ) {

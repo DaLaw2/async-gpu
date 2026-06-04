@@ -493,7 +493,7 @@ id = "kernel-entry.2"
 theme = "kernel-entry-dx"
 title = "Experiment: implement implicit hostcall injection for zero-param kernel entry"
 kind = "experiment"
-status = "active"
+status = "done"
 depends = ["kernel-entry.1"]
 
 [[tasks]]

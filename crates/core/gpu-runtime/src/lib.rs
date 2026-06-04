@@ -427,6 +427,26 @@ pub mod warp_sequential;
 /// code are broadcast to all lanes. If Err, all lanes can early-return together.
 pub mod warp_result;
 
+// -- Kernel entry --
+/// Implicit hostcall injection via device global (`__HOSTCALL_BUF`).
+///
+/// The host writes the hostcall buffer pointer to a device global before
+/// kernel launch. The kernel calls `entry::auto_init()` to read it and
+/// initialize all subsystems — no explicit `buf` parameter needed.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// #[no_mangle]
+/// pub unsafe extern "gpu-kernel" fn my_kernel() {
+///     gpu_runtime::entry::auto_init();
+///     gpu_runtime::thread::gpu_main_poll(|| {
+///         println!("Hello from zero-param kernel!");
+///     });
+/// }
+/// ```
+pub mod entry;
+
 // -- Infrastructure --
 /// Command buffer polling — GPU-side API for host→GPU command channel.
 ///

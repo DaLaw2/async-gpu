@@ -115,6 +115,26 @@ fn stdio_init(buf: *mut u8) {
     STDIO_HOSTCALL_BUF.store(buf as u64, AtomicOrdering::Relaxed);
 }
 
+/// Auto-initialize stdio from the `__HOSTCALL_BUF` device global.
+///
+/// The host writes the hostcall pointer to the device global via
+/// `cuModuleGetGlobal_v2` + `cuMemcpyHtoD` before launch. This function
+/// reads it and initializes all subsystems (stdio, panic, libc I/O).
+///
+/// Returns the hostcall buffer pointer (for use by caller), or null if
+/// the host did not inject it.
+fn stdio_auto_init() -> *mut u8 {
+    let buf = gpu_runtime::entry::hostcall_buf_ptr();
+    if !buf.is_null() {
+        stdio_init(buf);
+        unsafe {
+            gpu_runtime::panic::gpu_panic_init(buf);
+            gpu_libc::gpu_libc_io_init(buf);
+        }
+    }
+    buf
+}
+
 /// Initialize buffered printing for `println!()`.
 ///
 /// After this call, `gpu_stdout_write()` routes through `print_buffer` instead
@@ -983,5 +1003,31 @@ pub unsafe extern "gpu-kernel" fn matmul_io_compute(
     // For now, run everything inside gpu_main_poll for cooperative compute.
     gpu_runtime::thread::gpu_main_poll(|| {
         matmul_io_inner(buf, dims, result);
+    });
+}
+
+// ============================================================
+// Zero-param kernel entry — hostcall injected via device global
+// ============================================================
+
+/// Zero-parameter kernel: hostcall buffer injected via `__HOSTCALL_BUF` device global.
+///
+/// The host writes the hostcall pointer to the device global before launch.
+/// No kernel parameters needed for basic I/O (println!, file I/O).
+///
+/// Launch with: block_dim=(128,1,1), 1 block, NO kernel args.
+#[unsafe(no_mangle)]
+pub unsafe extern "gpu-kernel" fn zero_param_hello() {
+    let buf = stdio_auto_init();
+    if buf.is_null() {
+        return;
+    }
+
+    gpu_runtime::thread::gpu_main_poll(|| {
+        println!("Hello from zero-param kernel!");
+        println!("Hostcall buffer injected via __HOSTCALL_BUF device global.");
+
+        let v: Vec<i32> = (1..=5).collect();
+        println!("Vec on GPU: {:?}, sum = {}", v, v.iter().sum::<i32>());
     });
 }

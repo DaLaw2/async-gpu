@@ -445,6 +445,10 @@ fn main() -> Result<()> {
                 tests_benchmark::run_file_io_benchmark(Arc::clone(&dev))?;
                 return Ok(());
             }
+            "zero_param" => {
+                run_zero_param_test()?;
+                return Ok(());
+            }
             _ => println!("Unknown ONLY_TEST={only}, running all tests"),
         }
     }
@@ -1214,6 +1218,25 @@ fn run_kernel_std_smoke(dev: Arc<CudaDevice>) -> Result<()> {
     }
 
     println!("  All smoke tests PASSED");
+    Ok(())
+}
+
+/// Test zero-parameter kernel launch via device global injection.
+///
+/// The host writes the hostcall pointer to `__HOSTCALL_BUF` in the loaded
+/// module via `cuModuleGetGlobal_v2` + `cuMemcpyHtoD`. The kernel reads it
+/// at entry via `gpu_runtime::entry::auto_init()` — no kernel parameters.
+fn run_zero_param_test() -> Result<()> {
+    use gpu_host::gpu;
+
+    println!("\n--- Zero-Parameter Kernel Entry Test (kernel-entry.2) ---");
+    println!("  Hostcall buffer injected via __HOSTCALL_BUF device global");
+    println!("  Kernel: zero_param_hello() — no parameters");
+
+    gpu::run_zero_param(KERNEL_STD_PTX, "zero_param_hello")?;
+
+    println!("  zero_param_hello: PASSED (println! works with zero kernel args)");
+    println!("  Zero-param kernel entry test — PASSED");
     Ok(())
 }
 

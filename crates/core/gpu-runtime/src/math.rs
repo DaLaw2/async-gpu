@@ -48,7 +48,7 @@ pub fn exp_f32(x: f32) -> f32 {
     #[cfg(target_arch = "nvptx64")]
     {
         let result: f32;
-        let t = x * 1.442695_f32; // log2(e)
+        let t = x * core::f32::consts::LOG2_E;
         unsafe {
             core::arch::asm!(
                 "ex2.approx.f32 {out}, {inp};",
@@ -78,7 +78,7 @@ pub fn log_f32(x: f32) -> f32 {
                 inp = in(reg32) x,
             );
         }
-        lg2 * 0.693147_f32 // ln(2)
+        lg2 * core::f32::consts::LN_2
     }
     #[cfg(not(target_arch = "nvptx64"))]
     {

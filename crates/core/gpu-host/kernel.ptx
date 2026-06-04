@@ -240,8 +240,8 @@
 .global .align 8 .u64 anon_$_9cf01d2424b35812bf4ca965d0d91e3e_$_1[3] = {generic(anon_$_9cf01d2424b35812bf4ca965d0d91e3e_$_0), 14, 107374182773};
 .global .align 1 .b8 anon_$_9cf01d2424b35812bf4ca965d0d91e3e_$_2[14] = {112, 105, 112, 101, 108, 105, 110, 101, 58, 32, 100, 111, 110, 101};
 .global .align 1 .b8 anon_$_d6cebc6f9daeab8ebd00c564ddf3f4db_$_0[61] = {47, 104, 111, 109, 101, 47, 100, 97, 108, 97, 119, 50, 47, 97, 115, 121, 110, 99, 45, 103, 112, 117, 47, 99, 114, 97, 116, 101, 115, 47, 99, 111, 114, 101, 47, 103, 112, 117, 45, 114, 117, 110, 116, 105, 109, 101, 47, 115, 114, 99, 47, 116, 104, 114, 101, 97, 100, 46, 114, 115};
-.global .align 8 .u64 anon_$_d4270a642a62eca841c2c61d1d90bdc4_$_1[3] = {generic(anon_$_d6cebc6f9daeab8ebd00c564ddf3f4db_$_0), 60, 133143986531};
-.global .align 8 .u64 anon_$_d4270a642a62eca841c2c61d1d90bdc4_$_3[3] = {generic(anon_$_d6cebc6f9daeab8ebd00c564ddf3f4db_$_0), 60, 188978561269};
+.global .align 8 .u64 anon_$_d4270a642a62eca841c2c61d1d90bdc4_$_1[3] = {generic(anon_$_d6cebc6f9daeab8ebd00c564ddf3f4db_$_0), 60, 133143986567};
+.global .align 8 .u64 anon_$_d4270a642a62eca841c2c61d1d90bdc4_$_3[3] = {generic(anon_$_d6cebc6f9daeab8ebd00c564ddf3f4db_$_0), 60, 188978561302};
 .global .align 4 .b8 _RNvNtCsBpySzkf4zz_10gpu_kernel11thread_test11COOP_RESULT[16];
 .global .align 1 .b8 anon_$_d4270a642a62eca841c2c61d1d90bdc4_$_4[19] = {115, 114, 99, 47, 116, 104, 114, 101, 97, 100, 95, 116, 101, 115, 116, 46, 114, 115};
 .global .align 8 .u64 anon_$_d4270a642a62eca841c2c61d1d90bdc4_$_5[3] = {generic(anon_$_d4270a642a62eca841c2c61d1d90bdc4_$_4), 18, 90194313309};
@@ -303,8 +303,8 @@
 .global .align 8 .b8 _RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN[256];
 .global .align 4 .u32 _RNvNtCshwPOwPqx8fG_11gpu_runtime6thread9NUM_WARPS_$_0;
 .global .align 8 .b8 _RNvNtCshwPOwPqx8fG_11gpu_runtime6thread9WARP_DATA[256];
-.global .align 8 .u64 anon_$_d6cebc6f9daeab8ebd00c564ddf3f4db_$_2[3] = {generic(anon_$_d6cebc6f9daeab8ebd00c564ddf3f4db_$_0), 60, 51539607979};
-.global .align 8 .u64 anon_$_d6cebc6f9daeab8ebd00c564ddf3f4db_$_3[3] = {generic(anon_$_d6cebc6f9daeab8ebd00c564ddf3f4db_$_0), 60, 68719477145};
+.global .align 8 .u64 anon_$_d6cebc6f9daeab8ebd00c564ddf3f4db_$_2[3] = {generic(anon_$_d6cebc6f9daeab8ebd00c564ddf3f4db_$_0), 60, 51539608016};
+.global .align 8 .u64 anon_$_d6cebc6f9daeab8ebd00c564ddf3f4db_$_3[3] = {generic(anon_$_d6cebc6f9daeab8ebd00c564ddf3f4db_$_0), 60, 68719477182};
                                         // @batchnorm_silu
 .visible .entry batchnorm_silu(
 	.param .u64 .ptr .align 1 batchnorm_silu_param_0,
@@ -4103,7 +4103,7 @@ $L__BB21_6:
 	mov.u32 	%r11, %ntid.x;
 	shr.u32 	%r3, %r11, 5;
 	setp.eq.b32 	%p1, %r3, 0;
-	@%p1 bra 	$L__BB22_82;
+	@%p1 bra 	$L__BB22_38;
 // %bb.1:
 	mov.u32 	%r1, %tid.x;
 	shr.u32 	%r2, %r1, 5;
@@ -4126,11 +4126,11 @@ $L__BB22_2:                             // %.loopexit27
 	mov.b64 	%rd42, _RNvNtCshwPOwPqx8fG_11gpu_runtime6thread9WARP_DATA;
 	add.s64 	%rd21, %rd42, %rd40;
 	setp.ne.b32 	%p12, %r10, 0;
-	bra.uni 	$L__BB22_72;
-$L__BB22_76:                            //   in Loop: Header=BB22_72 Depth=1
-	@%p12 bra 	$L__BB22_71;
-	bra.uni 	$L__BB22_77;
-$L__BB22_71:                            //   in Loop: Header=BB22_72 Depth=1
+	bra.uni 	$L__BB22_71;
+$L__BB22_75:                            //   in Loop: Header=BB22_71 Depth=1
+	@%p12 bra 	$L__BB22_70;
+	bra.uni 	$L__BB22_76;
+$L__BB22_70:                            //   in Loop: Header=BB22_71 Depth=1
 	ld.acquire.sys.global.b64 	%rd43, [%rd20];
 	ld.acquire.sys.global.b64 	%rd44, [%rd21];
 	{ // callseq 55, 0
@@ -4139,22 +4139,22 @@ $L__BB22_71:                            //   in Loop: Header=BB22_72 Depth=1
 	prototype_55 : .callprototype ()_ (.param .b64 _);
 	call %rd43, (param0), prototype_55;
 	} // callseq 55
-$L__BB22_72:                            // =>This Inner Loop Header: Depth=1
+$L__BB22_71:                            // =>This Inner Loop Header: Depth=1
 	ld.acquire.sys.global.b32 	%r12, [%rd19];
 	setp.eq.b32 	%p9, %r12, 1;
-	@%p9 bra 	$L__BB22_76;
-// %bb.73:                              //   in Loop: Header=BB22_72 Depth=1
+	@%p9 bra 	$L__BB22_75;
+// %bb.72:                              //   in Loop: Header=BB22_71 Depth=1
 	setp.eq.b32 	%p10, %r12, 5;
-	@%p10 bra 	$L__BB22_76;
-// %bb.74:                              //   in Loop: Header=BB22_72 Depth=1
+	@%p10 bra 	$L__BB22_75;
+// %bb.73:                              //   in Loop: Header=BB22_71 Depth=1
 	setp.eq.b32 	%p11, %r12, 4;
-	@%p11 bra 	$L__BB22_81;
-// %bb.75:                              //   in Loop: Header=BB22_72 Depth=1
+	@%p11 bra 	$L__BB22_37;
+// %bb.74:                              //   in Loop: Header=BB22_71 Depth=1
 	// begin inline asm
 	nanosleep.u32 100;
 	// end inline asm
-	bra.uni 	$L__BB22_72;
-$L__BB22_77:                            //   in Loop: Header=BB22_72 Depth=1
+	bra.uni 	$L__BB22_71;
+$L__BB22_76:                            //   in Loop: Header=BB22_71 Depth=1
 	st.release.sys.global.b32 	[%rd19], 2;
 	ld.acquire.sys.global.b64 	%rd45, [%rd20];
 	ld.acquire.sys.global.b64 	%rd46, [%rd21];
@@ -4165,7 +4165,7 @@ $L__BB22_77:                            //   in Loop: Header=BB22_72 Depth=1
 	call %rd45, (param0), prototype_56;
 	} // callseq 56
 	st.release.sys.global.b32 	[%rd19], 3;
-	bra.uni 	$L__BB22_72;
+	bra.uni 	$L__BB22_71;
 $L__BB22_4:
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread9NUM_WARPS_$_0], %r3;
 	cvt.u64.u32 	%rd25, %r3;
@@ -4261,9 +4261,9 @@ $L__BB22_15:
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread9WARP_DATA+8], %rd50;
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+4], 5;
 	setp.ne.b32 	%p14, %r14, 2;
-	@%p14 bra 	$L__BB22_40;
+	@%p14 bra 	$L__BB22_39;
 	bra.uni 	$L__BB22_17;
-$L__BB22_40:
+$L__BB22_39:
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+16], %rd47;
 	cvta.global.u64 	%rd51, %rd48;
 	add.s64 	%rd52, %rd51, 512;
@@ -4271,7 +4271,7 @@ $L__BB22_40:
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+8], 5;
 	setp.eq.b32 	%p15, %r14, 3;
 	@%p15 bra 	$L__BB22_17;
-// %bb.41:
+// %bb.40:
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+24], %rd47;
 	cvta.global.u64 	%rd53, %rd48;
 	add.s64 	%rd54, %rd53, 768;
@@ -4279,7 +4279,7 @@ $L__BB22_40:
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+12], 5;
 	setp.eq.b32 	%p16, %r14, 4;
 	@%p16 bra 	$L__BB22_17;
-// %bb.42:
+// %bb.41:
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+32], %rd47;
 	cvta.global.u64 	%rd55, %rd48;
 	add.s64 	%rd56, %rd55, 1024;
@@ -4287,7 +4287,7 @@ $L__BB22_40:
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+16], 5;
 	setp.eq.b32 	%p17, %r14, 5;
 	@%p17 bra 	$L__BB22_17;
-// %bb.43:                              // %.preheader24.1
+// %bb.42:                              // %.preheader24.1
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+40], %rd47;
 	cvta.global.u64 	%rd57, %rd48;
 	add.s64 	%rd58, %rd57, 1280;
@@ -4295,7 +4295,7 @@ $L__BB22_40:
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+20], 5;
 	setp.eq.b32 	%p18, %r14, 6;
 	@%p18 bra 	$L__BB22_17;
-// %bb.44:
+// %bb.43:
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+48], %rd47;
 	cvta.global.u64 	%rd59, %rd48;
 	add.s64 	%rd60, %rd59, 1536;
@@ -4303,7 +4303,7 @@ $L__BB22_40:
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+24], 5;
 	setp.eq.b32 	%p19, %r14, 7;
 	@%p19 bra 	$L__BB22_17;
-// %bb.45:
+// %bb.44:
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+56], %rd47;
 	cvta.global.u64 	%rd61, %rd48;
 	add.s64 	%rd62, %rd61, 1792;
@@ -4311,7 +4311,7 @@ $L__BB22_40:
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+28], 5;
 	setp.eq.b32 	%p20, %r14, 8;
 	@%p20 bra 	$L__BB22_17;
-// %bb.46:
+// %bb.45:
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+64], %rd47;
 	cvta.global.u64 	%rd63, %rd48;
 	add.s64 	%rd64, %rd63, 2048;
@@ -4319,7 +4319,7 @@ $L__BB22_40:
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+32], 5;
 	setp.eq.b32 	%p21, %r14, 9;
 	@%p21 bra 	$L__BB22_17;
-// %bb.47:                              // %.preheader24.2
+// %bb.46:                              // %.preheader24.2
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+72], %rd47;
 	cvta.global.u64 	%rd65, %rd48;
 	add.s64 	%rd66, %rd65, 2304;
@@ -4327,7 +4327,7 @@ $L__BB22_40:
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+36], 5;
 	setp.eq.b32 	%p22, %r14, 10;
 	@%p22 bra 	$L__BB22_17;
-// %bb.48:
+// %bb.47:
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+80], %rd47;
 	cvta.global.u64 	%rd67, %rd48;
 	add.s64 	%rd68, %rd67, 2560;
@@ -4335,7 +4335,7 @@ $L__BB22_40:
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+40], 5;
 	setp.eq.b32 	%p23, %r14, 11;
 	@%p23 bra 	$L__BB22_17;
-// %bb.49:
+// %bb.48:
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+88], %rd47;
 	cvta.global.u64 	%rd69, %rd48;
 	add.s64 	%rd70, %rd69, 2816;
@@ -4343,7 +4343,7 @@ $L__BB22_40:
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+44], 5;
 	setp.eq.b32 	%p24, %r14, 12;
 	@%p24 bra 	$L__BB22_17;
-// %bb.50:
+// %bb.49:
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+96], %rd47;
 	cvta.global.u64 	%rd71, %rd48;
 	add.s64 	%rd72, %rd71, 3072;
@@ -4351,7 +4351,7 @@ $L__BB22_40:
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+48], 5;
 	setp.eq.b32 	%p25, %r14, 13;
 	@%p25 bra 	$L__BB22_17;
-// %bb.51:                              // %.preheader24.3
+// %bb.50:                              // %.preheader24.3
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+104], %rd47;
 	cvta.global.u64 	%rd73, %rd48;
 	add.s64 	%rd74, %rd73, 3328;
@@ -4359,7 +4359,7 @@ $L__BB22_40:
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+52], 5;
 	setp.eq.b32 	%p26, %r14, 14;
 	@%p26 bra 	$L__BB22_17;
-// %bb.52:
+// %bb.51:
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+112], %rd47;
 	cvta.global.u64 	%rd75, %rd48;
 	add.s64 	%rd76, %rd75, 3584;
@@ -4367,7 +4367,7 @@ $L__BB22_40:
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+56], 5;
 	setp.eq.b32 	%p27, %r14, 15;
 	@%p27 bra 	$L__BB22_17;
-// %bb.53:
+// %bb.52:
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+120], %rd47;
 	cvta.global.u64 	%rd77, %rd48;
 	add.s64 	%rd78, %rd77, 3840;
@@ -4375,7 +4375,7 @@ $L__BB22_40:
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+60], 5;
 	setp.eq.b32 	%p28, %r14, 16;
 	@%p28 bra 	$L__BB22_17;
-// %bb.54:
+// %bb.53:
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+128], %rd47;
 	cvta.global.u64 	%rd79, %rd48;
 	add.s64 	%rd80, %rd79, 4096;
@@ -4383,7 +4383,7 @@ $L__BB22_40:
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+64], 5;
 	setp.eq.b32 	%p29, %r14, 17;
 	@%p29 bra 	$L__BB22_17;
-// %bb.55:                              // %.preheader24.4
+// %bb.54:                              // %.preheader24.4
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+136], %rd47;
 	cvta.global.u64 	%rd81, %rd48;
 	add.s64 	%rd82, %rd81, 4352;
@@ -4391,7 +4391,7 @@ $L__BB22_40:
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+68], 5;
 	setp.eq.b32 	%p30, %r14, 18;
 	@%p30 bra 	$L__BB22_17;
-// %bb.56:
+// %bb.55:
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+144], %rd47;
 	cvta.global.u64 	%rd83, %rd48;
 	add.s64 	%rd84, %rd83, 4608;
@@ -4399,7 +4399,7 @@ $L__BB22_40:
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+72], 5;
 	setp.eq.b32 	%p31, %r14, 19;
 	@%p31 bra 	$L__BB22_17;
-// %bb.57:
+// %bb.56:
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+152], %rd47;
 	cvta.global.u64 	%rd85, %rd48;
 	add.s64 	%rd86, %rd85, 4864;
@@ -4407,7 +4407,7 @@ $L__BB22_40:
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+76], 5;
 	setp.eq.b32 	%p32, %r14, 20;
 	@%p32 bra 	$L__BB22_17;
-// %bb.58:
+// %bb.57:
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+160], %rd47;
 	cvta.global.u64 	%rd87, %rd48;
 	add.s64 	%rd88, %rd87, 5120;
@@ -4415,7 +4415,7 @@ $L__BB22_40:
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+80], 5;
 	setp.eq.b32 	%p33, %r14, 21;
 	@%p33 bra 	$L__BB22_17;
-// %bb.59:                              // %.preheader24.5
+// %bb.58:                              // %.preheader24.5
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+168], %rd47;
 	cvta.global.u64 	%rd89, %rd48;
 	add.s64 	%rd90, %rd89, 5376;
@@ -4423,7 +4423,7 @@ $L__BB22_40:
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+84], 5;
 	setp.eq.b32 	%p34, %r14, 22;
 	@%p34 bra 	$L__BB22_17;
-// %bb.60:
+// %bb.59:
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+176], %rd47;
 	cvta.global.u64 	%rd91, %rd48;
 	add.s64 	%rd92, %rd91, 5632;
@@ -4431,7 +4431,7 @@ $L__BB22_40:
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+88], 5;
 	setp.eq.b32 	%p35, %r14, 23;
 	@%p35 bra 	$L__BB22_17;
-// %bb.61:
+// %bb.60:
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+184], %rd47;
 	cvta.global.u64 	%rd93, %rd48;
 	add.s64 	%rd94, %rd93, 5888;
@@ -4439,7 +4439,7 @@ $L__BB22_40:
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+92], 5;
 	setp.eq.b32 	%p36, %r14, 24;
 	@%p36 bra 	$L__BB22_17;
-// %bb.62:
+// %bb.61:
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+192], %rd47;
 	cvta.global.u64 	%rd95, %rd48;
 	add.s64 	%rd96, %rd95, 6144;
@@ -4447,7 +4447,7 @@ $L__BB22_40:
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+96], 5;
 	setp.eq.b32 	%p37, %r14, 25;
 	@%p37 bra 	$L__BB22_17;
-// %bb.63:                              // %.preheader24.6
+// %bb.62:                              // %.preheader24.6
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+200], %rd47;
 	cvta.global.u64 	%rd97, %rd48;
 	add.s64 	%rd98, %rd97, 6400;
@@ -4455,7 +4455,7 @@ $L__BB22_40:
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+100], 5;
 	setp.eq.b32 	%p38, %r14, 26;
 	@%p38 bra 	$L__BB22_17;
-// %bb.64:
+// %bb.63:
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+208], %rd47;
 	cvta.global.u64 	%rd99, %rd48;
 	add.s64 	%rd100, %rd99, 6656;
@@ -4463,7 +4463,7 @@ $L__BB22_40:
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+104], 5;
 	setp.eq.b32 	%p39, %r14, 27;
 	@%p39 bra 	$L__BB22_17;
-// %bb.65:
+// %bb.64:
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+216], %rd47;
 	cvta.global.u64 	%rd101, %rd48;
 	add.s64 	%rd102, %rd101, 6912;
@@ -4471,7 +4471,7 @@ $L__BB22_40:
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+108], 5;
 	setp.eq.b32 	%p40, %r14, 28;
 	@%p40 bra 	$L__BB22_17;
-// %bb.66:
+// %bb.65:
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+224], %rd47;
 	cvta.global.u64 	%rd103, %rd48;
 	add.s64 	%rd104, %rd103, 7168;
@@ -4479,7 +4479,7 @@ $L__BB22_40:
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+112], 5;
 	setp.eq.b32 	%p41, %r14, 29;
 	@%p41 bra 	$L__BB22_17;
-// %bb.67:                              // %.preheader24.7
+// %bb.66:                              // %.preheader24.7
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+232], %rd47;
 	cvta.global.u64 	%rd105, %rd48;
 	add.s64 	%rd106, %rd105, 7424;
@@ -4487,7 +4487,7 @@ $L__BB22_40:
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+116], 5;
 	setp.eq.b32 	%p42, %r14, 30;
 	@%p42 bra 	$L__BB22_17;
-// %bb.68:
+// %bb.67:
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+240], %rd47;
 	cvta.global.u64 	%rd107, %rd48;
 	add.s64 	%rd108, %rd107, 7680;
@@ -4495,7 +4495,7 @@ $L__BB22_40:
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+120], 5;
 	setp.eq.b32 	%p43, %r14, 31;
 	@%p43 bra 	$L__BB22_17;
-// %bb.69:
+// %bb.68:
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+248], %rd47;
 	cvta.global.u64 	%rd109, %rd48;
 	add.s64 	%rd110, %rd109, 7936;
@@ -4503,7 +4503,7 @@ $L__BB22_40:
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+124], 5;
 	setp.eq.b32 	%p44, %r14, 32;
 	@%p44 bra 	$L__BB22_17;
-	bra.uni 	$L__BB22_70;
+	bra.uni 	$L__BB22_69;
 $L__BB22_17:                            // %.loopexit25
 	ld.relaxed.sys.global.b64 	%rd5, [_RNvNtCsBpySzkf4zz_10gpu_kernel11thread_test12COOP_OUT_PTR_$_0];
 	ld.relaxed.sys.global.b32 	%r7, [_RNvNtCsBpySzkf4zz_10gpu_kernel11thread_test6COOP_N_$_0];
@@ -4673,21 +4673,29 @@ $L__BB22_34:                            // %.preheader19.epil
 	@%p64 bra 	$L__BB22_34;
 	bra.uni 	$L__BB22_35;
 $L__BB22_36:                            // %.loopexit18
+	@%p2 bra 	$L__BB22_77;
+$L__BB22_37:                            // %.loopexit
+	// begin inline asm
+	bar.sync 0;
+	// end inline asm
+$L__BB22_38:
+	ret;
+$L__BB22_77:
 	cvt.u64.u32 	%rd133, %r3;
 	add.s64 	%rd156, %rd133, -1;
 	mov.b64 	%rd157, 1;
-$L__BB22_37:                            // =>This Inner Loop Header: Depth=1
+$L__BB22_78:                            // =>This Inner Loop Header: Depth=1
 	cvta.global.u64 	%rd22, %rd158;
 	mov.b64 	%rd134, 0;
 	cvta.to.global.u64 	%rd160, %rd134;
 	setp.eq.b64 	%p70, %rd156, 0;
 	mov.b64 	%rd159, %rd134;
-	@%p70 bra 	$L__BB22_79;
-// %bb.38:                              //   in Loop: Header=BB22_37 Depth=1
+	@%p70 bra 	$L__BB22_82;
+// %bb.79:                              //   in Loop: Header=BB22_78 Depth=1
 	add.s64 	%rd159, %rd156, -1;
 	setp.ne.b64 	%p71, %rd157, 0;
-	@%p71 bra 	$L__BB22_78;
-// %bb.39:                              //   in Loop: Header=BB22_37 Depth=1
+	@%p71 bra 	$L__BB22_81;
+// %bb.80:                              //   in Loop: Header=BB22_78 Depth=1
 	mov.b64 	%rd142, _RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS;
 	add.s64 	%rd143, %rd142, 128;
 	setp.eq.b64 	%p73, %rd158, %rd143;
@@ -4697,8 +4705,8 @@ $L__BB22_37:                            // =>This Inner Loop Header: Depth=1
 	cvta.to.global.u64 	%rd145, %rd157;
 	selp.b64 	%rd160, %rd145, %rd158, %p73;
 	mov.b64 	%rd158, %rd23;
-	bra.uni 	$L__BB22_79;
-$L__BB22_78:                            //   in Loop: Header=BB22_37 Depth=1
+	bra.uni 	$L__BB22_82;
+$L__BB22_81:                            //   in Loop: Header=BB22_78 Depth=1
 	mov.b64 	%rd135, _RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS;
 	add.s64 	%rd136, %rd135, 128;
 	cvta.global.u64 	%rd137, %rd136;
@@ -4710,21 +4718,15 @@ $L__BB22_78:                            //   in Loop: Header=BB22_37 Depth=1
 	mov.b64 	%rd157, 0;
 	cvta.to.global.u64 	%rd141, %rd157;
 	selp.b64 	%rd160, %rd139, %rd141, %p72;
-$L__BB22_79:                            //   in Loop: Header=BB22_37 Depth=1
+$L__BB22_82:                            //   in Loop: Header=BB22_78 Depth=1
 	cvta.to.global.u64 	%rd146, %rd134;
 	setp.eq.b64 	%p74, %rd160, %rd146;
-	@%p74 bra 	$L__BB22_81;
-// %bb.80:                              //   in Loop: Header=BB22_37 Depth=1
+	@%p74 bra 	$L__BB22_37;
+// %bb.83:                              //   in Loop: Header=BB22_78 Depth=1
 	st.release.sys.global.b32 	[%rd160], 4;
 	mov.b64 	%rd156, %rd159;
-	bra.uni 	$L__BB22_37;
-$L__BB22_81:                            // %.loopexit
-	// begin inline asm
-	bar.sync 0;
-	// end inline asm
-$L__BB22_82:
-	ret;
-$L__BB22_70:
+	bra.uni 	$L__BB22_78;
+$L__BB22_69:
 	{ // callseq 57, 0
 	.param .b64 	param0;
 	.param .b64 	param1;
@@ -4790,7 +4792,7 @@ $L__BB23_3:                             // %.loopexit
 {
 	.reg .pred 	%p<70>;
 	.reg .b32 	%r<23>;
-	.reg .b64 	%rd<150>;
+	.reg .b64 	%rd<149>;
 
 // %bb.0:
 	ld.param.b64 	%rd23, [cooperative_debug_param_0];
@@ -4798,14 +4800,14 @@ $L__BB23_3:                             // %.loopexit
 	mov.u32 	%r5, %ntid.x;
 	shr.u32 	%r3, %r5, 5;
 	setp.eq.b32 	%p1, %r3, 0;
-	@%p1 bra 	$L__BB24_81;
+	@%p1 bra 	$L__BB24_80;
 // %bb.1:
 	mov.u32 	%r1, %tid.x;
 	shr.u32 	%r2, %r1, 5;
 	setp.eq.b32 	%p2, %r1, 0;
 	@%p2 bra 	$L__BB24_4;
 $L__BB24_2:                             // %.loopexit22
-	mov.b64 	%rd147, _RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS;
+	mov.b64 	%rd146, _RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS;
 	setp.eq.b32 	%p8, %r2, 0;
 	// begin inline asm
 	bar.sync 0;
@@ -4813,7 +4815,7 @@ $L__BB24_2:                             // %.loopexit22
 	@%p8 bra 	$L__BB24_11;
 // %bb.3:
 	mul.wide.u32 	%rd38, %r2, 4;
-	add.s64 	%rd18, %rd147, %rd38;
+	add.s64 	%rd18, %rd146, %rd38;
 	and.b32 	%r4, %r1, 31;
 	mul.wide.u32 	%rd39, %r2, 8;
 	mov.b64 	%rd40, _RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN;
@@ -4821,11 +4823,11 @@ $L__BB24_2:                             // %.loopexit22
 	mov.b64 	%rd41, _RNvNtCshwPOwPqx8fG_11gpu_runtime6thread9WARP_DATA;
 	add.s64 	%rd20, %rd41, %rd39;
 	setp.ne.b32 	%p12, %r4, 0;
-	bra.uni 	$L__BB24_71;
-$L__BB24_75:                            //   in Loop: Header=BB24_71 Depth=1
-	@%p12 bra 	$L__BB24_70;
-	bra.uni 	$L__BB24_76;
-$L__BB24_70:                            //   in Loop: Header=BB24_71 Depth=1
+	bra.uni 	$L__BB24_70;
+$L__BB24_74:                            //   in Loop: Header=BB24_70 Depth=1
+	@%p12 bra 	$L__BB24_69;
+	bra.uni 	$L__BB24_75;
+$L__BB24_69:                            //   in Loop: Header=BB24_70 Depth=1
 	ld.acquire.sys.global.b64 	%rd42, [%rd19];
 	ld.acquire.sys.global.b64 	%rd43, [%rd20];
 	{ // callseq 58, 0
@@ -4834,22 +4836,22 @@ $L__BB24_70:                            //   in Loop: Header=BB24_71 Depth=1
 	prototype_58 : .callprototype ()_ (.param .b64 _);
 	call %rd42, (param0), prototype_58;
 	} // callseq 58
-$L__BB24_71:                            // =>This Inner Loop Header: Depth=1
+$L__BB24_70:                            // =>This Inner Loop Header: Depth=1
 	ld.acquire.sys.global.b32 	%r6, [%rd18];
 	setp.eq.b32 	%p9, %r6, 1;
-	@%p9 bra 	$L__BB24_75;
-// %bb.72:                              //   in Loop: Header=BB24_71 Depth=1
+	@%p9 bra 	$L__BB24_74;
+// %bb.71:                              //   in Loop: Header=BB24_70 Depth=1
 	setp.eq.b32 	%p10, %r6, 5;
-	@%p10 bra 	$L__BB24_75;
-// %bb.73:                              //   in Loop: Header=BB24_71 Depth=1
+	@%p10 bra 	$L__BB24_74;
+// %bb.72:                              //   in Loop: Header=BB24_70 Depth=1
 	setp.eq.b32 	%p11, %r6, 4;
-	@%p11 bra 	$L__BB24_80;
-// %bb.74:                              //   in Loop: Header=BB24_71 Depth=1
+	@%p11 bra 	$L__BB24_79;
+// %bb.73:                              //   in Loop: Header=BB24_70 Depth=1
 	// begin inline asm
 	nanosleep.u32 100;
 	// end inline asm
-	bra.uni 	$L__BB24_71;
-$L__BB24_76:                            //   in Loop: Header=BB24_71 Depth=1
+	bra.uni 	$L__BB24_70;
+$L__BB24_75:                            //   in Loop: Header=BB24_70 Depth=1
 	st.release.sys.global.b32 	[%rd18], 2;
 	ld.acquire.sys.global.b64 	%rd44, [%rd19];
 	ld.acquire.sys.global.b64 	%rd45, [%rd20];
@@ -4860,34 +4862,34 @@ $L__BB24_76:                            //   in Loop: Header=BB24_71 Depth=1
 	call %rd44, (param0), prototype_59;
 	} // callseq 59
 	st.release.sys.global.b32 	[%rd18], 3;
-	bra.uni 	$L__BB24_71;
+	bra.uni 	$L__BB24_70;
 $L__BB24_4:
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread9NUM_WARPS_$_0], %r3;
 	cvt.u64.u32 	%rd24, %r3;
-	add.s64 	%rd136, %rd24, -1;
-	mov.b64 	%rd139, _RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS;
-	mov.b64 	%rd138, 1;
+	add.s64 	%rd135, %rd24, -1;
+	mov.b64 	%rd138, _RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS;
+	mov.b64 	%rd137, 1;
 $L__BB24_5:                             // =>This Inner Loop Header: Depth=1
-	cvta.global.u64 	%rd2, %rd139;
+	cvta.global.u64 	%rd2, %rd138;
 	mov.b64 	%rd25, 0;
-	cvta.to.global.u64 	%rd140, %rd25;
-	setp.eq.b64 	%p3, %rd136, 0;
-	mov.b64 	%rd137, %rd25;
+	cvta.to.global.u64 	%rd139, %rd25;
+	setp.eq.b64 	%p3, %rd135, 0;
+	mov.b64 	%rd136, %rd25;
 	@%p3 bra 	$L__BB24_9;
 // %bb.6:                               //   in Loop: Header=BB24_5 Depth=1
-	add.s64 	%rd137, %rd136, -1;
-	setp.ne.b64 	%p4, %rd138, 0;
+	add.s64 	%rd136, %rd135, -1;
+	setp.ne.b64 	%p4, %rd137, 0;
 	@%p4 bra 	$L__BB24_8;
 // %bb.7:                               //   in Loop: Header=BB24_5 Depth=1
 	mov.b64 	%rd33, _RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS;
 	add.s64 	%rd34, %rd33, 128;
-	setp.eq.b64 	%p6, %rd139, %rd34;
-	add.s64 	%rd35, %rd139, 4;
+	setp.eq.b64 	%p6, %rd138, %rd34;
+	add.s64 	%rd35, %rd138, 4;
 	selp.b64 	%rd3, %rd34, %rd35, %p6;
-	mov.b64 	%rd138, 0;
-	cvta.to.global.u64 	%rd36, %rd138;
-	selp.b64 	%rd140, %rd36, %rd139, %p6;
-	mov.b64 	%rd139, %rd3;
+	mov.b64 	%rd137, 0;
+	cvta.to.global.u64 	%rd36, %rd137;
+	selp.b64 	%rd139, %rd36, %rd138, %p6;
+	mov.b64 	%rd138, %rd3;
 	bra.uni 	$L__BB24_9;
 $L__BB24_8:                             //   in Loop: Header=BB24_5 Depth=1
 	mov.b64 	%rd26, _RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS;
@@ -4895,19 +4897,19 @@ $L__BB24_8:                             //   in Loop: Header=BB24_5 Depth=1
 	cvta.global.u64 	%rd28, %rd27;
 	sub.s64 	%rd29, %rd28, %rd2;
 	setp.gt.u64 	%p5, %rd29, 4;
-	add.s64 	%rd30, %rd139, 4;
-	add.s64 	%rd31, %rd139, 8;
-	selp.b64 	%rd139, %rd31, %rd27, %p5;
-	mov.b64 	%rd138, 0;
-	cvta.to.global.u64 	%rd32, %rd138;
-	selp.b64 	%rd140, %rd30, %rd32, %p5;
+	add.s64 	%rd30, %rd138, 4;
+	add.s64 	%rd31, %rd138, 8;
+	selp.b64 	%rd138, %rd31, %rd27, %p5;
+	mov.b64 	%rd137, 0;
+	cvta.to.global.u64 	%rd32, %rd137;
+	selp.b64 	%rd139, %rd30, %rd32, %p5;
 $L__BB24_9:                             //   in Loop: Header=BB24_5 Depth=1
 	cvta.to.global.u64 	%rd37, %rd25;
-	setp.eq.b64 	%p7, %rd140, %rd37;
+	setp.eq.b64 	%p7, %rd139, %rd37;
 	@%p7 bra 	$L__BB24_2;
 // %bb.10:                              //   in Loop: Header=BB24_5 Depth=1
-	st.relaxed.sys.global.b32 	[%rd140], 0;
-	mov.b64 	%rd136, %rd137;
+	st.relaxed.sys.global.b32 	[%rd139], 0;
+	mov.b64 	%rd135, %rd136;
 	bra.uni 	$L__BB24_5;
 $L__BB24_11:
 	ld.acquire.sys.global.b32 	%r7, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread9NUM_WARPS_$_0];
@@ -4915,15 +4917,15 @@ $L__BB24_11:
 	setp.ne.b32 	%p69, %r1, 0;
 	@%p13 bra 	$L__BB24_14;
 // %bb.12:
-	@%p69 bra 	$L__BB24_33;
+	@%p69 bra 	$L__BB24_79;
 // %bb.13:
 	st.relaxed.sys.global.b32 	[_RNvNtCsBpySzkf4zz_10gpu_kernel11thread_test11COOP_RESULT], 100;
 	bra.uni 	$L__BB24_31;
 $L__BB24_14:
 	cvt.u64.u32 	%rd4, %r7;
-	@%p2 bra 	$L__BB24_37;
+	@%p2 bra 	$L__BB24_36;
 	bra.uni 	$L__BB24_15;
-$L__BB24_37:                            // %.preheader20.preheader
+$L__BB24_36:                            // %.preheader20.preheader
 	cvt.u32.u64 	%r8, %rd4;
 	mov.b64 	%rd46, _RINvNvNtCshwPOwPqx8fG_11gpu_runtime6thread11cooperative10trampolineNCNCNvNtCsBpySzkf4zz_10gpu_kernel11thread_test17cooperative_debug00EB1b_;
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+8], %rd46;
@@ -4933,250 +4935,250 @@ $L__BB24_37:                            // %.preheader20.preheader
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread9WARP_DATA+8], %rd49;
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+4], 5;
 	setp.ne.b32 	%p14, %r8, 2;
-	@%p14 bra 	$L__BB24_39;
-	bra.uni 	$L__BB24_38;
-$L__BB24_39:
+	@%p14 bra 	$L__BB24_38;
+	bra.uni 	$L__BB24_37;
+$L__BB24_38:
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+16], %rd46;
 	cvta.global.u64 	%rd50, %rd47;
 	add.s64 	%rd51, %rd50, 512;
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread9WARP_DATA+16], %rd51;
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+8], 5;
 	setp.eq.b32 	%p15, %r8, 3;
-	@%p15 bra 	$L__BB24_38;
-// %bb.40:
+	@%p15 bra 	$L__BB24_37;
+// %bb.39:
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+24], %rd46;
 	cvta.global.u64 	%rd52, %rd47;
 	add.s64 	%rd53, %rd52, 768;
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread9WARP_DATA+24], %rd53;
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+12], 5;
 	setp.eq.b32 	%p16, %r8, 4;
-	@%p16 bra 	$L__BB24_38;
-// %bb.41:
+	@%p16 bra 	$L__BB24_37;
+// %bb.40:
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+32], %rd46;
 	cvta.global.u64 	%rd54, %rd47;
 	add.s64 	%rd55, %rd54, 1024;
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread9WARP_DATA+32], %rd55;
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+16], 5;
 	setp.eq.b32 	%p17, %r8, 5;
-	@%p17 bra 	$L__BB24_38;
-// %bb.42:                              // %.preheader20.1
+	@%p17 bra 	$L__BB24_37;
+// %bb.41:                              // %.preheader20.1
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+40], %rd46;
 	cvta.global.u64 	%rd56, %rd47;
 	add.s64 	%rd57, %rd56, 1280;
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread9WARP_DATA+40], %rd57;
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+20], 5;
 	setp.eq.b32 	%p18, %r8, 6;
-	@%p18 bra 	$L__BB24_38;
-// %bb.43:
+	@%p18 bra 	$L__BB24_37;
+// %bb.42:
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+48], %rd46;
 	cvta.global.u64 	%rd58, %rd47;
 	add.s64 	%rd59, %rd58, 1536;
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread9WARP_DATA+48], %rd59;
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+24], 5;
 	setp.eq.b32 	%p19, %r8, 7;
-	@%p19 bra 	$L__BB24_38;
-// %bb.44:
+	@%p19 bra 	$L__BB24_37;
+// %bb.43:
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+56], %rd46;
 	cvta.global.u64 	%rd60, %rd47;
 	add.s64 	%rd61, %rd60, 1792;
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread9WARP_DATA+56], %rd61;
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+28], 5;
 	setp.eq.b32 	%p20, %r8, 8;
-	@%p20 bra 	$L__BB24_38;
-// %bb.45:
+	@%p20 bra 	$L__BB24_37;
+// %bb.44:
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+64], %rd46;
 	cvta.global.u64 	%rd62, %rd47;
 	add.s64 	%rd63, %rd62, 2048;
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread9WARP_DATA+64], %rd63;
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+32], 5;
 	setp.eq.b32 	%p21, %r8, 9;
-	@%p21 bra 	$L__BB24_38;
-// %bb.46:                              // %.preheader20.2
+	@%p21 bra 	$L__BB24_37;
+// %bb.45:                              // %.preheader20.2
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+72], %rd46;
 	cvta.global.u64 	%rd64, %rd47;
 	add.s64 	%rd65, %rd64, 2304;
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread9WARP_DATA+72], %rd65;
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+36], 5;
 	setp.eq.b32 	%p22, %r8, 10;
-	@%p22 bra 	$L__BB24_38;
-// %bb.47:
+	@%p22 bra 	$L__BB24_37;
+// %bb.46:
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+80], %rd46;
 	cvta.global.u64 	%rd66, %rd47;
 	add.s64 	%rd67, %rd66, 2560;
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread9WARP_DATA+80], %rd67;
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+40], 5;
 	setp.eq.b32 	%p23, %r8, 11;
-	@%p23 bra 	$L__BB24_38;
-// %bb.48:
+	@%p23 bra 	$L__BB24_37;
+// %bb.47:
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+88], %rd46;
 	cvta.global.u64 	%rd68, %rd47;
 	add.s64 	%rd69, %rd68, 2816;
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread9WARP_DATA+88], %rd69;
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+44], 5;
 	setp.eq.b32 	%p24, %r8, 12;
-	@%p24 bra 	$L__BB24_38;
-// %bb.49:
+	@%p24 bra 	$L__BB24_37;
+// %bb.48:
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+96], %rd46;
 	cvta.global.u64 	%rd70, %rd47;
 	add.s64 	%rd71, %rd70, 3072;
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread9WARP_DATA+96], %rd71;
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+48], 5;
 	setp.eq.b32 	%p25, %r8, 13;
-	@%p25 bra 	$L__BB24_38;
-// %bb.50:                              // %.preheader20.3
+	@%p25 bra 	$L__BB24_37;
+// %bb.49:                              // %.preheader20.3
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+104], %rd46;
 	cvta.global.u64 	%rd72, %rd47;
 	add.s64 	%rd73, %rd72, 3328;
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread9WARP_DATA+104], %rd73;
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+52], 5;
 	setp.eq.b32 	%p26, %r8, 14;
-	@%p26 bra 	$L__BB24_38;
-// %bb.51:
+	@%p26 bra 	$L__BB24_37;
+// %bb.50:
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+112], %rd46;
 	cvta.global.u64 	%rd74, %rd47;
 	add.s64 	%rd75, %rd74, 3584;
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread9WARP_DATA+112], %rd75;
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+56], 5;
 	setp.eq.b32 	%p27, %r8, 15;
-	@%p27 bra 	$L__BB24_38;
-// %bb.52:
+	@%p27 bra 	$L__BB24_37;
+// %bb.51:
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+120], %rd46;
 	cvta.global.u64 	%rd76, %rd47;
 	add.s64 	%rd77, %rd76, 3840;
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread9WARP_DATA+120], %rd77;
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+60], 5;
 	setp.eq.b32 	%p28, %r8, 16;
-	@%p28 bra 	$L__BB24_38;
-// %bb.53:
+	@%p28 bra 	$L__BB24_37;
+// %bb.52:
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+128], %rd46;
 	cvta.global.u64 	%rd78, %rd47;
 	add.s64 	%rd79, %rd78, 4096;
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread9WARP_DATA+128], %rd79;
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+64], 5;
 	setp.eq.b32 	%p29, %r8, 17;
-	@%p29 bra 	$L__BB24_38;
-// %bb.54:                              // %.preheader20.4
+	@%p29 bra 	$L__BB24_37;
+// %bb.53:                              // %.preheader20.4
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+136], %rd46;
 	cvta.global.u64 	%rd80, %rd47;
 	add.s64 	%rd81, %rd80, 4352;
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread9WARP_DATA+136], %rd81;
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+68], 5;
 	setp.eq.b32 	%p30, %r8, 18;
-	@%p30 bra 	$L__BB24_38;
-// %bb.55:
+	@%p30 bra 	$L__BB24_37;
+// %bb.54:
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+144], %rd46;
 	cvta.global.u64 	%rd82, %rd47;
 	add.s64 	%rd83, %rd82, 4608;
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread9WARP_DATA+144], %rd83;
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+72], 5;
 	setp.eq.b32 	%p31, %r8, 19;
-	@%p31 bra 	$L__BB24_38;
-// %bb.56:
+	@%p31 bra 	$L__BB24_37;
+// %bb.55:
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+152], %rd46;
 	cvta.global.u64 	%rd84, %rd47;
 	add.s64 	%rd85, %rd84, 4864;
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread9WARP_DATA+152], %rd85;
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+76], 5;
 	setp.eq.b32 	%p32, %r8, 20;
-	@%p32 bra 	$L__BB24_38;
-// %bb.57:
+	@%p32 bra 	$L__BB24_37;
+// %bb.56:
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+160], %rd46;
 	cvta.global.u64 	%rd86, %rd47;
 	add.s64 	%rd87, %rd86, 5120;
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread9WARP_DATA+160], %rd87;
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+80], 5;
 	setp.eq.b32 	%p33, %r8, 21;
-	@%p33 bra 	$L__BB24_38;
-// %bb.58:                              // %.preheader20.5
+	@%p33 bra 	$L__BB24_37;
+// %bb.57:                              // %.preheader20.5
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+168], %rd46;
 	cvta.global.u64 	%rd88, %rd47;
 	add.s64 	%rd89, %rd88, 5376;
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread9WARP_DATA+168], %rd89;
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+84], 5;
 	setp.eq.b32 	%p34, %r8, 22;
-	@%p34 bra 	$L__BB24_38;
-// %bb.59:
+	@%p34 bra 	$L__BB24_37;
+// %bb.58:
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+176], %rd46;
 	cvta.global.u64 	%rd90, %rd47;
 	add.s64 	%rd91, %rd90, 5632;
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread9WARP_DATA+176], %rd91;
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+88], 5;
 	setp.eq.b32 	%p35, %r8, 23;
-	@%p35 bra 	$L__BB24_38;
-// %bb.60:
+	@%p35 bra 	$L__BB24_37;
+// %bb.59:
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+184], %rd46;
 	cvta.global.u64 	%rd92, %rd47;
 	add.s64 	%rd93, %rd92, 5888;
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread9WARP_DATA+184], %rd93;
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+92], 5;
 	setp.eq.b32 	%p36, %r8, 24;
-	@%p36 bra 	$L__BB24_38;
-// %bb.61:
+	@%p36 bra 	$L__BB24_37;
+// %bb.60:
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+192], %rd46;
 	cvta.global.u64 	%rd94, %rd47;
 	add.s64 	%rd95, %rd94, 6144;
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread9WARP_DATA+192], %rd95;
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+96], 5;
 	setp.eq.b32 	%p37, %r8, 25;
-	@%p37 bra 	$L__BB24_38;
-// %bb.62:                              // %.preheader20.6
+	@%p37 bra 	$L__BB24_37;
+// %bb.61:                              // %.preheader20.6
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+200], %rd46;
 	cvta.global.u64 	%rd96, %rd47;
 	add.s64 	%rd97, %rd96, 6400;
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread9WARP_DATA+200], %rd97;
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+100], 5;
 	setp.eq.b32 	%p38, %r8, 26;
-	@%p38 bra 	$L__BB24_38;
-// %bb.63:
+	@%p38 bra 	$L__BB24_37;
+// %bb.62:
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+208], %rd46;
 	cvta.global.u64 	%rd98, %rd47;
 	add.s64 	%rd99, %rd98, 6656;
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread9WARP_DATA+208], %rd99;
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+104], 5;
 	setp.eq.b32 	%p39, %r8, 27;
-	@%p39 bra 	$L__BB24_38;
-// %bb.64:
+	@%p39 bra 	$L__BB24_37;
+// %bb.63:
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+216], %rd46;
 	cvta.global.u64 	%rd100, %rd47;
 	add.s64 	%rd101, %rd100, 6912;
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread9WARP_DATA+216], %rd101;
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+108], 5;
 	setp.eq.b32 	%p40, %r8, 28;
-	@%p40 bra 	$L__BB24_38;
-// %bb.65:
+	@%p40 bra 	$L__BB24_37;
+// %bb.64:
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+224], %rd46;
 	cvta.global.u64 	%rd102, %rd47;
 	add.s64 	%rd103, %rd102, 7168;
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread9WARP_DATA+224], %rd103;
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+112], 5;
 	setp.eq.b32 	%p41, %r8, 29;
-	@%p41 bra 	$L__BB24_38;
-// %bb.66:                              // %.preheader20.7
+	@%p41 bra 	$L__BB24_37;
+// %bb.65:                              // %.preheader20.7
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+232], %rd46;
 	cvta.global.u64 	%rd104, %rd47;
 	add.s64 	%rd105, %rd104, 7424;
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread9WARP_DATA+232], %rd105;
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+116], 5;
 	setp.eq.b32 	%p42, %r8, 30;
-	@%p42 bra 	$L__BB24_38;
-// %bb.67:
+	@%p42 bra 	$L__BB24_37;
+// %bb.66:
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+240], %rd46;
 	cvta.global.u64 	%rd106, %rd47;
 	add.s64 	%rd107, %rd106, 7680;
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread9WARP_DATA+240], %rd107;
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+120], 5;
 	setp.eq.b32 	%p43, %r8, 31;
-	@%p43 bra 	$L__BB24_38;
-// %bb.68:
+	@%p43 bra 	$L__BB24_37;
+// %bb.67:
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN+248], %rd46;
 	cvta.global.u64 	%rd108, %rd47;
 	add.s64 	%rd109, %rd108, 7936;
 	st.relaxed.sys.global.b64 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread9WARP_DATA+248], %rd109;
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+124], 5;
 	setp.eq.b32 	%p44, %r8, 32;
-	@%p44 bra 	$L__BB24_38;
-	bra.uni 	$L__BB24_69;
-$L__BB24_38:
+	@%p44 bra 	$L__BB24_37;
+	bra.uni 	$L__BB24_68;
+$L__BB24_37:
 	st.relaxed.sys.global.b32 	[_RNvNtCsBpySzkf4zz_10gpu_kernel11thread_test11COOP_RESULT], 100;
 $L__BB24_15:                            // %.preheader32
 	max.u64 	%rd112, %rd4, 2;
@@ -5184,23 +5186,23 @@ $L__BB24_15:                            // %.preheader32
 	add.s64 	%rd113, %rd112, -2;
 	and.b64 	%rd6, %rd5, 3;
 	setp.lt.u64 	%p45, %rd113, 3;
-	mov.b64 	%rd143, 1;
-	mov.b64 	%rd142, 2;
+	mov.b64 	%rd142, 1;
+	mov.b64 	%rd141, 2;
 	@%p45 bra 	$L__BB24_27;
 // %bb.16:                              // %.preheader32.new
 	and.b64 	%rd7, %rd5, -4;
-	mov.b64 	%rd141, 0;
-	mov.b64 	%rd143, 1;
-	mov.b64 	%rd142, 2;
+	mov.b64 	%rd140, 0;
+	mov.b64 	%rd142, 1;
+	mov.b64 	%rd141, 2;
 	bra.uni 	$L__BB24_17;
 $L__BB24_25:                            // %.loopexit18.3
                                         //   in Loop: Header=BB24_17 Depth=1
 	st.release.sys.global.b32 	[%rd15], 0;
-	setp.lt.u64 	%p57, %rd143, %rd4;
+	setp.lt.u64 	%p57, %rd142, %rd4;
 	selp.b64 	%rd119, 1, 0, %p57;
-	add.s64 	%rd142, %rd143, %rd119;
-	add.s64 	%rd141, %rd141, 4;
-	setp.ne.b64 	%p58, %rd141, %rd7;
+	add.s64 	%rd141, %rd142, %rd119;
+	add.s64 	%rd140, %rd140, 4;
+	setp.ne.b64 	%p58, %rd140, %rd7;
 	@%p58 bra 	$L__BB24_17;
 	bra.uni 	$L__BB24_26;
 $L__BB24_17:                            // =>This Loop Header: Depth=1
@@ -5208,8 +5210,8 @@ $L__BB24_17:                            // =>This Loop Header: Depth=1
                                         //     Child Loop BB24_20 Depth 2
                                         //     Child Loop BB24_22 Depth 2
                                         //     Child Loop BB24_24 Depth 2
-	shl.b64 	%rd114, %rd143, 2;
-	add.s64 	%rd8, %rd147, %rd114;
+	shl.b64 	%rd114, %rd142, 2;
+	add.s64 	%rd8, %rd146, %rd114;
 	ld.acquire.sys.global.b32 	%r9, [%rd8];
 	setp.eq.b32 	%p46, %r9, 3;
 	@%p46 bra 	$L__BB24_19;
@@ -5225,11 +5227,11 @@ $L__BB24_18:                            // %.preheader
 $L__BB24_19:                            // %.loopexit18
                                         //   in Loop: Header=BB24_17 Depth=1
 	st.release.sys.global.b32 	[%rd8], 0;
-	setp.lt.u64 	%p48, %rd142, %rd4;
+	setp.lt.u64 	%p48, %rd141, %rd4;
 	selp.b64 	%rd9, 1, 0, %p48;
-	add.s64 	%rd10, %rd142, %rd9;
-	shl.b64 	%rd115, %rd142, 2;
-	add.s64 	%rd11, %rd147, %rd115;
+	add.s64 	%rd10, %rd141, %rd9;
+	shl.b64 	%rd115, %rd141, 2;
+	add.s64 	%rd11, %rd146, %rd115;
 	ld.acquire.sys.global.b32 	%r11, [%rd11];
 	setp.eq.b32 	%p49, %r11, 3;
 	@%p49 bra 	$L__BB24_21;
@@ -5267,7 +5269,7 @@ $L__BB24_23:                            // %.loopexit18.2
 	st.release.sys.global.b32 	[%rd14], 0;
 	setp.lt.u64 	%p54, %rd13, %rd4;
 	selp.b64 	%rd117, 1, 0, %p54;
-	add.s64 	%rd143, %rd13, %rd117;
+	add.s64 	%rd142, %rd13, %rd117;
 	shl.b64 	%rd118, %rd12, 2;
 	add.s64 	%rd15, %rd14, %rd118;
 	ld.acquire.sys.global.b32 	%r15, [%rd15];
@@ -5287,25 +5289,25 @@ $L__BB24_26:                            // %.loopexit19.loopexit.unr-lcssa
 	setp.eq.b64 	%p59, %rd6, 0;
 	@%p59 bra 	$L__BB24_31;
 $L__BB24_27:                            // %.epil.preheader
-	mov.b64 	%rd144, 0;
+	mov.b64 	%rd143, 0;
 	bra.uni 	$L__BB24_28;
 $L__BB24_30:                            // %.loopexit18.epil
                                         //   in Loop: Header=BB24_28 Depth=1
 	st.release.sys.global.b32 	[%rd17], 0;
 	setp.lt.u64 	%p62, %rd16, %rd4;
 	selp.b64 	%rd121, 1, 0, %p62;
-	add.s64 	%rd142, %rd16, %rd121;
-	add.s64 	%rd144, %rd144, 1;
-	setp.ne.b64 	%p63, %rd144, %rd6;
-	mov.b64 	%rd143, %rd16;
+	add.s64 	%rd141, %rd16, %rd121;
+	add.s64 	%rd143, %rd143, 1;
+	setp.ne.b64 	%p63, %rd143, %rd6;
+	mov.b64 	%rd142, %rd16;
 	@%p63 bra 	$L__BB24_28;
 	bra.uni 	$L__BB24_31;
 $L__BB24_28:                            // =>This Loop Header: Depth=1
                                         //     Child Loop BB24_29 Depth 2
 	.pragma "nounroll";
-	mov.b64 	%rd16, %rd142;
-	shl.b64 	%rd120, %rd143, 2;
-	add.s64 	%rd17, %rd147, %rd120;
+	mov.b64 	%rd16, %rd141;
+	shl.b64 	%rd120, %rd142, 2;
+	add.s64 	%rd17, %rd146, %rd120;
 	ld.acquire.sys.global.b32 	%r17, [%rd17];
 	setp.eq.b32 	%p60, %r17, 3;
 	@%p60 bra 	$L__BB24_30;
@@ -5320,8 +5322,15 @@ $L__BB24_29:                            // %.preheader.epil
 	@%p61 bra 	$L__BB24_29;
 	bra.uni 	$L__BB24_30;
 $L__BB24_31:                            // %.loopexit19
-	@%p69 bra 	$L__BB24_33;
-// %bb.32:
+	@%p69 bra 	$L__BB24_79;
+	bra.uni 	$L__BB24_32;
+$L__BB24_79:                            // %.loopexit
+	// begin inline asm
+	bar.sync 0;
+	// end inline asm
+$L__BB24_80:
+	ret;
+$L__BB24_32:
 	ld.relaxed.sys.global.b32 	%r19, [_RNvNtCsBpySzkf4zz_10gpu_kernel11thread_test11COOP_RESULT];
 	st.volatile.global.b32 	[%rd1], %r19;
 	ld.relaxed.sys.global.b32 	%r20, [_RNvNtCsBpySzkf4zz_10gpu_kernel11thread_test11COOP_RESULT+4];
@@ -5330,59 +5339,51 @@ $L__BB24_31:                            // %.loopexit19
 	st.volatile.global.b32 	[%rd1+8], %r21;
 	ld.relaxed.sys.global.b32 	%r22, [_RNvNtCsBpySzkf4zz_10gpu_kernel11thread_test11COOP_RESULT+12];
 	st.volatile.global.b32 	[%rd1+12], %r22;
-$L__BB24_33:
 	cvt.u64.u32 	%rd122, %r3;
-	add.s64 	%rd145, %rd122, -1;
-	mov.b64 	%rd146, 1;
-$L__BB24_34:                            // =>This Inner Loop Header: Depth=1
-	cvta.global.u64 	%rd21, %rd147;
+	add.s64 	%rd144, %rd122, -1;
+	mov.b64 	%rd145, 1;
+$L__BB24_33:                            // =>This Inner Loop Header: Depth=1
+	cvta.global.u64 	%rd21, %rd146;
 	mov.b64 	%rd123, 0;
-	cvta.to.global.u64 	%rd149, %rd123;
-	setp.eq.b64 	%p64, %rd145, 0;
-	mov.b64 	%rd148, %rd123;
-	@%p64 bra 	$L__BB24_78;
-// %bb.35:                              //   in Loop: Header=BB24_34 Depth=1
-	add.s64 	%rd148, %rd145, -1;
-	setp.ne.b64 	%p65, %rd146, 0;
-	@%p65 bra 	$L__BB24_77;
-// %bb.36:                              //   in Loop: Header=BB24_34 Depth=1
-	mov.b64 	%rd131, _RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS;
-	add.s64 	%rd132, %rd131, 128;
-	setp.eq.b64 	%p67, %rd147, %rd132;
-	add.s64 	%rd133, %rd147, 4;
-	selp.b64 	%rd22, %rd132, %rd133, %p67;
-	mov.b64 	%rd146, 0;
-	cvta.to.global.u64 	%rd134, %rd146;
-	selp.b64 	%rd149, %rd134, %rd147, %p67;
-	mov.b64 	%rd147, %rd22;
-	bra.uni 	$L__BB24_78;
-$L__BB24_77:                            //   in Loop: Header=BB24_34 Depth=1
+	cvta.to.global.u64 	%rd148, %rd123;
+	setp.eq.b64 	%p64, %rd144, 0;
+	mov.b64 	%rd147, %rd123;
+	@%p64 bra 	$L__BB24_77;
+// %bb.34:                              //   in Loop: Header=BB24_33 Depth=1
+	add.s64 	%rd147, %rd144, -1;
+	setp.ne.b64 	%p65, %rd145, 0;
+	add.s64 	%rd134, %rd146, 4;
+	@%p65 bra 	$L__BB24_76;
+// %bb.35:                              //   in Loop: Header=BB24_33 Depth=1
+	mov.b64 	%rd130, _RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS;
+	add.s64 	%rd131, %rd130, 128;
+	setp.eq.b64 	%p67, %rd146, %rd131;
+	selp.b64 	%rd22, %rd131, %rd134, %p67;
+	mov.b64 	%rd145, 0;
+	cvta.to.global.u64 	%rd132, %rd145;
+	selp.b64 	%rd148, %rd132, %rd146, %p67;
+	mov.b64 	%rd146, %rd22;
+	bra.uni 	$L__BB24_77;
+$L__BB24_76:                            //   in Loop: Header=BB24_33 Depth=1
 	mov.b64 	%rd124, _RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS;
 	add.s64 	%rd125, %rd124, 128;
 	cvta.global.u64 	%rd126, %rd125;
 	sub.s64 	%rd127, %rd126, %rd21;
 	setp.gt.u64 	%p66, %rd127, 4;
-	add.s64 	%rd128, %rd147, 4;
-	add.s64 	%rd129, %rd147, 8;
-	selp.b64 	%rd147, %rd129, %rd125, %p66;
-	mov.b64 	%rd146, 0;
-	cvta.to.global.u64 	%rd130, %rd146;
-	selp.b64 	%rd149, %rd128, %rd130, %p66;
-$L__BB24_78:                            //   in Loop: Header=BB24_34 Depth=1
-	cvta.to.global.u64 	%rd135, %rd123;
-	setp.eq.b64 	%p68, %rd149, %rd135;
-	@%p68 bra 	$L__BB24_80;
-// %bb.79:                              //   in Loop: Header=BB24_34 Depth=1
-	st.release.sys.global.b32 	[%rd149], 4;
-	mov.b64 	%rd145, %rd148;
-	bra.uni 	$L__BB24_34;
-$L__BB24_80:                            // %.loopexit
-	// begin inline asm
-	bar.sync 0;
-	// end inline asm
-$L__BB24_81:
-	ret;
-$L__BB24_69:
+	add.s64 	%rd128, %rd146, 8;
+	selp.b64 	%rd146, %rd128, %rd125, %p66;
+	mov.b64 	%rd145, 0;
+	cvta.to.global.u64 	%rd129, %rd145;
+	selp.b64 	%rd148, %rd134, %rd129, %p66;
+$L__BB24_77:                            //   in Loop: Header=BB24_33 Depth=1
+	cvta.to.global.u64 	%rd133, %rd123;
+	setp.eq.b64 	%p68, %rd148, %rd133;
+	@%p68 bra 	$L__BB24_79;
+// %bb.78:                              //   in Loop: Header=BB24_33 Depth=1
+	st.release.sys.global.b32 	[%rd148], 4;
+	mov.b64 	%rd144, %rd147;
+	bra.uni 	$L__BB24_33;
+$L__BB24_68:
 	{ // callseq 60, 0
 	.param .b64 	param0;
 	.param .b64 	param1;
@@ -9273,7 +9274,7 @@ nanosleep.u32 64;
 	mov.u32 	%r8, %ntid.x;
 	shr.u32 	%r3, %r8, 5;
 	setp.eq.b32 	%p1, %r3, 0;
-	@%p1 bra 	$L__BB58_100;
+	@%p1 bra 	$L__BB58_99;
 // %bb.1:
 	mov.u32 	%r1, %tid.x;
 	shr.u32 	%r2, %r1, 5;
@@ -9287,9 +9288,9 @@ $L__BB58_2:                             // %.loopexit15
 	// end inline asm
 	mov.b64 	%rd57, _RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN;
 	mov.b64 	%rd58, _RNvNtCshwPOwPqx8fG_11gpu_runtime6thread9WARP_DATA;
-	@%p8 bra 	$L__BB58_88;
+	@%p8 bra 	$L__BB58_87;
 	bra.uni 	$L__BB58_3;
-$L__BB58_88:
+$L__BB58_87:
 	mul.wide.u32 	%rd25, %r2, 4;
 	add.s64 	%rd7, %rd69, %rd25;
 	and.b32 	%r7, %r1, 31;
@@ -9297,11 +9298,11 @@ $L__BB58_88:
 	add.s64 	%rd8, %rd57, %rd26;
 	add.s64 	%rd9, %rd58, %rd26;
 	setp.ne.b32 	%p12, %r7, 0;
-	bra.uni 	$L__BB58_89;
-$L__BB58_93:                            //   in Loop: Header=BB58_89 Depth=1
-	@%p12 bra 	$L__BB58_95;
-	bra.uni 	$L__BB58_94;
-$L__BB58_95:                            //   in Loop: Header=BB58_89 Depth=1
+	bra.uni 	$L__BB58_88;
+$L__BB58_92:                            //   in Loop: Header=BB58_88 Depth=1
+	@%p12 bra 	$L__BB58_94;
+	bra.uni 	$L__BB58_93;
+$L__BB58_94:                            //   in Loop: Header=BB58_88 Depth=1
 	ld.acquire.sys.global.b64 	%rd27, [%rd8];
 	ld.acquire.sys.global.b64 	%rd28, [%rd9];
 	{ // callseq 72, 0
@@ -9310,22 +9311,22 @@ $L__BB58_95:                            //   in Loop: Header=BB58_89 Depth=1
 	prototype_72 : .callprototype ()_ (.param .b64 _);
 	call %rd27, (param0), prototype_72;
 	} // callseq 72
-$L__BB58_89:                            // =>This Inner Loop Header: Depth=1
+$L__BB58_88:                            // =>This Inner Loop Header: Depth=1
 	ld.acquire.sys.global.b32 	%r9, [%rd7];
 	setp.eq.b32 	%p9, %r9, 1;
-	@%p9 bra 	$L__BB58_93;
-// %bb.90:                              //   in Loop: Header=BB58_89 Depth=1
+	@%p9 bra 	$L__BB58_92;
+// %bb.89:                              //   in Loop: Header=BB58_88 Depth=1
 	setp.eq.b32 	%p10, %r9, 5;
-	@%p10 bra 	$L__BB58_93;
-// %bb.91:                              //   in Loop: Header=BB58_89 Depth=1
+	@%p10 bra 	$L__BB58_92;
+// %bb.90:                              //   in Loop: Header=BB58_88 Depth=1
 	setp.eq.b32 	%p11, %r9, 4;
-	@%p11 bra 	$L__BB58_99;
-// %bb.92:                              //   in Loop: Header=BB58_89 Depth=1
+	@%p11 bra 	$L__BB58_98;
+// %bb.91:                              //   in Loop: Header=BB58_88 Depth=1
 	// begin inline asm
 	nanosleep.u32 100;
 	// end inline asm
-	bra.uni 	$L__BB58_89;
-$L__BB58_94:                            //   in Loop: Header=BB58_89 Depth=1
+	bra.uni 	$L__BB58_88;
+$L__BB58_93:                            //   in Loop: Header=BB58_88 Depth=1
 	st.release.sys.global.b32 	[%rd7], 2;
 	ld.acquire.sys.global.b64 	%rd29, [%rd8];
 	ld.acquire.sys.global.b64 	%rd30, [%rd9];
@@ -9336,7 +9337,7 @@ $L__BB58_94:                            //   in Loop: Header=BB58_89 Depth=1
 	call %rd29, (param0), prototype_73;
 	} // callseq 73
 	st.release.sys.global.b32 	[%rd7], 3;
-	bra.uni 	$L__BB58_89;
+	bra.uni 	$L__BB58_88;
 $L__BB58_5:
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread9NUM_WARPS_$_0], %r3;
 	cvt.u64.u32 	%rd13, %r3;
@@ -9705,26 +9706,32 @@ $L__BB58_80:                            //   in Loop: Header=BB58_4 Depth=1
 	bra.uni 	$L__BB58_81;
 $L__BB58_82:
 	setp.ne.b32 	%p79, %r1, 0;
-	@%p79 bra 	$L__BB58_84;
-// %bb.83:
+	@%p79 bra 	$L__BB58_98;
+	bra.uni 	$L__BB58_83;
+$L__BB58_98:                            // %.loopexit
+	// begin inline asm
+	bar.sync 0;
+	// end inline asm
+$L__BB58_99:
+	ret;
+$L__BB58_83:
 	st.volatile.global.b32 	[%rd1+16], %r45;
-$L__BB58_84:
 	cvt.u64.u32 	%rd45, %r3;
 	add.s64 	%rd67, %rd45, -1;
 	mov.b64 	%rd68, 1;
-$L__BB58_85:                            // =>This Inner Loop Header: Depth=1
+$L__BB58_84:                            // =>This Inner Loop Header: Depth=1
 	cvta.global.u64 	%rd10, %rd69;
 	mov.b64 	%rd46, 0;
 	cvta.to.global.u64 	%rd71, %rd46;
 	setp.eq.b64 	%p80, %rd67, 0;
 	mov.b64 	%rd70, %rd46;
-	@%p80 bra 	$L__BB58_97;
-// %bb.86:                              //   in Loop: Header=BB58_85 Depth=1
+	@%p80 bra 	$L__BB58_96;
+// %bb.85:                              //   in Loop: Header=BB58_84 Depth=1
 	add.s64 	%rd70, %rd67, -1;
 	setp.ne.b64 	%p81, %rd68, 0;
 	add.s64 	%rd59, %rd69, 4;
-	@%p81 bra 	$L__BB58_96;
-// %bb.87:                              //   in Loop: Header=BB58_85 Depth=1
+	@%p81 bra 	$L__BB58_95;
+// %bb.86:                              //   in Loop: Header=BB58_84 Depth=1
 	mov.b64 	%rd53, _RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS;
 	add.s64 	%rd54, %rd53, 128;
 	setp.eq.b64 	%p83, %rd69, %rd54;
@@ -9733,8 +9740,8 @@ $L__BB58_85:                            // =>This Inner Loop Header: Depth=1
 	cvta.to.global.u64 	%rd55, %rd68;
 	selp.b64 	%rd71, %rd55, %rd69, %p83;
 	mov.b64 	%rd69, %rd11;
-	bra.uni 	$L__BB58_97;
-$L__BB58_96:                            //   in Loop: Header=BB58_85 Depth=1
+	bra.uni 	$L__BB58_96;
+$L__BB58_95:                            //   in Loop: Header=BB58_84 Depth=1
 	mov.b64 	%rd47, _RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS;
 	add.s64 	%rd48, %rd47, 128;
 	cvta.global.u64 	%rd49, %rd48;
@@ -9745,20 +9752,14 @@ $L__BB58_96:                            //   in Loop: Header=BB58_85 Depth=1
 	mov.b64 	%rd68, 0;
 	cvta.to.global.u64 	%rd52, %rd68;
 	selp.b64 	%rd71, %rd59, %rd52, %p82;
-$L__BB58_97:                            //   in Loop: Header=BB58_85 Depth=1
+$L__BB58_96:                            //   in Loop: Header=BB58_84 Depth=1
 	cvta.to.global.u64 	%rd56, %rd46;
 	setp.eq.b64 	%p84, %rd71, %rd56;
-	@%p84 bra 	$L__BB58_99;
-// %bb.98:                              //   in Loop: Header=BB58_85 Depth=1
+	@%p84 bra 	$L__BB58_98;
+// %bb.97:                              //   in Loop: Header=BB58_84 Depth=1
 	st.release.sys.global.b32 	[%rd71], 4;
 	mov.b64 	%rd67, %rd70;
-	bra.uni 	$L__BB58_85;
-$L__BB58_99:                            // %.loopexit
-	// begin inline asm
-	bar.sync 0;
-	// end inline asm
-$L__BB58_100:
-	ret;
+	bra.uni 	$L__BB58_84;
 $L__BB58_76:
 	{ // callseq 74, 0
 	.param .b64 	param0;
@@ -9811,43 +9812,43 @@ $L__BB59_2:
 )                                       // @thread_spawn_test
 {
 	.reg .pred 	%p<149>;
-	.reg .b32 	%r<79>;
-	.reg .b64 	%rd<91>;
+	.reg .b32 	%r<78>;
+	.reg .b64 	%rd<90>;
 
 // %bb.0:
 	ld.param.b64 	%rd14, [thread_spawn_test_param_0];
 	cvta.to.global.u64 	%rd1, %rd14;
-	mov.u32 	%r10, %ntid.x;
-	shr.u32 	%r3, %r10, 5;
+	mov.u32 	%r9, %ntid.x;
+	shr.u32 	%r3, %r9, 5;
 	setp.eq.b32 	%p1, %r3, 0;
-	@%p1 bra 	$L__BB60_164;
+	@%p1 bra 	$L__BB60_163;
 // %bb.1:
 	mov.u32 	%r1, %tid.x;
 	shr.u32 	%r2, %r1, 5;
 	setp.eq.b32 	%p2, %r1, 0;
 	@%p2 bra 	$L__BB60_4;
 $L__BB60_2:                             // %.loopexit15
-	mov.b64 	%rd88, _RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS;
+	mov.b64 	%rd87, _RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS;
 	setp.eq.b32 	%p8, %r2, 0;
 	// begin inline asm
 	bar.sync 0;
 	// end inline asm
 	@%p8 bra 	$L__BB60_3;
-// %bb.152:
+// %bb.151:
 	mul.wide.u32 	%rd29, %r2, 4;
-	add.s64 	%rd9, %rd88, %rd29;
-	and.b32 	%r9, %r1, 31;
+	add.s64 	%rd9, %rd87, %rd29;
+	and.b32 	%r8, %r1, 31;
 	mul.wide.u32 	%rd30, %r2, 8;
 	mov.b64 	%rd31, _RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN;
 	add.s64 	%rd10, %rd31, %rd30;
 	mov.b64 	%rd32, _RNvNtCshwPOwPqx8fG_11gpu_runtime6thread9WARP_DATA;
 	add.s64 	%rd11, %rd32, %rd30;
-	setp.ne.b32 	%p12, %r9, 0;
-	bra.uni 	$L__BB60_153;
-$L__BB60_157:                           //   in Loop: Header=BB60_153 Depth=1
-	@%p12 bra 	$L__BB60_159;
-	bra.uni 	$L__BB60_158;
-$L__BB60_159:                           //   in Loop: Header=BB60_153 Depth=1
+	setp.ne.b32 	%p12, %r8, 0;
+	bra.uni 	$L__BB60_152;
+$L__BB60_156:                           //   in Loop: Header=BB60_152 Depth=1
+	@%p12 bra 	$L__BB60_158;
+	bra.uni 	$L__BB60_157;
+$L__BB60_158:                           //   in Loop: Header=BB60_152 Depth=1
 	ld.acquire.sys.global.b64 	%rd33, [%rd10];
 	ld.acquire.sys.global.b64 	%rd34, [%rd11];
 	{ // callseq 75, 0
@@ -9856,22 +9857,22 @@ $L__BB60_159:                           //   in Loop: Header=BB60_153 Depth=1
 	prototype_75 : .callprototype ()_ (.param .b64 _);
 	call %rd33, (param0), prototype_75;
 	} // callseq 75
-$L__BB60_153:                           // =>This Inner Loop Header: Depth=1
-	ld.acquire.sys.global.b32 	%r11, [%rd9];
-	setp.eq.b32 	%p9, %r11, 1;
-	@%p9 bra 	$L__BB60_157;
-// %bb.154:                             //   in Loop: Header=BB60_153 Depth=1
-	setp.eq.b32 	%p10, %r11, 5;
-	@%p10 bra 	$L__BB60_157;
-// %bb.155:                             //   in Loop: Header=BB60_153 Depth=1
-	setp.eq.b32 	%p11, %r11, 4;
-	@%p11 bra 	$L__BB60_163;
-// %bb.156:                             //   in Loop: Header=BB60_153 Depth=1
+$L__BB60_152:                           // =>This Inner Loop Header: Depth=1
+	ld.acquire.sys.global.b32 	%r10, [%rd9];
+	setp.eq.b32 	%p9, %r10, 1;
+	@%p9 bra 	$L__BB60_156;
+// %bb.153:                             //   in Loop: Header=BB60_152 Depth=1
+	setp.eq.b32 	%p10, %r10, 5;
+	@%p10 bra 	$L__BB60_156;
+// %bb.154:                             //   in Loop: Header=BB60_152 Depth=1
+	setp.eq.b32 	%p11, %r10, 4;
+	@%p11 bra 	$L__BB60_162;
+// %bb.155:                             //   in Loop: Header=BB60_152 Depth=1
 	// begin inline asm
 	nanosleep.u32 100;
 	// end inline asm
-	bra.uni 	$L__BB60_153;
-$L__BB60_158:                           //   in Loop: Header=BB60_153 Depth=1
+	bra.uni 	$L__BB60_152;
+$L__BB60_157:                           //   in Loop: Header=BB60_152 Depth=1
 	st.release.sys.global.b32 	[%rd9], 2;
 	ld.acquire.sys.global.b64 	%rd35, [%rd10];
 	ld.acquire.sys.global.b64 	%rd36, [%rd11];
@@ -9882,34 +9883,34 @@ $L__BB60_158:                           //   in Loop: Header=BB60_153 Depth=1
 	call %rd35, (param0), prototype_76;
 	} // callseq 76
 	st.release.sys.global.b32 	[%rd9], 3;
-	bra.uni 	$L__BB60_153;
+	bra.uni 	$L__BB60_152;
 $L__BB60_4:
 	st.release.sys.global.b32 	[_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread9NUM_WARPS_$_0], %r3;
 	cvt.u64.u32 	%rd15, %r3;
-	add.s64 	%rd79, %rd15, -1;
-	mov.b64 	%rd82, _RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS;
-	mov.b64 	%rd81, 1;
+	add.s64 	%rd78, %rd15, -1;
+	mov.b64 	%rd81, _RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS;
+	mov.b64 	%rd80, 1;
 $L__BB60_5:                             // =>This Inner Loop Header: Depth=1
-	cvta.global.u64 	%rd2, %rd82;
+	cvta.global.u64 	%rd2, %rd81;
 	mov.b64 	%rd16, 0;
-	cvta.to.global.u64 	%rd83, %rd16;
-	setp.eq.b64 	%p3, %rd79, 0;
-	mov.b64 	%rd80, %rd16;
+	cvta.to.global.u64 	%rd82, %rd16;
+	setp.eq.b64 	%p3, %rd78, 0;
+	mov.b64 	%rd79, %rd16;
 	@%p3 bra 	$L__BB60_9;
 // %bb.6:                               //   in Loop: Header=BB60_5 Depth=1
-	add.s64 	%rd80, %rd79, -1;
-	setp.ne.b64 	%p4, %rd81, 0;
+	add.s64 	%rd79, %rd78, -1;
+	setp.ne.b64 	%p4, %rd80, 0;
 	@%p4 bra 	$L__BB60_8;
 // %bb.7:                               //   in Loop: Header=BB60_5 Depth=1
 	mov.b64 	%rd24, _RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS;
 	add.s64 	%rd25, %rd24, 128;
-	setp.eq.b64 	%p6, %rd82, %rd25;
-	add.s64 	%rd26, %rd82, 4;
+	setp.eq.b64 	%p6, %rd81, %rd25;
+	add.s64 	%rd26, %rd81, 4;
 	selp.b64 	%rd3, %rd25, %rd26, %p6;
-	mov.b64 	%rd81, 0;
-	cvta.to.global.u64 	%rd27, %rd81;
-	selp.b64 	%rd83, %rd27, %rd82, %p6;
-	mov.b64 	%rd82, %rd3;
+	mov.b64 	%rd80, 0;
+	cvta.to.global.u64 	%rd27, %rd80;
+	selp.b64 	%rd82, %rd27, %rd81, %p6;
+	mov.b64 	%rd81, %rd3;
 	bra.uni 	$L__BB60_9;
 $L__BB60_8:                             //   in Loop: Header=BB60_5 Depth=1
 	mov.b64 	%rd17, _RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS;
@@ -9917,23 +9918,23 @@ $L__BB60_8:                             //   in Loop: Header=BB60_5 Depth=1
 	cvta.global.u64 	%rd19, %rd18;
 	sub.s64 	%rd20, %rd19, %rd2;
 	setp.gt.u64 	%p5, %rd20, 4;
-	add.s64 	%rd21, %rd82, 4;
-	add.s64 	%rd22, %rd82, 8;
-	selp.b64 	%rd82, %rd22, %rd18, %p5;
-	mov.b64 	%rd81, 0;
-	cvta.to.global.u64 	%rd23, %rd81;
-	selp.b64 	%rd83, %rd21, %rd23, %p5;
+	add.s64 	%rd21, %rd81, 4;
+	add.s64 	%rd22, %rd81, 8;
+	selp.b64 	%rd81, %rd22, %rd18, %p5;
+	mov.b64 	%rd80, 0;
+	cvta.to.global.u64 	%rd23, %rd80;
+	selp.b64 	%rd82, %rd21, %rd23, %p5;
 $L__BB60_9:                             //   in Loop: Header=BB60_5 Depth=1
 	cvta.to.global.u64 	%rd28, %rd16;
-	setp.eq.b64 	%p7, %rd83, %rd28;
+	setp.eq.b64 	%p7, %rd82, %rd28;
 	@%p7 bra 	$L__BB60_2;
 // %bb.10:                              //   in Loop: Header=BB60_5 Depth=1
-	st.relaxed.sys.global.b32 	[%rd83], 0;
-	mov.b64 	%rd79, %rd80;
+	st.relaxed.sys.global.b32 	[%rd82], 0;
+	mov.b64 	%rd78, %rd79;
 	bra.uni 	$L__BB60_5;
 $L__BB60_3:
-	ld.relaxed.sys.global.b32 	%r12, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread9NUM_WARPS_$_0];
-	cvt.u64.u32 	%rd37, %r12;
+	ld.relaxed.sys.global.b32 	%r11, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread9NUM_WARPS_$_0];
+	cvt.u64.u32 	%rd37, %r11;
 	max.u64 	%rd38, %rd37, 1;
 	add.s64 	%rd4, %rd38, -1;
 	ld.acquire.sys.global.b32 	%r4, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread9NUM_WARPS_$_0];
@@ -9949,246 +9950,246 @@ $L__BB60_11:                            //   in Loop: Header=BB60_12 Depth=1
 $L__BB60_12:                            // =>This Inner Loop Header: Depth=1
 	@%p13 bra 	$L__BB60_11;
 // %bb.13:                              //   in Loop: Header=BB60_12 Depth=1
-	ld.acquire.sys.global.b32 	%r13, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+4];
-	setp.eq.b32 	%p14, %r13, 0;
-	mov.b64 	%rd84, 1;
+	ld.acquire.sys.global.b32 	%r12, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+4];
+	setp.eq.b32 	%p14, %r12, 0;
+	mov.b64 	%rd83, 1;
 	@%p14 bra 	$L__BB60_76;
 // %bb.14:                              //   in Loop: Header=BB60_12 Depth=1
 	@%p15 bra 	$L__BB60_11;
 // %bb.15:                              //   in Loop: Header=BB60_12 Depth=1
-	ld.acquire.sys.global.b32 	%r14, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+8];
-	setp.eq.b32 	%p16, %r14, 0;
-	mov.b64 	%rd84, 2;
+	ld.acquire.sys.global.b32 	%r13, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+8];
+	setp.eq.b32 	%p16, %r13, 0;
+	mov.b64 	%rd83, 2;
 	@%p16 bra 	$L__BB60_76;
 // %bb.16:                              //   in Loop: Header=BB60_12 Depth=1
 	@%p17 bra 	$L__BB60_11;
 // %bb.17:                              //   in Loop: Header=BB60_12 Depth=1
-	ld.acquire.sys.global.b32 	%r15, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+12];
-	setp.eq.b32 	%p18, %r15, 0;
-	mov.b64 	%rd84, 3;
+	ld.acquire.sys.global.b32 	%r14, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+12];
+	setp.eq.b32 	%p18, %r14, 0;
+	mov.b64 	%rd83, 3;
 	@%p18 bra 	$L__BB60_76;
 // %bb.18:                              //   in Loop: Header=BB60_12 Depth=1
 	@%p19 bra 	$L__BB60_11;
 // %bb.19:                              //   in Loop: Header=BB60_12 Depth=1
-	ld.acquire.sys.global.b32 	%r16, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+16];
-	setp.eq.b32 	%p20, %r16, 0;
-	mov.b64 	%rd84, 4;
+	ld.acquire.sys.global.b32 	%r15, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+16];
+	setp.eq.b32 	%p20, %r15, 0;
+	mov.b64 	%rd83, 4;
 	@%p20 bra 	$L__BB60_76;
 // %bb.20:                              //   in Loop: Header=BB60_12 Depth=1
 	setp.eq.b32 	%p21, %r4, 5;
 	@%p21 bra 	$L__BB60_11;
 // %bb.21:                              //   in Loop: Header=BB60_12 Depth=1
-	ld.acquire.sys.global.b32 	%r17, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+20];
-	setp.eq.b32 	%p22, %r17, 0;
-	mov.b64 	%rd84, 5;
+	ld.acquire.sys.global.b32 	%r16, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+20];
+	setp.eq.b32 	%p22, %r16, 0;
+	mov.b64 	%rd83, 5;
 	@%p22 bra 	$L__BB60_76;
 // %bb.22:                              //   in Loop: Header=BB60_12 Depth=1
 	setp.eq.b32 	%p23, %r4, 6;
 	@%p23 bra 	$L__BB60_11;
 // %bb.23:                              //   in Loop: Header=BB60_12 Depth=1
-	ld.acquire.sys.global.b32 	%r18, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+24];
-	setp.eq.b32 	%p24, %r18, 0;
-	mov.b64 	%rd84, 6;
+	ld.acquire.sys.global.b32 	%r17, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+24];
+	setp.eq.b32 	%p24, %r17, 0;
+	mov.b64 	%rd83, 6;
 	@%p24 bra 	$L__BB60_76;
 // %bb.24:                              //   in Loop: Header=BB60_12 Depth=1
 	setp.eq.b32 	%p25, %r4, 7;
 	@%p25 bra 	$L__BB60_11;
 // %bb.25:                              //   in Loop: Header=BB60_12 Depth=1
-	ld.acquire.sys.global.b32 	%r19, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+28];
-	setp.eq.b32 	%p26, %r19, 0;
-	mov.b64 	%rd84, 7;
+	ld.acquire.sys.global.b32 	%r18, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+28];
+	setp.eq.b32 	%p26, %r18, 0;
+	mov.b64 	%rd83, 7;
 	@%p26 bra 	$L__BB60_76;
 // %bb.26:                              //   in Loop: Header=BB60_12 Depth=1
 	setp.eq.b32 	%p27, %r4, 8;
 	@%p27 bra 	$L__BB60_11;
 // %bb.27:                              //   in Loop: Header=BB60_12 Depth=1
-	ld.acquire.sys.global.b32 	%r20, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+32];
-	setp.eq.b32 	%p28, %r20, 0;
-	mov.b64 	%rd84, 8;
+	ld.acquire.sys.global.b32 	%r19, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+32];
+	setp.eq.b32 	%p28, %r19, 0;
+	mov.b64 	%rd83, 8;
 	@%p28 bra 	$L__BB60_76;
 // %bb.28:                              //   in Loop: Header=BB60_12 Depth=1
 	setp.eq.b32 	%p29, %r4, 9;
 	@%p29 bra 	$L__BB60_11;
 // %bb.29:                              //   in Loop: Header=BB60_12 Depth=1
-	ld.acquire.sys.global.b32 	%r21, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+36];
-	setp.eq.b32 	%p30, %r21, 0;
-	mov.b64 	%rd84, 9;
+	ld.acquire.sys.global.b32 	%r20, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+36];
+	setp.eq.b32 	%p30, %r20, 0;
+	mov.b64 	%rd83, 9;
 	@%p30 bra 	$L__BB60_76;
 // %bb.30:                              //   in Loop: Header=BB60_12 Depth=1
 	setp.eq.b32 	%p31, %r4, 10;
 	@%p31 bra 	$L__BB60_11;
 // %bb.31:                              //   in Loop: Header=BB60_12 Depth=1
-	ld.acquire.sys.global.b32 	%r22, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+40];
-	setp.eq.b32 	%p32, %r22, 0;
-	mov.b64 	%rd84, 10;
+	ld.acquire.sys.global.b32 	%r21, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+40];
+	setp.eq.b32 	%p32, %r21, 0;
+	mov.b64 	%rd83, 10;
 	@%p32 bra 	$L__BB60_76;
 // %bb.32:                              //   in Loop: Header=BB60_12 Depth=1
 	setp.eq.b32 	%p33, %r4, 11;
 	@%p33 bra 	$L__BB60_11;
 // %bb.33:                              //   in Loop: Header=BB60_12 Depth=1
-	ld.acquire.sys.global.b32 	%r23, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+44];
-	setp.eq.b32 	%p34, %r23, 0;
-	mov.b64 	%rd84, 11;
+	ld.acquire.sys.global.b32 	%r22, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+44];
+	setp.eq.b32 	%p34, %r22, 0;
+	mov.b64 	%rd83, 11;
 	@%p34 bra 	$L__BB60_76;
 // %bb.34:                              //   in Loop: Header=BB60_12 Depth=1
 	setp.eq.b32 	%p35, %r4, 12;
 	@%p35 bra 	$L__BB60_11;
 // %bb.35:                              //   in Loop: Header=BB60_12 Depth=1
-	ld.acquire.sys.global.b32 	%r24, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+48];
-	setp.eq.b32 	%p36, %r24, 0;
-	mov.b64 	%rd84, 12;
+	ld.acquire.sys.global.b32 	%r23, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+48];
+	setp.eq.b32 	%p36, %r23, 0;
+	mov.b64 	%rd83, 12;
 	@%p36 bra 	$L__BB60_76;
 // %bb.36:                              //   in Loop: Header=BB60_12 Depth=1
 	setp.eq.b32 	%p37, %r4, 13;
 	@%p37 bra 	$L__BB60_11;
 // %bb.37:                              //   in Loop: Header=BB60_12 Depth=1
-	ld.acquire.sys.global.b32 	%r25, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+52];
-	setp.eq.b32 	%p38, %r25, 0;
-	mov.b64 	%rd84, 13;
+	ld.acquire.sys.global.b32 	%r24, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+52];
+	setp.eq.b32 	%p38, %r24, 0;
+	mov.b64 	%rd83, 13;
 	@%p38 bra 	$L__BB60_76;
 // %bb.38:                              //   in Loop: Header=BB60_12 Depth=1
 	setp.eq.b32 	%p39, %r4, 14;
 	@%p39 bra 	$L__BB60_11;
 // %bb.39:                              //   in Loop: Header=BB60_12 Depth=1
-	ld.acquire.sys.global.b32 	%r26, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+56];
-	setp.eq.b32 	%p40, %r26, 0;
-	mov.b64 	%rd84, 14;
+	ld.acquire.sys.global.b32 	%r25, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+56];
+	setp.eq.b32 	%p40, %r25, 0;
+	mov.b64 	%rd83, 14;
 	@%p40 bra 	$L__BB60_76;
 // %bb.40:                              //   in Loop: Header=BB60_12 Depth=1
 	setp.eq.b32 	%p41, %r4, 15;
 	@%p41 bra 	$L__BB60_11;
 // %bb.41:                              //   in Loop: Header=BB60_12 Depth=1
-	ld.acquire.sys.global.b32 	%r27, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+60];
-	setp.eq.b32 	%p42, %r27, 0;
-	mov.b64 	%rd84, 15;
+	ld.acquire.sys.global.b32 	%r26, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+60];
+	setp.eq.b32 	%p42, %r26, 0;
+	mov.b64 	%rd83, 15;
 	@%p42 bra 	$L__BB60_76;
 // %bb.42:                              //   in Loop: Header=BB60_12 Depth=1
 	setp.eq.b32 	%p43, %r4, 16;
 	@%p43 bra 	$L__BB60_11;
 // %bb.43:                              //   in Loop: Header=BB60_12 Depth=1
-	ld.acquire.sys.global.b32 	%r28, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+64];
-	setp.eq.b32 	%p44, %r28, 0;
-	mov.b64 	%rd84, 16;
+	ld.acquire.sys.global.b32 	%r27, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+64];
+	setp.eq.b32 	%p44, %r27, 0;
+	mov.b64 	%rd83, 16;
 	@%p44 bra 	$L__BB60_76;
 // %bb.44:                              //   in Loop: Header=BB60_12 Depth=1
 	setp.eq.b32 	%p45, %r4, 17;
 	@%p45 bra 	$L__BB60_11;
 // %bb.45:                              //   in Loop: Header=BB60_12 Depth=1
-	ld.acquire.sys.global.b32 	%r29, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+68];
-	setp.eq.b32 	%p46, %r29, 0;
-	mov.b64 	%rd84, 17;
+	ld.acquire.sys.global.b32 	%r28, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+68];
+	setp.eq.b32 	%p46, %r28, 0;
+	mov.b64 	%rd83, 17;
 	@%p46 bra 	$L__BB60_76;
 // %bb.46:                              //   in Loop: Header=BB60_12 Depth=1
 	setp.eq.b32 	%p47, %r4, 18;
 	@%p47 bra 	$L__BB60_11;
 // %bb.47:                              //   in Loop: Header=BB60_12 Depth=1
-	ld.acquire.sys.global.b32 	%r30, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+72];
-	setp.eq.b32 	%p48, %r30, 0;
-	mov.b64 	%rd84, 18;
+	ld.acquire.sys.global.b32 	%r29, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+72];
+	setp.eq.b32 	%p48, %r29, 0;
+	mov.b64 	%rd83, 18;
 	@%p48 bra 	$L__BB60_76;
 // %bb.48:                              //   in Loop: Header=BB60_12 Depth=1
 	setp.eq.b32 	%p49, %r4, 19;
 	@%p49 bra 	$L__BB60_11;
 // %bb.49:                              //   in Loop: Header=BB60_12 Depth=1
-	ld.acquire.sys.global.b32 	%r31, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+76];
-	setp.eq.b32 	%p50, %r31, 0;
-	mov.b64 	%rd84, 19;
+	ld.acquire.sys.global.b32 	%r30, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+76];
+	setp.eq.b32 	%p50, %r30, 0;
+	mov.b64 	%rd83, 19;
 	@%p50 bra 	$L__BB60_76;
 // %bb.50:                              //   in Loop: Header=BB60_12 Depth=1
 	setp.eq.b32 	%p51, %r4, 20;
 	@%p51 bra 	$L__BB60_11;
 // %bb.51:                              //   in Loop: Header=BB60_12 Depth=1
-	ld.acquire.sys.global.b32 	%r32, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+80];
-	setp.eq.b32 	%p52, %r32, 0;
-	mov.b64 	%rd84, 20;
+	ld.acquire.sys.global.b32 	%r31, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+80];
+	setp.eq.b32 	%p52, %r31, 0;
+	mov.b64 	%rd83, 20;
 	@%p52 bra 	$L__BB60_76;
 // %bb.52:                              //   in Loop: Header=BB60_12 Depth=1
 	setp.eq.b32 	%p53, %r4, 21;
 	@%p53 bra 	$L__BB60_11;
 // %bb.53:                              //   in Loop: Header=BB60_12 Depth=1
-	ld.acquire.sys.global.b32 	%r33, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+84];
-	setp.eq.b32 	%p54, %r33, 0;
-	mov.b64 	%rd84, 21;
+	ld.acquire.sys.global.b32 	%r32, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+84];
+	setp.eq.b32 	%p54, %r32, 0;
+	mov.b64 	%rd83, 21;
 	@%p54 bra 	$L__BB60_76;
 // %bb.54:                              //   in Loop: Header=BB60_12 Depth=1
 	setp.eq.b32 	%p55, %r4, 22;
 	@%p55 bra 	$L__BB60_11;
 // %bb.55:                              //   in Loop: Header=BB60_12 Depth=1
-	ld.acquire.sys.global.b32 	%r34, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+88];
-	setp.eq.b32 	%p56, %r34, 0;
-	mov.b64 	%rd84, 22;
+	ld.acquire.sys.global.b32 	%r33, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+88];
+	setp.eq.b32 	%p56, %r33, 0;
+	mov.b64 	%rd83, 22;
 	@%p56 bra 	$L__BB60_76;
 // %bb.56:                              //   in Loop: Header=BB60_12 Depth=1
 	setp.eq.b32 	%p57, %r4, 23;
 	@%p57 bra 	$L__BB60_11;
 // %bb.57:                              //   in Loop: Header=BB60_12 Depth=1
-	ld.acquire.sys.global.b32 	%r35, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+92];
-	setp.eq.b32 	%p58, %r35, 0;
-	mov.b64 	%rd84, 23;
+	ld.acquire.sys.global.b32 	%r34, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+92];
+	setp.eq.b32 	%p58, %r34, 0;
+	mov.b64 	%rd83, 23;
 	@%p58 bra 	$L__BB60_76;
 // %bb.58:                              //   in Loop: Header=BB60_12 Depth=1
 	setp.eq.b32 	%p59, %r4, 24;
 	@%p59 bra 	$L__BB60_11;
 // %bb.59:                              //   in Loop: Header=BB60_12 Depth=1
-	ld.acquire.sys.global.b32 	%r36, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+96];
-	setp.eq.b32 	%p60, %r36, 0;
-	mov.b64 	%rd84, 24;
+	ld.acquire.sys.global.b32 	%r35, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+96];
+	setp.eq.b32 	%p60, %r35, 0;
+	mov.b64 	%rd83, 24;
 	@%p60 bra 	$L__BB60_76;
 // %bb.60:                              //   in Loop: Header=BB60_12 Depth=1
 	setp.eq.b32 	%p61, %r4, 25;
 	@%p61 bra 	$L__BB60_11;
 // %bb.61:                              //   in Loop: Header=BB60_12 Depth=1
-	ld.acquire.sys.global.b32 	%r37, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+100];
-	setp.eq.b32 	%p62, %r37, 0;
-	mov.b64 	%rd84, 25;
+	ld.acquire.sys.global.b32 	%r36, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+100];
+	setp.eq.b32 	%p62, %r36, 0;
+	mov.b64 	%rd83, 25;
 	@%p62 bra 	$L__BB60_76;
 // %bb.62:                              //   in Loop: Header=BB60_12 Depth=1
 	setp.eq.b32 	%p63, %r4, 26;
 	@%p63 bra 	$L__BB60_11;
 // %bb.63:                              //   in Loop: Header=BB60_12 Depth=1
-	ld.acquire.sys.global.b32 	%r38, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+104];
-	setp.eq.b32 	%p64, %r38, 0;
-	mov.b64 	%rd84, 26;
+	ld.acquire.sys.global.b32 	%r37, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+104];
+	setp.eq.b32 	%p64, %r37, 0;
+	mov.b64 	%rd83, 26;
 	@%p64 bra 	$L__BB60_76;
 // %bb.64:                              //   in Loop: Header=BB60_12 Depth=1
 	setp.eq.b32 	%p65, %r4, 27;
 	@%p65 bra 	$L__BB60_11;
 // %bb.65:                              //   in Loop: Header=BB60_12 Depth=1
-	ld.acquire.sys.global.b32 	%r39, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+108];
-	setp.eq.b32 	%p66, %r39, 0;
-	mov.b64 	%rd84, 27;
+	ld.acquire.sys.global.b32 	%r38, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+108];
+	setp.eq.b32 	%p66, %r38, 0;
+	mov.b64 	%rd83, 27;
 	@%p66 bra 	$L__BB60_76;
 // %bb.66:                              //   in Loop: Header=BB60_12 Depth=1
 	setp.eq.b32 	%p67, %r4, 28;
 	@%p67 bra 	$L__BB60_11;
 // %bb.67:                              //   in Loop: Header=BB60_12 Depth=1
-	ld.acquire.sys.global.b32 	%r40, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+112];
-	setp.eq.b32 	%p68, %r40, 0;
-	mov.b64 	%rd84, 28;
+	ld.acquire.sys.global.b32 	%r39, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+112];
+	setp.eq.b32 	%p68, %r39, 0;
+	mov.b64 	%rd83, 28;
 	@%p68 bra 	$L__BB60_76;
 // %bb.68:                              //   in Loop: Header=BB60_12 Depth=1
 	setp.eq.b32 	%p69, %r4, 29;
 	@%p69 bra 	$L__BB60_11;
 // %bb.69:                              //   in Loop: Header=BB60_12 Depth=1
-	ld.acquire.sys.global.b32 	%r41, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+116];
-	setp.eq.b32 	%p70, %r41, 0;
-	mov.b64 	%rd84, 29;
+	ld.acquire.sys.global.b32 	%r40, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+116];
+	setp.eq.b32 	%p70, %r40, 0;
+	mov.b64 	%rd83, 29;
 	@%p70 bra 	$L__BB60_76;
 // %bb.70:                              //   in Loop: Header=BB60_12 Depth=1
 	setp.eq.b32 	%p71, %r4, 30;
 	@%p71 bra 	$L__BB60_11;
 // %bb.71:                              //   in Loop: Header=BB60_12 Depth=1
-	ld.acquire.sys.global.b32 	%r42, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+120];
-	setp.eq.b32 	%p72, %r42, 0;
-	mov.b64 	%rd84, 30;
+	ld.acquire.sys.global.b32 	%r41, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+120];
+	setp.eq.b32 	%p72, %r41, 0;
+	mov.b64 	%rd83, 30;
 	@%p72 bra 	$L__BB60_76;
 // %bb.72:                              //   in Loop: Header=BB60_12 Depth=1
 	setp.eq.b32 	%p73, %r4, 31;
 	@%p73 bra 	$L__BB60_11;
 // %bb.73:                              //   in Loop: Header=BB60_12 Depth=1
-	ld.acquire.sys.global.b32 	%r43, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+124];
-	setp.eq.b32 	%p74, %r43, 0;
-	mov.b64 	%rd84, 31;
+	ld.acquire.sys.global.b32 	%r42, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+124];
+	setp.eq.b32 	%p74, %r42, 0;
+	mov.b64 	%rd83, 31;
 	@%p74 bra 	$L__BB60_76;
 // %bb.74:                              //   in Loop: Header=BB60_12 Depth=1
 	setp.eq.b32 	%p75, %r4, 32;
@@ -10209,11 +10210,11 @@ $L__BB60_12:                            // =>This Inner Loop Header: Depth=1
 	exit;
 	// end inline asm
 $L__BB60_76:
-	shl.b64 	%rd41, %rd84, 8;
+	shl.b64 	%rd41, %rd83, 8;
 	mov.b64 	%rd42, _RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7SCRATCH;
 	cvta.global.u64 	%rd43, %rd42;
 	add.s64 	%rd44, %rd43, %rd41;
-	shl.b64 	%rd45, %rd84, 3;
+	shl.b64 	%rd45, %rd83, 3;
 	mov.b64 	%rd46, _RNvNtCshwPOwPqx8fG_11gpu_runtime6thread7WARP_FN;
 	add.s64 	%rd47, %rd46, %rd45;
 	mov.b64 	%rd48, _RINvNvNtCshwPOwPqx8fG_11gpu_runtime6thread5spawn10trampolineNCNCNvNtCsBpySzkf4zz_10gpu_kernel11thread_test17thread_spawn_test00mEB14_;
@@ -10224,8 +10225,8 @@ $L__BB60_76:
 	mov.b64 	%rd51, _RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_RESULT;
 	add.s64 	%rd5, %rd51, %rd45;
 	st.relaxed.sys.global.b64 	[%rd5], 0;
-	shl.b64 	%rd52, %rd84, 2;
-	add.s64 	%rd6, %rd88, %rd52;
+	shl.b64 	%rd52, %rd83, 2;
+	add.s64 	%rd6, %rd87, %rd52;
 	st.release.sys.global.b32 	[%rd6], 1;
 	ld.acquire.sys.global.b32 	%r5, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread9NUM_WARPS_$_0];
 	setp.lt.u32 	%p76, %r5, 2;
@@ -10240,246 +10241,246 @@ $L__BB60_141:                           //   in Loop: Header=BB60_77 Depth=1
 $L__BB60_77:                            // =>This Inner Loop Header: Depth=1
 	@%p76 bra 	$L__BB60_141;
 // %bb.78:                              //   in Loop: Header=BB60_77 Depth=1
-	ld.acquire.sys.global.b32 	%r44, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+4];
-	setp.eq.b32 	%p77, %r44, 0;
-	mov.b64 	%rd85, 1;
+	ld.acquire.sys.global.b32 	%r43, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+4];
+	setp.eq.b32 	%p77, %r43, 0;
+	mov.b64 	%rd84, 1;
 	@%p77 bra 	$L__BB60_142;
 // %bb.79:                              //   in Loop: Header=BB60_77 Depth=1
 	@%p78 bra 	$L__BB60_141;
 // %bb.80:                              //   in Loop: Header=BB60_77 Depth=1
-	ld.acquire.sys.global.b32 	%r45, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+8];
-	setp.eq.b32 	%p79, %r45, 0;
-	mov.b64 	%rd85, 2;
+	ld.acquire.sys.global.b32 	%r44, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+8];
+	setp.eq.b32 	%p79, %r44, 0;
+	mov.b64 	%rd84, 2;
 	@%p79 bra 	$L__BB60_142;
 // %bb.81:                              //   in Loop: Header=BB60_77 Depth=1
 	@%p80 bra 	$L__BB60_141;
 // %bb.82:                              //   in Loop: Header=BB60_77 Depth=1
-	ld.acquire.sys.global.b32 	%r46, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+12];
-	setp.eq.b32 	%p81, %r46, 0;
-	mov.b64 	%rd85, 3;
+	ld.acquire.sys.global.b32 	%r45, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+12];
+	setp.eq.b32 	%p81, %r45, 0;
+	mov.b64 	%rd84, 3;
 	@%p81 bra 	$L__BB60_142;
 // %bb.83:                              //   in Loop: Header=BB60_77 Depth=1
 	@%p82 bra 	$L__BB60_141;
 // %bb.84:                              //   in Loop: Header=BB60_77 Depth=1
-	ld.acquire.sys.global.b32 	%r47, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+16];
-	setp.eq.b32 	%p83, %r47, 0;
-	mov.b64 	%rd85, 4;
+	ld.acquire.sys.global.b32 	%r46, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+16];
+	setp.eq.b32 	%p83, %r46, 0;
+	mov.b64 	%rd84, 4;
 	@%p83 bra 	$L__BB60_142;
 // %bb.85:                              //   in Loop: Header=BB60_77 Depth=1
 	setp.eq.b32 	%p84, %r5, 5;
 	@%p84 bra 	$L__BB60_141;
 // %bb.86:                              //   in Loop: Header=BB60_77 Depth=1
-	ld.acquire.sys.global.b32 	%r48, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+20];
-	setp.eq.b32 	%p85, %r48, 0;
-	mov.b64 	%rd85, 5;
+	ld.acquire.sys.global.b32 	%r47, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+20];
+	setp.eq.b32 	%p85, %r47, 0;
+	mov.b64 	%rd84, 5;
 	@%p85 bra 	$L__BB60_142;
 // %bb.87:                              //   in Loop: Header=BB60_77 Depth=1
 	setp.eq.b32 	%p86, %r5, 6;
 	@%p86 bra 	$L__BB60_141;
 // %bb.88:                              //   in Loop: Header=BB60_77 Depth=1
-	ld.acquire.sys.global.b32 	%r49, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+24];
-	setp.eq.b32 	%p87, %r49, 0;
-	mov.b64 	%rd85, 6;
+	ld.acquire.sys.global.b32 	%r48, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+24];
+	setp.eq.b32 	%p87, %r48, 0;
+	mov.b64 	%rd84, 6;
 	@%p87 bra 	$L__BB60_142;
 // %bb.89:                              //   in Loop: Header=BB60_77 Depth=1
 	setp.eq.b32 	%p88, %r5, 7;
 	@%p88 bra 	$L__BB60_141;
 // %bb.90:                              //   in Loop: Header=BB60_77 Depth=1
-	ld.acquire.sys.global.b32 	%r50, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+28];
-	setp.eq.b32 	%p89, %r50, 0;
-	mov.b64 	%rd85, 7;
+	ld.acquire.sys.global.b32 	%r49, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+28];
+	setp.eq.b32 	%p89, %r49, 0;
+	mov.b64 	%rd84, 7;
 	@%p89 bra 	$L__BB60_142;
 // %bb.91:                              //   in Loop: Header=BB60_77 Depth=1
 	setp.eq.b32 	%p90, %r5, 8;
 	@%p90 bra 	$L__BB60_141;
 // %bb.92:                              //   in Loop: Header=BB60_77 Depth=1
-	ld.acquire.sys.global.b32 	%r51, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+32];
-	setp.eq.b32 	%p91, %r51, 0;
-	mov.b64 	%rd85, 8;
+	ld.acquire.sys.global.b32 	%r50, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+32];
+	setp.eq.b32 	%p91, %r50, 0;
+	mov.b64 	%rd84, 8;
 	@%p91 bra 	$L__BB60_142;
 // %bb.93:                              //   in Loop: Header=BB60_77 Depth=1
 	setp.eq.b32 	%p92, %r5, 9;
 	@%p92 bra 	$L__BB60_141;
 // %bb.94:                              //   in Loop: Header=BB60_77 Depth=1
-	ld.acquire.sys.global.b32 	%r52, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+36];
-	setp.eq.b32 	%p93, %r52, 0;
-	mov.b64 	%rd85, 9;
+	ld.acquire.sys.global.b32 	%r51, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+36];
+	setp.eq.b32 	%p93, %r51, 0;
+	mov.b64 	%rd84, 9;
 	@%p93 bra 	$L__BB60_142;
 // %bb.95:                              //   in Loop: Header=BB60_77 Depth=1
 	setp.eq.b32 	%p94, %r5, 10;
 	@%p94 bra 	$L__BB60_141;
 // %bb.96:                              //   in Loop: Header=BB60_77 Depth=1
-	ld.acquire.sys.global.b32 	%r53, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+40];
-	setp.eq.b32 	%p95, %r53, 0;
-	mov.b64 	%rd85, 10;
+	ld.acquire.sys.global.b32 	%r52, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+40];
+	setp.eq.b32 	%p95, %r52, 0;
+	mov.b64 	%rd84, 10;
 	@%p95 bra 	$L__BB60_142;
 // %bb.97:                              //   in Loop: Header=BB60_77 Depth=1
 	setp.eq.b32 	%p96, %r5, 11;
 	@%p96 bra 	$L__BB60_141;
 // %bb.98:                              //   in Loop: Header=BB60_77 Depth=1
-	ld.acquire.sys.global.b32 	%r54, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+44];
-	setp.eq.b32 	%p97, %r54, 0;
-	mov.b64 	%rd85, 11;
+	ld.acquire.sys.global.b32 	%r53, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+44];
+	setp.eq.b32 	%p97, %r53, 0;
+	mov.b64 	%rd84, 11;
 	@%p97 bra 	$L__BB60_142;
 // %bb.99:                              //   in Loop: Header=BB60_77 Depth=1
 	setp.eq.b32 	%p98, %r5, 12;
 	@%p98 bra 	$L__BB60_141;
 // %bb.100:                             //   in Loop: Header=BB60_77 Depth=1
-	ld.acquire.sys.global.b32 	%r55, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+48];
-	setp.eq.b32 	%p99, %r55, 0;
-	mov.b64 	%rd85, 12;
+	ld.acquire.sys.global.b32 	%r54, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+48];
+	setp.eq.b32 	%p99, %r54, 0;
+	mov.b64 	%rd84, 12;
 	@%p99 bra 	$L__BB60_142;
 // %bb.101:                             //   in Loop: Header=BB60_77 Depth=1
 	setp.eq.b32 	%p100, %r5, 13;
 	@%p100 bra 	$L__BB60_141;
 // %bb.102:                             //   in Loop: Header=BB60_77 Depth=1
-	ld.acquire.sys.global.b32 	%r56, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+52];
-	setp.eq.b32 	%p101, %r56, 0;
-	mov.b64 	%rd85, 13;
+	ld.acquire.sys.global.b32 	%r55, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+52];
+	setp.eq.b32 	%p101, %r55, 0;
+	mov.b64 	%rd84, 13;
 	@%p101 bra 	$L__BB60_142;
 // %bb.103:                             //   in Loop: Header=BB60_77 Depth=1
 	setp.eq.b32 	%p102, %r5, 14;
 	@%p102 bra 	$L__BB60_141;
 // %bb.104:                             //   in Loop: Header=BB60_77 Depth=1
-	ld.acquire.sys.global.b32 	%r57, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+56];
-	setp.eq.b32 	%p103, %r57, 0;
-	mov.b64 	%rd85, 14;
+	ld.acquire.sys.global.b32 	%r56, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+56];
+	setp.eq.b32 	%p103, %r56, 0;
+	mov.b64 	%rd84, 14;
 	@%p103 bra 	$L__BB60_142;
 // %bb.105:                             //   in Loop: Header=BB60_77 Depth=1
 	setp.eq.b32 	%p104, %r5, 15;
 	@%p104 bra 	$L__BB60_141;
 // %bb.106:                             //   in Loop: Header=BB60_77 Depth=1
-	ld.acquire.sys.global.b32 	%r58, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+60];
-	setp.eq.b32 	%p105, %r58, 0;
-	mov.b64 	%rd85, 15;
+	ld.acquire.sys.global.b32 	%r57, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+60];
+	setp.eq.b32 	%p105, %r57, 0;
+	mov.b64 	%rd84, 15;
 	@%p105 bra 	$L__BB60_142;
 // %bb.107:                             //   in Loop: Header=BB60_77 Depth=1
 	setp.eq.b32 	%p106, %r5, 16;
 	@%p106 bra 	$L__BB60_141;
 // %bb.108:                             //   in Loop: Header=BB60_77 Depth=1
-	ld.acquire.sys.global.b32 	%r59, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+64];
-	setp.eq.b32 	%p107, %r59, 0;
-	mov.b64 	%rd85, 16;
+	ld.acquire.sys.global.b32 	%r58, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+64];
+	setp.eq.b32 	%p107, %r58, 0;
+	mov.b64 	%rd84, 16;
 	@%p107 bra 	$L__BB60_142;
 // %bb.109:                             //   in Loop: Header=BB60_77 Depth=1
 	setp.eq.b32 	%p108, %r5, 17;
 	@%p108 bra 	$L__BB60_141;
 // %bb.110:                             //   in Loop: Header=BB60_77 Depth=1
-	ld.acquire.sys.global.b32 	%r60, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+68];
-	setp.eq.b32 	%p109, %r60, 0;
-	mov.b64 	%rd85, 17;
+	ld.acquire.sys.global.b32 	%r59, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+68];
+	setp.eq.b32 	%p109, %r59, 0;
+	mov.b64 	%rd84, 17;
 	@%p109 bra 	$L__BB60_142;
 // %bb.111:                             //   in Loop: Header=BB60_77 Depth=1
 	setp.eq.b32 	%p110, %r5, 18;
 	@%p110 bra 	$L__BB60_141;
 // %bb.112:                             //   in Loop: Header=BB60_77 Depth=1
-	ld.acquire.sys.global.b32 	%r61, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+72];
-	setp.eq.b32 	%p111, %r61, 0;
-	mov.b64 	%rd85, 18;
+	ld.acquire.sys.global.b32 	%r60, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+72];
+	setp.eq.b32 	%p111, %r60, 0;
+	mov.b64 	%rd84, 18;
 	@%p111 bra 	$L__BB60_142;
 // %bb.113:                             //   in Loop: Header=BB60_77 Depth=1
 	setp.eq.b32 	%p112, %r5, 19;
 	@%p112 bra 	$L__BB60_141;
 // %bb.114:                             //   in Loop: Header=BB60_77 Depth=1
-	ld.acquire.sys.global.b32 	%r62, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+76];
-	setp.eq.b32 	%p113, %r62, 0;
-	mov.b64 	%rd85, 19;
+	ld.acquire.sys.global.b32 	%r61, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+76];
+	setp.eq.b32 	%p113, %r61, 0;
+	mov.b64 	%rd84, 19;
 	@%p113 bra 	$L__BB60_142;
 // %bb.115:                             //   in Loop: Header=BB60_77 Depth=1
 	setp.eq.b32 	%p114, %r5, 20;
 	@%p114 bra 	$L__BB60_141;
 // %bb.116:                             //   in Loop: Header=BB60_77 Depth=1
-	ld.acquire.sys.global.b32 	%r63, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+80];
-	setp.eq.b32 	%p115, %r63, 0;
-	mov.b64 	%rd85, 20;
+	ld.acquire.sys.global.b32 	%r62, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+80];
+	setp.eq.b32 	%p115, %r62, 0;
+	mov.b64 	%rd84, 20;
 	@%p115 bra 	$L__BB60_142;
 // %bb.117:                             //   in Loop: Header=BB60_77 Depth=1
 	setp.eq.b32 	%p116, %r5, 21;
 	@%p116 bra 	$L__BB60_141;
 // %bb.118:                             //   in Loop: Header=BB60_77 Depth=1
-	ld.acquire.sys.global.b32 	%r64, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+84];
-	setp.eq.b32 	%p117, %r64, 0;
-	mov.b64 	%rd85, 21;
+	ld.acquire.sys.global.b32 	%r63, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+84];
+	setp.eq.b32 	%p117, %r63, 0;
+	mov.b64 	%rd84, 21;
 	@%p117 bra 	$L__BB60_142;
 // %bb.119:                             //   in Loop: Header=BB60_77 Depth=1
 	setp.eq.b32 	%p118, %r5, 22;
 	@%p118 bra 	$L__BB60_141;
 // %bb.120:                             //   in Loop: Header=BB60_77 Depth=1
-	ld.acquire.sys.global.b32 	%r65, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+88];
-	setp.eq.b32 	%p119, %r65, 0;
-	mov.b64 	%rd85, 22;
+	ld.acquire.sys.global.b32 	%r64, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+88];
+	setp.eq.b32 	%p119, %r64, 0;
+	mov.b64 	%rd84, 22;
 	@%p119 bra 	$L__BB60_142;
 // %bb.121:                             //   in Loop: Header=BB60_77 Depth=1
 	setp.eq.b32 	%p120, %r5, 23;
 	@%p120 bra 	$L__BB60_141;
 // %bb.122:                             //   in Loop: Header=BB60_77 Depth=1
-	ld.acquire.sys.global.b32 	%r66, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+92];
-	setp.eq.b32 	%p121, %r66, 0;
-	mov.b64 	%rd85, 23;
+	ld.acquire.sys.global.b32 	%r65, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+92];
+	setp.eq.b32 	%p121, %r65, 0;
+	mov.b64 	%rd84, 23;
 	@%p121 bra 	$L__BB60_142;
 // %bb.123:                             //   in Loop: Header=BB60_77 Depth=1
 	setp.eq.b32 	%p122, %r5, 24;
 	@%p122 bra 	$L__BB60_141;
 // %bb.124:                             //   in Loop: Header=BB60_77 Depth=1
-	ld.acquire.sys.global.b32 	%r67, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+96];
-	setp.eq.b32 	%p123, %r67, 0;
-	mov.b64 	%rd85, 24;
+	ld.acquire.sys.global.b32 	%r66, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+96];
+	setp.eq.b32 	%p123, %r66, 0;
+	mov.b64 	%rd84, 24;
 	@%p123 bra 	$L__BB60_142;
 // %bb.125:                             //   in Loop: Header=BB60_77 Depth=1
 	setp.eq.b32 	%p124, %r5, 25;
 	@%p124 bra 	$L__BB60_141;
 // %bb.126:                             //   in Loop: Header=BB60_77 Depth=1
-	ld.acquire.sys.global.b32 	%r68, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+100];
-	setp.eq.b32 	%p125, %r68, 0;
-	mov.b64 	%rd85, 25;
+	ld.acquire.sys.global.b32 	%r67, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+100];
+	setp.eq.b32 	%p125, %r67, 0;
+	mov.b64 	%rd84, 25;
 	@%p125 bra 	$L__BB60_142;
 // %bb.127:                             //   in Loop: Header=BB60_77 Depth=1
 	setp.eq.b32 	%p126, %r5, 26;
 	@%p126 bra 	$L__BB60_141;
 // %bb.128:                             //   in Loop: Header=BB60_77 Depth=1
-	ld.acquire.sys.global.b32 	%r69, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+104];
-	setp.eq.b32 	%p127, %r69, 0;
-	mov.b64 	%rd85, 26;
+	ld.acquire.sys.global.b32 	%r68, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+104];
+	setp.eq.b32 	%p127, %r68, 0;
+	mov.b64 	%rd84, 26;
 	@%p127 bra 	$L__BB60_142;
 // %bb.129:                             //   in Loop: Header=BB60_77 Depth=1
 	setp.eq.b32 	%p128, %r5, 27;
 	@%p128 bra 	$L__BB60_141;
 // %bb.130:                             //   in Loop: Header=BB60_77 Depth=1
-	ld.acquire.sys.global.b32 	%r70, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+108];
-	setp.eq.b32 	%p129, %r70, 0;
-	mov.b64 	%rd85, 27;
+	ld.acquire.sys.global.b32 	%r69, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+108];
+	setp.eq.b32 	%p129, %r69, 0;
+	mov.b64 	%rd84, 27;
 	@%p129 bra 	$L__BB60_142;
 // %bb.131:                             //   in Loop: Header=BB60_77 Depth=1
 	setp.eq.b32 	%p130, %r5, 28;
 	@%p130 bra 	$L__BB60_141;
 // %bb.132:                             //   in Loop: Header=BB60_77 Depth=1
-	ld.acquire.sys.global.b32 	%r71, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+112];
-	setp.eq.b32 	%p131, %r71, 0;
-	mov.b64 	%rd85, 28;
+	ld.acquire.sys.global.b32 	%r70, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+112];
+	setp.eq.b32 	%p131, %r70, 0;
+	mov.b64 	%rd84, 28;
 	@%p131 bra 	$L__BB60_142;
 // %bb.133:                             //   in Loop: Header=BB60_77 Depth=1
 	setp.eq.b32 	%p132, %r5, 29;
 	@%p132 bra 	$L__BB60_141;
 // %bb.134:                             //   in Loop: Header=BB60_77 Depth=1
-	ld.acquire.sys.global.b32 	%r72, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+116];
-	setp.eq.b32 	%p133, %r72, 0;
-	mov.b64 	%rd85, 29;
+	ld.acquire.sys.global.b32 	%r71, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+116];
+	setp.eq.b32 	%p133, %r71, 0;
+	mov.b64 	%rd84, 29;
 	@%p133 bra 	$L__BB60_142;
 // %bb.135:                             //   in Loop: Header=BB60_77 Depth=1
 	setp.eq.b32 	%p134, %r5, 30;
 	@%p134 bra 	$L__BB60_141;
 // %bb.136:                             //   in Loop: Header=BB60_77 Depth=1
-	ld.acquire.sys.global.b32 	%r73, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+120];
-	setp.eq.b32 	%p135, %r73, 0;
-	mov.b64 	%rd85, 30;
+	ld.acquire.sys.global.b32 	%r72, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+120];
+	setp.eq.b32 	%p135, %r72, 0;
+	mov.b64 	%rd84, 30;
 	@%p135 bra 	$L__BB60_142;
 // %bb.137:                             //   in Loop: Header=BB60_77 Depth=1
 	setp.eq.b32 	%p136, %r5, 31;
 	@%p136 bra 	$L__BB60_141;
 // %bb.138:                             //   in Loop: Header=BB60_77 Depth=1
-	ld.acquire.sys.global.b32 	%r74, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+124];
-	setp.eq.b32 	%p137, %r74, 0;
-	mov.b64 	%rd85, 31;
+	ld.acquire.sys.global.b32 	%r73, [_RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS+124];
+	setp.eq.b32 	%p137, %r73, 0;
+	mov.b64 	%rd84, 31;
 	@%p137 bra 	$L__BB60_142;
 // %bb.139:                             //   in Loop: Header=BB60_77 Depth=1
 	setp.eq.b32 	%p138, %r5, 32;
@@ -10500,10 +10501,10 @@ $L__BB60_77:                            // =>This Inner Loop Header: Depth=1
 	exit;
 	// end inline asm
 $L__BB60_142:
-	shl.b64 	%rd55, %rd85, 8;
+	shl.b64 	%rd55, %rd84, 8;
 	cvta.global.u64 	%rd56, %rd42;
 	add.s64 	%rd57, %rd56, %rd55;
-	shl.b64 	%rd58, %rd85, 3;
+	shl.b64 	%rd58, %rd84, 3;
 	add.s64 	%rd59, %rd46, %rd58;
 	mov.b64 	%rd60, _RINvNvNtCshwPOwPqx8fG_11gpu_runtime6thread5spawn10trampolineNCNCNvNtCsBpySzkf4zz_10gpu_kernel11thread_test17thread_spawn_test0s_0mEB14_;
 	st.relaxed.sys.global.b64 	[%rd59], %rd60;
@@ -10511,99 +10512,97 @@ $L__BB60_142:
 	st.relaxed.sys.global.b64 	[%rd61], %rd57;
 	add.s64 	%rd7, %rd51, %rd58;
 	st.relaxed.sys.global.b64 	[%rd7], 0;
-	shl.b64 	%rd62, %rd85, 2;
-	add.s64 	%rd8, %rd88, %rd62;
+	shl.b64 	%rd62, %rd84, 2;
+	add.s64 	%rd8, %rd87, %rd62;
 	st.release.sys.global.b32 	[%rd8], 1;
-	ld.acquire.sys.global.b32 	%r75, [%rd6];
-	setp.eq.b32 	%p139, %r75, 3;
+	ld.acquire.sys.global.b32 	%r74, [%rd6];
+	setp.eq.b32 	%p139, %r74, 3;
 	@%p139 bra 	$L__BB60_144;
 $L__BB60_143:                           // %.preheader12
                                         // =>This Inner Loop Header: Depth=1
 	// begin inline asm
 	nanosleep.u32 100;
 	// end inline asm
-	ld.acquire.sys.global.b32 	%r76, [%rd6];
-	setp.ne.b32 	%p140, %r76, 3;
+	ld.acquire.sys.global.b32 	%r75, [%rd6];
+	setp.ne.b32 	%p140, %r75, 3;
 	@%p140 bra 	$L__BB60_143;
 $L__BB60_144:                           // %.loopexit13
 	ld.acquire.sys.global.b64 	%rd63, [%rd5];
 	ld.b32 	%r6, [%rd63];
 	st.release.sys.global.b32 	[%rd6], 0;
-	ld.acquire.sys.global.b32 	%r77, [%rd8];
-	setp.eq.b32 	%p141, %r77, 3;
+	ld.acquire.sys.global.b32 	%r76, [%rd8];
+	setp.eq.b32 	%p141, %r76, 3;
 	@%p141 bra 	$L__BB60_146;
 $L__BB60_145:                           // %.preheader
                                         // =>This Inner Loop Header: Depth=1
 	// begin inline asm
 	nanosleep.u32 100;
 	// end inline asm
-	ld.acquire.sys.global.b32 	%r78, [%rd8];
-	setp.ne.b32 	%p142, %r78, 3;
+	ld.acquire.sys.global.b32 	%r77, [%rd8];
+	setp.ne.b32 	%p142, %r77, 3;
 	@%p142 bra 	$L__BB60_145;
 $L__BB60_146:                           // %.loopexit11
 	setp.ne.b32 	%p143, %r1, 0;
 	ld.acquire.sys.global.b64 	%rd64, [%rd7];
 	ld.b32 	%r7, [%rd64];
 	st.release.sys.global.b32 	[%rd8], 0;
-	@%p143 bra 	$L__BB60_148;
-// %bb.147:
-	cvt.u32.u64 	%r8, %rd4;
+	@%p143 bra 	$L__BB60_162;
+	bra.uni 	$L__BB60_147;
+$L__BB60_162:                           // %.loopexit
+	// begin inline asm
+	bar.sync 0;
+	// end inline asm
+$L__BB60_163:
+	ret;
+$L__BB60_147:
 	st.volatile.global.b32 	[%rd1], %r6;
 	st.volatile.global.b32 	[%rd1+4], %r7;
-	st.volatile.global.b32 	[%rd1+8], %r8;
+	st.volatile.global.b32 	[%rd1+8], %rd4;
 	st.volatile.global.b32 	[%rd1+12], 0;
-$L__BB60_148:
 	cvt.u64.u32 	%rd65, %r3;
-	add.s64 	%rd86, %rd65, -1;
-	mov.b64 	%rd87, 1;
-$L__BB60_149:                           // =>This Inner Loop Header: Depth=1
-	cvta.global.u64 	%rd12, %rd88;
+	add.s64 	%rd85, %rd65, -1;
+	mov.b64 	%rd86, 1;
+$L__BB60_148:                           // =>This Inner Loop Header: Depth=1
+	cvta.global.u64 	%rd12, %rd87;
 	mov.b64 	%rd66, 0;
-	cvta.to.global.u64 	%rd90, %rd66;
-	setp.eq.b64 	%p144, %rd86, 0;
-	mov.b64 	%rd89, %rd66;
-	@%p144 bra 	$L__BB60_161;
-// %bb.150:                             //   in Loop: Header=BB60_149 Depth=1
-	add.s64 	%rd89, %rd86, -1;
-	setp.ne.b64 	%p145, %rd87, 0;
-	@%p145 bra 	$L__BB60_160;
-// %bb.151:                             //   in Loop: Header=BB60_149 Depth=1
-	mov.b64 	%rd74, _RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS;
-	add.s64 	%rd75, %rd74, 128;
-	setp.eq.b64 	%p147, %rd88, %rd75;
-	add.s64 	%rd76, %rd88, 4;
-	selp.b64 	%rd13, %rd75, %rd76, %p147;
-	mov.b64 	%rd87, 0;
-	cvta.to.global.u64 	%rd77, %rd87;
-	selp.b64 	%rd90, %rd77, %rd88, %p147;
-	mov.b64 	%rd88, %rd13;
-	bra.uni 	$L__BB60_161;
-$L__BB60_160:                           //   in Loop: Header=BB60_149 Depth=1
+	cvta.to.global.u64 	%rd89, %rd66;
+	setp.eq.b64 	%p144, %rd85, 0;
+	mov.b64 	%rd88, %rd66;
+	@%p144 bra 	$L__BB60_160;
+// %bb.149:                             //   in Loop: Header=BB60_148 Depth=1
+	add.s64 	%rd88, %rd85, -1;
+	setp.ne.b64 	%p145, %rd86, 0;
+	add.s64 	%rd77, %rd87, 4;
+	@%p145 bra 	$L__BB60_159;
+// %bb.150:                             //   in Loop: Header=BB60_148 Depth=1
+	mov.b64 	%rd73, _RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS;
+	add.s64 	%rd74, %rd73, 128;
+	setp.eq.b64 	%p147, %rd87, %rd74;
+	selp.b64 	%rd13, %rd74, %rd77, %p147;
+	mov.b64 	%rd86, 0;
+	cvta.to.global.u64 	%rd75, %rd86;
+	selp.b64 	%rd89, %rd75, %rd87, %p147;
+	mov.b64 	%rd87, %rd13;
+	bra.uni 	$L__BB60_160;
+$L__BB60_159:                           //   in Loop: Header=BB60_148 Depth=1
 	mov.b64 	%rd67, _RNvNtCshwPOwPqx8fG_11gpu_runtime6thread11WARP_STATUS;
 	add.s64 	%rd68, %rd67, 128;
 	cvta.global.u64 	%rd69, %rd68;
 	sub.s64 	%rd70, %rd69, %rd12;
 	setp.gt.u64 	%p146, %rd70, 4;
-	add.s64 	%rd71, %rd88, 4;
-	add.s64 	%rd72, %rd88, 8;
-	selp.b64 	%rd88, %rd72, %rd68, %p146;
-	mov.b64 	%rd87, 0;
-	cvta.to.global.u64 	%rd73, %rd87;
-	selp.b64 	%rd90, %rd71, %rd73, %p146;
-$L__BB60_161:                           //   in Loop: Header=BB60_149 Depth=1
-	cvta.to.global.u64 	%rd78, %rd66;
-	setp.eq.b64 	%p148, %rd90, %rd78;
-	@%p148 bra 	$L__BB60_163;
-// %bb.162:                             //   in Loop: Header=BB60_149 Depth=1
-	st.release.sys.global.b32 	[%rd90], 4;
-	mov.b64 	%rd86, %rd89;
-	bra.uni 	$L__BB60_149;
-$L__BB60_163:                           // %.loopexit
-	// begin inline asm
-	bar.sync 0;
-	// end inline asm
-$L__BB60_164:
-	ret;
+	add.s64 	%rd71, %rd87, 8;
+	selp.b64 	%rd87, %rd71, %rd68, %p146;
+	mov.b64 	%rd86, 0;
+	cvta.to.global.u64 	%rd72, %rd86;
+	selp.b64 	%rd89, %rd77, %rd72, %p146;
+$L__BB60_160:                           //   in Loop: Header=BB60_148 Depth=1
+	cvta.to.global.u64 	%rd76, %rd66;
+	setp.eq.b64 	%p148, %rd89, %rd76;
+	@%p148 bra 	$L__BB60_162;
+// %bb.161:                             //   in Loop: Header=BB60_148 Depth=1
+	st.release.sys.global.b32 	[%rd89], 4;
+	mov.b64 	%rd85, %rd88;
+	bra.uni 	$L__BB60_148;
                                         // -- End function
 }
 .func _RINvNvNtCshwPOwPqx8fG_11gpu_runtime6thread5spawn10trampolineNCNCNvNtCsBpySzkf4zz_10gpu_kernel11thread_test17thread_spawn_test00mEB14_(

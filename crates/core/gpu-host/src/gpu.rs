@@ -1,52 +1,53 @@
-//! One-liner GPU launch API — `gpu::run()`.
+//! One-liner GPU launch API.
 //!
-//! Hides all CUDA boilerplate (device init, PTX loading, hostcall setup,
-//! launch config, synchronization). Users call `gpu::run("kernel_name")`
-//! and the kernel executes with full hostcall support.
+//! Each call creates a fresh CUDA module to avoid stale global state
+//! between kernel launches (GPU statics persist within a module).
 //!
-//! # Example
+//! # API
 //!
-//! ```no_run
-//! use gpu_host::gpu;
-//!
-//! // Launch a thread-based kernel (uses thread::spawn internally)
-//! gpu::run("thread_spawn_test").unwrap();
-//!
-//! // Launch with explicit output buffer
-//! let results: Vec<u32> = gpu::run_with_output("thread_spawn_test", 4).unwrap();
-//! ```
+//! - `gpu::run("kernel")` — hostcall-enabled kernel (println!, file I/O)
+//! - `gpu::run_with_output("kernel", n)` — hostcall + output buffer
+//! - `gpu::launch("kernel", n, threads)` — pure compute, output only
 
 use cudarc::driver::{CudaDevice, CudaSlice, LaunchAsync, LaunchConfig};
 
 use crate::error::{GpuHostError, Result};
 use crate::hostcall::HostcallSession;
 
-/// Launch a GPU kernel by name. Handles all setup automatically:
-/// - CUDA device initialization
-/// - PTX module loading (from embedded kernel.ptx)
-/// - Hostcall session (for println!, file I/O, etc.)
-/// - Launch with 4 warps (128 threads) for thread::spawn support
-/// - Synchronization
-///
-/// The kernel receives a hostcall buffer pointer as its first argument.
-pub fn run(kernel_name: &'static str) -> Result<()> {
-    let dev = CudaDevice::new(0).map_err(GpuHostError::CudaInit)?;
+/// Unique module counter to avoid shared globals across launches.
+static MODULE_SEQ: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
+
+fn fresh_module_name() -> String {
+    let seq = MODULE_SEQ.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+    format!("gpu_{seq}")
+}
+
+fn get_kernel(
+    dev: &std::sync::Arc<CudaDevice>,
+    kernel_name: &'static str,
+) -> Result<cudarc::driver::CudaFunction> {
     let ptx = cudarc::nvrtc::Ptx::from_src(crate::ptx::KERNEL);
-    dev.load_ptx(ptx, "gpu_run", &[kernel_name])
+    let module = fresh_module_name();
+    dev.load_ptx(ptx, &module, &[kernel_name])
         .map_err(|e| GpuHostError::Verification {
             test: "ptx_load",
             detail: format!("{e}"),
         })?;
+    dev.get_func(&module, kernel_name)
+        .ok_or(GpuHostError::KernelNotFound(kernel_name))
+}
 
-    let func = dev
-        .get_func("gpu_run", kernel_name)
-        .ok_or(GpuHostError::KernelNotFound(kernel_name))?;
-
+/// Launch a hostcall-enabled kernel (supports println!, file I/O).
+///
+/// Uses 4 warps (128 threads) for thread::spawn support.
+pub fn run(kernel_name: &'static str) -> Result<()> {
+    let dev = CudaDevice::new(0).map_err(GpuHostError::CudaInit)?;
+    let func = get_kernel(&dev, kernel_name)?;
     let session = HostcallSession::start(64)?;
 
     let config = LaunchConfig {
         grid_dim: (1, 1, 1),
-        block_dim: (128, 1, 1), // 4 warps for thread::spawn support
+        block_dim: (128, 1, 1),
         shared_mem_bytes: 0,
     };
 
@@ -67,26 +68,15 @@ pub fn run(kernel_name: &'static str) -> Result<()> {
     Ok(())
 }
 
-/// Launch a GPU kernel that writes results to an output buffer.
+/// Launch a hostcall-enabled kernel that writes to an output buffer.
 ///
-/// The kernel receives `(hostcall_buf: *mut u8, output: *mut T)` as arguments.
-/// Returns the output buffer as a Vec<T> after kernel completion.
+/// Kernel signature: `fn(hostcall_buf: *mut u8, output: *mut T)`
 pub fn run_with_output<T: cudarc::driver::DeviceRepr + cudarc::driver::ValidAsZeroBits + Clone>(
     kernel_name: &'static str,
     n_elements: usize,
 ) -> Result<Vec<T>> {
     let dev = CudaDevice::new(0).map_err(GpuHostError::CudaInit)?;
-    let ptx = cudarc::nvrtc::Ptx::from_src(crate::ptx::KERNEL);
-    dev.load_ptx(ptx, "gpu_run", &[kernel_name])
-        .map_err(|e| GpuHostError::Verification {
-            test: "ptx_load",
-            detail: format!("{e}"),
-        })?;
-
-    let func = dev
-        .get_func("gpu_run", kernel_name)
-        .ok_or(GpuHostError::KernelNotFound(kernel_name))?;
-
+    let func = get_kernel(&dev, kernel_name)?;
     let session = HostcallSession::start(64)?;
     let mut output: CudaSlice<T> =
         dev.alloc_zeros::<T>(n_elements)
@@ -127,25 +117,14 @@ pub fn run_with_output<T: cudarc::driver::DeviceRepr + cudarc::driver::ValidAsZe
 
 /// Launch a pure compute kernel (no hostcall) with an output buffer.
 ///
-/// The kernel receives `(output: *mut T)` as its only argument.
-/// Uses the specified number of threads per block.
-pub fn compute<T: cudarc::driver::DeviceRepr + cudarc::driver::ValidAsZeroBits + Clone>(
+/// Kernel signature: `fn(output: *mut T)`
+pub fn launch<T: cudarc::driver::DeviceRepr + cudarc::driver::ValidAsZeroBits + Clone>(
     kernel_name: &'static str,
     n_elements: usize,
     threads_per_block: u32,
 ) -> Result<Vec<T>> {
     let dev = CudaDevice::new(0).map_err(GpuHostError::CudaInit)?;
-    let ptx = cudarc::nvrtc::Ptx::from_src(crate::ptx::KERNEL);
-    dev.load_ptx(ptx, "gpu_run", &[kernel_name])
-        .map_err(|e| GpuHostError::Verification {
-            test: "ptx_load",
-            detail: format!("{e}"),
-        })?;
-
-    let func = dev
-        .get_func("gpu_run", kernel_name)
-        .ok_or(GpuHostError::KernelNotFound(kernel_name))?;
-
+    let func = get_kernel(&dev, kernel_name)?;
     let mut output: CudaSlice<T> =
         dev.alloc_zeros::<T>(n_elements)
             .map_err(|e| GpuHostError::Verification {
@@ -177,4 +156,14 @@ pub fn compute<T: cudarc::driver::DeviceRepr + cudarc::driver::ValidAsZeroBits +
             test: kernel_name,
             detail: format!("dtoh: {e}"),
         })
+}
+
+/// Backwards-compatible alias for `launch`.
+#[deprecated(note = "use gpu::launch() instead")]
+pub fn compute<T: cudarc::driver::DeviceRepr + cudarc::driver::ValidAsZeroBits + Clone>(
+    kernel_name: &'static str,
+    n_elements: usize,
+    threads_per_block: u32,
+) -> Result<Vec<T>> {
+    launch(kernel_name, n_elements, threads_per_block)
 }

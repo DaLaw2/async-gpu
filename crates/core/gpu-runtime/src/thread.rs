@@ -92,9 +92,9 @@ fn nanosleep_short() {
 /// The host must launch with `block_dim.x` = N × 32, where N is the
 /// number of desired warps (threads).
 ///
-/// # Safety
-///
-/// Must be called by ALL threads in the block (all warps participate).
+/// Uses atomic polling instead of bar.sync for synchronization, so it
+/// works correctly with patched std (where std init may cause warp
+/// divergence before reaching the barrier).
 pub fn gpu_main<F: FnOnce()>(main_fn: F) {
     let wid = warp_id();
     let n_warps = crate::index::block_dim_x() / 32;
@@ -102,31 +102,27 @@ pub fn gpu_main<F: FnOnce()>(main_fn: F) {
         return;
     }
 
-    // Lane 0 of warp 0 initializes the pool
     if wid == 0 && lane_id() == 0 {
         NUM_WARPS.store(n_warps, Ordering::Release);
-        // Ensure all slots are IDLE
         for slot in WARP_STATUS.iter().skip(1).take(n_warps as usize - 1) {
             slot.store(STATUS_IDLE, Ordering::Relaxed);
         }
     }
 
-    // Block-wide barrier: all warps sync before proceeding
     #[cfg(target_arch = "nvptx64")]
     unsafe {
         core::arch::asm!("bar.sync 0;");
     }
 
     if wid == 0 {
-        // Warp 0: run the user's main function
         main_fn();
 
-        // Signal all worker warps to exit
-        for slot in WARP_STATUS.iter().skip(1).take(n_warps as usize - 1) {
-            slot.store(STATUS_EXIT, Ordering::Release);
+        if lane_id() == 0 {
+            for slot in WARP_STATUS.iter().skip(1).take(n_warps as usize - 1) {
+                slot.store(STATUS_EXIT, Ordering::Release);
+            }
         }
     } else if (wid as usize) < MAX_WARPS {
-        // Worker warps: enter parking loop
         worker_loop(wid as usize);
     }
 
@@ -134,6 +130,43 @@ pub fn gpu_main<F: FnOnce()>(main_fn: F) {
     #[cfg(target_arch = "nvptx64")]
     unsafe {
         core::arch::asm!("bar.sync 0;");
+    }
+}
+
+/// Like `gpu_main` but uses atomic polling instead of `bar.sync`.
+///
+/// Use this when bar.sync is unreliable (e.g., std-compiled kernels where
+/// std init may cause warp divergence before the barrier). Requires a FRESH
+/// module (no stale globals from prior launches).
+pub fn gpu_main_poll<F: FnOnce()>(main_fn: F) {
+    let wid = warp_id();
+    let n_warps = crate::index::block_dim_x() / 32;
+    if n_warps == 0 {
+        return;
+    }
+
+    if wid == 0 {
+        if lane_id() == 0 {
+            for slot in WARP_STATUS.iter().skip(1).take(n_warps as usize - 1) {
+                slot.store(STATUS_IDLE, Ordering::Relaxed);
+            }
+            NUM_WARPS.store(n_warps, Ordering::Release);
+        }
+
+        main_fn();
+
+        if lane_id() == 0 {
+            for slot in WARP_STATUS.iter().skip(1).take(n_warps as usize - 1) {
+                slot.store(STATUS_EXIT, Ordering::Release);
+            }
+        }
+    } else if (wid as usize) < MAX_WARPS {
+        if lane_id() == 0 {
+            while NUM_WARPS.load(Ordering::Acquire) == 0 {
+                nanosleep_short();
+            }
+        }
+        worker_loop(wid as usize);
     }
 }
 
@@ -346,7 +379,10 @@ pub unsafe fn cooperative<F: Fn()>(f: &F) {
     // Copy closure to each worker's SCRATCH buffer (same mechanism as spawn).
     // This ensures each warp reads from its own known-good global memory.
     let closure_size = core::mem::size_of::<F>();
-    assert!(closure_size <= SCRATCH_SIZE, "cooperative closure too large");
+    assert!(
+        closure_size <= SCRATCH_SIZE,
+        "cooperative closure too large"
+    );
 
     let trampoline_fn = trampoline::<F> as fn(*mut u8);
 
@@ -363,6 +399,7 @@ pub unsafe fn cooperative<F: Fn()>(f: &F) {
     // Warp 0 also executes directly
     f();
 
+    #[allow(clippy::needless_range_loop)]
     for i in 1..n_warps {
         loop {
             let s = WARP_STATUS[i].load(Ordering::Acquire);

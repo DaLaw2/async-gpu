@@ -221,13 +221,21 @@ fn main() -> Result<()> {
             "cooperative" => {
                 // Debug: check which warps participate
                 println!("\n--- Cooperative Debug ---");
-                let dbg: Vec<u32> = gpu_host::gpu::compute("cooperative_debug", 4, 128)
-                    .map_err(|e| GpuHostError::Verification { test: "coop", detail: format!("{e}") })?;
+                let dbg: Vec<u32> =
+                    gpu_host::gpu::launch("cooperative_debug", 4, 128).map_err(|e| {
+                        GpuHostError::Verification {
+                            test: "coop",
+                            detail: format!("{e}"),
+                        }
+                    })?;
                 println!("  Warp writes: {:?} (expect [100, 101, 102, 103])", dbg);
 
                 println!("\n--- Cooperative Compute Test ---");
-                let result: Vec<u32> = gpu_host::gpu::compute("cooperative_compute_test", 256, 128)
-                    .map_err(|e| GpuHostError::Verification { test: "coop", detail: format!("{e}") })?;
+                let result: Vec<u32> = gpu_host::gpu::launch("cooperative_compute_test", 256, 128)
+                    .map_err(|e| GpuHostError::Verification {
+                        test: "coop",
+                        detail: format!("{e}"),
+                    })?;
                 let mut ok = true;
                 for i in 0..256usize {
                     let expected = (i * 2 + 1) as u32;
@@ -236,7 +244,10 @@ fn main() -> Result<()> {
                         ok = false;
                     }
                 }
-                println!("  Cooperative compute: {}", if ok { "PASSED" } else { "FAILED" });
+                println!(
+                    "  Cooperative compute: {}",
+                    if ok { "PASSED" } else { "FAILED" }
+                );
                 assert!(ok);
                 return Ok(());
             }
@@ -807,10 +818,9 @@ fn run_gpu_api_test() -> Result<()> {
 
     println!("\n--- gpu::run() API test (native-rust-dx) ---");
 
-    // Test: gpu::compute launches thread_spawn_test and returns output
-    println!("  gpu::compute(\"thread_spawn_test\", 4, 128)...");
+    println!("  gpu::launch(\"thread_spawn_test\", 4, 128)...");
     let result: Vec<u32> =
-        gpu::compute("thread_spawn_test", 4, 128).map_err(|e| GpuHostError::Verification {
+        gpu::launch("thread_spawn_test", 4, 128).map_err(|e| GpuHostError::Verification {
             test: "gpu_run",
             detail: format!("{e}"),
         })?;
@@ -819,18 +829,19 @@ fn run_gpu_api_test() -> Result<()> {
     assert_eq!(result[1], 99, "thread 2 should return 99");
     assert_eq!(result[2], 3, "available_parallelism should be 3");
     assert_eq!(result[3], 0, "main thread should be warp 0");
-    println!("  gpu::compute — PASSED");
+    println!("  gpu::launch — PASSED");
 
-    // Test: extern "gpu-kernel" ABI (if compiled with patched rustc)
-    println!("  gpu::compute(\"gpu_kernel_demo\", 2, 128)...");
-    match gpu::compute::<u32>("gpu_kernel_demo", 2, 128) {
+    println!("  gpu::launch(\"gpu_kernel_demo\", 2, 128)...");
+    match gpu::launch::<u32>("gpu_kernel_demo", 2, 128) {
         Ok(r) => {
             println!("    result = {:?}", r);
             assert_eq!(r[0], 42);
             assert_eq!(r[1], 99);
             println!("  extern \"gpu-kernel\" ABI — PASSED");
         }
-        Err(_) => println!("  (gpu_kernel_demo not in PTX — needs patched rustc + gpu_kernel_abi feature)"),
+        Err(_) => println!(
+            "  (gpu_kernel_demo not in PTX — needs patched rustc + gpu_kernel_abi feature)"
+        ),
     }
 
     println!("  gpu::run() API test — ALL PASSED");
@@ -843,20 +854,21 @@ fn run_thread_spawn_test(dev: Arc<CudaDevice>) -> Result<()> {
 
     println!("\n--- thread::spawn test (std-thread-gpu) ---");
 
-    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
-    match dev.load_ptx(
-        ptx,
-        "thread_test",
-        &["thread_spawn_test", "thread_reuse_test"],
-    ) {
-        Ok(_) => println!("  PTX loaded successfully"),
+    let ptx1 = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
+    match dev.load_ptx(ptx1, "thread_test1", &["thread_spawn_test"]) {
+        Ok(_) => println!("  PTX loaded (test1)"),
+        Err(e) => println!("  PTX load error: {e:?}"),
+    }
+    let ptx2 = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_PTX);
+    match dev.load_ptx(ptx2, "thread_test2", &["thread_reuse_test"]) {
+        Ok(_) => println!("  PTX loaded (test2)"),
         Err(e) => println!("  PTX load error: {e:?}"),
     }
 
     // --- Test 1: basic spawn + join ---
     println!("  Test 1: spawn 2 threads, join results...");
     let f = dev
-        .get_func("thread_test", "thread_spawn_test")
+        .get_func("thread_test1", "thread_spawn_test")
         .ok_or(GpuHostError::KernelNotFound("thread_spawn_test"))?;
 
     let mut result_dev: cudarc::driver::CudaSlice<u32> = dev.alloc_zeros::<u32>(4)?;
@@ -888,7 +900,7 @@ fn run_thread_spawn_test(dev: Arc<CudaDevice>) -> Result<()> {
     // --- Test 2: spawn + reuse (4 tasks on 3 warps) ---
     println!("  Test 2: spawn 4 tasks with reuse...");
     let f2 = dev
-        .get_func("thread_test", "thread_reuse_test")
+        .get_func("thread_test2", "thread_reuse_test")
         .ok_or(GpuHostError::KernelNotFound("thread_reuse_test"))?;
 
     let mut result2_dev: cudarc::driver::CudaSlice<u32> = dev.alloc_zeros::<u32>(5)?;

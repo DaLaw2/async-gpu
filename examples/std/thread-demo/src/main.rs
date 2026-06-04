@@ -31,7 +31,7 @@ fn main() {
 
     // One line: launch the kernel, get results back.
     // 4 warps (128 threads): warp 0 = main, warps 1-3 = workers.
-    let result: Vec<u32> = gpu::compute("thread_spawn_test", 4, 128)
+    let result: Vec<u32> = gpu::launch("thread_spawn_test", 4, 128)
         .expect("GPU launch failed");
 
     println!("Thread 1 computed: {}", result[0]); // 42
@@ -41,7 +41,7 @@ fn main() {
     println!("\nAll threads completed. Results joined successfully.");
 
     // With reuse: spawn 4 tasks on 3 worker warps
-    let result2: Vec<u32> = gpu::compute("thread_reuse_test", 5, 128)
+    let result2: Vec<u32> = gpu::launch("thread_reuse_test", 5, 128)
         .expect("GPU launch failed");
 
     println!("\n--- Warp Reuse Demo ---");

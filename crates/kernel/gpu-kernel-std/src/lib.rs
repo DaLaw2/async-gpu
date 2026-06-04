@@ -515,15 +515,12 @@ pub unsafe extern "ptx-kernel" fn std_multithread_vec_test(result: *mut u32) {
 
 /// Demo: std::thread::spawn on GPU — identical to CPU Rust.
 ///
-/// Spawns 2 threads, each does independent computation, joins results,
-/// and prints via println!. The user code looks exactly like CPU threading.
-///
 /// Launch with: block_dim=(128,1,1), 1 block, hostcall enabled.
 #[unsafe(no_mangle)]
 pub unsafe extern "ptx-kernel" fn std_thread_spawn_demo(buf: *mut u8, result: *mut u32) {
-    let _ = buf; // hostcall buffer available for future println! use
+    let _ = buf;
 
-    gpu_runtime::thread::gpu_main(|| {
+    gpu_runtime::thread::gpu_main_poll(|| {
         let handle1 = gpu_runtime::thread::spawn(|| -> u32 {
             let mut sum = 0u32;
             for i in 0..10u32 {
@@ -586,4 +583,97 @@ pub unsafe extern "ptx-kernel" fn std_buffered_println_test(
     unsafe {
         core::ptr::write_volatile(result, 1);
     }
+}
+
+// ============================================================
+// North Star Demo: File::read → cooperative compute → File::write
+// ============================================================
+
+static NS_IN_PTR: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
+static NS_OUT_PTR: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
+static NS_LEN: AtomicU32 = AtomicU32::new(0);
+
+/// North Star: File::read → compute → File::write in one kernel.
+///
+/// Demonstrates the project vision: I/O and compute unified in plain Rust.
+/// - Sequential I/O (warp 0): read input file
+/// - Cooperative compute (all warps): transform data in parallel
+/// - Sequential I/O (warp 0): write output file
+///
+/// Launch with: block_dim=(128,1,1), hostcall enabled.
+#[unsafe(no_mangle)]
+pub unsafe extern "ptx-kernel" fn north_star_demo(buf: *mut u8, result: *mut u32) {
+    stdio_init(buf);
+    gpu_libc::gpu_libc_io_init(buf);
+
+    gpu_runtime::thread::gpu_main_poll(|| {
+        use std::fs::File;
+        use std::io::{Read, Write};
+
+        // === SEQUENTIAL I/O: read input ===
+        let data = match File::open("north_star_input.bin") {
+            Ok(mut f) => {
+                let mut raw = Vec::new();
+                f.read_to_end(&mut raw).unwrap();
+                raw
+            }
+            Err(e) => {
+                println!("[ERR] File::open: {}", e);
+                return;
+            }
+        };
+        let n = data.len() / 4;
+        println!("[NS] Read {} floats from input", n);
+
+        // Allocate output
+        let mut output = vec![0u8; data.len()];
+
+        // Publish pointers for cooperative access
+        NS_IN_PTR.store(data.as_ptr() as u64, AtomicOrdering::Release);
+        NS_OUT_PTR.store(output.as_mut_ptr() as u64, AtomicOrdering::Release);
+        NS_LEN.store(n as u32, AtomicOrdering::Release);
+
+        // === COOPERATIVE COMPUTE: all warps multiply by 2 ===
+        unsafe {
+            gpu_runtime::thread::cooperative(&|| {
+                let src = NS_IN_PTR.load(AtomicOrdering::Acquire) as *const f32;
+                let dst = NS_OUT_PTR.load(AtomicOrdering::Acquire) as *mut f32;
+                let len = NS_LEN.load(AtomicOrdering::Acquire);
+                let wid = gpu_runtime::thread::current_id();
+                let total = (gpu_runtime::thread::available_parallelism() + 1) as u32;
+                let lid = gpu_runtime::index::thread_idx_x() % 32;
+
+                if lid == 0 {
+                    let mut i = wid;
+                    while i < len {
+                        let v = core::ptr::read_volatile(src.add(i as usize));
+                        core::ptr::write_volatile(dst.add(i as usize), v * 2.0);
+                        i += total;
+                    }
+                }
+            });
+        }
+
+        // === SEQUENTIAL I/O: write output ===
+        match File::create("north_star_output.bin") {
+            Ok(mut f) => {
+                f.write_all(&output).unwrap();
+                println!("[NS] Wrote {} floats to output", n);
+            }
+            Err(e) => {
+                println!("[ERR] File::create: {}", e);
+                return;
+            }
+        }
+
+        println!("[NS] DONE: read → compute(×2) → write");
+
+        // Write success marker
+        if gpu_runtime::index::thread_idx_x() == 0 {
+            unsafe {
+                core::ptr::write_volatile(result, n as u32);
+                core::ptr::write_volatile(result.add(1), 1); // success flag
+            }
+        }
+    });
 }

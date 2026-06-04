@@ -7,9 +7,9 @@
 //! This example uses the embedded kernel PTX from `gpu_host::ptx::KERNEL`,
 //! which includes `hostcall_print_hello` — a kernel that prints via hostcall.
 
-use gpu_host::async_rt::{AsyncGpuRuntime, GpuTask, HostcallEvent};
-use gpu_host::memory::MappedBuffer;
-use gpu_host::runtime::GpuRuntime;
+use async_gpu::{AsyncGpuRuntime, GpuTask, HostcallEvent};
+use async_gpu::MappedBuffer;
+use async_gpu::GpuRuntime;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -21,7 +21,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Load PTX module (synchronous — fast, no GPU work queued)
     rt.load_ptx(
-        gpu_host::ptx::KERNEL,
+        async_gpu::ptx::KERNEL,
         "kernel",
         &["hostcall_print_hello"],
     )?;

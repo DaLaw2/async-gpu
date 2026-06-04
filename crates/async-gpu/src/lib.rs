@@ -59,20 +59,33 @@
 pub use gpu_host::gpu;
 
 // Error types
+pub use gpu_host::error::error_category_name;
 pub use gpu_host::error::GpuHostError;
 pub use gpu_host::error::GpuKernelErrorInfo;
 
 /// Convenience type alias: `Result<T, GpuHostError>`.
 pub use gpu_host::Result;
 
-// Advanced types — for users who need full control
+// Runtime & session types — for users who need full control
 pub use gpu_host::GpuRuntime;
+pub use gpu_host::HostcallBuffer;
 pub use gpu_host::HostcallSession;
 pub use gpu_host::MappedBuffer;
 pub use gpu_host::Pipeline;
 
+// Hostcall error type — returned by HostcallBuffer/HostcallSession/Pipeline constructors
+pub use gpu_host::hostcall::HostcallError;
+
+// Debugging tools
+/// Post-mortem GPU trace ring buffer for crash investigation.
+pub use gpu_host::hostcall::FlightRecorder;
+
 /// CUDA stream overlap support.
 pub use gpu_host::streams::GpuStream;
+
+/// Embedded PTX sources for GPU kernels.
+#[doc(hidden)]
+pub use gpu_host::ptx;
 
 /// Returns the path to the workspace `models/` directory.
 #[doc(hidden)]
@@ -101,3 +114,14 @@ pub use gpu_host::nn;
 /// ```
 #[cfg(feature = "async")]
 pub use gpu_host::async_rt;
+
+// Convenience re-exports of the most-used async types at root level,
+// so users can write `use async_gpu::AsyncGpuRuntime` directly.
+#[cfg(feature = "async")]
+pub use gpu_host::async_rt::AsyncGpuRuntime;
+#[cfg(feature = "async")]
+pub use gpu_host::async_rt::AsyncHostcallSession;
+#[cfg(feature = "async")]
+pub use gpu_host::async_rt::GpuTask;
+#[cfg(feature = "async")]
+pub use gpu_host::async_rt::HostcallEvent;

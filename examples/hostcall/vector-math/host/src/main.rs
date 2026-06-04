@@ -7,11 +7,11 @@
 //!
 //! Uses the `gpu::custom()` builder API for clean, minimal boilerplate.
 
-use gpu_host::gpu;
+use async_gpu::gpu;
 
 const KERNEL_PTX: &str = include_str!(concat!(env!("OUT_DIR"), "/kernel.ptx"));
 
-fn main() -> gpu_host::Result<()> {
+fn main() -> async_gpu::Result<()> {
     println!("=== Vector Math Example ===\n");
 
     // ---- Demo 1: SAXPY ----

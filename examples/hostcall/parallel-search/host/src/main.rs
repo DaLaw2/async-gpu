@@ -7,7 +7,7 @@
 //!
 //! Uses the `gpu::custom()` builder API with hostcall and mapped buffers.
 
-use gpu_host::gpu;
+use async_gpu::gpu;
 
 const KERNEL_PTX: &str = include_str!(concat!(env!("OUT_DIR"), "/kernel.ptx"));
 

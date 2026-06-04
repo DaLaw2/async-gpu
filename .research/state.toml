@@ -15,11 +15,11 @@ status = "running"     # ready | running | blocked | completed
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
 current_step = "dispatch"
-current_task_id = "iter-compiler.1,fusion-codegen.1"
+current_task_id = "showcase-api.2,iter-runtime.1"
 
 # Sequence counters
 brainstorm_seq = 116
-tasks_since_brainstorm = 8   # reset after brainstorm 116
+tasks_since_brainstorm = 11   # reset after brainstorm 116
 
 # ============================================================
 # Epics — Tiered (T0 → T3), sorted by tier then priority
@@ -686,7 +686,7 @@ id = "iter-runtime.1"
 theme = "iter-runtime"
 title = "Experiment: warp-parallel input partitioning + output buffer management"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["iter-compiler.1"]
 
 [[tasks]]
@@ -940,7 +940,7 @@ id = "showcase-api.1"
 theme = "showcase-api"
 title = "Investigation: audit async-gpu facade for all missing re-exports (SC, channels, executor)"
 kind = "investigation"
-status = "pending"
+status = "done"
 depends = []
 
 [[tasks]]
@@ -948,7 +948,7 @@ id = "showcase-api.2"
 theme = "showcase-api"
 title = "Experiment: add SC types + channels + executor to async-gpu facade re-exports"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["showcase-api.1"]
 
 [[tasks]]

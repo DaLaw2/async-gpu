@@ -43,23 +43,15 @@ const STATUS_RUNNING: u32 = 2;
 const STATUS_DONE: u32 = 3;
 const STATUS_EXIT: u32 = 4;
 
-// Per-warp slot: status + trampoline fn pointer + data pointer + result pointer
-static WARP_STATUS: [AtomicU32; MAX_WARPS] = {
-    const INIT: AtomicU32 = AtomicU32::new(STATUS_IDLE);
-    [INIT; MAX_WARPS]
-};
-static WARP_FN: [AtomicU64; MAX_WARPS] = {
-    const INIT: AtomicU64 = AtomicU64::new(0);
-    [INIT; MAX_WARPS]
-};
-static WARP_DATA: [AtomicU64; MAX_WARPS] = {
-    const INIT: AtomicU64 = AtomicU64::new(0);
-    [INIT; MAX_WARPS]
-};
-static WARP_RESULT: [AtomicU64; MAX_WARPS] = {
-    const INIT: AtomicU64 = AtomicU64::new(0);
-    [INIT; MAX_WARPS]
-};
+#[allow(clippy::declare_interior_mutable_const)]
+const ATOMIC_U32_ZERO: AtomicU32 = AtomicU32::new(STATUS_IDLE);
+#[allow(clippy::declare_interior_mutable_const)]
+const ATOMIC_U64_ZERO: AtomicU64 = AtomicU64::new(0);
+
+static WARP_STATUS: [AtomicU32; MAX_WARPS] = [ATOMIC_U32_ZERO; MAX_WARPS];
+static WARP_FN: [AtomicU64; MAX_WARPS] = [ATOMIC_U64_ZERO; MAX_WARPS];
+static WARP_DATA: [AtomicU64; MAX_WARPS] = [ATOMIC_U64_ZERO; MAX_WARPS];
+static WARP_RESULT: [AtomicU64; MAX_WARPS] = [ATOMIC_U64_ZERO; MAX_WARPS];
 
 static NUM_WARPS: AtomicU32 = AtomicU32::new(0);
 
@@ -104,8 +96,8 @@ pub fn gpu_main<F: FnOnce()>(main_fn: F) {
     if wid == 0 && lane_id() == 0 {
         NUM_WARPS.store(n_warps, Ordering::Release);
         // Ensure all slots are IDLE
-        for i in 1..n_warps as usize {
-            WARP_STATUS[i].store(STATUS_IDLE, Ordering::Relaxed);
+        for slot in WARP_STATUS.iter().skip(1).take(n_warps as usize - 1) {
+            slot.store(STATUS_IDLE, Ordering::Relaxed);
         }
     }
 
@@ -120,8 +112,8 @@ pub fn gpu_main<F: FnOnce()>(main_fn: F) {
         main_fn();
 
         // Signal all worker warps to exit
-        for i in 1..n_warps as usize {
-            WARP_STATUS[i].store(STATUS_EXIT, Ordering::Release);
+        for slot in WARP_STATUS.iter().skip(1).take(n_warps as usize - 1) {
+            slot.store(STATUS_EXIT, Ordering::Release);
         }
     } else if (wid as usize) < MAX_WARPS {
         // Worker warps: enter parking loop
@@ -242,42 +234,26 @@ where
 
     let n_warps = NUM_WARPS.load(Ordering::Acquire) as usize;
 
-    // Find an idle warp (linear scan from warp 1)
-    let mut target_warp = 0usize;
-    for i in 1..n_warps {
-        if WARP_STATUS[i].load(Ordering::Acquire) == STATUS_IDLE {
-            target_warp = i;
-            break;
+    // Find an idle warp (linear scan from warp 1), spin-wait if none available
+    let target_warp = loop {
+        let found = (1..n_warps).find(|&i| WARP_STATUS[i].load(Ordering::Acquire) == STATUS_IDLE);
+        if let Some(w) = found {
+            break w;
         }
-    }
-
-    // For now, if no warp available we spin-wait (basic backpressure)
-    if target_warp == 0 {
-        loop {
-            for i in 1..n_warps {
-                if WARP_STATUS[i].load(Ordering::Acquire) == STATUS_IDLE {
-                    target_warp = i;
-                    break;
-                }
-            }
-            if target_warp != 0 {
-                break;
-            }
-            nanosleep_short();
-        }
-    }
+        nanosleep_short();
+    };
 
     // Allocate space for the closure + result in a static buffer
     // For simplicity: use a per-warp scratch buffer in global memory
     // Each warp gets SCRATCH_SIZE bytes for closure data + result
     const SCRATCH_SIZE: usize = 256;
-    static SCRATCH: [[AtomicU32; SCRATCH_SIZE / 4]; MAX_WARPS] = {
-        const ROW: [AtomicU32; SCRATCH_SIZE / 4] = {
-            const ZERO: AtomicU32 = AtomicU32::new(0);
-            [ZERO; SCRATCH_SIZE / 4]
-        };
-        [ROW; MAX_WARPS]
+    #[allow(clippy::declare_interior_mutable_const)]
+    const SCRATCH_ROW: [AtomicU32; SCRATCH_SIZE / 4] = {
+        #[allow(clippy::declare_interior_mutable_const)]
+        const ZERO: AtomicU32 = AtomicU32::new(0);
+        [ZERO; SCRATCH_SIZE / 4]
     };
+    static SCRATCH: [[AtomicU32; SCRATCH_SIZE / 4]; MAX_WARPS] = [SCRATCH_ROW; MAX_WARPS];
 
     let scratch_ptr = SCRATCH[target_warp].as_ptr() as *mut u8;
 
@@ -293,7 +269,7 @@ where
 
     // Set up the warp slot
     let trampoline_fn = trampoline::<F, T> as fn(*mut u8);
-    WARP_FN[target_warp].store(trampoline_fn as u64, Ordering::Relaxed);
+    WARP_FN[target_warp].store(trampoline_fn as usize as u64, Ordering::Relaxed);
     WARP_DATA[target_warp].store(scratch_ptr as u64, Ordering::Relaxed);
     WARP_RESULT[target_warp].store(0, Ordering::Relaxed);
 
@@ -308,12 +284,7 @@ where
 
 /// Returns the number of available threads (warps) that can be spawned.
 pub fn available_parallelism() -> usize {
-    let n = NUM_WARPS.load(Ordering::Relaxed) as usize;
-    if n > 1 {
-        n - 1
-    } else {
-        0
-    } // subtract warp 0 (main thread)
+    (NUM_WARPS.load(Ordering::Relaxed) as usize).saturating_sub(1)
 }
 
 /// Returns the current thread's ID (warp index).
@@ -386,12 +357,7 @@ pub extern "C" fn gpu_thread_join_warp(warp_id: u32) {
 /// Return the number of available worker warps (total warps minus main warp).
 #[unsafe(no_mangle)]
 pub extern "C" fn gpu_thread_available_parallelism() -> u32 {
-    let n = NUM_WARPS.load(Ordering::Relaxed);
-    if n > 1 {
-        n - 1
-    } else {
-        0
-    }
+    NUM_WARPS.load(Ordering::Relaxed).saturating_sub(1)
 }
 
 /// Return the current warp index (thread ID).

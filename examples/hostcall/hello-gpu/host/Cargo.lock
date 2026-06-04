@@ -33,7 +33,6 @@ version = "0.1.0"
 name = "hello-gpu-host"
 version = "0.1.0"
 dependencies = [
- "cudarc",
  "gpu-host",
 ]
 

@@ -6,7 +6,6 @@ version = 4
 name = "async-pipeline-host"
 version = "0.1.0"
 dependencies = [
- "cudarc",
  "gpu-host",
 ]
 

@@ -1,142 +1,60 @@
-//! Hello GPU — standalone example using the gpu-host SDK.
+//! Hello GPU — GPU capabilities in one-liner API calls.
 //!
-//! Demonstrates four GPU kernels:
-//! 1. vector_add — pure compute, no hostcall
-//! 2. hello_gpu — PRINT hostcall (GPU prints to host terminal)
-//! 3. file_io_demo — file OPEN + WRITE + CLOSE from GPU
-//! 4. bulk_read_demo — bulk READ via sideband buffer
+//! Each demo is a single function call. No manual PTX loading, no
+//! buffer management, no launch configs. Just call and get results.
 //!
-//! Uses the core SDK types:
-//! - [`GpuRuntime`] — device init, PTX loading, kernel launch
-//! - [`HostcallSession`] — managed GPU-host RPC communication
-//! - [`MappedBuffer`] — RAII pinned device-mapped memory
+//! Three demos:
+//! 1. GPU println — kernel sends "Hello from GPU!" to host stdout
+//! 2. GPU file I/O — kernel creates, writes, reads, and verifies a file
+//! 3. GPU threading — thread::spawn on separate warps, join results
 
-use cudarc::driver::LaunchAsync;
-use gpu_host::{GpuRuntime, HostcallSession, MappedBuffer};
-
-// Embed the PTX compiled by build.rs
-const KERNEL_PTX: &str = include_str!(concat!(env!("OUT_DIR"), "/kernel.ptx"));
+use gpu_host::gpu;
 
 fn main() -> gpu_host::Result<()> {
     println!("=== Hello GPU Example ===\n");
 
-    // Initialize CUDA device via SDK
-    let rt = GpuRuntime::new(0)?;
-    println!("[host] CUDA device initialized.");
+    // ---- Demo 1: GPU println ----
+    // The kernel calls gpu_hostcall_print("Hello from GPU!").
+    // One line: launch kernel, get success flag back.
+    println!("--- Demo 1: GPU println ---");
+    let result: Vec<u32> = gpu::run_with_output("hostcall_print_hello", 1)?;
+    println!(
+        "[host] hostcall_print_hello: {}\n",
+        if result[0] == 1 { "PASSED" } else { "FAILED" }
+    );
 
-    // Load PTX module
-    rt.load_ptx(
-        KERNEL_PTX,
-        "hello",
-        &["hello_gpu", "vector_add", "file_io_demo", "bulk_read_demo"],
-    )?;
-    println!("[host] PTX module loaded.\n");
+    // ---- Demo 2: GPU file I/O ----
+    // The kernel opens a file, writes "Hello from GPU file I/O!",
+    // reads it back, and verifies the content matches.
+    // Four result slots: [success, fd, bytes_written, bytes_read].
+    println!("--- Demo 2: GPU file I/O ---");
+    let result: Vec<u32> = gpu::run_with_output("hostcall_file_test", 4)?;
+    let success = result[0] == 1;
+    println!("[host] File created and written from GPU");
+    println!("[host] Bytes written: {}, bytes read back: {}", result[2], result[3]);
+    println!(
+        "[host] hostcall_file_test: {}\n",
+        if success { "PASSED" } else { "FAILED" }
+    );
+    // Clean up the test file
+    let _ = std::fs::remove_file("gpu_test_output.txt");
 
-    // ---- Demo 1: vector_add (pure compute, no hostcall) ----
-    println!("--- Demo 1: vector_add ---");
-    {
-        const N: usize = 64;
-        let a: Vec<f32> = (0..N).map(|i| i as f32).collect();
-        let b: Vec<f32> = (0..N).map(|i| (N - i) as f32).collect();
-
-        let a_dev = rt.htod_sync_copy(&a)?;
-        let b_dev = rt.htod_sync_copy(&b)?;
-        let mut c_dev = rt.alloc_zeros::<f32>(N)?;
-
-        let f = rt.require_func("hello", "vector_add")?;
-        let cfg = GpuRuntime::launch_config((1, 1, 1), (N as u32, 1, 1), 0);
-        unsafe { f.launch(cfg, (&a_dev, &b_dev, &mut c_dev, N as u32))? };
-        let result = rt.dtoh_sync_copy(&c_dev)?;
-
-        let ok = result.iter().all(|&v| (v - N as f32).abs() < 0.001);
-        println!(
-            "[host] vector_add: {}\n",
-            if ok { "PASSED" } else { "FAILED" }
-        );
-    }
-
-    // ---- Demos 2-4: hostcall-based kernels ----
-    // Start hostcall session (spawns listener thread automatically)
-    let session = HostcallSession::start(8)?;
-
-    // MappedBuffer<u32> — RAII pinned memory, auto-freed on drop
-    let mut result_buf = MappedBuffer::<u32>::new_zeroed(1)?;
-    let mut bytes_read_buf = MappedBuffer::<u32>::new_zeroed(1)?;
-
-    let cfg1 = GpuRuntime::launch_config((1, 1, 1), (32, 1, 1), 0);
-
-    // ---- Demo 2: hello_gpu (PRINT hostcall) ----
-    println!("--- Demo 2: hello_gpu (PRINT hostcall) ---");
-    unsafe { result_buf.write(0, 0) };
-    {
-        let f = rt.require_func("hello", "hello_gpu")?;
-        unsafe {
-            f.launch(cfg1, (session.dev_ptr(), result_buf.dev_ptr() as u64))?;
-        }
-        rt.synchronize()?;
-        std::thread::sleep(std::time::Duration::from_millis(50));
-        let r = unsafe { result_buf.read(0) };
-        println!(
-            "[host] hello_gpu: {}\n",
-            if r == 1 { "PASSED" } else { "FAILED" }
-        );
-    }
-
-    // ---- Demo 3: file_io_demo (OPEN + WRITE + CLOSE) ----
-    println!("--- Demo 3: file_io_demo (file I/O from GPU) ---");
-    unsafe { result_buf.write(0, 0) };
-    {
-        let f = rt.require_func("hello", "file_io_demo")?;
-        unsafe {
-            f.launch(cfg1, (session.dev_ptr(), result_buf.dev_ptr() as u64))?;
-        }
-        rt.synchronize()?;
-        std::thread::sleep(std::time::Duration::from_millis(50));
-        let r = unsafe { result_buf.read(0) };
-        println!(
-            "[host] file_io_demo: {}",
-            if r == 1 { "PASSED" } else { "FAILED" }
-        );
-        if let Ok(content) = std::fs::read_to_string("gpu_output.txt") {
-            println!("[host] Verified file content: {:?}\n", content.trim());
-        }
-    }
-
-    // ---- Demo 4: bulk_read_demo (OPEN + BULK_READ + CLOSE via sideband) ----
-    println!("--- Demo 4: bulk_read_demo (sideband bulk read) ---");
-    unsafe {
-        result_buf.write(0, 0);
-        bytes_read_buf.write(0, 0);
-    }
-    {
-        let f = rt.require_func("hello", "bulk_read_demo")?;
-        unsafe {
-            f.launch(
-                cfg1,
-                (
-                    session.dev_ptr(),
-                    session.sideband_dev_ptr(),
-                    result_buf.dev_ptr() as u64,
-                    bytes_read_buf.dev_ptr() as u64,
-                ),
-            )?;
-        }
-        rt.synchronize()?;
-        std::thread::sleep(std::time::Duration::from_millis(50));
-        let r = unsafe { result_buf.read(0) };
-        let n = unsafe { bytes_read_buf.read(0) };
-        println!(
-            "[host] bulk_read_demo: {} ({} bytes read)\n",
-            if r == 1 { "PASSED" } else { "FAILED" },
-            n
-        );
-    }
-
-    // Shutdown session (stops listener, closes files)
-    session.shutdown();
-
-    // Cleanup (MappedBuffer auto-frees on drop)
-    let _ = std::fs::remove_file("gpu_output.txt");
+    // ---- Demo 3: GPU threading ----
+    // The kernel spawns two threads on separate GPU warps:
+    //   Thread 1 returns 42, Thread 2 returns 99.
+    // Host gets results via a shared output buffer.
+    // Result: [thread1_value, thread2_value, available_parallelism, main_warp_id]
+    println!("--- Demo 3: GPU threading ---");
+    let result: Vec<u32> = gpu::launch("thread_spawn_test", 4, 128)?;
+    println!("[host] Thread 1 computed: {} (expected 42)", result[0]);
+    println!("[host] Thread 2 computed: {} (expected 99)", result[1]);
+    println!("[host] Available parallelism: {} warps", result[2]);
+    println!("[host] Main thread: warp {}", result[3]);
+    let ok = result[0] == 42 && result[1] == 99;
+    println!(
+        "[host] thread_spawn_test: {}\n",
+        if ok { "PASSED" } else { "FAILED" }
+    );
 
     println!("=== All demos complete! ===");
     Ok(())

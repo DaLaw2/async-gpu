@@ -4,8 +4,7 @@
 name = "hello-gpu-host"
 version = "0.1.0"
 edition = "2021"
-description = "Hello GPU — standalone example using gpu-host SDK"
+description = "Hello GPU — native Rust API for GPU compute, I/O, and threading"
 
 [dependencies]
-cudarc = { version = "0.12", features = ["cuda-12060"] }
 gpu-host = { path = "../../../../crates/core/gpu-host", default-features = false }

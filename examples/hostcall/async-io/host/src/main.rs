@@ -1,99 +1,46 @@
-//! Async I/O — host binary demonstrating multi-step file I/O from GPU.
+//! Async I/O — GPU file operations in one-liner calls.
 //!
-//! Runs two GPU kernels via the gpu-host SDK:
-//! 1. write_pipeline — write 3 files from GPU in sequence
-//! 2. transform_pipeline — read a file, uppercase on GPU, write result
+//! Demonstrates GPU kernels performing file I/O via the hostcall system:
+//! 1. File I/O — create, write, read, and verify a file from GPU
+//! 2. Pipelined I/O — overlap computation with pending file operations
 //!
-//! Uses the core SDK types:
-//! - [`GpuRuntime`] — device init, PTX loading, kernel launch
-//! - [`HostcallSession`] — managed GPU-host RPC communication
-//! - [`MappedBuffer`] — RAII pinned device-mapped memory
+//! Each demo is a single function call. The hostcall system transparently
+//! bridges GPU file operations to the host filesystem.
 
-use cudarc::driver::LaunchAsync;
-use gpu_host::{GpuRuntime, HostcallSession, MappedBuffer};
-
-const KERNEL_PTX: &str = include_str!(concat!(env!("OUT_DIR"), "/kernel.ptx"));
+use gpu_host::gpu;
 
 fn main() -> gpu_host::Result<()> {
     println!("=== Async I/O Example ===\n");
 
-    let rt = GpuRuntime::new(0)?;
-    println!("[host] CUDA device initialized.");
-
-    rt.load_ptx(
-        KERNEL_PTX,
-        "asyncio",
-        &["write_pipeline", "transform_pipeline"],
-    )?;
-    println!("[host] PTX module loaded.\n");
-
-    let session = HostcallSession::start(8)?;
-    let mut result_buf = MappedBuffer::<u32>::new_zeroed(1)?;
-
-    let cfg = GpuRuntime::launch_config((1, 1, 1), (32, 1, 1), 0);
-
-    // ---- Demo 1: write_pipeline ----
-    println!("--- Demo 1: write_pipeline (3 files from GPU) ---");
-    unsafe { result_buf.write(0, 0) };
-    {
-        let f = rt.require_func("asyncio", "write_pipeline")?;
-        unsafe {
-            f.launch(cfg, (session.dev_ptr(), result_buf.dev_ptr() as u64))?;
-        }
-        rt.synchronize()?;
-        std::thread::sleep(std::time::Duration::from_millis(50));
-        let r = unsafe { result_buf.read(0) };
-        println!("[host] write_pipeline: {}/3 files written", r);
-
-        for i in 0..3 {
-            let name = format!("gpu_file_{i}.txt");
-            if let Ok(content) = std::fs::read_to_string(&name) {
-                println!("[host]   {name}: {:?}", content.trim());
-            }
-        }
-        println!();
+    // ---- Demo 1: File I/O from GPU ----
+    // The kernel: open → write "Hello from GPU file I/O!" → close → reopen → read → verify
+    // Result: [success, fd, bytes_written, bytes_read]
+    println!("--- Demo 1: File I/O (create + write + read + verify) ---");
+    let result: Vec<u32> = gpu::run_with_output("hostcall_file_test", 4)?;
+    let success = result[0] == 1;
+    println!("[host] Written {} bytes, read back {} bytes", result[2], result[3]);
+    println!("[host] Content verified: {}", if success { "match" } else { "MISMATCH" });
+    if let Ok(content) = std::fs::read_to_string("gpu_test_output.txt") {
+        println!("[host] File content: {:?}", content.trim());
     }
+    println!(
+        "[host] hostcall_file_test: {}\n",
+        if success { "PASSED" } else { "FAILED" }
+    );
+    let _ = std::fs::remove_file("gpu_test_output.txt");
 
-    // ---- Demo 2: transform_pipeline ----
-    println!("--- Demo 2: transform_pipeline (read -> uppercase -> write) ---");
-    unsafe { result_buf.write(0, 0) };
-    {
-        let f = rt.require_func("asyncio", "transform_pipeline")?;
-        unsafe {
-            f.launch(
-                cfg,
-                (
-                    session.dev_ptr(),
-                    session.sideband_dev_ptr(),
-                    result_buf.dev_ptr() as u64,
-                ),
-            )?;
-        }
-        rt.synchronize()?;
-        std::thread::sleep(std::time::Duration::from_millis(50));
-        let r = unsafe { result_buf.read(0) };
-        println!(
-            "[host] transform_pipeline: {}",
-            if r == 1 { "PASSED" } else { "FAILED" }
-        );
-        if let Ok(content) = std::fs::read_to_string("gpu_upper.txt") {
-            println!("[host]   gpu_upper.txt: {:?}", content.trim());
-        }
-        println!();
-    }
+    // ---- Demo 2: Pipelined compute + I/O ----
+    // The kernel overlaps GPU computation with pending file I/O:
+    //   submit file open → compute while waiting → write results
+    // This pattern is impossible with CUDA graphs (fixed execution trace).
+    println!("--- Demo 2: Pipelined Compute + I/O ---");
+    let result: Vec<u32> = gpu::run_with_output("pipelined_compute", 1)?;
+    println!(
+        "[host] pipelined_compute: {}\n",
+        if result[0] == 1 { "PASSED" } else { "FAILED" }
+    );
+    let _ = std::fs::remove_file("pipelined_output.txt");
 
-    session.shutdown();
-
-    // Cleanup
-    for name in &[
-        "gpu_file_0.txt",
-        "gpu_file_1.txt",
-        "gpu_file_2.txt",
-        "gpu_upper.txt",
-    ] {
-        let _ = std::fs::remove_file(name);
-    }
-
-    println!("=== Async I/O example complete! ===");
+    println!("=== Async I/O Example Complete ===");
     Ok(())
 }

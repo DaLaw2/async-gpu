@@ -372,49 +372,35 @@ pub(crate) fn run_dynamic_alloc_test(dev: Arc<CudaDevice>) -> Result<()> {
 ///
 /// Launches std_file_io_test kernel from gpu-kernel-std which uses
 /// std::fs::File::create() + write_all() + File::open() + read_to_end().
-pub(crate) fn run_std_file_io_test(dev: Arc<CudaDevice>) -> Result<()> {
+///
+/// Zero-param entry: hostcall buffer injected via `__HOSTCALL_BUF` device global.
+pub(crate) fn run_std_file_io_test(_dev: Arc<CudaDevice>) -> Result<()> {
     println!("\n--- std-fs.4: std::fs File I/O on GPU via hostcall ---");
 
     use std::sync::Arc as StdArc;
     use std::sync::Mutex;
 
-    let hc_buf = hostcall::HostcallBuffer::new(4)?;
-    let dev_ptr = hc_buf.dev_ptr;
-
     let messages: StdArc<Mutex<Vec<String>>> = StdArc::new(Mutex::new(Vec::new()));
     let messages_clone = StdArc::clone(&messages);
 
-    let hc_buf_ref = StdArc::new(hc_buf);
-    let hc_buf_listener = StdArc::clone(&hc_buf_ref);
-    let listener_handle = std::thread::spawn(move || {
-        hc_buf_listener.listen(|msg| {
+    let module = gpu_host::gpu::GpuStdModule::load_with_print(
+        crate::KERNEL_STD_PTX,
+        "std_file_io_test",
+        1,
+        (1, 1, 1),
+        Some(Box::new(move |msg| {
             let s = String::from_utf8_lossy(msg).to_string();
             println!("  [HOST] GPU stdout: \"{s}\"");
             messages_clone.lock().unwrap().push(s);
-        });
-    });
+        })),
+    )?;
 
-    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_STD_PTX);
-    let _ = dev.load_ptx(ptx, "kernel_std", &["std_file_io_test"]);
-    let f = dev
-        .get_func("kernel_std", "std_file_io_test")
-        .ok_or(GpuHostError::KernelNotFound("std_file_io_test"))?;
-
-    let cfg = LaunchConfig {
-        grid_dim: (1, 1, 1),
-        block_dim: (1, 1, 1),
-        shared_mem_bytes: 0,
-    };
-
-    println!("  Launching std_file_io_test...");
+    println!("  Launching std_file_io_test (zero-param)...");
     unsafe {
-        f.launch(cfg, (dev_ptr,))?;
+        module.launch_raw(&[])?;
     }
-    dev.synchronize()?;
     std::thread::sleep(std::time::Duration::from_millis(200));
-
-    hc_buf_ref.signal_shutdown();
-    listener_handle.join().unwrap();
+    module.finish();
 
     // Check GPU stdout messages for success markers
     let received = messages.lock().unwrap();
@@ -453,49 +439,35 @@ pub(crate) fn run_std_file_io_test(dev: Arc<CudaDevice>) -> Result<()> {
 }
 
 /// Test: multi-step pipeline with std types and ? error propagation (std-migration.3).
-pub(crate) fn run_std_pipeline_test(dev: Arc<CudaDevice>) -> Result<()> {
+///
+/// Zero-param entry: hostcall buffer injected via `__HOSTCALL_BUF` device global.
+pub(crate) fn run_std_pipeline_test(_dev: Arc<CudaDevice>) -> Result<()> {
     println!("\n--- std-migration.3: std pipeline (Vec + format! + File + ? operator) ---");
 
     use std::sync::Arc as StdArc;
     use std::sync::Mutex;
 
-    let hc_buf = hostcall::HostcallBuffer::new(4)?;
-    let dev_ptr = hc_buf.dev_ptr;
-
     let messages: StdArc<Mutex<Vec<String>>> = StdArc::new(Mutex::new(Vec::new()));
     let messages_clone = StdArc::clone(&messages);
 
-    let hc_buf_ref = StdArc::new(hc_buf);
-    let hc_buf_listener = StdArc::clone(&hc_buf_ref);
-    let listener_handle = std::thread::spawn(move || {
-        hc_buf_listener.listen(|msg| {
+    let module = gpu_host::gpu::GpuStdModule::load_with_print(
+        crate::KERNEL_STD_PTX,
+        "std_pipeline_test",
+        1,
+        (1, 1, 1),
+        Some(Box::new(move |msg| {
             let s = String::from_utf8_lossy(msg).to_string();
             println!("  [HOST] GPU stdout: \"{s}\"");
             messages_clone.lock().unwrap().push(s);
-        });
-    });
+        })),
+    )?;
 
-    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_STD_PTX);
-    let _ = dev.load_ptx(ptx, "kernel_std", &["std_pipeline_test"]);
-    let f = dev
-        .get_func("kernel_std", "std_pipeline_test")
-        .ok_or(GpuHostError::KernelNotFound("std_pipeline_test"))?;
-
-    let cfg = LaunchConfig {
-        grid_dim: (1, 1, 1),
-        block_dim: (1, 1, 1),
-        shared_mem_bytes: 0,
-    };
-
-    println!("  Launching std_pipeline_test...");
+    println!("  Launching std_pipeline_test (zero-param)...");
     unsafe {
-        f.launch(cfg, (dev_ptr,))?;
+        module.launch_raw(&[])?;
     }
-    dev.synchronize()?;
     std::thread::sleep(std::time::Duration::from_millis(200));
-
-    hc_buf_ref.signal_shutdown();
-    listener_handle.join().unwrap();
+    module.finish();
 
     let received = messages.lock().unwrap();
     let has_done = received.iter().any(|m| m.contains("[DONE]"));
@@ -623,16 +595,24 @@ pub(crate) fn run_std_stdin_test(dev: Arc<CudaDevice>) -> Result<()> {
 /// Unlike run_std_stdin_test which tests raw gpu_stdin_read() via std-build-test,
 /// this tests the full std path: stdin().lock().read_line() → PAL → gpu_stdin_read()
 /// → gpu-runtime hostcall → SERVICE_STDIN → host CannedStdin.
-pub(crate) fn run_std_stdin_readline_test(dev: Arc<CudaDevice>) -> Result<()> {
+///
+/// Zero-param entry: hostcall buffer injected via `__HOSTCALL_BUF` device global.
+/// Uses raw CUDA driver API because the stdin test needs `listen_with_stdin`.
+pub(crate) fn run_std_stdin_readline_test(_dev: Arc<CudaDevice>) -> Result<()> {
     println!("\n--- std-migration.4: stdin().read_line() end-to-end on GPU ---");
 
+    use cudarc::driver::sys::{self, lib as cuda_lib};
+    use std::ffi::CString;
     use std::sync::{Arc as StdArc, Mutex};
 
-    let hc_buf = hostcall::HostcallBuffer::new(4)?;
-    let dev_ptr = hc_buf.dev_ptr;
+    // Initialize CUDA context via cudarc
+    let dev = cudarc::driver::CudaDevice::new(0).map_err(GpuHostError::CudaInit)?;
 
     let messages: StdArc<Mutex<Vec<String>>> = StdArc::new(Mutex::new(Vec::new()));
     let messages_clone = StdArc::clone(&messages);
+
+    let hc_buf = hostcall::HostcallBuffer::new(4)?;
+    let hc_ptr = hc_buf.dev_ptr;
 
     let hc_buf_ref = StdArc::new(hc_buf);
     let hc_buf_listener = StdArc::clone(&hc_buf_ref);
@@ -649,27 +629,120 @@ pub(crate) fn run_std_stdin_readline_test(dev: Arc<CudaDevice>) -> Result<()> {
         );
     });
 
-    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_STD_PTX);
-    let _ = dev.load_ptx(ptx, "kernel_std", &["std_stdin_test"]);
-    let f = dev
-        .get_func("kernel_std", "std_stdin_test")
-        .ok_or(GpuHostError::KernelNotFound("std_stdin_test"))?;
+    // Load PTX via raw driver API to get CUmodule for device global injection
+    let ptx_cstring =
+        CString::new(crate::KERNEL_STD_PTX).map_err(|_| GpuHostError::Verification {
+            test: "ptx_load",
+            detail: "PTX source contains null byte".to_string(),
+        })?;
 
-    let cfg = LaunchConfig {
-        grid_dim: (1, 1, 1),
-        block_dim: (1, 1, 1),
-        shared_mem_bytes: 0,
-    };
-
-    println!("  Launching std_stdin_test (read_line via patched std)...");
+    let cu_module: sys::CUmodule;
     unsafe {
-        f.launch(cfg, (dev_ptr,))?;
+        let cu = cuda_lib();
+        let mut module: sys::CUmodule = std::ptr::null_mut();
+        let result =
+            cu.cuModuleLoadData(&mut module, ptx_cstring.as_ptr() as *const std::ffi::c_void);
+        if result != sys::CUresult::CUDA_SUCCESS {
+            hc_buf_ref.signal_shutdown();
+            listener_handle.join().unwrap();
+            return Err(GpuHostError::Verification {
+                test: "ptx_load",
+                detail: format!("cuModuleLoadData failed: {result:?}"),
+            });
+        }
+        cu_module = module;
+    }
+
+    // Get kernel function
+    let func_name = CString::new("std_stdin_test").unwrap();
+    let cu_func: sys::CUfunction;
+    unsafe {
+        let cu = cuda_lib();
+        let mut func: sys::CUfunction = std::ptr::null_mut();
+        let result = cu.cuModuleGetFunction(&mut func, cu_module, func_name.as_ptr());
+        if result != sys::CUresult::CUDA_SUCCESS {
+            cu.cuModuleUnload(cu_module);
+            hc_buf_ref.signal_shutdown();
+            listener_handle.join().unwrap();
+            return Err(GpuHostError::KernelNotFound("std_stdin_test"));
+        }
+        cu_func = func;
+    }
+
+    // Inject hostcall pointer via device global
+    let global_name = CString::new("__HOSTCALL_BUF").unwrap();
+    unsafe {
+        let cu = cuda_lib();
+        let mut global_dptr: sys::CUdeviceptr = 0;
+        let mut global_size: usize = 0;
+        let result = cu.cuModuleGetGlobal_v2(
+            &mut global_dptr,
+            &mut global_size,
+            cu_module,
+            global_name.as_ptr(),
+        );
+        if result != sys::CUresult::CUDA_SUCCESS {
+            cu.cuModuleUnload(cu_module);
+            hc_buf_ref.signal_shutdown();
+            listener_handle.join().unwrap();
+            return Err(GpuHostError::Verification {
+                test: "std_stdin_test",
+                detail: format!("cuModuleGetGlobal_v2 failed: {result:?}"),
+            });
+        }
+        let hc_ptr_val: u64 = hc_ptr;
+        let result = cu.cuMemcpyHtoD_v2(
+            global_dptr,
+            &hc_ptr_val as *const u64 as *const std::ffi::c_void,
+            8,
+        );
+        if result != sys::CUresult::CUDA_SUCCESS {
+            cu.cuModuleUnload(cu_module);
+            hc_buf_ref.signal_shutdown();
+            listener_handle.join().unwrap();
+            return Err(GpuHostError::Verification {
+                test: "std_stdin_test",
+                detail: format!("cuMemcpyHtoD failed: {result:?}"),
+            });
+        }
+    }
+
+    // Launch with zero params
+    println!("  Launching std_stdin_test (zero-param, read_line via patched std)...");
+    unsafe {
+        let cu = cuda_lib();
+        let result = cu.cuLaunchKernel(
+            cu_func,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            0,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        );
+        if result != sys::CUresult::CUDA_SUCCESS {
+            cu.cuModuleUnload(cu_module);
+            hc_buf_ref.signal_shutdown();
+            listener_handle.join().unwrap();
+            return Err(GpuHostError::Verification {
+                test: "std_stdin_test",
+                detail: format!("cuLaunchKernel failed: {result:?}"),
+            });
+        }
     }
     dev.synchronize()?;
     std::thread::sleep(std::time::Duration::from_millis(200));
 
     hc_buf_ref.signal_shutdown();
     listener_handle.join().unwrap();
+    unsafe {
+        let cu = cuda_lib();
+        cu.cuModuleUnload(cu_module);
+    }
 
     let received = messages.lock().unwrap();
     let has_pass = received.iter().any(|m| m.contains("[STDIN] PASS"));
@@ -800,19 +873,27 @@ pub(crate) fn run_multithread_malloc_test(dev: Arc<CudaDevice>) -> Result<()> {
 /// 2. Vec allocation with 32 threads (no hostcall needed — pure compute)
 ///
 /// Verifies thread_local storage (panic count, etc.) is per-thread and safe.
-pub(crate) fn run_multithread_println_test(dev: Arc<CudaDevice>) -> Result<()> {
+///
+/// Zero-param entry for hostcall: `__HOSTCALL_BUF` device global injected.
+/// `std_multithread_println_test(result)` now takes only `result`, no `buf`.
+/// `std_multithread_vec_test(result)` was already buf-free, unchanged.
+pub(crate) fn run_multithread_println_test(_dev: Arc<CudaDevice>) -> Result<()> {
     println!("\n--- std-multithread.3: Multi-thread std (println + Vec) ---");
 
+    use cudarc::driver::sys::{self, lib as cuda_lib};
+    use std::ffi::CString;
     use std::sync::{Arc as StdArc, Mutex};
 
     let num_println_threads: u32 = 4; // Limited by hostcall packet contention
     let num_vec_threads: u32 = 32; // Full warp — no hostcall needed
 
-    let hc_buf = hostcall::HostcallBuffer::new(16)?;
-    let dev_ptr = hc_buf.dev_ptr;
+    let dev = cudarc::driver::CudaDevice::new(0).map_err(GpuHostError::CudaInit)?;
 
     let messages: StdArc<Mutex<Vec<String>>> = StdArc::new(Mutex::new(Vec::new()));
     let messages_clone = StdArc::clone(&messages);
+
+    let hc_buf = hostcall::HostcallBuffer::new(16)?;
+    let hc_ptr = hc_buf.dev_ptr;
 
     let hc_buf_ref = StdArc::new(hc_buf);
     let hc_buf_listener = StdArc::clone(&hc_buf_ref);
@@ -831,31 +912,121 @@ pub(crate) fn run_multithread_println_test(dev: Arc<CudaDevice>) -> Result<()> {
         unsafe { std::ptr::write_volatile(result_host_ptr.add(i), 0u32) };
     }
 
-    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_STD_PTX);
-    let _ = dev.load_ptx(
-        ptx,
-        "kernel_std",
-        &["std_multithread_println_test", "std_multithread_vec_test"],
-    );
+    // Load PTX via raw driver API for device global injection
+    let ptx_cstring =
+        CString::new(crate::KERNEL_STD_PTX).map_err(|_| GpuHostError::Verification {
+            test: "ptx_load",
+            detail: "PTX source contains null byte".to_string(),
+        })?;
 
-    // Test 1: Multi-thread println! (4 threads)
+    let cu_module: sys::CUmodule;
+    unsafe {
+        let cu = cuda_lib();
+        let mut module: sys::CUmodule = std::ptr::null_mut();
+        let result =
+            cu.cuModuleLoadData(&mut module, ptx_cstring.as_ptr() as *const std::ffi::c_void);
+        if result != sys::CUresult::CUDA_SUCCESS {
+            hc_buf_ref.signal_shutdown();
+            listener_handle.join().unwrap();
+            free_mapped_mem(result_host_ptr)?;
+            return Err(GpuHostError::Verification {
+                test: "ptx_load",
+                detail: format!("cuModuleLoadData failed: {result:?}"),
+            });
+        }
+        cu_module = module;
+    }
+
+    // Inject hostcall pointer via device global
+    let global_name = CString::new("__HOSTCALL_BUF").unwrap();
+    unsafe {
+        let cu = cuda_lib();
+        let mut global_dptr: sys::CUdeviceptr = 0;
+        let mut global_size: usize = 0;
+        let result = cu.cuModuleGetGlobal_v2(
+            &mut global_dptr,
+            &mut global_size,
+            cu_module,
+            global_name.as_ptr(),
+        );
+        if result != sys::CUresult::CUDA_SUCCESS {
+            cu.cuModuleUnload(cu_module);
+            hc_buf_ref.signal_shutdown();
+            listener_handle.join().unwrap();
+            free_mapped_mem(result_host_ptr)?;
+            return Err(GpuHostError::Verification {
+                test: "mt_std",
+                detail: format!("cuModuleGetGlobal_v2 failed: {result:?}"),
+            });
+        }
+        let hc_ptr_val: u64 = hc_ptr;
+        let result = cu.cuMemcpyHtoD_v2(
+            global_dptr,
+            &hc_ptr_val as *const u64 as *const std::ffi::c_void,
+            8,
+        );
+        if result != sys::CUresult::CUDA_SUCCESS {
+            cu.cuModuleUnload(cu_module);
+            hc_buf_ref.signal_shutdown();
+            listener_handle.join().unwrap();
+            free_mapped_mem(result_host_ptr)?;
+            return Err(GpuHostError::Verification {
+                test: "mt_std",
+                detail: format!("cuMemcpyHtoD failed: {result:?}"),
+            });
+        }
+    }
+
+    // Test 1: Multi-thread println! (4 threads) — kernel now takes (result) only
     {
-        let f = dev
-            .get_func("kernel_std", "std_multithread_println_test")
-            .ok_or(GpuHostError::KernelNotFound("std_multithread_println_test"))?;
-
-        let cfg = LaunchConfig {
-            grid_dim: (1, 1, 1),
-            block_dim: (num_println_threads, 1, 1),
-            shared_mem_bytes: 0,
-        };
+        let func_name = CString::new("std_multithread_println_test").unwrap();
+        let cu_func: sys::CUfunction;
+        unsafe {
+            let cu = cuda_lib();
+            let mut func: sys::CUfunction = std::ptr::null_mut();
+            let result = cu.cuModuleGetFunction(&mut func, cu_module, func_name.as_ptr());
+            if result != sys::CUresult::CUDA_SUCCESS {
+                cu.cuModuleUnload(cu_module);
+                hc_buf_ref.signal_shutdown();
+                listener_handle.join().unwrap();
+                free_mapped_mem(result_host_ptr)?;
+                return Err(GpuHostError::KernelNotFound("std_multithread_println_test"));
+            }
+            cu_func = func;
+        }
 
         println!(
             "  Launching std_multithread_println_test with {} threads...",
             num_println_threads
         );
+        let mut result_ptr_arg = result_dev_ptr;
+        let params: [*mut std::ffi::c_void; 1] =
+            [&mut result_ptr_arg as *mut u64 as *mut std::ffi::c_void];
         unsafe {
-            f.launch(cfg, (dev_ptr, result_dev_ptr))?;
+            let cu = cuda_lib();
+            let result = cu.cuLaunchKernel(
+                cu_func,
+                1,
+                1,
+                1,
+                num_println_threads,
+                1,
+                1,
+                0,
+                std::ptr::null_mut(),
+                params.as_ptr() as *mut *mut std::ffi::c_void,
+                std::ptr::null_mut(),
+            );
+            if result != sys::CUresult::CUDA_SUCCESS {
+                cu.cuModuleUnload(cu_module);
+                hc_buf_ref.signal_shutdown();
+                listener_handle.join().unwrap();
+                free_mapped_mem(result_host_ptr)?;
+                return Err(GpuHostError::Verification {
+                    test: "std_multithread_println_test",
+                    detail: format!("cuLaunchKernel failed: {result:?}"),
+                });
+            }
         }
         dev.synchronize()?;
         std::thread::sleep(std::time::Duration::from_millis(500));
@@ -870,6 +1041,10 @@ pub(crate) fn run_multithread_println_test(dev: Arc<CudaDevice>) -> Result<()> {
         }
 
         if !failed_tids.is_empty() {
+            unsafe {
+                let cu = cuda_lib();
+                cu.cuModuleUnload(cu_module);
+            }
             hc_buf_ref.signal_shutdown();
             listener_handle.join().unwrap();
             unsafe { free_mapped_mem(result_host_ptr)? };
@@ -889,29 +1064,61 @@ pub(crate) fn run_multithread_println_test(dev: Arc<CudaDevice>) -> Result<()> {
         );
     }
 
-    // Test 2: Multi-thread Vec allocation (32 threads, no hostcall)
+    // Test 2: Multi-thread Vec allocation (32 threads, no hostcall) — unchanged signature
     {
         // Reset result buffer
         for i in 0..num_vec_threads as usize {
             unsafe { std::ptr::write_volatile(result_host_ptr.add(i), 0u32) };
         }
 
-        let f = dev
-            .get_func("kernel_std", "std_multithread_vec_test")
-            .ok_or(GpuHostError::KernelNotFound("std_multithread_vec_test"))?;
-
-        let cfg = LaunchConfig {
-            grid_dim: (1, 1, 1),
-            block_dim: (num_vec_threads, 1, 1),
-            shared_mem_bytes: 0,
-        };
+        let func_name = CString::new("std_multithread_vec_test").unwrap();
+        let cu_func: sys::CUfunction;
+        unsafe {
+            let cu = cuda_lib();
+            let mut func: sys::CUfunction = std::ptr::null_mut();
+            let result = cu.cuModuleGetFunction(&mut func, cu_module, func_name.as_ptr());
+            if result != sys::CUresult::CUDA_SUCCESS {
+                cu.cuModuleUnload(cu_module);
+                hc_buf_ref.signal_shutdown();
+                listener_handle.join().unwrap();
+                free_mapped_mem(result_host_ptr)?;
+                return Err(GpuHostError::KernelNotFound("std_multithread_vec_test"));
+            }
+            cu_func = func;
+        }
 
         println!(
             "  Launching std_multithread_vec_test with {} threads...",
             num_vec_threads
         );
+        let mut result_ptr_arg = result_dev_ptr;
+        let params: [*mut std::ffi::c_void; 1] =
+            [&mut result_ptr_arg as *mut u64 as *mut std::ffi::c_void];
         unsafe {
-            f.launch(cfg, (result_dev_ptr,))?;
+            let cu = cuda_lib();
+            let result = cu.cuLaunchKernel(
+                cu_func,
+                1,
+                1,
+                1,
+                num_vec_threads,
+                1,
+                1,
+                0,
+                std::ptr::null_mut(),
+                params.as_ptr() as *mut *mut std::ffi::c_void,
+                std::ptr::null_mut(),
+            );
+            if result != sys::CUresult::CUDA_SUCCESS {
+                cu.cuModuleUnload(cu_module);
+                hc_buf_ref.signal_shutdown();
+                listener_handle.join().unwrap();
+                free_mapped_mem(result_host_ptr)?;
+                return Err(GpuHostError::Verification {
+                    test: "std_multithread_vec_test",
+                    detail: format!("cuLaunchKernel failed: {result:?}"),
+                });
+            }
         }
         dev.synchronize()?;
 
@@ -926,6 +1133,10 @@ pub(crate) fn run_multithread_println_test(dev: Arc<CudaDevice>) -> Result<()> {
         }
 
         if !failed_tids.is_empty() {
+            unsafe {
+                let cu = cuda_lib();
+                cu.cuModuleUnload(cu_module);
+            }
             hc_buf_ref.signal_shutdown();
             listener_handle.join().unwrap();
             unsafe { free_mapped_mem(result_host_ptr)? };
@@ -945,6 +1156,10 @@ pub(crate) fn run_multithread_println_test(dev: Arc<CudaDevice>) -> Result<()> {
         );
     }
 
+    unsafe {
+        let cu = cuda_lib();
+        cu.cuModuleUnload(cu_module);
+    }
     hc_buf_ref.signal_shutdown();
     listener_handle.join().unwrap();
     unsafe { free_mapped_mem(result_host_ptr)? };

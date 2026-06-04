@@ -501,7 +501,7 @@ id = "kernel-entry.3"
 theme = "kernel-entry-dx"
 title = "Experiment: rewrite gpu-kernel-std kernels to use zero-param entry"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["kernel-entry.2"]
 
 [[tasks]]

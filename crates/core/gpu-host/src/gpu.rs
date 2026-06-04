@@ -348,6 +348,217 @@ pub fn run_zero_param_with_config(
 }
 
 // ============================================================================
+// GpuStdModule: load PTX with __HOSTCALL_BUF device global injection
+// ============================================================================
+
+/// A loaded GPU module with hostcall buffer injected via `__HOSTCALL_BUF` device global.
+///
+/// Unlike `run_zero_param` which only supports zero-argument kernels, this
+/// provides the raw `CUmodule` and `CUfunction` handles so callers can launch
+/// kernels that still have data parameters (e.g., `result: *mut u32`) while
+/// reading the hostcall buffer from the device global.
+///
+/// # Example
+///
+/// ```no_run
+/// use gpu_host::gpu::GpuStdModule;
+/// use gpu_host::ptx;
+///
+/// let module = GpuStdModule::load(ptx::KERNEL_STD, "my_kernel", 128, (1,1,1)).unwrap();
+/// // Launch with kernel-specific params via module.launch_raw(...)
+/// module.finish();
+/// ```
+pub struct GpuStdModule {
+    #[allow(dead_code)]
+    dev: std::sync::Arc<CudaDevice>,
+    cu_module: cudarc::driver::sys::CUmodule,
+    cu_func: cudarc::driver::sys::CUfunction,
+    session: HostcallSession,
+    threads_per_block: u32,
+    grid_dim: (u32, u32, u32),
+}
+
+impl GpuStdModule {
+    /// Load PTX, inject `__HOSTCALL_BUF` device global, and prepare for launch.
+    pub fn load(
+        ptx_src: &str,
+        kernel_name: &'static str,
+        threads_per_block: u32,
+        grid_dim: (u32, u32, u32),
+    ) -> Result<Self> {
+        Self::load_with_print(ptx_src, kernel_name, threads_per_block, grid_dim, None)
+    }
+
+    /// Load PTX with a custom print callback for capturing GPU println! output.
+    #[allow(clippy::type_complexity)]
+    pub fn load_with_print(
+        ptx_src: &str,
+        kernel_name: &'static str,
+        threads_per_block: u32,
+        grid_dim: (u32, u32, u32),
+        print_cb: Option<Box<dyn Fn(&[u8]) + Send + 'static>>,
+    ) -> Result<Self> {
+        use cudarc::driver::sys::{self, lib as cuda_lib};
+        use std::ffi::CString;
+
+        let dev = CudaDevice::new(0).map_err(GpuHostError::CudaInit)?;
+
+        let ptx_cstring = CString::new(ptx_src).map_err(|_| GpuHostError::Verification {
+            test: "ptx_load",
+            detail: "PTX source contains null byte".to_string(),
+        })?;
+
+        let cu_module: sys::CUmodule;
+        unsafe {
+            let cu = cuda_lib();
+            let mut module: sys::CUmodule = std::ptr::null_mut();
+            let result =
+                cu.cuModuleLoadData(&mut module, ptx_cstring.as_ptr() as *const std::ffi::c_void);
+            if result != sys::CUresult::CUDA_SUCCESS {
+                return Err(GpuHostError::Verification {
+                    test: "ptx_load",
+                    detail: format!("cuModuleLoadData failed: {result:?}"),
+                });
+            }
+            cu_module = module;
+        }
+
+        let func_name = CString::new(kernel_name).map_err(|_| GpuHostError::Verification {
+            test: kernel_name,
+            detail: "kernel name contains null byte".to_string(),
+        })?;
+
+        let cu_func: sys::CUfunction;
+        unsafe {
+            let cu = cuda_lib();
+            let mut func: sys::CUfunction = std::ptr::null_mut();
+            let result = cu.cuModuleGetFunction(&mut func, cu_module, func_name.as_ptr());
+            if result != sys::CUresult::CUDA_SUCCESS {
+                cu.cuModuleUnload(cu_module);
+                return Err(GpuHostError::KernelNotFound(kernel_name));
+            }
+            cu_func = func;
+        }
+
+        let session = match print_cb {
+            Some(cb) => HostcallSession::start_with_print(64, cb)?,
+            None => HostcallSession::start(64)?,
+        };
+
+        // Inject hostcall pointer via device global
+        let global_name = CString::new("__HOSTCALL_BUF").unwrap();
+        unsafe {
+            let cu = cuda_lib();
+            let mut global_dptr: sys::CUdeviceptr = 0;
+            let mut global_size: usize = 0;
+            let result = cu.cuModuleGetGlobal_v2(
+                &mut global_dptr,
+                &mut global_size,
+                cu_module,
+                global_name.as_ptr(),
+            );
+            if result != sys::CUresult::CUDA_SUCCESS {
+                cu.cuModuleUnload(cu_module);
+                return Err(GpuHostError::Verification {
+                    test: kernel_name,
+                    detail: format!("cuModuleGetGlobal_v2(__HOSTCALL_BUF) failed: {result:?}"),
+                });
+            }
+
+            let hc_ptr_val: u64 = session.dev_ptr();
+            let result = cu.cuMemcpyHtoD_v2(
+                global_dptr,
+                &hc_ptr_val as *const u64 as *const std::ffi::c_void,
+                8,
+            );
+            if result != sys::CUresult::CUDA_SUCCESS {
+                cu.cuModuleUnload(cu_module);
+                return Err(GpuHostError::Verification {
+                    test: kernel_name,
+                    detail: format!("cuMemcpyHtoD to __HOSTCALL_BUF failed: {result:?}"),
+                });
+            }
+        }
+
+        Ok(Self {
+            dev,
+            cu_module,
+            cu_func,
+            session,
+            threads_per_block,
+            grid_dim,
+        })
+    }
+
+    /// Launch the kernel with raw kernel parameter pointers.
+    ///
+    /// `params` is an array of pointers to each kernel argument, in order.
+    /// For a zero-param kernel, pass an empty slice.
+    ///
+    /// # Safety
+    ///
+    /// The param pointers must match the kernel's parameter signature.
+    pub unsafe fn launch_raw(&self, params: &[*mut std::ffi::c_void]) -> Result<()> {
+        use cudarc::driver::sys::{self, lib as cuda_lib};
+
+        let cu = cuda_lib();
+        let params_ptr = if params.is_empty() {
+            std::ptr::null_mut()
+        } else {
+            params.as_ptr() as *mut *mut std::ffi::c_void
+        };
+
+        let result = cu.cuLaunchKernel(
+            self.cu_func,
+            self.grid_dim.0,
+            self.grid_dim.1,
+            self.grid_dim.2,
+            self.threads_per_block,
+            1,
+            1,
+            0,
+            std::ptr::null_mut(),
+            params_ptr,
+            std::ptr::null_mut(),
+        );
+        if result != sys::CUresult::CUDA_SUCCESS {
+            return Err(GpuHostError::Verification {
+                test: "launch",
+                detail: format!("cuLaunchKernel failed: {result:?}"),
+            });
+        }
+
+        self.dev
+            .synchronize()
+            .map_err(|e| GpuHostError::Verification {
+                test: "sync",
+                detail: format!("{e}"),
+            })?;
+
+        Ok(())
+    }
+
+    /// Get the underlying CUDA device for memory allocation.
+    pub fn device(&self) -> &std::sync::Arc<CudaDevice> {
+        &self.dev
+    }
+
+    /// Get the hostcall session's device pointer.
+    pub fn hostcall_ptr(&self) -> u64 {
+        self.session.dev_ptr()
+    }
+
+    /// Shut down the hostcall session and unload the module.
+    pub fn finish(self) {
+        self.session.shutdown();
+        unsafe {
+            let cu = cudarc::driver::sys::lib();
+            cu.cuModuleUnload(self.cu_module);
+        }
+    }
+}
+
+// ============================================================================
 // Builder API: gpu::custom("kernel") → CustomLaunchBuilder → GpuContext → GpuResult
 // ============================================================================
 

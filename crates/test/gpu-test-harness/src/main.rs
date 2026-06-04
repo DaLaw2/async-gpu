@@ -14,7 +14,7 @@ mod tests_tokenizer;
 mod tests_transformer;
 mod tests_warp;
 
-use cudarc::driver::CudaDevice;
+use cudarc::driver::{CudaDevice, DevicePtr};
 use gpu_host::error::{GpuHostError, Result};
 use std::sync::Arc;
 
@@ -937,49 +937,24 @@ fn run_fusion_benchmark(dev: Arc<CudaDevice>) -> Result<()> {
 }
 
 /// Demo: std::thread::spawn on GPU with println!
-fn run_std_thread_spawn_demo(dev: Arc<CudaDevice>) -> Result<()> {
-    use cudarc::driver::{LaunchAsync, LaunchConfig};
-
+///
+/// Zero-param entry for hostcall: `std_thread_spawn_demo(result)`.
+fn run_std_thread_spawn_demo(_dev: Arc<CudaDevice>) -> Result<()> {
     println!("\n--- std::thread::spawn Demo (std-thread-gpu) ---");
 
-    // Load cubin (pre-compiled) for fast loading; fall back to PTX JIT
-    let cubin_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("kernel_std.cubin");
-    if cubin_path.exists() {
-        let cubin = cudarc::nvrtc::Ptx::from_file(&cubin_path);
-        dev.load_ptx(cubin, "std_thread", &["std_thread_spawn_demo"])
-            .map_err(|e| GpuHostError::Verification {
-                test: "std_thread",
-                detail: format!("{e}"),
-            })?;
-    } else {
-        let ptx = cudarc::nvrtc::Ptx::from_src(KERNEL_STD_PTX);
-        dev.load_ptx(ptx, "std_thread", &["std_thread_spawn_demo"])
-            .map_err(|e| GpuHostError::Verification {
-                test: "std_thread",
-                detail: format!("{e}"),
-            })?;
-    }
+    let module =
+        gpu_host::gpu::GpuStdModule::load(KERNEL_STD_PTX, "std_thread_spawn_demo", 128, (1, 1, 1))?;
 
-    let func = dev
-        .get_func("std_thread", "std_thread_spawn_demo")
-        .ok_or(GpuHostError::KernelNotFound("std_thread_spawn_demo"))?;
-
-    let session = gpu_host::hostcall::HostcallSession::start(64)?;
-    let mut result_dev: cudarc::driver::CudaSlice<u32> = dev.alloc_zeros::<u32>(3)?;
-
-    let config = LaunchConfig {
-        grid_dim: (1, 1, 1),
-        block_dim: (128, 1, 1),
-        shared_mem_bytes: 0,
-    };
+    let result_dev: cudarc::driver::CudaSlice<u32> = module.device().alloc_zeros::<u32>(3)?;
+    let mut result_ptr = *result_dev.device_ptr() as u64;
 
     unsafe {
-        func.launch(config, (session.dev_ptr(), &mut result_dev))?;
+        module.launch_raw(&[&mut result_ptr as *mut u64 as *mut std::ffi::c_void])?;
     }
-    dev.synchronize()?;
-    session.shutdown();
 
-    let result: Vec<u32> = dev.dtoh_sync_copy(&result_dev)?;
+    let result: Vec<u32> = module.device().dtoh_sync_copy(&result_dev)?;
+    module.finish();
+
     println!("  Thread 1 (sum 0..10): {} (expected 45)", result[0]);
     println!("  Thread 2 (5!):        {} (expected 120)", result[1]);
     println!("  Combined:             {} (expected 165)", result[2]);
@@ -993,56 +968,34 @@ fn run_std_thread_spawn_demo(dev: Arc<CudaDevice>) -> Result<()> {
 }
 
 /// Demo: REAL std::thread::spawn on GPU with println!
-fn run_real_std_thread_spawn(dev: Arc<CudaDevice>) -> Result<()> {
-    use cudarc::driver::{LaunchAsync, LaunchConfig};
-
+///
+/// Zero-param entry for hostcall: `real_std_thread_spawn(result)`.
+fn run_real_std_thread_spawn(_dev: Arc<CudaDevice>) -> Result<()> {
     println!("\n--- REAL std::thread::spawn on GPU ---");
 
-    // Load cubin (pre-compiled) for fast loading; fall back to PTX JIT
-    let cubin_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("kernel_std.cubin");
-    let module_name = "real_std_thread";
-    if cubin_path.exists() {
-        let cubin = cudarc::nvrtc::Ptx::from_file(&cubin_path);
-        dev.load_ptx(cubin, module_name, &["real_std_thread_spawn"])
-            .map_err(|e| GpuHostError::Verification {
-                test: "real_std_thread",
-                detail: format!("{e}"),
-            })?;
-    } else {
-        let ptx = cudarc::nvrtc::Ptx::from_src(KERNEL_STD_PTX);
-        dev.load_ptx(ptx, module_name, &["real_std_thread_spawn"])
-            .map_err(|e| GpuHostError::Verification {
-                test: "real_std_thread",
-                detail: format!("{e}"),
-            })?;
-    }
+    let module = gpu_host::gpu::GpuStdModule::load_with_print(
+        KERNEL_STD_PTX,
+        "real_std_thread_spawn",
+        128,
+        (1, 1, 1),
+        Some(Box::new(|msg| {
+            let s = String::from_utf8_lossy(msg);
+            println!("  [GPU] {}", s.trim());
+        })),
+    )?;
 
-    let func = dev
-        .get_func(module_name, "real_std_thread_spawn")
-        .ok_or(GpuHostError::KernelNotFound("real_std_thread_spawn"))?;
-
-    // Use start_with_print to capture GPU println! output from spawned threads
-    let session = gpu_host::hostcall::HostcallSession::start_with_print(64, |msg| {
-        let s = String::from_utf8_lossy(msg);
-        println!("  [GPU] {}", s.trim());
-    })?;
-    let mut result_dev: cudarc::driver::CudaSlice<u32> = dev.alloc_zeros::<u32>(3)?;
-
-    let config = LaunchConfig {
-        grid_dim: (1, 1, 1),
-        block_dim: (128, 1, 1),
-        shared_mem_bytes: 0,
-    };
+    let result_dev: cudarc::driver::CudaSlice<u32> = module.device().alloc_zeros::<u32>(3)?;
+    let mut result_ptr = *result_dev.device_ptr() as u64;
 
     unsafe {
-        func.launch(config, (session.dev_ptr(), &mut result_dev))?;
+        module.launch_raw(&[&mut result_ptr as *mut u64 as *mut std::ffi::c_void])?;
     }
-    dev.synchronize()?;
     // Brief sleep so hostcall listener can flush remaining messages
     std::thread::sleep(std::time::Duration::from_millis(100));
-    session.shutdown();
 
-    let result: Vec<u32> = dev.dtoh_sync_copy(&result_dev)?;
+    let result: Vec<u32> = module.device().dtoh_sync_copy(&result_dev)?;
+    module.finish();
+
     println!("  Thread 1 (sum 0..10): {} (expected 45)", result[0]);
     println!("  Thread 2 (5!):        {} (expected 120)", result[1]);
     println!("  Combined:             {} (expected 165)", result[2]);
@@ -1056,42 +1009,33 @@ fn run_real_std_thread_spawn(dev: Arc<CudaDevice>) -> Result<()> {
 }
 
 /// Minimal std::thread::spawn test — no println in closures.
-fn run_std_thread_spawn_minimal(dev: Arc<CudaDevice>) -> Result<()> {
-    use cudarc::driver::{LaunchAsync, LaunchConfig};
-
+///
+/// Zero-param entry for hostcall: `std_thread_spawn_minimal(result)`.
+fn run_std_thread_spawn_minimal(_dev: Arc<CudaDevice>) -> Result<()> {
     println!("\n--- Minimal std::thread::spawn on GPU ---");
 
-    let ptx = cudarc::nvrtc::Ptx::from_src(KERNEL_STD_PTX);
-    dev.load_ptx(ptx, "std_thread_min", &["std_thread_spawn_minimal"])
-        .map_err(|e| GpuHostError::Verification {
-            test: "std_thread_min",
-            detail: format!("{e}"),
-        })?;
+    let module = gpu_host::gpu::GpuStdModule::load_with_print(
+        KERNEL_STD_PTX,
+        "std_thread_spawn_minimal",
+        128,
+        (1, 1, 1),
+        Some(Box::new(|msg| {
+            let s = String::from_utf8_lossy(msg);
+            println!("  [GPU] {}", s.trim());
+        })),
+    )?;
 
-    let func = dev
-        .get_func("std_thread_min", "std_thread_spawn_minimal")
-        .ok_or(GpuHostError::KernelNotFound("std_thread_spawn_minimal"))?;
-
-    let session = gpu_host::hostcall::HostcallSession::start_with_print(64, |msg| {
-        let s = String::from_utf8_lossy(msg);
-        println!("  [GPU] {}", s.trim());
-    })?;
-    let mut result_dev: cudarc::driver::CudaSlice<u32> = dev.alloc_zeros::<u32>(3)?;
-
-    let config = LaunchConfig {
-        grid_dim: (1, 1, 1),
-        block_dim: (128, 1, 1),
-        shared_mem_bytes: 0,
-    };
+    let result_dev: cudarc::driver::CudaSlice<u32> = module.device().alloc_zeros::<u32>(3)?;
+    let mut result_ptr = *result_dev.device_ptr() as u64;
 
     unsafe {
-        func.launch(config, (session.dev_ptr(), &mut result_dev))?;
+        module.launch_raw(&[&mut result_ptr as *mut u64 as *mut std::ffi::c_void])?;
     }
-    dev.synchronize()?;
     std::thread::sleep(std::time::Duration::from_millis(100));
-    session.shutdown();
 
-    let result: Vec<u32> = dev.dtoh_sync_copy(&result_dev)?;
+    let result: Vec<u32> = module.device().dtoh_sync_copy(&result_dev)?;
+    module.finish();
+
     println!("  Thread 1 (sum 0..10): {} (expected 45)", result[0]);
     println!("  Thread 2 (5!):        {} (expected 120)", result[1]);
     println!("  Combined:             {} (expected 165)", result[2]);
@@ -1105,54 +1049,23 @@ fn run_std_thread_spawn_minimal(dev: Arc<CudaDevice>) -> Result<()> {
 }
 
 /// Smoke tests for kernel_std module.
-fn run_kernel_std_smoke(dev: Arc<CudaDevice>) -> Result<()> {
-    use cudarc::driver::{LaunchAsync, LaunchConfig};
-
+///
+/// `kernel_std_println_smoke(result)` now uses zero-param entry for hostcall.
+fn run_kernel_std_smoke(_dev: Arc<CudaDevice>) -> Result<()> {
     println!("\n--- kernel_std smoke tests ---");
 
-    // Load cubin (pre-compiled from PTX) for fast module loading
-    // PTX JIT is extremely slow for 5MB+ PTX files (>10 min on GTX 1660)
-    let cubin_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("kernel_std.cubin");
-    if cubin_path.exists() {
-        println!("  Loading cubin from {} ...", cubin_path.display());
-        let ptx = cudarc::nvrtc::Ptx::from_file(&cubin_path);
-        dev.load_ptx(
-            ptx,
-            "kstd_smoke",
-            &[
-                "kernel_std_smoke_test",
-                "kernel_std_println_smoke",
-                "kernel_std_pool_smoke",
-            ],
-        )
-        .map_err(|e| GpuHostError::Verification {
-            test: "kstd_smoke",
-            detail: format!("cubin load: {e}"),
-        })?;
-    } else {
-        println!(
-            "  No cubin found, loading PTX ({} bytes)...",
-            KERNEL_STD_PTX.len()
-        );
-        let ptx = cudarc::nvrtc::Ptx::from_src(KERNEL_STD_PTX);
-        dev.load_ptx(
-            ptx,
-            "kstd_smoke",
-            &[
-                "kernel_std_smoke_test",
-                "kernel_std_println_smoke",
-                "kernel_std_pool_smoke",
-            ],
-        )
-        .map_err(|e| GpuHostError::Verification {
-            test: "kstd_smoke",
-            detail: format!("PTX load: {e}"),
-        })?;
-    }
-    println!("  Module load: OK");
-
-    // Test 1: trivial write (1 thread, no hostcall)
+    // Test 1: trivial write (1 thread, no hostcall) — uses cudarc (no device global needed)
     {
+        use cudarc::driver::{CudaDevice, LaunchAsync, LaunchConfig};
+        let dev = CudaDevice::new(0).map_err(GpuHostError::CudaInit)?;
+        let ptx = cudarc::nvrtc::Ptx::from_src(KERNEL_STD_PTX);
+        dev.load_ptx(ptx, "kstd_smoke", &["kernel_std_smoke_test"])
+            .map_err(|e| GpuHostError::Verification {
+                test: "kstd_smoke",
+                detail: format!("PTX load: {e}"),
+            })?;
+        println!("  Module load: OK");
+
         let mut result_dev: cudarc::driver::CudaSlice<u32> = dev.alloc_zeros::<u32>(1)?;
         let f = dev
             .get_func("kstd_smoke", "kernel_std_smoke_test")
@@ -1172,35 +1085,42 @@ fn run_kernel_std_smoke(dev: Arc<CudaDevice>) -> Result<()> {
         println!("  smoke_test: PASSED");
     }
 
-    // Test 2: println (1 thread, with hostcall)
+    // Test 2: println (1 thread, with hostcall via device global)
     {
-        let session = gpu_host::hostcall::HostcallSession::start(64)?;
-        let mut result_dev: cudarc::driver::CudaSlice<u32> = dev.alloc_zeros::<u32>(1)?;
-        let f = dev
-            .get_func("kstd_smoke", "kernel_std_println_smoke")
-            .ok_or(GpuHostError::KernelNotFound("kernel_std_println_smoke"))?;
-        let cfg = LaunchConfig {
-            grid_dim: (1, 1, 1),
-            block_dim: (1, 1, 1),
-            shared_mem_bytes: 0,
-        };
+        let module = gpu_host::gpu::GpuStdModule::load(
+            KERNEL_STD_PTX,
+            "kernel_std_println_smoke",
+            1,
+            (1, 1, 1),
+        )?;
+        let result_dev: cudarc::driver::CudaSlice<u32> = module.device().alloc_zeros::<u32>(1)?;
+        let mut result_ptr = *result_dev.device_ptr() as u64;
+
         unsafe {
-            f.launch(cfg, (session.dev_ptr(), &mut result_dev))?;
+            module.launch_raw(&[&mut result_ptr as *mut u64 as *mut std::ffi::c_void])?;
         }
-        dev.synchronize()?;
-        session.shutdown();
-        let r = dev.dtoh_sync_copy(&result_dev)?;
+        let r = module.device().dtoh_sync_copy(&result_dev)?;
+        module.finish();
         println!("  println_smoke: {} (expected 1)", r[0]);
         assert_eq!(r[0], 1);
         println!("  println_smoke: PASSED");
     }
 
-    // Test 3: thread pool (128 threads = 4 warps, no spawn)
+    // Test 3: thread pool (128 threads = 4 warps, no spawn) — no hostcall needed
     println!("  pool_smoke: launching 128 threads...");
     {
+        use cudarc::driver::{CudaDevice, LaunchAsync, LaunchConfig};
+        let dev = CudaDevice::new(0).map_err(GpuHostError::CudaInit)?;
+        let ptx = cudarc::nvrtc::Ptx::from_src(KERNEL_STD_PTX);
+        dev.load_ptx(ptx, "kstd_pool", &["kernel_std_pool_smoke"])
+            .map_err(|e| GpuHostError::Verification {
+                test: "kstd_pool",
+                detail: format!("PTX load: {e}"),
+            })?;
+
         let mut result_dev: cudarc::driver::CudaSlice<u32> = dev.alloc_zeros::<u32>(1)?;
         let f = dev
-            .get_func("kstd_smoke", "kernel_std_pool_smoke")
+            .get_func("kstd_pool", "kernel_std_pool_smoke")
             .ok_or(GpuHostError::KernelNotFound("kernel_std_pool_smoke"))?;
         let cfg = LaunchConfig {
             grid_dim: (1, 1, 1),
@@ -1357,9 +1277,9 @@ fn run_thread_spawn_test(dev: Arc<CudaDevice>) -> Result<()> {
 /// Host creates matmul_a.bin (8×4) and matmul_b.bin (4×6), launches the
 /// matmul_io_compute kernel, then reads matmul_c.bin and verifies against
 /// a CPU reference matmul.
-fn run_matmul_io_compute(dev: Arc<CudaDevice>) -> Result<()> {
-    use cudarc::driver::{LaunchAsync, LaunchConfig};
-
+///
+/// Zero-param entry for hostcall: `matmul_io_compute(dims, result)`.
+fn run_matmul_io_compute(_dev: Arc<CudaDevice>) -> Result<()> {
     println!("\n--- North Star: File::read → matmul → File::write (coop-demo.1) ---");
 
     const M: usize = 8;
@@ -1367,14 +1287,12 @@ fn run_matmul_io_compute(dev: Arc<CudaDevice>) -> Result<()> {
     const N: usize = 6;
 
     // === Step 1: Create input matrix files ===
-    // A[i][j] = (i * K + j + 1) as f32
     let mut a = vec![0.0f32; M * K];
     for i in 0..M {
         for j in 0..K {
             a[i * K + j] = (i * K + j + 1) as f32;
         }
     }
-    // B[i][j] = ((i * N + j + 1) * 2) as f32
     let mut b = vec![0.0f32; K * N];
     for i in 0..K {
         for j in 0..N {
@@ -1382,7 +1300,6 @@ fn run_matmul_io_compute(dev: Arc<CudaDevice>) -> Result<()> {
         }
     }
 
-    // Write raw f32 bytes to files
     let a_bytes: Vec<u8> = a.iter().flat_map(|v| v.to_le_bytes()).collect();
     let b_bytes: Vec<u8> = b.iter().flat_map(|v| v.to_le_bytes()).collect();
     std::fs::write("matmul_a.bin", &a_bytes).map_err(|e| GpuHostError::Verification {
@@ -1394,90 +1311,65 @@ fn run_matmul_io_compute(dev: Arc<CudaDevice>) -> Result<()> {
         detail: format!("write matmul_b.bin: {e}"),
     })?;
     println!(
-        "  Created matmul_a.bin ({}×{} = {} bytes)",
+        "  Created matmul_a.bin ({}x{} = {} bytes)",
         M,
         K,
         a_bytes.len()
     );
     println!(
-        "  Created matmul_b.bin ({}×{} = {} bytes)",
+        "  Created matmul_b.bin ({}x{} = {} bytes)",
         K,
         N,
         b_bytes.len()
     );
 
-    // === Step 2: Load kernel_std cubin/PTX ===
-    let cubin_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("kernel_std.cubin");
-    let module_name = "matmul_io";
-    if cubin_path.exists() {
-        println!("  Loading cubin from {} ...", cubin_path.display());
-        let cubin = cudarc::nvrtc::Ptx::from_file(&cubin_path);
-        dev.load_ptx(cubin, module_name, &["matmul_io_compute"])
-            .map_err(|e| GpuHostError::Verification {
-                test: "matmul_io",
-                detail: format!("cubin load: {e}"),
-            })?;
-    } else {
-        println!(
-            "  No cubin found, loading PTX ({} bytes)...",
-            KERNEL_STD_PTX.len()
-        );
-        let ptx = cudarc::nvrtc::Ptx::from_src(KERNEL_STD_PTX);
-        dev.load_ptx(ptx, module_name, &["matmul_io_compute"])
-            .map_err(|e| GpuHostError::Verification {
-                test: "matmul_io",
-                detail: format!("PTX load: {e}"),
-            })?;
-    }
+    // === Step 2: Load module with device global injection ===
+    let module = gpu_host::gpu::GpuStdModule::load_with_print(
+        KERNEL_STD_PTX,
+        "matmul_io_compute",
+        128,
+        (1, 1, 1),
+        Some(Box::new(|msg| {
+            let s = String::from_utf8_lossy(msg);
+            println!("  [GPU] {}", s.trim());
+        })),
+    )?;
     println!("  Module loaded");
 
-    let func = dev
-        .get_func(module_name, "matmul_io_compute")
-        .ok_or(GpuHostError::KernelNotFound("matmul_io_compute"))?;
-
-    // === Step 3: Set up hostcall + device memory ===
-    let session = gpu_host::hostcall::HostcallSession::start_with_print(64, |msg| {
-        let s = String::from_utf8_lossy(msg);
-        println!("  [GPU] {}", s.trim());
-    })?;
-
-    // Dims: device u32 array [M, K, N] — GPU reads these
+    // === Step 3: Set up device memory ===
     let dims_data = vec![M as u32, K as u32, N as u32];
-    let dims_dev = dev.htod_sync_copy(&dims_data)?;
+    let dims_dev = module.device().htod_sync_copy(&dims_data)?;
+    let result_dev: cudarc::driver::CudaSlice<u32> = module.device().alloc_zeros::<u32>(8)?;
 
-    // Result: device u32 array [success, n_elements]
-    let mut result_dev: cudarc::driver::CudaSlice<u32> = dev.alloc_zeros::<u32>(8)?;
-
-    // === Step 4: Launch kernel ===
-    let config = LaunchConfig {
-        grid_dim: (1, 1, 1),
-        block_dim: (128, 1, 1), // 4 warps
-        shared_mem_bytes: 0,
-    };
+    // === Step 4: Launch kernel with (dims, result) ===
+    let mut dims_ptr = *dims_dev.device_ptr() as u64;
+    let mut result_ptr = *result_dev.device_ptr() as u64;
 
     println!(
-        "  Launching matmul_io_compute ({}×{} × {}×{} → {}×{})...",
+        "  Launching matmul_io_compute ({}x{} x {}x{} -> {}x{})...",
         M, K, K, N, M, N
     );
     let start = std::time::Instant::now();
     unsafe {
-        func.launch(config, (session.dev_ptr(), &dims_dev, &mut result_dev))?;
+        module.launch_raw(&[
+            &mut dims_ptr as *mut u64 as *mut std::ffi::c_void,
+            &mut result_ptr as *mut u64 as *mut std::ffi::c_void,
+        ])?;
     }
-    dev.synchronize()?;
     let elapsed = start.elapsed();
     println!("  Kernel completed in {elapsed:?}");
 
     // Brief sleep for hostcall listener to flush
     std::thread::sleep(std::time::Duration::from_millis(200));
-    session.shutdown();
 
     // Read result markers
-    let result_vals = dev.dtoh_sync_copy(&result_dev)?;
+    let result_vals = module.device().dtoh_sync_copy(&result_dev)?;
+    module.finish();
+
     let success = result_vals[0];
     let n_elements = result_vals[1];
 
     if success != 1 {
-        // Clean up files
         let _ = std::fs::remove_file("matmul_a.bin");
         let _ = std::fs::remove_file("matmul_b.bin");
         let _ = std::fs::remove_file("matmul_c.bin");
@@ -1509,13 +1401,11 @@ fn run_matmul_io_compute(dev: Arc<CudaDevice>) -> Result<()> {
         });
     }
 
-    // Parse f32 values from raw bytes
     let gpu_c: Vec<f32> = c_bytes
         .chunks_exact(4)
         .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
         .collect();
 
-    // CPU reference matmul: C = A × B
     let mut expected = vec![0.0f32; M * N];
     for i in 0..M {
         for j in 0..N {
@@ -1527,7 +1417,6 @@ fn run_matmul_io_compute(dev: Arc<CudaDevice>) -> Result<()> {
         }
     }
 
-    // Verify GPU result against CPU reference
     let mut ok = true;
     let mut mismatch_count = 0usize;
     for i in 0..M {
@@ -1545,7 +1434,6 @@ fn run_matmul_io_compute(dev: Arc<CudaDevice>) -> Result<()> {
         }
     }
 
-    // Clean up files
     let _ = std::fs::remove_file("matmul_a.bin");
     let _ = std::fs::remove_file("matmul_b.bin");
     let _ = std::fs::remove_file("matmul_c.bin");

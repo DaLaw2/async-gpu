@@ -295,7 +295,7 @@ id = "native-api.1"
 theme = "native-api"
 title = "Experiment: implement gpu::run() one-liner API + vector_add example"
 kind = "experiment"
-status = "active"
+status = "done"
 depends = []
 
 [[tasks]]
@@ -303,7 +303,7 @@ id = "native-api.2"
 theme = "native-api"
 title = "Experiment: rewrite examples/ to use gpu::run() native Rust style"
 kind = "experiment"
-status = "pending"
+status = "active"
 depends = ["native-api.1"]
 
 # --- Parked ---

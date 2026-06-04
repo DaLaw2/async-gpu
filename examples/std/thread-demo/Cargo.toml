@@ -1,0 +1,10 @@
+[workspace]
+
+[package]
+name = "thread-demo"
+version = "0.1.0"
+edition = "2021"
+description = "Demo: thread::spawn on GPU — identical to CPU Rust threading"
+
+[dependencies]
+gpu-host = { path = "../../../crates/core/gpu-host", default-features = false }

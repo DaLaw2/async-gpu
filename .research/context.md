@@ -1,33 +1,30 @@
 ## Current Focus
-Kernel performance optimization (epic: kernel-perf). Closing the gap to cuBLAS/cuDNN
-across GEMM, Attention, Conv2D, and memory-bound ops. Current task: perf-attn-v3.1
-(investigating warp-cooperative attention design).
+T0 epics: std-thread-gpu and native-rust-dx. Thread::spawn on GPU is working —
+spawns warps, joins results, reuses slots. Now implementing native Rust DX (gpu::run API).
 
 ## Recent Decisions
-- 2026-06-01: GEMM V4 with NVRTC + sm_86 + fast_math achieves 1760 GFLOPS (63% cuBLAS). Next step: cp.async 3-stage pipeline for 70%.
-- 2026-05-31: Flash Attention V3 cooperative 4-thread-per-row gives 5.7x speedup (54% cuDNN). Need tiled GEMM for Q·K^T and P·V to reach 70%.
-- 2026-05-30: Fused LayerNorm + residual add kernel implemented. Integration into GPT-2 pending.
-- 2026-05-28: GPT-2 end-to-end at 25.1ms (from original 221ms). Bottleneck is now attention + conv.
+- 2026-06-04: thread::spawn maps to warp execution, gpu_main() dispatches — warp 0 = main, others park
+- 2026-06-04: Use global memory atomics (not shared memory) for inter-warp communication
+- 2026-06-04: Only lane 0 manages closure state; all 32 lanes execute in SIMT lockstep
+- 2026-06-04: Fix sm_80+ PTX issue — gate MMA/bf16/tf32 kernels behind feature flag
+- 2026-06-04: gpu::compute() one-liner API wraps device init + PTX + launch + sync
 
 ## Tried & Rejected
-- GEMM BK=16 tile: numerical issues with larger K-tiles, reverted to BK=8
-- cp.async in inline PTX: needs NVRTC with sm_80 flag, can't use inline asm path
-- Scalar dot-product attention: 4% of cuDNN, fundamentally wrong approach — need tiled GEMM
+- Q in shared memory for attention: increases smem from 16KB to 25KB, reduces occupancy
+- Removing p_val branch in P·V: slower because V-read savings outweigh branch cost
+- bar.warp.sync PTX instruction: not valid, SIMT convergence is implicit
 
 ## Active Constraints
-- NVRTC required for sm_80+ features (cp.async, async copy). Inline PTX path limited to sm_75 features.
-- Float4 loads require 16-byte aligned addresses — weight pre-padding needed for non-aligned shapes.
-- Winograd F(4×4,3×3) has numerical stability concerns for deep networks (error accumulation).
+- GTX 1660 (sm_75): no tensor cores, 192 GB/s, 5 TFLOPS FP32
+- kernel.ptx must NOT contain sm_80+ instructions (MMA, bf16, tf32)
+- Patched std requires toolchain rebuild (build-toolchain.sh) for full std::thread integration
 
 ## Key Metrics
-- SGEMM: 1760 GFLOPS @ 4096³ (63% cuBLAS 2800)
-- Flash Attention: 54% cuDNN (V3 cooperative, seq=512)
-- Conv2D: 13% cuDNN (im2col path, needs Winograd)
-- LayerNorm: 157 GB/s (78% peak, single-pass Welford done)
-- GPT-2 e2e: 25.1ms per forward pass (was 221ms)
+- Flash Attention V3: 559 GFLOPS causal, 600 GFLOPS bidir @ seq=512
+- thread::spawn: 2 threads + join in 0.x ms (overhead dominated by nanosleep polling)
+- gpu::compute(): 1-line launch confirmed working
 
 ## Next
-1. Complete perf-attn-v3.1 (investigation: warp-cooperative attention design)
-2. perf-fusion.1 (fused LN+residual) and perf-layernorm.2 (float4) are also active
-3. After attention V3: cp.async for GEMM V4 (perf-gemm-v4.2)
-4. Conv Winograd is the biggest remaining gap (13% → 70%)
+1. Rewrite examples/ to use gpu::run() native Rust style (native-api.2)
+2. Thread-api theme: verify thread::current/sleep/yield with patched std (needs toolchain rebuild)
+3. Consider if extern "gpu-kernel" ABI is achievable without full compiler modification

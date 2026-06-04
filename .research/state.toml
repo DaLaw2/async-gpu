@@ -14,11 +14,11 @@ status = "running"     # ready | running | blocked | completed
 # No GPU concepts leak. VectorWare's I/O strength + async-gpu's compute strength, unified.
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
-current_step = "do.save"
-current_task_id = ""
+current_step = "do.execute"
+current_task_id = "coop-api.1,lib-extract.1,lib-toolchain.1"
 
 # Sequence counters
-brainstorm_seq = 111
+brainstorm_seq = 113
 tasks_since_brainstorm = 0   # reset after brainstorm
 
 # ============================================================
@@ -117,6 +117,7 @@ priority = "highest"
 success_criteria = [
     "Single `async-gpu` facade crate re-exports gpu::run/launch/custom + kernel-side runtime",
     "Public API surface is documented (rustdoc) — internal types are pub(crate)",
+    "Clean separation: library crates vs demo/example vs test harness — no mixing",
     "Toolchain setup is scripted: one command gives the user a working patched toolchain",
     "Getting-started guide: from zero to running GPU kernel in documented steps",
 ]
@@ -345,6 +346,127 @@ kind = "experiment"
 status = "done"
 depends = ["native-api.5"]
 
+# --- T1: library-api themes ---
+
+[[themes]]
+id = "lib-extract"
+epic = "library-api"
+title = "Extract test harness from gpu-host — pure library crate"
+status = "active"
+goal = "gpu-host is a pure library; test harness in separate crate"
+success_criteria = [
+    "main.rs + 13 tests_*.rs + bench_harness.rs moved to crates/test/gpu-test-harness/",
+    "gpu-host has no [[bin]] target, default features = []",
+]
+
+[[themes]]
+id = "lib-facade"
+epic = "library-api"
+title = "async-gpu facade crate with curated re-exports"
+status = "pending"
+goal = "Single async-gpu crate is the user's entry point"
+success_criteria = [
+    "crates/async-gpu/ re-exports gpu::run/launch/custom + error types",
+    "At least one example depends on async-gpu instead of gpu-host",
+]
+
+[[themes]]
+id = "lib-cleanup"
+epic = "library-api"
+title = "Clean public API surface — hide internals, remove dead code"
+status = "pending"
+goal = "cargo doc produces useful API docs"
+success_criteria = [
+    "Internal modules pub(crate), protocol constants in submodules",
+    "cargo doc --no-deps output is clean and useful",
+]
+
+[[themes]]
+id = "lib-toolchain"
+epic = "library-api"
+title = "One-command toolchain setup"
+status = "pending"
+goal = "scripts/setup.sh gives working environment"
+success_criteria = [
+    "setup.sh with quick/full/check modes",
+    "Smoke test compiles and runs a trivial kernel",
+]
+
+[[themes]]
+id = "lib-docs"
+epic = "library-api"
+title = "Getting-started guide + rustdoc"
+status = "pending"
+goal = "New user writes working GPU program in 30 min"
+success_criteria = [
+    "Getting-started guide in docs/ or README",
+    "rustdoc with doc examples for all public types",
+]
+
+[[tasks]]
+id = "lib-extract.1"
+theme = "lib-extract"
+title = "Investigation: inventory test harness deps on gpu-host internals"
+kind = "investigation"
+status = "active"
+depends = []
+
+[[tasks]]
+id = "lib-extract.2"
+theme = "lib-extract"
+title = "Experiment: create gpu-test-harness crate, move main.rs + tests_*.rs"
+kind = "experiment"
+status = "pending"
+depends = ["lib-extract.1"]
+
+[[tasks]]
+id = "lib-extract.3"
+theme = "lib-extract"
+title = "Experiment: remove [[bin]] from gpu-host, change default features to []"
+kind = "experiment"
+status = "pending"
+depends = ["lib-extract.2"]
+
+[[tasks]]
+id = "lib-extract.4"
+theme = "lib-extract"
+title = "Experiment: verify test harness still passes from new location"
+kind = "experiment"
+status = "pending"
+depends = ["lib-extract.3"]
+
+[[tasks]]
+id = "lib-facade.1"
+theme = "lib-facade"
+title = "Investigation: design async-gpu facade structure and re-export surface"
+kind = "investigation"
+status = "pending"
+depends = ["lib-extract.1"]
+
+[[tasks]]
+id = "lib-facade.2"
+theme = "lib-facade"
+title = "Experiment: create crates/async-gpu/ with curated re-exports"
+kind = "experiment"
+status = "pending"
+depends = ["lib-facade.1"]
+
+[[tasks]]
+id = "lib-toolchain.1"
+theme = "lib-toolchain"
+title = "Investigation: minimum user setup requirements"
+kind = "investigation"
+status = "active"
+depends = []
+
+[[tasks]]
+id = "lib-toolchain.2"
+theme = "lib-toolchain"
+title = "Experiment: create scripts/setup.sh with quick/full/check modes"
+kind = "experiment"
+status = "pending"
+depends = ["lib-toolchain.1"]
+
 # --- T1: cooperative-compute themes ---
 
 [[themes]]
@@ -385,7 +507,7 @@ id = "coop-api.1"
 theme = "coop-api"
 title = "Investigation: cooperative() data passing without global atomics"
 kind = "investigation"
-status = "pending"
+status = "active"
 depends = []
 
 [[tasks]]
@@ -808,3 +930,15 @@ new_epics_spawned = []
 themes_parked = []
 themes_completed = ["native-api", "std-thread-integration"]
 key_insight = "cooperative() prototype works but has 3 gaps: API ergonomics (global atomics), kernel-side compute (no callable matmul), full demo. Critical path: coop-api.1 → .2 → coop-compute.2 → coop-demo.1."
+
+[[brainstorms]]
+seq = 113
+at_cycle = 607
+trigger = "User feedback: we only write demos, not a usable library. library-api epic created."
+level = "standard"
+new_tasks_spawned = ["lib-extract.1", "lib-extract.2", "lib-extract.3", "lib-extract.4", "lib-facade.1", "lib-facade.2", "lib-toolchain.1", "lib-toolchain.2"]
+new_themes_spawned = ["lib-extract", "lib-facade", "lib-cleanup", "lib-toolchain", "lib-docs"]
+new_epics_spawned = ["library-api"]
+themes_parked = []
+themes_completed = []
+key_insight = "79% of gpu-host/src (23,735 lines) is test harness inside the library crate. Extract to gpu-test-harness, create async-gpu facade, clean pub API, single setup script."

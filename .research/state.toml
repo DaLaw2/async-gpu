@@ -4,8 +4,8 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 595
-completed_tasks = 708
+total_cycles = 604
+completed_tasks = 717
 status = "running"     # ready | running | blocked | completed
 
 # Project North Star — the ONE thing all epics serve:
@@ -15,12 +15,12 @@ status = "running"     # ready | running | blocked | completed
 
 # Current cycle position within Think/Do
 current_mode = "do"
-current_step = "do.execute"
-current_task_id = "perf-fusion.1"
+current_step = "do.route"
+current_task_id = ""
 
 # Sequence counters
 brainstorm_seq = 110
-tasks_since_brainstorm = 3   # Proactive trigger at >= 10
+tasks_since_brainstorm = 12   # Proactive trigger at >= 10
 
 # ============================================================
 # Epics — Tiered (T0 → T3), sorted by tier then priority
@@ -248,38 +248,23 @@ success_criteria = [
 # ============================================================
 # Themes (active/pending/parked only — completed → archive/)
 # ============================================================
-# Completed themes archived at workflow v2 migration (cycle 594):
-# onnx-fix, refactor-quality, refactor-api, onnx-cache, onnx-gpu-ops,
-# refactor-v2-code, refactor-v2-perf, refactor-v2-test, onnx-conv-prepad,
-# onnx-resnet-acc, onnx-mobilenet, dyn-control, graph-bfs, int4-integrate,
-# mc-finance, bench-kernels, bench-e2e, perf-gemm
+# Completed themes archived (cycle 604): thread-spawn, thread-api, perf-elem-fix
+# Archived (cycle 594): onnx-fix, refactor-quality, refactor-api, onnx-cache,
+# onnx-gpu-ops, refactor-v2-code, refactor-v2-perf, refactor-v2-test,
+# onnx-conv-prepad, onnx-resnet-acc, onnx-mobilenet, dyn-control, graph-bfs,
+# int4-integrate, mc-finance, bench-kernels, bench-e2e, perf-gemm
 
 # --- T0: std-thread-gpu themes ---
 
 [[themes]]
-id = "thread-spawn"
+id = "std-thread-integration"
 epic = "std-thread-gpu"
-title = "thread::spawn() maps to warp — core warp-as-thread protocol"
+title = "std::thread::spawn via patched std — fix bar.sync hang"
 status = "active"
-goal = "thread::spawn(closure) wakes a sleeping warp, returns JoinHandle"
+goal = "std::thread::spawn() works on GPU via patched rustc std"
 success_criteria = [
-    "gpu_main() wrapper dispatches warps: warp 0 runs main, others park",
-    "spawn() finds idle warp, passes boxed closure via global memory",
-    "JoinHandle::join() blocks until spawned warp completes",
-    "Test: spawn 2+ threads doing independent work, join results",
-]
-
-[[themes]]
-id = "thread-api"
-epic = "std-thread-gpu"
-title = "thread::current/sleep/yield/available_parallelism on GPU"
-status = "pending"
-goal = "Complete std::thread API surface for GPU"
-success_criteria = [
-    "thread::current() returns warp-based ThreadId",
-    "thread::sleep() maps to nanosleep PTX instruction",
-    "thread::yield_now() yields via nanosleep",
-    "thread::available_parallelism() returns available warps",
+    "std::thread::spawn on GPU doesn't hang (bar.sync + std init interaction fixed)",
+    "Example: std::thread::spawn 2+ threads, join, println! — identical to CPU Rust",
 ]
 
 # --- T0: native-rust-dx themes ---
@@ -297,12 +282,20 @@ success_criteria = [
 ]
 
 [[tasks]]
-id = "native-api.1"
-theme = "native-api"
-title = "Experiment: implement gpu::run() one-liner API + vector_add example"
-kind = "experiment"
-status = "done"
+id = "std-thread-integration.1"
+theme = "std-thread-integration"
+title = "Investigation: debug std::thread::spawn hang — bar.sync + std init interaction"
+kind = "investigation"
+status = "pending"
 depends = []
+
+[[tasks]]
+id = "std-thread-integration.2"
+theme = "std-thread-integration"
+title = "Experiment: fix hang + verify std::thread::spawn example with println!"
+kind = "experiment"
+status = "pending"
+depends = ["std-thread-integration.1"]
 
 [[tasks]]
 id = "native-api.2"
@@ -330,7 +323,7 @@ success_criteria = [
 id = "onnx-gpt2-gen"
 epic = "onnx-inference"
 title = "GPT-2 ONNX text generation"
-status = "active"
+status = "parked"
 goal = "Run GPT-2 ONNX and generate coherent text"
 success_criteria = [
     "GPT-2 ONNX forward pass runs without errors",
@@ -477,47 +470,11 @@ success_criteria = [
     "No accuracy regression vs im2col path",
 ]
 
-[[themes]]
-id = "perf-elem-fix"
-epic = "kernel-perf"
-title = "elementwise fix — out-of-place + fuse into other kernels"
-status = "active"
-goal = "elementwise >= 80% of peak 200 GB/s (≥160 GB/s)"
-success_criteria = [
-    "Out-of-place elementwise_add eliminates RW conflict",
-    "elementwise_add >= 160 GB/s at 786K elements",
-]
-
 # ============================================================
 # Tasks (active/pending only — done → archive/)
 # ============================================================
-# Done tasks archived at workflow v2 migration (cycle 594)
-
-# --- T0: thread-spawn ---
-
-[[tasks]]
-id = "thread-spawn.1"
-theme = "thread-spawn"
-title = "Experiment: implement gpu_runtime::thread module — spawn, JoinHandle, gpu_main"
-kind = "experiment"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "thread-spawn.2"
-theme = "thread-spawn"
-title = "Experiment: test kernel — spawn 2+ warps, join, println results"
-kind = "experiment"
-status = "done"
-depends = ["thread-spawn.1"]
-
-[[tasks]]
-id = "thread-spawn.3"
-theme = "thread-spawn"
-title = "Experiment: wire thread module into std patches (std::thread::spawn on GPU)"
-kind = "experiment"
-status = "done"
-depends = ["thread-spawn.2"]
+# Done tasks archived (cycle 604): thread-spawn.1, .2, .3, native-api.1,
+# perf-attn-v3.1, .2, perf-conv.1, perf-fusion.1, perf-elem-fix.1
 
 # --- warp-batch-io (parked) ---
 
@@ -582,22 +539,6 @@ depends = []
 # --- kernel-perf: attention ---
 
 [[tasks]]
-id = "perf-attn-v3.1"
-theme = "perf-attn-v3"
-title = "Investigation: design warp-cooperative attention — thread mapping, smem layout"
-kind = "investigation"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "perf-attn-v3.2"
-theme = "perf-attn-v3"
-title = "Experiment: implement cooperative score GEMM (Q·K^T) with 128 threads"
-kind = "experiment"
-status = "done"
-depends = ["perf-attn-v3.1"]
-
-[[tasks]]
 id = "perf-attn-v3.3"
 theme = "perf-attn-v3"
 title = "Experiment: cooperative P·V accumulation + online softmax"
@@ -630,14 +571,6 @@ status = "pending"
 depends = ["perf-attention.3"]
 
 # --- kernel-perf: conv ---
-
-[[tasks]]
-id = "perf-conv.1"
-theme = "perf-conv"
-title = "Investigation: study Winograd F(4×4, 3×3) — transform matrices, tile layout, numerical stability"
-kind = "investigation"
-status = "done"
-depends = []
 
 [[tasks]]
 id = "perf-conv.2"
@@ -702,14 +635,6 @@ depends = ["perf-elementwise.1"]
 # --- kernel-perf: fusion ---
 
 [[tasks]]
-id = "perf-fusion.1"
-theme = "perf-fusion"
-title = "Experiment: fused LayerNorm + residual add kernel"
-kind = "experiment"
-status = "active"
-depends = []
-
-[[tasks]]
 id = "perf-fusion.2"
 theme = "perf-fusion"
 title = "Experiment: integrate fused LN+residual into GPT-2, benchmark"
@@ -760,16 +685,6 @@ title = "Experiment: benchmark all shapes, iterate until ≥70% cuDNN"
 kind = "experiment"
 status = "pending"
 depends = ["perf-conv-wino.2"]
-
-# --- kernel-perf: elementwise fix ---
-
-[[tasks]]
-id = "perf-elem-fix.1"
-theme = "perf-elem-fix"
-title = "Experiment: out-of-place elementwise_add + benchmark"
-kind = "experiment"
-status = "pending"
-depends = []
 
 # --- kernel-perf: end-to-end ---
 

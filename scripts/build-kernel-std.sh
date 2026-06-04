@@ -1,5 +1,8 @@
 #!/bin/bash
-# Build gpu-kernel-std PTX and pre-compile to cubin for fast loading.
+# Build the unified gpu-kernel-std PTX and pre-compile to cubin for fast loading.
+#
+# After the kernel crate merge, gpu-kernel-std is the ONLY kernel crate.
+# It contains all kernel entry points (compute, hostcall, warp, thread, std).
 #
 # The kernel_std.ptx is 5+ MB and takes 10+ minutes to JIT compile.
 # Pre-compiling to cubin with ptxas reduces load time to <1 second.
@@ -64,9 +67,9 @@ if [ ! -f "$STD_SRC/src/sys/thread/cuda.rs" ]; then
     echo "Patched std applied to sysroot."
 fi
 
-# Step 2: Build gpu-kernel-std
+# Step 2: Build gpu-kernel-std (unified kernel crate)
 echo ""
-echo "=== Building gpu-kernel-std ==="
+echo "=== Building gpu-kernel-std (unified kernel crate) ==="
 cd "$KERNEL_STD_DIR"
 cargo "+$CHANNEL" build --release 2>&1 | grep -E "Compiling|Finished|error|warning.*gpu-kernel"
 PTX_SRC="$KERNEL_STD_DIR/target/nvptx64-nvidia-cuda/release/gpu_kernel_std.ptx"
@@ -76,9 +79,10 @@ if [ ! -f "$PTX_SRC" ]; then
 fi
 echo "PTX: $(wc -c < "$PTX_SRC") bytes"
 
-# Step 3: Copy PTX to gpu-host
+# Step 3: Copy PTX to gpu-host (both names for backward compat)
 cp "$PTX_SRC" "$HOST_DIR/kernel_std.ptx"
-echo "Copied PTX to gpu-host/"
+cp "$PTX_SRC" "$HOST_DIR/kernel.ptx"
+echo "Copied PTX to gpu-host/ (kernel.ptx + kernel_std.ptx)"
 
 # Step 4: Pre-compile to cubin
 echo ""
@@ -87,4 +91,4 @@ echo "Running: $PTXAS --gpu-name sm_75 ..."
 time "$PTXAS" --gpu-name sm_75 -o "$HOST_DIR/kernel_std.cubin" "$PTX_SRC" 2>&1
 echo "Cubin: $(wc -c < "$HOST_DIR/kernel_std.cubin") bytes"
 echo ""
-echo "Done! kernel_std.ptx and kernel_std.cubin ready in $HOST_DIR/"
+echo "Done! kernel.ptx, kernel_std.ptx and kernel_std.cubin ready in $HOST_DIR/"

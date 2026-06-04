@@ -61,8 +61,9 @@ run "check gpu-test-harness" "cargo +stable check --manifest-path crates/test/gp
 # Must cd into each dir so .cargo/config.toml (target, build-std) is picked up.
 # Read nightly version from rust-toolchain.toml (single source of truth)
 NIGHTLY=$(grep '^channel' rust-toolchain.toml | sed 's/.*= *"\(.*\)"/\1/')
-PTX_KERNELS="crates/kernel/gpu-kernel crates/test/async-hostcall-test crates/test/async-pipeline-test crates/test/embassy-test crates/test/multi-warp-test crates/test/gpu-std-test examples/hostcall/hello-gpu/kernel examples/hostcall/async-io/kernel examples/hostcall/vector-math/kernel examples/hostcall/parallel-search/kernel examples/hostcall/tcp-echo/kernel"
+PTX_KERNELS="crates/test/async-hostcall-test crates/test/async-pipeline-test crates/test/embassy-test crates/test/multi-warp-test crates/test/gpu-std-test examples/hostcall/hello-gpu/kernel examples/hostcall/async-io/kernel examples/hostcall/vector-math/kernel examples/hostcall/parallel-search/kernel examples/hostcall/tcp-echo/kernel"
 # Note: crates/test/std-build-test and crates/kernel/gpu-kernel-std excluded — require patched std to build
+# Note: crates/kernel/gpu-kernel removed — merged into gpu-kernel-std (lib-cleanup.4)
 # Note: examples/hostcall/async-pipeline/kernel and examples/hostcall/warp-cooperative excluded — require patched rustc MIR pass (#[warp_cooperative])
 for k in $PTX_KERNELS; do
     name=$(basename "$k")

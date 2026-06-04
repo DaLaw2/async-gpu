@@ -22,6 +22,70 @@ fn fresh_module_name() -> String {
     format!("gpu_{seq}")
 }
 
+/// Check if a PTX source is the unified kernel (same content as KERNEL/KERNEL_STD).
+///
+/// Uses pointer equality first (fast, works when callers pass ptx::KERNEL directly),
+/// then falls back to length comparison (handles re-assigned const references).
+fn is_unified_kernel_ptx(ptx_src: &str) -> bool {
+    let kernel = crate::ptx::KERNEL;
+    // Fast path: pointer equality (same static data)
+    if std::ptr::eq(ptx_src.as_ptr(), kernel.as_ptr()) {
+        return true;
+    }
+    let kernel_std = crate::ptx::KERNEL_STD;
+    if std::ptr::eq(ptx_src.as_ptr(), kernel_std.as_ptr()) {
+        return true;
+    }
+    // Fallback: length match (the unified PTX has a distinctive size)
+    ptx_src.len() == kernel.len()
+}
+
+/// Load a CUDA module from cubin (fast) or PTX (slow JIT fallback).
+///
+/// If `cubin` is non-empty, loads the precompiled cubin directly (sub-second).
+/// Otherwise, JIT-compiles the PTX string (can take 10+ minutes for large PTX).
+///
+/// Returns the loaded CUmodule handle.
+///
+/// # Safety
+///
+/// The caller must ensure the cubin/PTX contains the expected kernel functions.
+unsafe fn load_module_cubin_or_ptx(
+    ptx_src: &str,
+    cubin: &[u8],
+) -> Result<cudarc::driver::sys::CUmodule> {
+    use cudarc::driver::sys::{self, lib as cuda_lib};
+
+    let cu = cuda_lib();
+    let mut module: sys::CUmodule = std::ptr::null_mut();
+
+    if !cubin.is_empty() {
+        // Fast path: load pre-compiled cubin (sub-second)
+        let result = cu.cuModuleLoadData(&mut module, cubin.as_ptr() as *const std::ffi::c_void);
+        if result == sys::CUresult::CUDA_SUCCESS {
+            return Ok(module);
+        }
+        // Cubin load failed (e.g., architecture mismatch) — fall through to PTX
+        eprintln!(
+            "cubin load failed ({result:?}), falling back to PTX JIT compilation (this may take several minutes)"
+        );
+    }
+
+    // Slow path: JIT-compile PTX
+    let ptx_cstring = std::ffi::CString::new(ptx_src).map_err(|_| GpuHostError::Verification {
+        test: "ptx_load",
+        detail: "PTX source contains null byte".to_string(),
+    })?;
+    let result = cu.cuModuleLoadData(&mut module, ptx_cstring.as_ptr() as *const std::ffi::c_void);
+    if result != sys::CUresult::CUDA_SUCCESS {
+        return Err(GpuHostError::Verification {
+            test: "ptx_load",
+            detail: format!("cuModuleLoadData failed: {result:?}"),
+        });
+    }
+    Ok(module)
+}
+
 fn get_kernel(
     dev: &std::sync::Arc<CudaDevice>,
     kernel_name: &'static str,
@@ -214,26 +278,15 @@ pub fn run_zero_param_with_config(
     // Initialize CUDA context via cudarc (this handles cuInit, context creation, etc.)
     let dev = CudaDevice::new(0).map_err(GpuHostError::CudaInit)?;
 
-    // Load PTX via raw CUDA driver API to get CUmodule handle
-    let ptx_cstring = CString::new(ptx_src).map_err(|_| GpuHostError::Verification {
-        test: "ptx_load",
-        detail: "PTX source contains null byte".to_string(),
-    })?;
+    // Auto-detect cubin: if PTX is the unified kernel, use precompiled cubin
+    let cubin = crate::cubin::KERNEL_CUBIN;
+    let effective_cubin = if !cubin.is_empty() && is_unified_kernel_ptx(ptx_src) {
+        cubin
+    } else {
+        &[]
+    };
 
-    let cu_module: sys::CUmodule;
-    unsafe {
-        let cu = cuda_lib();
-        let mut module: sys::CUmodule = std::ptr::null_mut();
-        let result =
-            cu.cuModuleLoadData(&mut module, ptx_cstring.as_ptr() as *const std::ffi::c_void);
-        if result != sys::CUresult::CUDA_SUCCESS {
-            return Err(GpuHostError::Verification {
-                test: "ptx_load",
-                detail: format!("cuModuleLoadData failed: {result:?}"),
-            });
-        }
-        cu_module = module;
-    }
+    let cu_module: sys::CUmodule = unsafe { load_module_cubin_or_ptx(ptx_src, effective_cubin)? };
 
     // Get kernel function handle
     let func_name = CString::new(kernel_name).map_err(|_| GpuHostError::Verification {
@@ -390,9 +443,35 @@ impl GpuStdModule {
     }
 
     /// Load PTX with a custom print callback for capturing GPU println! output.
+    ///
+    /// If `ptx_src` matches the unified kernel PTX, automatically tries the
+    /// pre-compiled cubin first for fast loading (sub-second vs 10+ minutes).
     #[allow(clippy::type_complexity)]
     pub fn load_with_print(
         ptx_src: &str,
+        kernel_name: &'static str,
+        threads_per_block: u32,
+        grid_dim: (u32, u32, u32),
+        print_cb: Option<Box<dyn Fn(&[u8]) + Send + 'static>>,
+    ) -> Result<Self> {
+        Self::load_with_cubin(
+            ptx_src,
+            &[],
+            kernel_name,
+            threads_per_block,
+            grid_dim,
+            print_cb,
+        )
+    }
+
+    /// Load PTX or cubin with optional print callback.
+    ///
+    /// If `cubin` is non-empty, loads the pre-compiled binary directly.
+    /// Otherwise falls back to JIT-compiling the PTX source.
+    #[allow(clippy::type_complexity)]
+    pub fn load_with_cubin(
+        ptx_src: &str,
+        cubin: &[u8],
         kernel_name: &'static str,
         threads_per_block: u32,
         grid_dim: (u32, u32, u32),
@@ -403,25 +482,19 @@ impl GpuStdModule {
 
         let dev = CudaDevice::new(0).map_err(GpuHostError::CudaInit)?;
 
-        let ptx_cstring = CString::new(ptx_src).map_err(|_| GpuHostError::Verification {
-            test: "ptx_load",
-            detail: "PTX source contains null byte".to_string(),
-        })?;
+        // Auto-detect cubin: if caller didn't provide cubin but ptx_src is the
+        // unified kernel PTX, use the embedded cubin.
+        let kernel_cubin = crate::cubin::KERNEL_CUBIN;
+        let effective_cubin = if !cubin.is_empty() {
+            cubin
+        } else if !kernel_cubin.is_empty() && is_unified_kernel_ptx(ptx_src) {
+            kernel_cubin
+        } else {
+            &[]
+        };
 
-        let cu_module: sys::CUmodule;
-        unsafe {
-            let cu = cuda_lib();
-            let mut module: sys::CUmodule = std::ptr::null_mut();
-            let result =
-                cu.cuModuleLoadData(&mut module, ptx_cstring.as_ptr() as *const std::ffi::c_void);
-            if result != sys::CUresult::CUDA_SUCCESS {
-                return Err(GpuHostError::Verification {
-                    test: "ptx_load",
-                    detail: format!("cuModuleLoadData failed: {result:?}"),
-                });
-            }
-            cu_module = module;
-        }
+        let cu_module: sys::CUmodule =
+            unsafe { load_module_cubin_or_ptx(ptx_src, effective_cubin)? };
 
         let func_name = CString::new(kernel_name).map_err(|_| GpuHostError::Verification {
             test: kernel_name,

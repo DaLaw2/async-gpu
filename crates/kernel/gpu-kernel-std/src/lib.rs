@@ -1,13 +1,48 @@
-// GPU kernels using real Rust std (println!, Vec, String, format!).
+// Unified GPU kernel crate — all kernel entry points live here.
 //
-// Unlike std-build-test which duplicates 430+ lines of hostcall inline PTX,
-// this crate depends on gpu-runtime for the hostcall protocol implementation.
-// This eliminates code duplication and makes std kernels first-class citizens.
+// This crate merges the former gpu-kernel (no_std, compute/hostcall/warp kernels)
+// and gpu-kernel-std (std, println!/Vec/File I/O kernels) into a single crate.
+// Building with `-Zbuild-std=std` means all code has access to both core and std.
 
 #![no_main]
 #![feature(restricted_std)]
 #![feature(abi_gpu_kernel)]
+#![feature(stdarch_nvptx)]
 #![feature(asm_experimental_arch)]
+
+// NOTE: Under restricted_std, the standard library provides #[panic_handler].
+// The gpu-runtime panic_handler!() macro is only needed for pure no_std crates.
+// Individual kernels call gpu_runtime::panic::gpu_panic_init(buf) at entry to
+// route panic messages via hostcall.
+
+// Declare dynamic shared memory symbol at module level (PTX).
+// This emits `.extern .shared .align 4 .b8 dynamic_smem[];`
+// so that kernels can reference it via inline asm.
+#[cfg(target_arch = "nvptx64")]
+core::arch::global_asm!(".extern .shared .align 4 .b8 dynamic_smem[];");
+
+// === Modules merged from former gpu-kernel (no_std) ===
+mod helpers;
+
+mod basic;
+mod compute_cnn;
+mod compute_demo;
+mod compute_fused;
+mod compute_persistent;
+mod compute_physics;
+mod compute_gemm;
+mod compute_math;
+#[cfg(feature = "sm_80")]
+mod compute_mma;
+mod compute_search;
+mod compute_transformer;
+mod hostcall_kernels;
+mod hybrid;
+mod pipeline;
+mod thread_test;
+mod warp;
+
+// === Std-specific kernel code below ===
 
 use core::sync::atomic::{AtomicU32, AtomicU64, Ordering as AtomicOrdering};
 

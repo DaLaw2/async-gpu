@@ -534,7 +534,7 @@ id = "lib-cleanup.4"
 theme = "lib-cleanup"
 title = "Experiment: merge gpu-kernel + gpu-kernel-std into single kernel crate"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["lib-extract.2"]
 
 # --- T1: cooperative-compute themes ---

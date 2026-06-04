@@ -4,15 +4,20 @@
 name = "gpu-kernel-std"
 version = "0.1.0"
 edition = "2021"
-description = "GPU kernels using patched Rust std (println!, Vec, String, File I/O)"
+description = "GPU kernels — all kernel entry points (no_std + std) in a single crate"
+
+[features]
+default = []
+sm_80 = []  # Enable sm_80+ features (MMA tensor cores, bf16, tf32)
 
 [lib]
 crate-type = ["cdylib"]
 
 [dependencies]
+gpu-atomics = { path = "../../core/gpu-atomics" }
 gpu-libc = { path = "../../core/gpu-libc" }
-gpu-runtime = { path = "../../core/gpu-runtime" }
 gpu-protocol = { path = "../../core/gpu-protocol" }
+gpu-runtime = { path = "../../core/gpu-runtime" }
 
 [profile.release]
 panic = "abort"

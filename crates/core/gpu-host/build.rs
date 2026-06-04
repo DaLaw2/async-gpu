@@ -1,16 +1,16 @@
 /// Build script for gpu-host.
 ///
-/// Automatically compiles the gpu-kernel crate for nvptx64 and copies the PTX
-/// to this crate's directory. This enables single-command builds:
+/// Automatically compiles the gpu-kernel-std crate for nvptx64 and copies the PTX
+/// to this crate's directory. Since the kernel crates were merged into a single
+/// gpu-kernel-std crate, this produces one unified PTX containing all kernel
+/// entry points (both compute/hostcall kernels and std-based kernels).
 ///
-///     cargo build -p gpu-host
+/// The PTX is copied to both `kernel.ptx` and `kernel_std.ptx` for backward
+/// compatibility — all code that references either constant gets the same PTX.
 ///
 /// If the kernel compilation fails (e.g., nightly toolchain not installed),
 /// falls back to the existing kernel.ptx file. This allows `cargo check` and
 /// `cargo clippy` to work without the full kernel build pipeline.
-///
-/// The generated PTX is placed at `crates/core/gpu-host/kernel.ptx` where
-/// `include_str!("../kernel.ptx")` picks it up.
 use std::env;
 use std::path::PathBuf;
 use std::process::Command;
@@ -36,17 +36,22 @@ fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     // Repo root is 3 levels up from crates/core/gpu-host/
     let repo_root = manifest_dir.join("..").join("..").join("..");
-    let kernel_dir = repo_root.join("crates").join("kernel").join("gpu-kernel");
+    let kernel_dir = repo_root
+        .join("crates")
+        .join("kernel")
+        .join("gpu-kernel-std");
     let ptx_dst = manifest_dir.join("kernel.ptx");
+    let ptx_std_dst = manifest_dir.join("kernel_std.ptx");
     let toolchain = nightly_toolchain(&repo_root);
 
     // Rerun if kernel source or PTX file changes
     println!("cargo:rerun-if-changed=kernel.ptx");
-    println!("cargo:rerun-if-changed=../../kernel/gpu-kernel/src/lib.rs");
-    println!("cargo:rerun-if-changed=../../kernel/gpu-kernel/src/hostcall_kernels.rs");
-    println!("cargo:rerun-if-changed=../../kernel/gpu-kernel/src/compute_fused.rs");
-    println!("cargo:rerun-if-changed=../../kernel/gpu-kernel/src/compute_physics.rs");
-    println!("cargo:rerun-if-changed=../../kernel/gpu-kernel/Cargo.toml");
+    println!("cargo:rerun-if-changed=kernel_std.ptx");
+    println!("cargo:rerun-if-changed=../../kernel/gpu-kernel-std/src/lib.rs");
+    println!("cargo:rerun-if-changed=../../kernel/gpu-kernel-std/src/hostcall_kernels.rs");
+    println!("cargo:rerun-if-changed=../../kernel/gpu-kernel-std/src/compute_fused.rs");
+    println!("cargo:rerun-if-changed=../../kernel/gpu-kernel-std/src/compute_physics.rs");
+    println!("cargo:rerun-if-changed=../../kernel/gpu-kernel-std/Cargo.toml");
     println!("cargo:rerun-if-changed=../../../rust-toolchain.toml");
 
     // Skip kernel build if AUTO_BUILD_KERNEL=0 (for CI or manual workflows)
@@ -57,7 +62,7 @@ fn main() {
     // Check if kernel_dir exists
     if !kernel_dir.exists() {
         eprintln!(
-            "cargo:warning=gpu-kernel directory not found at {kernel_dir:?}, using existing PTX"
+            "cargo:warning=gpu-kernel-std directory not found at {kernel_dir:?}, using existing PTX"
         );
         return;
     }
@@ -81,11 +86,16 @@ fn main() {
                 .join("target")
                 .join("nvptx64-nvidia-cuda")
                 .join("release")
-                .join("gpu_kernel.ptx");
+                .join("gpu_kernel_std.ptx");
 
             if ptx_src.exists() {
+                // Copy to kernel.ptx (primary)
                 if let Err(e) = std::fs::copy(&ptx_src, &ptx_dst) {
-                    eprintln!("cargo:warning=Failed to copy PTX: {e}. Using existing PTX.");
+                    eprintln!("cargo:warning=Failed to copy PTX to kernel.ptx: {e}.");
+                }
+                // Copy to kernel_std.ptx (backward compat — same content)
+                if let Err(e) = std::fs::copy(&ptx_src, &ptx_std_dst) {
+                    eprintln!("cargo:warning=Failed to copy PTX to kernel_std.ptx: {e}.");
                 }
             } else {
                 eprintln!(

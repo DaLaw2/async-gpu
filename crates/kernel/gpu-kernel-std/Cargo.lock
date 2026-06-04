@@ -23,6 +23,7 @@ dependencies = [
 name = "gpu-kernel-std"
 version = "0.1.0"
 dependencies = [
+ "gpu-atomics",
  "gpu-libc",
  "gpu-protocol",
  "gpu-runtime",

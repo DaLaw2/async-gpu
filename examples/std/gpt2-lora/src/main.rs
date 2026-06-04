@@ -26,7 +26,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         return Err("Run: bash scripts/download-models.sh".into());
     }
 
-    let (_dev, registry) = gpu_host::nn::KernelRegistry::init_default()?;
+    let (dev, registry) = gpu_host::nn::KernelRegistry::init_default()?;
 
     let weights = gpu_host::model::load_gpt2_weights(&model_path)?;
     let config = gpu_host::nn::models::gpt2::Gpt2Config::small();

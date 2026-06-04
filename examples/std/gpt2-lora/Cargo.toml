@@ -6,5 +6,5 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-gpu-host = { path = "../../../crates/core/gpu-host", features = ["nn", "gpt2"] }
+gpu-host = { path = "../../../crates/core/gpu-host", features = ["nn", "gpt2", "demo"] }
 cudarc = { version = "0.12", features = ["cuda-12060"] }

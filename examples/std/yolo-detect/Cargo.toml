@@ -8,4 +8,4 @@ description = "YOLOv8-nano object detection using gpu-host nn API"
 
 [dependencies]
 cudarc = { version = "0.12", features = ["cuda-12060"] }
-gpu-host = { path = "../../../crates/core/gpu-host", features = ["nn", "gpt2"], default-features = false }
+gpu-host = { path = "../../../crates/core/gpu-host", features = ["nn", "gpt2", "demo"], default-features = false }

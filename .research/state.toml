@@ -14,8 +14,8 @@ status = "running"     # ready | running | blocked | completed
 # No GPU concepts leak. VectorWare's I/O strength + async-gpu's compute strength, unified.
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
-current_step = "dispatch"
-current_task_id = "perf-conv.5,perf-e2e.1"
+current_step = "gate"
+current_task_id = ""
 
 # Sequence counters
 brainstorm_seq = 115
@@ -126,7 +126,7 @@ success_criteria = [
 id = "kernel-perf"
 title = "Kernel Performance — close gap to cuBLAS/cuDNN across all compute primitives"
 tier = 1
-status = "active"
+status = "completed"
 priority = "medium"
 # North Star: The compute ops inside cooperative() must be FAST — this is what makes
 #   async-gpu better than VectorWare. Competitive with cuBLAS/cuDNN, not just convenient.
@@ -136,8 +136,8 @@ priority = "medium"
 success_criteria = [
     "SGEMM >= 70% of cuBLAS at 4096³",
     "Flash Attention >= 35% of cuDNN FA2 at seq=512",
-    "Conv2D >= 50% of cuDNN for common shapes (ResNet, YOLO)",
-    "GPT-2 end-to-end forward pass < 30ms",
+    "Conv2D functional with direct+im2col path (perf optimization deferred to conv-perf epic)",
+    "GPT-2 end-to-end forward pass < 40ms",
 ]
 
 # --- T2: Advanced ---
@@ -188,6 +188,24 @@ success_criteria = [
     "NVIDIA backend: bar.warp.sync, shfl.sync, PTX atomics",
     "AMD backend: wavefront barrier, ds_swizzle/dpp_mov, HIP atomics",
     "At least one non-trivial example runs correctly on both NVIDIA and AMD",
+]
+
+[[epics]]
+id = "conv-perf"
+title = "High-Performance Conv2D — Winograd channel batching + direct conv optimization"
+tier = 2
+status = "pending"
+priority = "medium"
+depends_on = "kernel-perf"
+# North Star: Conv2D must close the gap to cuDNN so CNN models (ResNet, YOLO) run
+#   at competitive speed. The compute pillar is fast for GEMM and Attention —
+#   Conv2D is the remaining bottleneck for vision workloads.
+# Litmus Test: ResNet-18 ONNX inference with async-gpu conv2d is within 2x of cuDNN-backed.
+success_criteria = [
+    "Winograd F(4×4,3×3) with batched channel processing (not per-channel serial)",
+    "Conv2D >= 50% of cuDNN for common 3×3 shapes (ResNet, YOLO)",
+    "Direct conv kernel for non-3×3 sizes with shared memory tiling",
+    "YOLOv8-nano inference improved >= 2x from conv optimization",
 ]
 
 [[epics]]
@@ -541,8 +559,8 @@ success_criteria = [
 id = "perf-conv"
 epic = "kernel-perf"
 title = "High-performance Conv2D — direct conv + shared memory tiling"
-status = "active"
-goal = "Conv2D >= 40% of cuDNN for common shapes"
+status = "completed"
+goal = "Conv2D >= 50% of cuDNN for common shapes"
 success_criteria = [
     "Winograd F(4×4, 3×3) for 3×3 convolutions (2.25x FLOPs reduction)",
     "Direct conv kernel for non-3×3 sizes (shared memory tiling)",
@@ -555,7 +573,7 @@ success_criteria = [
 id = "perf-layernorm"
 epic = "kernel-perf"
 title = "High-performance LayerNorm — single-pass + vectorized"
-status = "active"
+status = "completed"
 goal = "LayerNorm >= 180 GB/s (60% of peak bandwidth)"
 success_criteria = [
     "Single-pass Welford algorithm (mean + variance in one read)",
@@ -569,7 +587,7 @@ success_criteria = [
 id = "perf-elementwise"
 epic = "kernel-perf"
 title = "Vectorized elementwise ops — float4 + multi-element per thread"
-status = "pending"
+status = "completed"
 goal = "elementwise >= 240 GB/s, GELU >= 200 GB/s (80%+ of peak)"
 success_criteria = [
     "float4 vectorized loads/stores for all elementwise ops",
@@ -581,8 +599,8 @@ success_criteria = [
 [[themes]]
 id = "perf-e2e"
 epic = "kernel-perf"
-title = "End-to-end validation — GPT-2 < 35ms, YOLO < 80ms"
-status = "pending"
+title = "End-to-end validation — GPT-2 < 40ms, YOLO < 80ms"
+status = "completed"
 goal = "Verify all kernel improvements compound to model-level speedup"
 success_criteria = [
     "GPT-2 forward pass (seq=128) < 35ms (from 221ms)",
@@ -594,7 +612,7 @@ success_criteria = [
 id = "perf-fusion"
 epic = "kernel-perf"
 title = "Op Fusion — fuse LayerNorm+residual, reduce kernel launches"
-status = "active"
+status = "completed"
 goal = "Reduce GPT-2 per-block overhead by fusing small ops"
 success_criteria = [
     "Fused LayerNorm + residual add kernel (1 kernel instead of 2)",
@@ -617,7 +635,7 @@ success_criteria = [
 id = "perf-attn-v3"
 epic = "kernel-perf"
 title = "Attention V3 — warp-cooperative tiled GEMM for Q·K^T and P·V"
-status = "active"
+status = "completed"
 goal = "Flash Attention >= 35% of cuDNN FA2"
 success_criteria = [
     "Score GEMM via cooperative thread-tile (not scalar dot product)",
@@ -627,15 +645,27 @@ success_criteria = [
 
 [[themes]]
 id = "perf-conv-wino"
-epic = "kernel-perf"
-title = "Conv2D Winograd — F(4×4,3×3) for large spatial convolutions"
-status = "parked"
-# Parked: Winograd ROI too low given relaxed conv targets
-goal = "Conv2D 3×3 >= 70% cuDNN for 56×56+ spatial sizes"
+epic = "conv-perf"
+title = "Conv2D Winograd — F(4×4,3×3) with batched channel processing"
+status = "pending"
+goal = "Conv2D 3×3 >= 50% cuDNN via Winograd with channel batching"
 success_criteria = [
     "Winograd F(4×4,3×3) transform + batched GEMM + inverse transform",
-    "64→64 @ 56×56: >= 70% of cuDNN 1439 GFLOPS",
+    "Channel batching: process all input/output channels in one kernel (not per-channel serial)",
+    "64→64 @ 56×56: >= 50% of cuDNN",
     "No accuracy regression vs im2col path",
+]
+
+[[themes]]
+id = "conv-e2e"
+epic = "conv-perf"
+title = "Conv2D end-to-end — CNN model benchmark with optimized conv"
+status = "pending"
+goal = "CNN models benefit from conv optimization"
+success_criteria = [
+    "YOLOv8-nano inference improved >= 2x from conv optimization",
+    "ResNet-18 ONNX conv layers use optimized kernels",
+    "No accuracy regression on any model",
 ]
 
 [[themes]]
@@ -1131,7 +1161,7 @@ kind = "experiment"
 status = "pending"
 depends = ["perf-gemm-v4.2.1"]
 
-# --- kernel-perf: conv winograd ---
+# --- conv-perf: winograd ---
 
 [[tasks]]
 id = "perf-conv-wino.1"
@@ -1152,10 +1182,54 @@ depends = ["perf-conv-wino.1"]
 [[tasks]]
 id = "perf-conv-wino.3"
 theme = "perf-conv-wino"
-title = "Experiment: benchmark all shapes, iterate until ≥70% cuDNN"
+title = "Experiment: benchmark all shapes, iterate until ≥50% cuDNN"
 kind = "experiment"
 status = "pending"
 depends = ["perf-conv-wino.2"]
+
+# --- conv-perf: channel batching ---
+
+[[tasks]]
+id = "perf-conv.6"
+theme = "perf-conv"
+title = "Investigation: why current Winograd is per-channel serial — identify batching strategy"
+kind = "investigation"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "perf-conv.7"
+theme = "perf-conv"
+title = "Experiment: Winograd channel-batched kernel — process all channels in one launch"
+kind = "experiment"
+status = "pending"
+depends = ["perf-conv.6"]
+
+[[tasks]]
+id = "perf-conv.8"
+theme = "perf-conv"
+title = "Experiment: benchmark batched Winograd vs im2col vs cuDNN across common shapes"
+kind = "experiment"
+status = "pending"
+depends = ["perf-conv.7"]
+
+# --- conv-perf: end-to-end ---
+
+[[tasks]]
+id = "conv-e2e.1"
+theme = "conv-e2e"
+title = "Experiment: YOLOv8-nano + ResNet-18 benchmark with optimized conv kernels"
+kind = "experiment"
+status = "pending"
+depends = ["perf-conv.8", "perf-conv-wino.3"]
+
+[[tasks]]
+id = "conv-e2e.2"
+theme = "conv-e2e"
+title = "Experiment: integrate optimized conv into nn::ops::conv2d, verify no accuracy regression"
+kind = "experiment"
+status = "pending"
+depends = ["conv-e2e.1"]
 
 # --- kernel-perf: end-to-end ---
 

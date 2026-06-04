@@ -281,8 +281,8 @@
 .global .align 8 .u64 anon_$_f2caa40aef091bb8323b72108e5a1118_$_26[3] = {generic(anon_$_f2caa40aef091bb8323b72108e5a1118_$_8), 18, 94489280731};
 .global .align 8 .u64 anon_$_f2caa40aef091bb8323b72108e5a1118_$_27[3] = {generic(anon_$_f2caa40aef091bb8323b72108e5a1118_$_8), 18, 94489280794};
 .global .align 8 .u64 anon_$_f2caa40aef091bb8323b72108e5a1118_$_28[3] = {generic(anon_$_f2caa40aef091bb8323b72108e5a1118_$_8), 18, 94489280796};
-.global .align 1 .b8 anon_$_279fca8ef12de280f9aaf41a66c65007_$_0[61] = {47, 104, 111, 109, 101, 47, 100, 97, 108, 97, 119, 50, 47, 97, 115, 121, 110, 99, 45, 103, 112, 117, 47, 99, 114, 97, 116, 101, 115, 47, 99, 111, 114, 101, 47, 103, 112, 117, 45, 114, 117, 110, 116, 105, 109, 101, 47, 115, 114, 99, 47, 116, 104, 114, 101, 97, 100, 46, 114, 115};
-.global .align 8 .u64 anon_$_279fca8ef12de280f9aaf41a66c65007_$_2[3] = {generic(anon_$_279fca8ef12de280f9aaf41a66c65007_$_0), 60, 85899346178};
+.global .align 1 .b8 anon_$_12d077b002406698dc7e55a1b90d4baa_$_0[61] = {47, 104, 111, 109, 101, 47, 100, 97, 108, 97, 119, 50, 47, 97, 115, 121, 110, 99, 45, 103, 112, 117, 47, 99, 114, 97, 116, 101, 115, 47, 99, 111, 114, 101, 47, 103, 112, 117, 45, 114, 117, 110, 116, 105, 109, 101, 47, 115, 114, 99, 47, 116, 104, 114, 101, 97, 100, 46, 114, 115};
+.global .align 8 .u64 anon_$_279fca8ef12de280f9aaf41a66c65007_$_2[3] = {generic(anon_$_12d077b002406698dc7e55a1b90d4baa_$_0), 60, 85899346178};
 .global .align 1 .b8 anon_$_279fca8ef12de280f9aaf41a66c65007_$_4[60] = {47, 104, 111, 109, 101, 47, 100, 97, 108, 97, 119, 50, 47, 97, 115, 121, 110, 99, 45, 103, 112, 117, 47, 99, 114, 97, 116, 101, 115, 47, 99, 111, 114, 101, 47, 103, 112, 117, 45, 114, 117, 110, 116, 105, 109, 101, 47, 115, 114, 99, 47, 112, 97, 110, 105, 99, 46, 114, 115};
 .global .align 8 .u64 anon_$_279fca8ef12de280f9aaf41a66c65007_$_5[3] = {generic(anon_$_279fca8ef12de280f9aaf41a66c65007_$_4), 59, 55834574950};
 .global .align 8 .u64 anon_$_279fca8ef12de280f9aaf41a66c65007_$_6[6] = {0, 64, 8, _RNvXs0_NtCs1fUa69AyTsI_11gpu_runtime5panicNtB5_8PanicBufNtNtCs6g5rhKrCjcr_4core3fmt5Write9write_str234, _RNvYNtNtCs1fUa69AyTsI_11gpu_runtime5panic8PanicBufNtNtCs6g5rhKrCjcr_4core3fmt5Write10write_charCsjqcNJG2B9g5_10gpu_kernel, _RNvYNtNtCs1fUa69AyTsI_11gpu_runtime5panic8PanicBufNtNtCs6g5rhKrCjcr_4core3fmt5Write9write_fmtCsjqcNJG2B9g5_10gpu_kernel};
@@ -295,6 +295,8 @@
 .global .align 4 .u32 _RNvNtCs1fUa69AyTsI_11gpu_runtime6thread9NUM_WARPS_$_0;
 .global .align 8 .b8 _RNvNtCs1fUa69AyTsI_11gpu_runtime6thread9WARP_DATA[256];
 .global .align 4 .b8 _RNvNvNtCs1fUa69AyTsI_11gpu_runtime6thread5spawn7SCRATCH[8192];
+.global .align 8 .u64 anon_$_12d077b002406698dc7e55a1b90d4baa_$_2[3] = {generic(anon_$_12d077b002406698dc7e55a1b90d4baa_$_0), 60, 51539607926};
+.global .align 8 .u64 anon_$_12d077b002406698dc7e55a1b90d4baa_$_3[3] = {generic(anon_$_12d077b002406698dc7e55a1b90d4baa_$_0), 60, 68719477092};
                                         // @autonomous_pipeline_kernel
 .visible .entry autonomous_pipeline_kernel(
 	.param .u64 .ptr .align 1 autonomous_pipeline_kernel_param_0,
@@ -77573,6 +77575,485 @@ $L__BB211_5:                            // %.loopexit
 	add.s64 	%rd3, %rd2, %rd1;
 	st.global.b32 	[%rd3], 38;
 	st.param.b64 	[func_retval0], -1;
+	ret;
+                                        // -- End function
+}
+	// .globl	gpu_thread_available_parallelism // -- Begin function gpu_thread_available_parallelism
+.visible .func  (.param .b32 func_retval0) gpu_thread_available_parallelism() // @gpu_thread_available_parallelism
+{
+	.reg .b32 	%r<4>;
+
+// %bb.0:
+	ld.relaxed.sys.global.b32 	%r1, [_RNvNtCs1fUa69AyTsI_11gpu_runtime6thread9NUM_WARPS_$_0];
+	max.u32 	%r2, %r1, 1;
+	add.s32 	%r3, %r2, -1;
+	st.param.b32 	[func_retval0], %r3;
+	ret;
+                                        // -- End function
+}
+	// .globl	gpu_thread_current_id   // -- Begin function gpu_thread_current_id
+.visible .func  (.param .b32 func_retval0) gpu_thread_current_id() // @gpu_thread_current_id
+{
+	.reg .b32 	%r<3>;
+
+// %bb.0:
+	mov.u32 	%r1, %tid.x;
+	shr.u32 	%r2, %r1, 5;
+	st.param.b32 	[func_retval0], %r2;
+	ret;
+                                        // -- End function
+}
+	// .globl	gpu_thread_join_warp    // -- Begin function gpu_thread_join_warp
+.visible .func gpu_thread_join_warp(
+	.param .b32 gpu_thread_join_warp_param_0
+)                                       // @gpu_thread_join_warp
+{
+	.reg .pred 	%p<4>;
+	.reg .b32 	%r<3>;
+	.reg .b64 	%rd<7>;
+
+// %bb.0:
+	ld.param.b32 	%rd1, [gpu_thread_join_warp_param_0];
+	setp.gt.u64 	%p1, %rd1, 31;
+	@%p1 bra 	$L__BB217_4;
+// %bb.1:
+	shl.b64 	%rd5, %rd1, 2;
+	mov.b64 	%rd6, _RNvNtCs1fUa69AyTsI_11gpu_runtime6thread11WARP_STATUS;
+	add.s64 	%rd2, %rd6, %rd5;
+	ld.acquire.sys.global.b32 	%r1, [%rd2];
+	setp.eq.b32 	%p2, %r1, 3;
+	@%p2 bra 	$L__BB217_2;
+$L__BB217_3:                            // %.lr.ph
+                                        // =>This Inner Loop Header: Depth=1
+	// begin inline asm
+	nanosleep.u32 100;
+	// end inline asm
+	ld.acquire.sys.global.b32 	%r2, [%rd2];
+	setp.eq.b32 	%p3, %r2, 3;
+	@%p3 bra 	$L__BB217_2;
+	bra.uni 	$L__BB217_3;
+$L__BB217_2:                            // %._crit_edge
+	st.release.sys.global.b32 	[%rd2], 0;
+	ret;
+$L__BB217_4:
+	{ // callseq 151, 0
+	.param .b64 	param0;
+	.param .b64 	param1;
+	.param .b64 	param2;
+	st.param.b64 	[param0], %rd1;
+	mov.b64 	%rd3, anon_$_12d077b002406698dc7e55a1b90d4baa_$_2;
+	cvta.global.u64 	%rd4, %rd3;
+	st.param.b64 	[param2], %rd4;
+	st.param.b64 	[param1], 32;
+	call.uni _RNvNtCs6g5rhKrCjcr_4core9panicking18panic_bounds_check, (param0, param1, param2);
+	} // callseq 151
+	// begin inline asm
+	exit;
+	// end inline asm
+                                        // -- End function
+}
+	// .globl	gpu_thread_spawn_raw    // -- Begin function gpu_thread_spawn_raw
+.visible .func  (.param .b32 func_retval0) gpu_thread_spawn_raw(
+	.param .b64 gpu_thread_spawn_raw_param_0,
+	.param .b64 gpu_thread_spawn_raw_param_1
+)                                       // @gpu_thread_spawn_raw
+{
+	.reg .pred 	%p<65>;
+	.reg .b32 	%r<35>;
+	.reg .b64 	%rd<78>;
+
+// %bb.0:
+	ld.acquire.sys.global.b32 	%r1, [_RNvNtCs1fUa69AyTsI_11gpu_runtime6thread9NUM_WARPS_$_0];
+	setp.lt.u32 	%p1, %r1, 2;
+	mov.b32 	%r34, 0;
+	@%p1 bra 	$L__BB218_67;
+// %bb.1:
+	mov.b64 	%rd4, _RNvNtCs1fUa69AyTsI_11gpu_runtime6thread11WARP_STATUS;
+	cvta.global.u64 	%rd5, %rd4;
+	ld.acquire.sys.b32 	%r2, [%rd5+4];
+	add.s64 	%rd6, %rd5, 4;
+	cvta.to.global.u64 	%rd76, %rd6;
+	setp.eq.b32 	%p2, %r2, 0;
+	mov.b64 	%rd3, 1;
+	mov.b64 	%rd77, %rd3;
+	@%p2 bra 	$L__BB218_66;
+// %bb.2:
+	setp.eq.b32 	%p3, %r1, 2;
+	setp.eq.b32 	%p5, %r1, 3;
+	setp.eq.b32 	%p7, %r1, 4;
+	setp.eq.b32 	%p9, %r1, 5;
+	bra.uni 	$L__BB218_4;
+$L__BB218_3:                            //   in Loop: Header=BB218_4 Depth=1
+	// begin inline asm
+	nanosleep.u32 100;
+	// end inline asm
+	cvta.global.u64 	%rd67, %rd4;
+	ld.acquire.sys.b32 	%r33, [%rd67+4];
+	add.s64 	%rd68, %rd67, 4;
+	cvta.to.global.u64 	%rd76, %rd68;
+	setp.eq.b32 	%p64, %r33, 0;
+	mov.b64 	%rd77, %rd3;
+	@%p64 bra 	$L__BB218_66;
+$L__BB218_4:                            // %.lr.ph
+                                        // =>This Inner Loop Header: Depth=1
+	@%p3 bra 	$L__BB218_3;
+// %bb.5:                               //   in Loop: Header=BB218_4 Depth=1
+	ld.acquire.sys.global.b32 	%r3, [_RNvNtCs1fUa69AyTsI_11gpu_runtime6thread11WARP_STATUS+8];
+	cvta.global.u64 	%rd7, %rd4;
+	add.s64 	%rd8, %rd7, 8;
+	cvta.to.global.u64 	%rd76, %rd8;
+	setp.eq.b32 	%p4, %r3, 0;
+	mov.b64 	%rd77, 2;
+	@%p4 bra 	$L__BB218_66;
+// %bb.6:                               //   in Loop: Header=BB218_4 Depth=1
+	@%p5 bra 	$L__BB218_3;
+// %bb.7:                               //   in Loop: Header=BB218_4 Depth=1
+	ld.acquire.sys.global.b32 	%r4, [_RNvNtCs1fUa69AyTsI_11gpu_runtime6thread11WARP_STATUS+12];
+	cvta.global.u64 	%rd9, %rd4;
+	add.s64 	%rd10, %rd9, 12;
+	cvta.to.global.u64 	%rd76, %rd10;
+	setp.eq.b32 	%p6, %r4, 0;
+	mov.b64 	%rd77, 3;
+	@%p6 bra 	$L__BB218_66;
+// %bb.8:                               //   in Loop: Header=BB218_4 Depth=1
+	@%p7 bra 	$L__BB218_3;
+// %bb.9:                               //   in Loop: Header=BB218_4 Depth=1
+	ld.acquire.sys.global.b32 	%r5, [_RNvNtCs1fUa69AyTsI_11gpu_runtime6thread11WARP_STATUS+16];
+	cvta.global.u64 	%rd11, %rd4;
+	add.s64 	%rd12, %rd11, 16;
+	cvta.to.global.u64 	%rd76, %rd12;
+	setp.eq.b32 	%p8, %r5, 0;
+	mov.b64 	%rd77, 4;
+	@%p8 bra 	$L__BB218_66;
+// %bb.10:                              //   in Loop: Header=BB218_4 Depth=1
+	@%p9 bra 	$L__BB218_3;
+// %bb.11:                              //   in Loop: Header=BB218_4 Depth=1
+	ld.acquire.sys.global.b32 	%r6, [_RNvNtCs1fUa69AyTsI_11gpu_runtime6thread11WARP_STATUS+20];
+	cvta.global.u64 	%rd13, %rd4;
+	add.s64 	%rd14, %rd13, 20;
+	cvta.to.global.u64 	%rd76, %rd14;
+	setp.eq.b32 	%p10, %r6, 0;
+	mov.b64 	%rd77, 5;
+	@%p10 bra 	$L__BB218_66;
+// %bb.12:                              //   in Loop: Header=BB218_4 Depth=1
+	setp.eq.b32 	%p11, %r1, 6;
+	@%p11 bra 	$L__BB218_3;
+// %bb.13:                              //   in Loop: Header=BB218_4 Depth=1
+	ld.acquire.sys.global.b32 	%r7, [_RNvNtCs1fUa69AyTsI_11gpu_runtime6thread11WARP_STATUS+24];
+	cvta.global.u64 	%rd15, %rd4;
+	add.s64 	%rd16, %rd15, 24;
+	cvta.to.global.u64 	%rd76, %rd16;
+	setp.eq.b32 	%p12, %r7, 0;
+	mov.b64 	%rd77, 6;
+	@%p12 bra 	$L__BB218_66;
+// %bb.14:                              //   in Loop: Header=BB218_4 Depth=1
+	setp.eq.b32 	%p13, %r1, 7;
+	@%p13 bra 	$L__BB218_3;
+// %bb.15:                              //   in Loop: Header=BB218_4 Depth=1
+	ld.acquire.sys.global.b32 	%r8, [_RNvNtCs1fUa69AyTsI_11gpu_runtime6thread11WARP_STATUS+28];
+	cvta.global.u64 	%rd17, %rd4;
+	add.s64 	%rd18, %rd17, 28;
+	cvta.to.global.u64 	%rd76, %rd18;
+	setp.eq.b32 	%p14, %r8, 0;
+	mov.b64 	%rd77, 7;
+	@%p14 bra 	$L__BB218_66;
+// %bb.16:                              //   in Loop: Header=BB218_4 Depth=1
+	setp.eq.b32 	%p15, %r1, 8;
+	@%p15 bra 	$L__BB218_3;
+// %bb.17:                              //   in Loop: Header=BB218_4 Depth=1
+	ld.acquire.sys.global.b32 	%r9, [_RNvNtCs1fUa69AyTsI_11gpu_runtime6thread11WARP_STATUS+32];
+	cvta.global.u64 	%rd19, %rd4;
+	add.s64 	%rd20, %rd19, 32;
+	cvta.to.global.u64 	%rd76, %rd20;
+	setp.eq.b32 	%p16, %r9, 0;
+	mov.b64 	%rd77, 8;
+	@%p16 bra 	$L__BB218_66;
+// %bb.18:                              //   in Loop: Header=BB218_4 Depth=1
+	setp.eq.b32 	%p17, %r1, 9;
+	@%p17 bra 	$L__BB218_3;
+// %bb.19:                              //   in Loop: Header=BB218_4 Depth=1
+	ld.acquire.sys.global.b32 	%r10, [_RNvNtCs1fUa69AyTsI_11gpu_runtime6thread11WARP_STATUS+36];
+	cvta.global.u64 	%rd21, %rd4;
+	add.s64 	%rd22, %rd21, 36;
+	cvta.to.global.u64 	%rd76, %rd22;
+	setp.eq.b32 	%p18, %r10, 0;
+	mov.b64 	%rd77, 9;
+	@%p18 bra 	$L__BB218_66;
+// %bb.20:                              //   in Loop: Header=BB218_4 Depth=1
+	setp.eq.b32 	%p19, %r1, 10;
+	@%p19 bra 	$L__BB218_3;
+// %bb.21:                              //   in Loop: Header=BB218_4 Depth=1
+	ld.acquire.sys.global.b32 	%r11, [_RNvNtCs1fUa69AyTsI_11gpu_runtime6thread11WARP_STATUS+40];
+	cvta.global.u64 	%rd23, %rd4;
+	add.s64 	%rd24, %rd23, 40;
+	cvta.to.global.u64 	%rd76, %rd24;
+	setp.eq.b32 	%p20, %r11, 0;
+	mov.b64 	%rd77, 10;
+	@%p20 bra 	$L__BB218_66;
+// %bb.22:                              //   in Loop: Header=BB218_4 Depth=1
+	setp.eq.b32 	%p21, %r1, 11;
+	@%p21 bra 	$L__BB218_3;
+// %bb.23:                              //   in Loop: Header=BB218_4 Depth=1
+	ld.acquire.sys.global.b32 	%r12, [_RNvNtCs1fUa69AyTsI_11gpu_runtime6thread11WARP_STATUS+44];
+	cvta.global.u64 	%rd25, %rd4;
+	add.s64 	%rd26, %rd25, 44;
+	cvta.to.global.u64 	%rd76, %rd26;
+	setp.eq.b32 	%p22, %r12, 0;
+	mov.b64 	%rd77, 11;
+	@%p22 bra 	$L__BB218_66;
+// %bb.24:                              //   in Loop: Header=BB218_4 Depth=1
+	setp.eq.b32 	%p23, %r1, 12;
+	@%p23 bra 	$L__BB218_3;
+// %bb.25:                              //   in Loop: Header=BB218_4 Depth=1
+	ld.acquire.sys.global.b32 	%r13, [_RNvNtCs1fUa69AyTsI_11gpu_runtime6thread11WARP_STATUS+48];
+	cvta.global.u64 	%rd27, %rd4;
+	add.s64 	%rd28, %rd27, 48;
+	cvta.to.global.u64 	%rd76, %rd28;
+	setp.eq.b32 	%p24, %r13, 0;
+	mov.b64 	%rd77, 12;
+	@%p24 bra 	$L__BB218_66;
+// %bb.26:                              //   in Loop: Header=BB218_4 Depth=1
+	setp.eq.b32 	%p25, %r1, 13;
+	@%p25 bra 	$L__BB218_3;
+// %bb.27:                              //   in Loop: Header=BB218_4 Depth=1
+	ld.acquire.sys.global.b32 	%r14, [_RNvNtCs1fUa69AyTsI_11gpu_runtime6thread11WARP_STATUS+52];
+	cvta.global.u64 	%rd29, %rd4;
+	add.s64 	%rd30, %rd29, 52;
+	cvta.to.global.u64 	%rd76, %rd30;
+	setp.eq.b32 	%p26, %r14, 0;
+	mov.b64 	%rd77, 13;
+	@%p26 bra 	$L__BB218_66;
+// %bb.28:                              //   in Loop: Header=BB218_4 Depth=1
+	setp.eq.b32 	%p27, %r1, 14;
+	@%p27 bra 	$L__BB218_3;
+// %bb.29:                              //   in Loop: Header=BB218_4 Depth=1
+	ld.acquire.sys.global.b32 	%r15, [_RNvNtCs1fUa69AyTsI_11gpu_runtime6thread11WARP_STATUS+56];
+	cvta.global.u64 	%rd31, %rd4;
+	add.s64 	%rd32, %rd31, 56;
+	cvta.to.global.u64 	%rd76, %rd32;
+	setp.eq.b32 	%p28, %r15, 0;
+	mov.b64 	%rd77, 14;
+	@%p28 bra 	$L__BB218_66;
+// %bb.30:                              //   in Loop: Header=BB218_4 Depth=1
+	setp.eq.b32 	%p29, %r1, 15;
+	@%p29 bra 	$L__BB218_3;
+// %bb.31:                              //   in Loop: Header=BB218_4 Depth=1
+	ld.acquire.sys.global.b32 	%r16, [_RNvNtCs1fUa69AyTsI_11gpu_runtime6thread11WARP_STATUS+60];
+	cvta.global.u64 	%rd33, %rd4;
+	add.s64 	%rd34, %rd33, 60;
+	cvta.to.global.u64 	%rd76, %rd34;
+	setp.eq.b32 	%p30, %r16, 0;
+	mov.b64 	%rd77, 15;
+	@%p30 bra 	$L__BB218_66;
+// %bb.32:                              //   in Loop: Header=BB218_4 Depth=1
+	setp.eq.b32 	%p31, %r1, 16;
+	@%p31 bra 	$L__BB218_3;
+// %bb.33:                              //   in Loop: Header=BB218_4 Depth=1
+	ld.acquire.sys.global.b32 	%r17, [_RNvNtCs1fUa69AyTsI_11gpu_runtime6thread11WARP_STATUS+64];
+	cvta.global.u64 	%rd35, %rd4;
+	add.s64 	%rd36, %rd35, 64;
+	cvta.to.global.u64 	%rd76, %rd36;
+	setp.eq.b32 	%p32, %r17, 0;
+	mov.b64 	%rd77, 16;
+	@%p32 bra 	$L__BB218_66;
+// %bb.34:                              //   in Loop: Header=BB218_4 Depth=1
+	setp.eq.b32 	%p33, %r1, 17;
+	@%p33 bra 	$L__BB218_3;
+// %bb.35:                              //   in Loop: Header=BB218_4 Depth=1
+	ld.acquire.sys.global.b32 	%r18, [_RNvNtCs1fUa69AyTsI_11gpu_runtime6thread11WARP_STATUS+68];
+	cvta.global.u64 	%rd37, %rd4;
+	add.s64 	%rd38, %rd37, 68;
+	cvta.to.global.u64 	%rd76, %rd38;
+	setp.eq.b32 	%p34, %r18, 0;
+	mov.b64 	%rd77, 17;
+	@%p34 bra 	$L__BB218_66;
+// %bb.36:                              //   in Loop: Header=BB218_4 Depth=1
+	setp.eq.b32 	%p35, %r1, 18;
+	@%p35 bra 	$L__BB218_3;
+// %bb.37:                              //   in Loop: Header=BB218_4 Depth=1
+	ld.acquire.sys.global.b32 	%r19, [_RNvNtCs1fUa69AyTsI_11gpu_runtime6thread11WARP_STATUS+72];
+	cvta.global.u64 	%rd39, %rd4;
+	add.s64 	%rd40, %rd39, 72;
+	cvta.to.global.u64 	%rd76, %rd40;
+	setp.eq.b32 	%p36, %r19, 0;
+	mov.b64 	%rd77, 18;
+	@%p36 bra 	$L__BB218_66;
+// %bb.38:                              //   in Loop: Header=BB218_4 Depth=1
+	setp.eq.b32 	%p37, %r1, 19;
+	@%p37 bra 	$L__BB218_3;
+// %bb.39:                              //   in Loop: Header=BB218_4 Depth=1
+	ld.acquire.sys.global.b32 	%r20, [_RNvNtCs1fUa69AyTsI_11gpu_runtime6thread11WARP_STATUS+76];
+	cvta.global.u64 	%rd41, %rd4;
+	add.s64 	%rd42, %rd41, 76;
+	cvta.to.global.u64 	%rd76, %rd42;
+	setp.eq.b32 	%p38, %r20, 0;
+	mov.b64 	%rd77, 19;
+	@%p38 bra 	$L__BB218_66;
+// %bb.40:                              //   in Loop: Header=BB218_4 Depth=1
+	setp.eq.b32 	%p39, %r1, 20;
+	@%p39 bra 	$L__BB218_3;
+// %bb.41:                              //   in Loop: Header=BB218_4 Depth=1
+	ld.acquire.sys.global.b32 	%r21, [_RNvNtCs1fUa69AyTsI_11gpu_runtime6thread11WARP_STATUS+80];
+	cvta.global.u64 	%rd43, %rd4;
+	add.s64 	%rd44, %rd43, 80;
+	cvta.to.global.u64 	%rd76, %rd44;
+	setp.eq.b32 	%p40, %r21, 0;
+	mov.b64 	%rd77, 20;
+	@%p40 bra 	$L__BB218_66;
+// %bb.42:                              //   in Loop: Header=BB218_4 Depth=1
+	setp.eq.b32 	%p41, %r1, 21;
+	@%p41 bra 	$L__BB218_3;
+// %bb.43:                              //   in Loop: Header=BB218_4 Depth=1
+	ld.acquire.sys.global.b32 	%r22, [_RNvNtCs1fUa69AyTsI_11gpu_runtime6thread11WARP_STATUS+84];
+	cvta.global.u64 	%rd45, %rd4;
+	add.s64 	%rd46, %rd45, 84;
+	cvta.to.global.u64 	%rd76, %rd46;
+	setp.eq.b32 	%p42, %r22, 0;
+	mov.b64 	%rd77, 21;
+	@%p42 bra 	$L__BB218_66;
+// %bb.44:                              //   in Loop: Header=BB218_4 Depth=1
+	setp.eq.b32 	%p43, %r1, 22;
+	@%p43 bra 	$L__BB218_3;
+// %bb.45:                              //   in Loop: Header=BB218_4 Depth=1
+	ld.acquire.sys.global.b32 	%r23, [_RNvNtCs1fUa69AyTsI_11gpu_runtime6thread11WARP_STATUS+88];
+	cvta.global.u64 	%rd47, %rd4;
+	add.s64 	%rd48, %rd47, 88;
+	cvta.to.global.u64 	%rd76, %rd48;
+	setp.eq.b32 	%p44, %r23, 0;
+	mov.b64 	%rd77, 22;
+	@%p44 bra 	$L__BB218_66;
+// %bb.46:                              //   in Loop: Header=BB218_4 Depth=1
+	setp.eq.b32 	%p45, %r1, 23;
+	@%p45 bra 	$L__BB218_3;
+// %bb.47:                              //   in Loop: Header=BB218_4 Depth=1
+	ld.acquire.sys.global.b32 	%r24, [_RNvNtCs1fUa69AyTsI_11gpu_runtime6thread11WARP_STATUS+92];
+	cvta.global.u64 	%rd49, %rd4;
+	add.s64 	%rd50, %rd49, 92;
+	cvta.to.global.u64 	%rd76, %rd50;
+	setp.eq.b32 	%p46, %r24, 0;
+	mov.b64 	%rd77, 23;
+	@%p46 bra 	$L__BB218_66;
+// %bb.48:                              //   in Loop: Header=BB218_4 Depth=1
+	setp.eq.b32 	%p47, %r1, 24;
+	@%p47 bra 	$L__BB218_3;
+// %bb.49:                              //   in Loop: Header=BB218_4 Depth=1
+	ld.acquire.sys.global.b32 	%r25, [_RNvNtCs1fUa69AyTsI_11gpu_runtime6thread11WARP_STATUS+96];
+	cvta.global.u64 	%rd51, %rd4;
+	add.s64 	%rd52, %rd51, 96;
+	cvta.to.global.u64 	%rd76, %rd52;
+	setp.eq.b32 	%p48, %r25, 0;
+	mov.b64 	%rd77, 24;
+	@%p48 bra 	$L__BB218_66;
+// %bb.50:                              //   in Loop: Header=BB218_4 Depth=1
+	setp.eq.b32 	%p49, %r1, 25;
+	@%p49 bra 	$L__BB218_3;
+// %bb.51:                              //   in Loop: Header=BB218_4 Depth=1
+	ld.acquire.sys.global.b32 	%r26, [_RNvNtCs1fUa69AyTsI_11gpu_runtime6thread11WARP_STATUS+100];
+	cvta.global.u64 	%rd53, %rd4;
+	add.s64 	%rd54, %rd53, 100;
+	cvta.to.global.u64 	%rd76, %rd54;
+	setp.eq.b32 	%p50, %r26, 0;
+	mov.b64 	%rd77, 25;
+	@%p50 bra 	$L__BB218_66;
+// %bb.52:                              //   in Loop: Header=BB218_4 Depth=1
+	setp.eq.b32 	%p51, %r1, 26;
+	@%p51 bra 	$L__BB218_3;
+// %bb.53:                              //   in Loop: Header=BB218_4 Depth=1
+	ld.acquire.sys.global.b32 	%r27, [_RNvNtCs1fUa69AyTsI_11gpu_runtime6thread11WARP_STATUS+104];
+	cvta.global.u64 	%rd55, %rd4;
+	add.s64 	%rd56, %rd55, 104;
+	cvta.to.global.u64 	%rd76, %rd56;
+	setp.eq.b32 	%p52, %r27, 0;
+	mov.b64 	%rd77, 26;
+	@%p52 bra 	$L__BB218_66;
+// %bb.54:                              //   in Loop: Header=BB218_4 Depth=1
+	setp.eq.b32 	%p53, %r1, 27;
+	@%p53 bra 	$L__BB218_3;
+// %bb.55:                              //   in Loop: Header=BB218_4 Depth=1
+	ld.acquire.sys.global.b32 	%r28, [_RNvNtCs1fUa69AyTsI_11gpu_runtime6thread11WARP_STATUS+108];
+	cvta.global.u64 	%rd57, %rd4;
+	add.s64 	%rd58, %rd57, 108;
+	cvta.to.global.u64 	%rd76, %rd58;
+	setp.eq.b32 	%p54, %r28, 0;
+	mov.b64 	%rd77, 27;
+	@%p54 bra 	$L__BB218_66;
+// %bb.56:                              //   in Loop: Header=BB218_4 Depth=1
+	setp.eq.b32 	%p55, %r1, 28;
+	@%p55 bra 	$L__BB218_3;
+// %bb.57:                              //   in Loop: Header=BB218_4 Depth=1
+	ld.acquire.sys.global.b32 	%r29, [_RNvNtCs1fUa69AyTsI_11gpu_runtime6thread11WARP_STATUS+112];
+	cvta.global.u64 	%rd59, %rd4;
+	add.s64 	%rd60, %rd59, 112;
+	cvta.to.global.u64 	%rd76, %rd60;
+	setp.eq.b32 	%p56, %r29, 0;
+	mov.b64 	%rd77, 28;
+	@%p56 bra 	$L__BB218_66;
+// %bb.58:                              //   in Loop: Header=BB218_4 Depth=1
+	setp.eq.b32 	%p57, %r1, 29;
+	@%p57 bra 	$L__BB218_3;
+// %bb.59:                              //   in Loop: Header=BB218_4 Depth=1
+	ld.acquire.sys.global.b32 	%r30, [_RNvNtCs1fUa69AyTsI_11gpu_runtime6thread11WARP_STATUS+116];
+	cvta.global.u64 	%rd61, %rd4;
+	add.s64 	%rd62, %rd61, 116;
+	cvta.to.global.u64 	%rd76, %rd62;
+	setp.eq.b32 	%p58, %r30, 0;
+	mov.b64 	%rd77, 29;
+	@%p58 bra 	$L__BB218_66;
+// %bb.60:                              //   in Loop: Header=BB218_4 Depth=1
+	setp.eq.b32 	%p59, %r1, 30;
+	@%p59 bra 	$L__BB218_3;
+// %bb.61:                              //   in Loop: Header=BB218_4 Depth=1
+	ld.acquire.sys.global.b32 	%r31, [_RNvNtCs1fUa69AyTsI_11gpu_runtime6thread11WARP_STATUS+120];
+	cvta.global.u64 	%rd63, %rd4;
+	add.s64 	%rd64, %rd63, 120;
+	cvta.to.global.u64 	%rd76, %rd64;
+	setp.eq.b32 	%p60, %r31, 0;
+	mov.b64 	%rd77, 30;
+	@%p60 bra 	$L__BB218_66;
+// %bb.62:                              //   in Loop: Header=BB218_4 Depth=1
+	setp.eq.b32 	%p61, %r1, 31;
+	@%p61 bra 	$L__BB218_3;
+// %bb.63:                              //   in Loop: Header=BB218_4 Depth=1
+	add.s64 	%rd76, %rd4, 124;
+	ld.acquire.sys.global.b32 	%r32, [_RNvNtCs1fUa69AyTsI_11gpu_runtime6thread11WARP_STATUS+124];
+	setp.eq.b32 	%p62, %r32, 0;
+	mov.b64 	%rd77, 31;
+	@%p62 bra 	$L__BB218_66;
+// %bb.64:                              //   in Loop: Header=BB218_4 Depth=1
+	setp.eq.b32 	%p63, %r1, 32;
+	@%p63 bra 	$L__BB218_3;
+// %bb.65:
+	{ // callseq 152, 0
+	.param .b64 	param0;
+	.param .b64 	param1;
+	.param .b64 	param2;
+	mov.b64 	%rd65, anon_$_12d077b002406698dc7e55a1b90d4baa_$_3;
+	cvta.global.u64 	%rd66, %rd65;
+	st.param.b64 	[param2], %rd66;
+	st.param.b64 	[param1], 32;
+	st.param.b64 	[param0], 32;
+	call.uni _RNvNtCs6g5rhKrCjcr_4core9panicking18panic_bounds_check, (param0, param1, param2);
+	} // callseq 152
+	// begin inline asm
+	exit;
+	// end inline asm
+$L__BB218_66:                           // %._crit_edge
+	ld.param.b64 	%rd2, [gpu_thread_spawn_raw_param_1];
+	ld.param.b64 	%rd1, [gpu_thread_spawn_raw_param_0];
+	shl.b64 	%rd69, %rd77, 3;
+	mov.b64 	%rd70, _RNvNtCs1fUa69AyTsI_11gpu_runtime6thread7WARP_FN;
+	add.s64 	%rd71, %rd70, %rd69;
+	st.relaxed.sys.global.b64 	[%rd71], %rd1;
+	mov.b64 	%rd72, _RNvNtCs1fUa69AyTsI_11gpu_runtime6thread9WARP_DATA;
+	add.s64 	%rd73, %rd72, %rd69;
+	st.relaxed.sys.global.b64 	[%rd73], %rd2;
+	mov.b64 	%rd74, _RNvNtCs1fUa69AyTsI_11gpu_runtime6thread11WARP_RESULT;
+	add.s64 	%rd75, %rd74, %rd69;
+	st.relaxed.sys.global.b64 	[%rd75], 0;
+	st.release.sys.global.b32 	[%rd76], 1;
+	cvt.u32.u64 	%r34, %rd77;
+$L__BB218_67:
+	st.param.b32 	[func_retval0], %r34;
 	ret;
                                         // -- End function
 }

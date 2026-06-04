@@ -2143,28 +2143,31 @@ pub(crate) fn run_flash_attention_v3_bench(dev: Arc<CudaDevice>) -> Result<()> {
             v_data.push(((i * 17 + 9) % 11) as f32 * 0.01 - 0.05);
         }
 
-        let q = GpuTensor::from_host(&q_data, &[N_HEADS * seq_len, D_HEAD], &dev)
-            .map_err(|e| GpuHostError::Verification {
+        let q = GpuTensor::from_host(&q_data, &[N_HEADS * seq_len, D_HEAD], &dev).map_err(|e| {
+            GpuHostError::Verification {
                 test: "attn_v3",
                 detail: format!("{e}"),
-            })?;
-        let k = GpuTensor::from_host(&k_data, &[N_HEADS * seq_len, D_HEAD], &dev)
-            .map_err(|e| GpuHostError::Verification {
+            }
+        })?;
+        let k = GpuTensor::from_host(&k_data, &[N_HEADS * seq_len, D_HEAD], &dev).map_err(|e| {
+            GpuHostError::Verification {
                 test: "attn_v3",
                 detail: format!("{e}"),
-            })?;
-        let v = GpuTensor::from_host(&v_data, &[N_HEADS * seq_len, D_HEAD], &dev)
-            .map_err(|e| GpuHostError::Verification {
+            }
+        })?;
+        let v = GpuTensor::from_host(&v_data, &[N_HEADS * seq_len, D_HEAD], &dev).map_err(|e| {
+            GpuHostError::Verification {
                 test: "attn_v3",
                 detail: format!("{e}"),
-            })?;
+            }
+        })?;
 
         // Correctness check (causal)
         let out = multi_head_flash_attention_v3(&q, &k, &v, seq_len, N_HEADS, D_HEAD, true, &dev)
             .map_err(|e| GpuHostError::Verification {
-                test: "attn_v3",
-                detail: format!("{e}"),
-            })?;
+            test: "attn_v3",
+            detail: format!("{e}"),
+        })?;
         let out_host = out.to_host().map_err(|e| GpuHostError::Verification {
             test: "attn_v3",
             detail: format!("{e}"),
@@ -2183,9 +2186,7 @@ pub(crate) fn run_flash_attention_v3_bench(dev: Arc<CudaDevice>) -> Result<()> {
         if max_err > 1e-3 {
             return Err(GpuHostError::Verification {
                 test: "attn_v3",
-                detail: format!(
-                    "seq={seq_len} row0 mismatch: max_err={max_err:.6} (expect ~V[0])"
-                ),
+                detail: format!("seq={seq_len} row0 mismatch: max_err={max_err:.6} (expect ~V[0])"),
             });
         }
 
@@ -2195,9 +2196,8 @@ pub(crate) fn run_flash_attention_v3_bench(dev: Arc<CudaDevice>) -> Result<()> {
 
         for &(mode, label) in &[(true, "causal"), (false, "bidirectional")] {
             for _ in 0..warmup {
-                let _ = multi_head_flash_attention_v3(
-                    &q, &k, &v, seq_len, N_HEADS, D_HEAD, mode, &dev,
-                );
+                let _ =
+                    multi_head_flash_attention_v3(&q, &k, &v, seq_len, N_HEADS, D_HEAD, mode, &dev);
             }
             dev.synchronize().map_err(|e| GpuHostError::Verification {
                 test: "attn_v3",
@@ -2206,9 +2206,8 @@ pub(crate) fn run_flash_attention_v3_bench(dev: Arc<CudaDevice>) -> Result<()> {
 
             let start = std::time::Instant::now();
             for _ in 0..iters {
-                let _ = multi_head_flash_attention_v3(
-                    &q, &k, &v, seq_len, N_HEADS, D_HEAD, mode, &dev,
-                );
+                let _ =
+                    multi_head_flash_attention_v3(&q, &k, &v, seq_len, N_HEADS, D_HEAD, mode, &dev);
             }
             dev.synchronize().map_err(|e| GpuHostError::Verification {
                 test: "attn_v3",
@@ -2224,9 +2223,7 @@ pub(crate) fn run_flash_attention_v3_bench(dev: Arc<CudaDevice>) -> Result<()> {
                 2.0 * 2.0 * ratio * N_HEADS as f64 * (seq_len as f64).powi(2) * D_HEAD as f64;
             let gflops = flops / (ms_per_iter * 1e6);
 
-            println!(
-                "  seq={seq_len:>4} {label:>5}: {ms_per_iter:.3} ms, {gflops:.0} GFLOPS"
-            );
+            println!("  seq={seq_len:>4} {label:>5}: {ms_per_iter:.3} ms, {gflops:.0} GFLOPS");
         }
     }
 

@@ -32,8 +32,8 @@
 //! - The parked warp sees ASSIGNED, calls the trampoline, writes the result, sets DONE
 //! - `JoinHandle::join()` spins until DONE, reads the result, resets to IDLE
 
-use core::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use core::marker::PhantomData;
+use core::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
 const MAX_WARPS: usize = 32;
 
@@ -309,7 +309,11 @@ where
 /// Returns the number of available threads (warps) that can be spawned.
 pub fn available_parallelism() -> usize {
     let n = NUM_WARPS.load(Ordering::Relaxed) as usize;
-    if n > 1 { n - 1 } else { 0 } // subtract warp 0 (main thread)
+    if n > 1 {
+        n - 1
+    } else {
+        0
+    } // subtract warp 0 (main thread)
 }
 
 /// Returns the current thread's ID (warp index).
@@ -383,7 +387,11 @@ pub extern "C" fn gpu_thread_join_warp(warp_id: u32) {
 #[unsafe(no_mangle)]
 pub extern "C" fn gpu_thread_available_parallelism() -> u32 {
     let n = NUM_WARPS.load(Ordering::Relaxed);
-    if n > 1 { n - 1 } else { 0 }
+    if n > 1 {
+        n - 1
+    } else {
+        0
+    }
 }
 
 /// Return the current warp index (thread ID).

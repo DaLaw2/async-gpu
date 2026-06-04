@@ -88,12 +88,12 @@ pub fn run_with_output<T: cudarc::driver::DeviceRepr + cudarc::driver::ValidAsZe
         .ok_or(GpuHostError::KernelNotFound(kernel_name))?;
 
     let session = HostcallSession::start(64)?;
-    let mut output: CudaSlice<T> = dev
-        .alloc_zeros::<T>(n_elements)
-        .map_err(|e| GpuHostError::Verification {
-            test: kernel_name,
-            detail: format!("alloc: {e}"),
-        })?;
+    let mut output: CudaSlice<T> =
+        dev.alloc_zeros::<T>(n_elements)
+            .map_err(|e| GpuHostError::Verification {
+                test: kernel_name,
+                detail: format!("alloc: {e}"),
+            })?;
 
     let config = LaunchConfig {
         grid_dim: (1, 1, 1),
@@ -114,10 +114,12 @@ pub fn run_with_output<T: cudarc::driver::DeviceRepr + cudarc::driver::ValidAsZe
         detail: format!("sync: {e}"),
     })?;
 
-    let result = dev.dtoh_sync_copy(&output).map_err(|e| GpuHostError::Verification {
-        test: kernel_name,
-        detail: format!("dtoh: {e}"),
-    })?;
+    let result = dev
+        .dtoh_sync_copy(&output)
+        .map_err(|e| GpuHostError::Verification {
+            test: kernel_name,
+            detail: format!("dtoh: {e}"),
+        })?;
 
     session.shutdown();
     Ok(result)
@@ -144,12 +146,12 @@ pub fn compute<T: cudarc::driver::DeviceRepr + cudarc::driver::ValidAsZeroBits +
         .get_func("gpu_run", kernel_name)
         .ok_or(GpuHostError::KernelNotFound(kernel_name))?;
 
-    let mut output: CudaSlice<T> = dev
-        .alloc_zeros::<T>(n_elements)
-        .map_err(|e| GpuHostError::Verification {
-            test: kernel_name,
-            detail: format!("alloc: {e}"),
-        })?;
+    let mut output: CudaSlice<T> =
+        dev.alloc_zeros::<T>(n_elements)
+            .map_err(|e| GpuHostError::Verification {
+                test: kernel_name,
+                detail: format!("alloc: {e}"),
+            })?;
 
     let config = LaunchConfig {
         grid_dim: (1, 1, 1),
@@ -170,8 +172,9 @@ pub fn compute<T: cudarc::driver::DeviceRepr + cudarc::driver::ValidAsZeroBits +
         detail: format!("sync: {e}"),
     })?;
 
-    dev.dtoh_sync_copy(&output).map_err(|e| GpuHostError::Verification {
-        test: kernel_name,
-        detail: format!("dtoh: {e}"),
-    })
+    dev.dtoh_sync_copy(&output)
+        .map_err(|e| GpuHostError::Verification {
+            test: kernel_name,
+            detail: format!("dtoh: {e}"),
+        })
 }

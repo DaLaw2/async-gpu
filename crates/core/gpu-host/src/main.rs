@@ -565,8 +565,11 @@ fn run_gpu_api_test() -> Result<()> {
 
     // Test: gpu::compute launches thread_spawn_test and returns output
     println!("  gpu::compute(\"thread_spawn_test\", 4, 128)...");
-    let result: Vec<u32> = gpu::compute("thread_spawn_test", 4, 128)
-        .map_err(|e| GpuHostError::Verification { test: "gpu_run", detail: format!("{e}") })?;
+    let result: Vec<u32> =
+        gpu::compute("thread_spawn_test", 4, 128).map_err(|e| GpuHostError::Verification {
+            test: "gpu_run",
+            detail: format!("{e}"),
+        })?;
     println!("    result = {:?}", result);
     assert_eq!(result[0], 42, "thread 1 should return 42");
     assert_eq!(result[1], 99, "thread 2 should return 99");
@@ -616,10 +619,7 @@ fn run_thread_spawn_test(dev: Arc<CudaDevice>) -> Result<()> {
     let result: Vec<u32> = dev.dtoh_sync_copy(&result_dev)?;
     println!("    result[0] (thread 1) = {} (expected 42)", result[0]);
     println!("    result[1] (thread 2) = {} (expected 99)", result[1]);
-    println!(
-        "    result[2] (parallelism) = {} (expected 3)",
-        result[2]
-    );
+    println!("    result[2] (parallelism) = {} (expected 3)", result[2]);
     println!("    result[3] (main tid) = {} (expected 0)", result[3]);
 
     assert_eq!(result[0], 42, "thread 1 returned wrong value");

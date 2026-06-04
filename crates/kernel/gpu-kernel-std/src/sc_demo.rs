@@ -1,14 +1,15 @@
-// Structured concurrency demo — producer-consumer pipeline using BlockScope
-// and block channels (shared memory).
+// Structured concurrency demos — BlockScope and GridScope on GPU.
 //
-// Demonstrates three patterns:
+// Demonstrates four BlockScope patterns and one GridScope pattern:
 // 1. Producer-consumer with BlockScope + BlockOneshotSlot signaling
 // 2. Cooperative data-parallel with scope.spawn_all()
 // 3. Nested scopes with lifetime-bounded shared memory
+// 4. Combined spawn + spawn_all in one scope
+// 5. Multi-block parallel reduce with GridScope (virtual blocks)
 //
 // These kernels prove that structured concurrency works on GPU:
 // warp 0 manages scope, spawns work to other warps, and joins results —
-// all coordinated via shared memory with zero host intervention.
+// all coordinated via shared/global memory with zero host intervention.
 
 use gpu_runtime::block_channel::{block_oneshot, BlockOneshotSlot};
 use gpu_runtime::scope::{block_scope, init_shared_mem_allocator};
@@ -453,6 +454,164 @@ pub unsafe extern "gpu-kernel" fn sc_combined_demo(result: *mut u32) {
             unsafe {
                 core::ptr::write_volatile(result, final_sum);
                 core::ptr::write_volatile(result.add(1), 1);
+            }
+        }
+    });
+}
+
+// ============================================================
+// Demo 5: Multi-Block Parallel Reduce with GridScope
+// ============================================================
+//
+// Demonstrates GridScope (grid-level structured concurrency) for a
+// multi-block parallel sum reduction.  On SM75 without cooperative
+// launch we cannot guarantee multiple blocks run simultaneously, so
+// this demo uses a single block where warps act as "virtual blocks":
+//
+//   1. Warp 0 (coordinator) enters grid_scope with a pre-allocated
+//      global memory pool.
+//   2. GridScope allocates global memory for:
+//        - input data (DATA_LEN u32 values)
+//        - partial sums (one per virtual block / worker warp)
+//   3. Warp 0 initialises input data: data[i] = i + 1.
+//   4. Worker warps each compute a partial sum of their segment via
+//      spawn_all inside a nested block_scope.  Each worker writes its
+//      partial sum into the GridScope-allocated partial_sums array and
+//      atomically increments the GridScope completion counter.
+//   5. Warp 0 calls gscope.wait_for_completions() and then reduces the
+//      partial sums to produce the final result.
+//
+// Expected output (DATA_LEN = 128):
+//   result[0] = sum of 1..=128 = 128 * 129 / 2 = 8256
+//   result[1] = number of virtual blocks that completed
+//   result[2] = 1 (success flag)
+
+/// Multi-block parallel reduce demo kernel using GridScope.
+///
+/// # Arguments
+/// * `pool`      - pre-allocated global memory pool (device memory), >= 2048 bytes
+/// * `pool_size` - size of the pool in bytes
+/// * `result`    - output buffer: [final_sum, completions, success_flag]
+///
+/// # Launch config
+/// * Grid: (1, 1, 1)
+/// * Block: (128, 1, 1) — 4 warps (warp 0 = coordinator, warps 1-3 = workers)
+/// * Shared memory: 2048 bytes
+#[no_mangle]
+pub unsafe extern "gpu-kernel" fn sc_grid_reduce(
+    pool: *mut u8,
+    pool_size: u32,
+    result: *mut u32,
+) {
+    thread::gpu_main(|| {
+        unsafe {
+            init_shared_mem_allocator(2048);
+        }
+
+        const DATA_LEN: usize = 128;
+
+        // Number of warps = total threads / 32.  Warp 0 is coordinator;
+        // warps 1..n_warps-1 are worker "virtual blocks".
+        let n_warps = gpu_runtime::thread::available_parallelism() as u32 + 1;
+        let n_workers = if n_warps > 1 { n_warps - 1 } else { 1 };
+
+        // Enter grid_scope — allocates from the global memory pool.
+        let (final_sum, completions) = unsafe {
+            gpu_runtime::scope::grid_scope(pool, pool_size, |gscope| {
+                // Allocate input data and partial sums from the global pool.
+                let data: &mut [u32] = gscope.alloc::<u32>(DATA_LEN);
+                let partial_sums: &mut [u32] = gscope.alloc::<u32>(n_workers as usize);
+
+                // Coordinator initialises input: data[i] = i + 1
+                let mut i = 0u32;
+                while i < DATA_LEN as u32 {
+                    data[i as usize] = i + 1;
+                    i += 1;
+                }
+
+                // Tell GridScope how many completions to wait for.
+                gscope.set_expected_completions(n_workers);
+
+                // Get the completion counter pointer for worker warps.
+                let counter_ptr = gscope.completion_counter_ptr();
+
+                // Wrap pointers for Send in spawned closures.
+                let data_ptr = SendPtr::new(data.as_mut_ptr());
+                let ps_ptr = SendPtr::new(partial_sums.as_mut_ptr());
+                let counter = SendPtr::new(counter_ptr);
+
+                // Dispatch worker warps via block_scope + spawn_all.
+                // Each worker warp acts as a "virtual block":
+                //   - computes partial sum of its data segment
+                //   - writes to partial_sums[worker_id]
+                //   - increments the GridScope completion counter
+                block_scope(|scope| {
+                    scope.spawn_all(move |wid, total_warps| {
+                        // Warp 0 is coordinator — does not participate as a worker.
+                        if wid == 0 {
+                            return;
+                        }
+                        let worker_id = wid - 1;
+                        let src = data_ptr.as_const();
+                        let dst = ps_ptr.as_ptr();
+
+                        // Each worker processes elements where
+                        // (index % n_workers) == worker_id.
+                        let nw = total_warps - 1; // number of workers
+                        let mut sum = 0u32;
+                        let mut idx = worker_id as usize;
+                        while idx < DATA_LEN {
+                            let val = unsafe {
+                                core::ptr::read_volatile(src.add(idx))
+                            };
+                            sum += val;
+                            idx += nw as usize;
+                        }
+
+                        // Write partial sum to global memory.
+                        unsafe {
+                            core::ptr::write_volatile(
+                                dst.add(worker_id as usize),
+                                sum,
+                            );
+                        }
+
+                        // Signal completion via GridScope's atomic counter.
+                        unsafe {
+                            gpu_atomics::sys_fetch_add_u32(counter.as_ptr(), 1);
+                        }
+                    });
+                });
+
+                // Wait for all workers to complete (uses system-scope spin-load).
+                gscope.wait_for_completions(n_workers);
+
+                // Read the completion counter for verification.
+                let done = unsafe {
+                    gpu_atomics::sys_load_acquire_u32(
+                        gscope.completion_counter_ptr() as *const u32,
+                    )
+                };
+
+                // Reduce partial sums on the coordinator.
+                let mut total = 0u32;
+                let mut w = 0u32;
+                while w < n_workers {
+                    total += partial_sums[w as usize];
+                    w += 1;
+                }
+
+                (total, done)
+            })
+        };
+
+        // Write results to output.
+        // Expected: sum of 1..=128 = 128 * 129 / 2 = 8256
+        if gpu_runtime::index::thread_idx_x() == 0 {
+            unsafe {
+                core::ptr::write_volatile(result, final_sum);
+                core::ptr::write_volatile(result.add(1), completions);
+                core::ptr::write_volatile(result.add(2), 1); // success flag
             }
         }
     });

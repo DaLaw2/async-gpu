@@ -15,11 +15,11 @@ status = "running"     # ready | running | blocked | completed
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
 current_step = "dispatch"
-current_task_id = "sc-demo.1,sc-runtime.4"
+current_task_id = "sc-demo.2,sc-design.4"
 
 # Sequence counters
 brainstorm_seq = 115
-tasks_since_brainstorm = 12   # reset after brainstorm 114
+tasks_since_brainstorm = 14   # reset after brainstorm 114
 
 # ============================================================
 # Epics — Tiered (T0 → T3), sorted by tier then priority
@@ -935,7 +935,7 @@ id = "sc-demo.2"
 theme = "sc-demo"
 title = "Experiment: multi-block parallel reduce using GridScope with auto global memory"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["sc-resource.3", "sc-demo.1"]
 
 # --- structured-concurrency: runtime ---
@@ -945,7 +945,7 @@ id = "sc-design.4"
 theme = "sc-design"
 title = "Investigation: compiler requirements — MIR pass changes vs pure library types for scope enforcement"
 kind = "investigation"
-status = "pending"
+status = "done"
 depends = ["sc-design.2"]
 
 [[tasks]]

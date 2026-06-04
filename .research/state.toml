@@ -39,7 +39,7 @@ tasks_since_brainstorm = 0   # reset after brainstorm
 id = "native-rust-dx"
 title = "Native Rust DX — GPU code looks like normal Rust"
 tier = 0
-status = "completed"
+status = "active"
 priority = "highest"
 # North Star: GPU code syntax is indistinguishable from normal Rust.
 #   This is the SYNTAX FOUNDATION for unified I/O + Compute — both must look native.
@@ -464,8 +464,45 @@ id = "lib-toolchain.2"
 theme = "lib-toolchain"
 title = "Experiment: create scripts/setup.sh with quick/full/check modes"
 kind = "experiment"
-status = "pending"
+status = "parked"
 depends = ["lib-toolchain.1"]
+
+[[tasks]]
+id = "kernel-entry-dx"
+epic = "native-rust-dx"
+title = "Zero-boilerplate kernel entry — implicit hostcall injection"
+status = "active"
+goal = "extern 'gpu-kernel' fn kernel_main() with NO parameters, NO manual init"
+success_criteria = [
+    "Kernel entry fn kernel_main() — no buf/result parameters",
+    "stdio_init + gpu_libc_io_init happen automatically (compiler or runtime injection)",
+    "gpu_main_poll wrapper is implicit — user writes sequential code directly in fn body",
+    "Existing kernels in gpu-kernel-std work with the new entry style",
+]
+
+[[tasks]]
+id = "kernel-entry.1"
+theme = "kernel-entry-dx"
+title = "Investigation: how VectorWare injects hostcall buf — compiler transform vs runtime linker"
+kind = "investigation"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "kernel-entry.2"
+theme = "kernel-entry-dx"
+title = "Experiment: implement implicit hostcall injection for zero-param kernel entry"
+kind = "experiment"
+status = "active"
+depends = ["kernel-entry.1"]
+
+[[tasks]]
+id = "kernel-entry.3"
+theme = "kernel-entry-dx"
+title = "Experiment: rewrite gpu-kernel-std kernels to use zero-param entry"
+kind = "experiment"
+status = "pending"
+depends = ["kernel-entry.2"]
 
 [[tasks]]
 id = "lib-cleanup.1"

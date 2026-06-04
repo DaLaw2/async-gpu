@@ -48,11 +48,12 @@ Read `dev-gates.md`. Execute hard gates (Tier Gate, Epic Verification Gate).
 Read `dev-dispatch.md`. For each task:
 1. **PREP**: File discovery for the task — `ls`, `find`, `grep -l` to locate relevant crates, scripts, entry points. Read dependency task findings if any. Read context.md Tried & Rejected. Do NOT read source code.
 2. Assemble brief per `dev-dispatch.md` template (includes Codebase Pointers + Prior Work sections)
-3. Launch subagent with brief
+3. Launch task subagent with brief
 4. Subagent does all work: code, tests, findings, synthesis update
 5. Subagent returns: STATUS (done|blocked), SUMMARY (3 sentences), FILES_CHANGED
 6. You read SUMMARY only. You do NOT read source code or compiler output.
-7. If done → mark task done, update counters. If blocked → mark blocked, continue.
+7. If blocked → mark blocked, continue.
+8. **If done → VERIFY**: Dispatch a separate verify subagent (see `dev-dispatch.md` type: verify). The verify subagent checks: tests pass, lint clean, findings file exists, work matches task goal and epic success criteria. **PASS → mark done, update counters. FAIL → mark blocked with verify failure reason.**
 
 ### SAVE (`do.save`)
 1. Dispatch maintenance subagent: `/maintain` for relevant sub-commands

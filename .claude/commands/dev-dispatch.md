@@ -63,8 +63,24 @@ Entry point: {specific file, script, or function to start from}
 Full brief above. Subagent writes code, runs tests, produces findings + synthesis.
 
 ### type: verify
-Brief: "Check {crate/example}: tests pass, no regressions, lint clean, findings file exists at {path}.
-Return: PASS or FAIL with evidence."
+Dispatched automatically after a task subagent reports STATUS=done. A different subagent verifies.
+Brief:
+```
+## Verify: {task_id}
+Task goal: {title}
+Epic success criteria this task serves: {criterion}
+Files changed: {FILES_CHANGED from task subagent}
+Findings file: .research/findings/tasks/{task_id}-c{cycle}.md
+
+## Checks (all must PASS)
+1. Tests pass: run relevant tests for changed crates
+2. Lint clean: cargo +stable fmt --check && cargo +stable clippy -- -D warnings
+3. Findings file exists and has required sections (Summary, Findings, Open Questions)
+4. Theme synthesis updated: .research/findings/themes/{theme_id}-synthesis.md exists and is ≤30 lines
+5. Goal check: do the changes actually resolve the task goal? Read the diff and findings.
+
+Return: PASS (all checks green) or FAIL (which check failed + evidence)
+```
 
 ### type: north-star
 Brief: "Read findings: {paths}. Read North Star: {text}. Read Project North Star from state.toml [meta].

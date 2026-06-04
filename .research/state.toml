@@ -8,6 +8,11 @@ total_cycles = 595
 completed_tasks = 708
 status = "running"     # ready | running | blocked | completed
 
+# Project North Star — the ONE thing all epics serve:
+# Users write File::read → matmul → File::write in a single fn main().
+# I/O walks hostcall, compute walks all-warp cooperative, both look like plain Rust.
+# No GPU concepts leak. VectorWare's I/O strength + async-gpu's compute strength, unified.
+
 # Current cycle position within Think/Do
 current_mode = "do"
 current_step = "do.execute"
@@ -37,9 +42,10 @@ title = "Native Rust DX — GPU code looks like normal Rust"
 tier = 0
 status = "active"
 priority = "highest"
-# North Star: A Rust developer who doesn't know GPU programming can read our examples
-#   and not realize they run on a GPU.
-# Litmus Test: Show an example to a Rust dev — can they read it without explanation?
+# North Star: GPU code syntax is indistinguishable from normal Rust.
+#   This is the SYNTAX FOUNDATION for unified I/O + Compute — both must look native.
+# Litmus Test: Show a kernel with File::read + matmul + File::write to a Rust dev —
+#   they can read it without knowing it's GPU code.
 success_criteria = [
     "Kernel entry uses extern \"gpu-kernel\" fn main(), no custom attribute macros needed",
     "async fn works without #[warp_cooperative] or #[warp_async] — MIR pass handles it transparently",
@@ -54,9 +60,9 @@ tier = 0
 status = "active"
 priority = "highest"
 depends_on = []
-# North Star: Users write std::thread::spawn() and it just works — each thread is a warp,
-#   join/sleep/yield all behave like CPU Rust.
-# Litmus Test: The VectorWare "threads on GPU" blog example compiles and runs on async-gpu.
+# North Star: thread::spawn() on GPU just works — this is the I/O PILLAR of the unified kernel.
+#   Sequential I/O (file read/write, println!) happens in warp-as-thread mode.
+# Litmus Test: VectorWare "threads on GPU" blog example compiles and runs on async-gpu.
 success_criteria = [
     "Warp 0 runs main(), other warps sleep until thread::spawn() wakes them",
     "thread::spawn() returns JoinHandle, join() blocks parent warp until child completes",
@@ -74,9 +80,9 @@ tier = 1
 status = "pending"
 priority = "high"
 depends_on = ["native-rust-dx", "std-thread-gpu"]
-# North Star: Users call gpu::cooperative(|| matmul(&a, &b)) from within a kernel,
-#   all warps wake up, cooperate on the computation, then return to sleep.
-# Litmus Test: A kernel that reads a file, runs matmul, writes the result — all in one function.
+# North Star: This is the COMPUTE PILLAR of the unified kernel. From sequential I/O context,
+#   switch to all-warp data-parallel compute, then back. I/O + Compute in one fn main().
+# Litmus Test: File::read → matmul → File::write in a single kernel, no mode-switch boilerplate.
 success_criteria = [
     "gpu::cooperative(closure) wakes all warps, executes closure in data-parallel mode, returns result",
     "Seamless transition: sequential code (1 warp) → cooperative (all warps) → sequential — no manual sync",
@@ -108,8 +114,8 @@ title = "Kernel Performance — close gap to cuBLAS/cuDNN across all compute pri
 tier = 1
 status = "active"
 priority = "high"
-# North Star: async-gpu's built-in compute ops are fast enough that users don't need to
-#   drop down to cuBLAS/cuDNN. The library is competitive, not just convenient.
+# North Star: The compute ops inside cooperative() must be FAST — this is what makes
+#   async-gpu better than VectorWare. Competitive with cuBLAS/cuDNN, not just convenient.
 # Litmus Test: GPT-2 inference is within 2x of a hand-optimized CUDA implementation.
 success_criteria = [
     "SGEMM >= 70% of cuBLAS at 4096³",

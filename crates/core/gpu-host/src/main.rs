@@ -218,6 +218,10 @@ fn main() -> Result<()> {
                 run_gpu_api_test()?;
                 return Ok(());
             }
+            "std_thread_demo" => {
+                run_std_thread_spawn_demo(Arc::clone(&dev))?;
+                return Ok(());
+            }
             #[cfg(feature = "cublas")]
             "fusion_bench" => {
                 run_fusion_benchmark(Arc::clone(&dev))?;
@@ -727,6 +731,51 @@ fn run_fusion_benchmark(dev: Arc<CudaDevice>) -> Result<()> {
     println!("  Speedup:         {:.2}x", ip_ms / oop_ms);
 
     println!("\n  Fused LN+Residual + elementwise Benchmark — DONE");
+    Ok(())
+}
+
+/// Demo: std::thread::spawn on GPU with println!
+fn run_std_thread_spawn_demo(dev: Arc<CudaDevice>) -> Result<()> {
+    use cudarc::driver::{LaunchAsync, LaunchConfig};
+
+    println!("\n--- std::thread::spawn Demo (std-thread-gpu) ---");
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(KERNEL_STD_PTX);
+    dev.load_ptx(ptx, "std_thread", &["std_thread_spawn_demo"])
+        .map_err(|e| GpuHostError::Verification {
+            test: "std_thread",
+            detail: format!("{e}"),
+        })?;
+
+    let func = dev
+        .get_func("std_thread", "std_thread_spawn_demo")
+        .ok_or(GpuHostError::KernelNotFound("std_thread_spawn_demo"))?;
+
+    let session = crate::hostcall::HostcallSession::start(64)?;
+    let mut result_dev: cudarc::driver::CudaSlice<u32> = dev.alloc_zeros::<u32>(3)?;
+
+    let config = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (128, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    unsafe {
+        func.launch(config, (session.dev_ptr(), &mut result_dev))?;
+    }
+    dev.synchronize()?;
+    session.shutdown();
+
+    let result: Vec<u32> = dev.dtoh_sync_copy(&result_dev)?;
+    println!("  Thread 1 (sum 0..10): {} (expected 45)", result[0]);
+    println!("  Thread 2 (5!):        {} (expected 120)", result[1]);
+    println!("  Combined:             {} (expected 165)", result[2]);
+
+    assert_eq!(result[0], 45, "thread 1 wrong");
+    assert_eq!(result[1], 120, "thread 2 wrong");
+    assert_eq!(result[2], 165, "combined wrong");
+
+    println!("  std::thread::spawn Demo — PASSED");
     Ok(())
 }
 

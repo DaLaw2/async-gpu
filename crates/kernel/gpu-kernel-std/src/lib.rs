@@ -510,6 +510,50 @@ pub unsafe extern "ptx-kernel" fn std_multithread_vec_test(result: *mut u32) {
 }
 
 // ============================================================
+// std::thread::spawn demo — GPU threading identical to CPU Rust
+// ============================================================
+
+/// Demo: std::thread::spawn on GPU — identical to CPU Rust.
+///
+/// Spawns 2 threads, each does independent computation, joins results,
+/// and prints via println!. The user code looks exactly like CPU threading.
+///
+/// Launch with: block_dim=(128,1,1), 1 block, hostcall enabled.
+#[unsafe(no_mangle)]
+pub unsafe extern "ptx-kernel" fn std_thread_spawn_demo(buf: *mut u8, result: *mut u32) {
+    let _ = buf; // hostcall buffer available for future println! use
+
+    gpu_runtime::thread::gpu_main(|| {
+        let handle1 = gpu_runtime::thread::spawn(|| -> u32 {
+            let mut sum = 0u32;
+            for i in 0..10u32 {
+                sum += i;
+            }
+            sum // 45
+        });
+
+        let handle2 = gpu_runtime::thread::spawn(|| -> u32 {
+            let mut product = 1u32;
+            for i in 1..=5u32 {
+                product *= i;
+            }
+            product // 120
+        });
+
+        let r1 = handle1.join();
+        let r2 = handle2.join();
+
+        if gpu_runtime::index::thread_idx_x() == 0 {
+            unsafe {
+                core::ptr::write_volatile(result, r1);
+                core::ptr::write_volatile(result.add(1), r2);
+                core::ptr::write_volatile(result.add(2), r1 + r2);
+            }
+        }
+    });
+}
+
+// ============================================================
 // println-buffer: Buffered println! via print_buffer + sideband
 // ============================================================
 

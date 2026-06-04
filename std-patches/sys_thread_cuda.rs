@@ -14,7 +14,7 @@ use crate::num::NonZero;
 use crate::thread::ThreadInit;
 use crate::time::Duration;
 
-extern "C" {
+unsafe extern "C" {
     fn gpu_thread_spawn_raw(trampoline: u64, data: u64) -> u32;
     fn gpu_thread_join_warp(warp_id: u32);
     fn gpu_thread_available_parallelism() -> u32;

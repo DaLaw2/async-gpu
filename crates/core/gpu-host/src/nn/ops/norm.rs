@@ -27,8 +27,13 @@ pub fn layer_norm(
 
     let status_dev = dev.htod_sync_copy(&[0u32])?;
 
-    // V2 LayerNorm (256 threads, single-pass Welford, coalesced access)
-    let func = registry.get("layer_norm_v2")?;
+    // Use v3 (float4 vectorized) when d_model is divisible by 4, else fall back to v2
+    let kernel_name = if d_model % 4 == 0 {
+        "layer_norm_v3"
+    } else {
+        "layer_norm_v2"
+    };
+    let func = registry.get(kernel_name)?;
     let config = cudarc::driver::LaunchConfig {
         grid_dim: (num_rows as u32, 1, 1),
         block_dim: (256, 1, 1),
@@ -100,6 +105,7 @@ pub fn layer_norm_residual(
     static LN_RESIDUAL_SRC: &str = r#"
 // Fused LayerNorm + residual add: output = LN(input + residual)
 // Single pass for statistics, then normalize.
+// Uses float4 vectorized loads when d_model % 4 == 0.
 extern "C" __global__ void layer_norm_residual(
     const float* __restrict__ input,
     const float* __restrict__ residual,
@@ -114,17 +120,27 @@ extern "C" __global__ void layer_norm_residual(
 
     extern __shared__ float smem[];
 
-    const float* in_row = input + row * d_model;
-    const float* res_row = residual + row * d_model;
-    float* out_row = output + row * d_model;
+    const float4* in_row  = (const float4*)(input    + row * d_model);
+    const float4* res_row = (const float4*)(residual + row * d_model);
+    float4*       out_row = (float4*)(output + row * d_model);
+    const float4* g4      = (const float4*)gamma;
+    const float4* b4      = (const float4*)beta;
 
-    // Phase 1: sum and sq_sum of (input + residual)
+    unsigned int d_model_v4 = d_model / 4;
+
+    // Phase 1: sum and sq_sum of (input + residual) with float4 loads
     float local_sum = 0.0f;
     float local_sq_sum = 0.0f;
-    for (unsigned int idx = tid; idx < d_model; idx += 256) {
-        float x = in_row[idx] + res_row[idx];
-        local_sum += x;
-        local_sq_sum += x * x;
+    for (unsigned int v = tid; v < d_model_v4; v += 256) {
+        float4 iv = in_row[v];
+        float4 rv = res_row[v];
+        float4 sv;
+        sv.x = iv.x + rv.x;
+        sv.y = iv.y + rv.y;
+        sv.z = iv.z + rv.z;
+        sv.w = iv.w + rv.w;
+        local_sum += sv.x + sv.y + sv.z + sv.w;
+        local_sq_sum += sv.x*sv.x + sv.y*sv.y + sv.z*sv.z + sv.w*sv.w;
     }
 
     // Warp reduction
@@ -159,12 +175,22 @@ extern "C" __global__ void layer_norm_residual(
     mean = smem[16];
     inv_std = smem[17];
 
-    // Phase 2: normalize and write
-    for (unsigned int idx = tid; idx < d_model; idx += 256) {
-        float x = in_row[idx] + res_row[idx];  // re-compute add (cheaper than extra read)
-        float g = gamma[idx];
-        float b = beta[idx];
-        out_row[idx] = g * (x - mean) * inv_std + b;
+    // Phase 2: normalize and write with float4 loads/stores
+    for (unsigned int v = tid; v < d_model_v4; v += 256) {
+        float4 iv = in_row[v];
+        float4 rv = res_row[v];
+        float4 gv = g4[v];
+        float4 bv = b4[v];
+        float4 result;
+        float sx = iv.x + rv.x;
+        float sy = iv.y + rv.y;
+        float sz = iv.z + rv.z;
+        float sw = iv.w + rv.w;
+        result.x = gv.x * (sx - mean) * inv_std + bv.x;
+        result.y = gv.y * (sy - mean) * inv_std + bv.y;
+        result.z = gv.z * (sz - mean) * inv_std + bv.z;
+        result.w = gv.w * (sw - mean) * inv_std + bv.w;
+        out_row[v] = result;
     }
 }
 "#;
@@ -492,10 +518,121 @@ pub fn batch_norm_silu(
 mod tests {
     use super::*;
 
-    /// Micro-benchmark: fused vs unfused LayerNorm + residual add.
+    /// LayerNorm v3 correctness check — verify float4 vectorized kernel matches CPU reference.
+    #[test]
+    fn test_layer_norm_v3_correctness() {
+        let dev = cudarc::driver::CudaDevice::new(0).expect("CUDA");
+        let registry =
+            Arc::new(KernelRegistry::new(Arc::clone(&dev), crate::ptx::KERNEL).expect("PTX"));
+
+        let seq_len = 4;
+        let d_model = 768;
+        let n = seq_len * d_model;
+        let input_data: Vec<f32> = (0..n).map(|i| ((i % 97) as f32 - 48.0) * 0.01).collect();
+        let gamma_data: Vec<f32> = (0..d_model).map(|i| 0.9 + (i % 17) as f32 * 0.01).collect();
+        let beta_data: Vec<f32> = (0..d_model).map(|i| (i % 13) as f32 * 0.001).collect();
+        let eps = 1e-5f32;
+
+        let input_t = GpuTensor::from_host(&input_data, &[seq_len, d_model], &dev).expect("input");
+        let gamma_t = GpuTensor::from_host(&gamma_data, &[d_model], &dev).expect("gamma");
+        let beta_t = GpuTensor::from_host(&beta_data, &[d_model], &dev).expect("beta");
+
+        eprintln!("  Running layer_norm (should use v3 for d_model=768)...");
+        let out_t = layer_norm(&input_t, &gamma_t, &beta_t, eps, &registry).unwrap();
+        dev.synchronize().unwrap();
+        let out_host = out_t.to_host().unwrap();
+
+        // CPU reference
+        for row in 0..seq_len {
+            let start = row * d_model;
+            let row_data = &input_data[start..start + d_model];
+            let mean: f32 = row_data.iter().sum::<f32>() / d_model as f32;
+            let var: f32 = row_data
+                .iter()
+                .map(|x| (x - mean) * (x - mean))
+                .sum::<f32>()
+                / d_model as f32;
+            let inv_std = 1.0 / (var + eps).sqrt();
+            for j in 0..d_model {
+                let expected =
+                    gamma_data[j] * (input_data[start + j] - mean) * inv_std + beta_data[j];
+                let got = out_host[start + j];
+                let diff = (expected - got).abs();
+                assert!(
+                    diff < 1e-3,
+                    "row={row} j={j}: expected={expected} got={got} diff={diff}"
+                );
+            }
+        }
+        eprintln!("  Correctness: PASS (v3 float4 matches CPU reference)");
+    }
+
+    /// LayerNorm bandwidth benchmark — measures GB/s for standalone and fused variants.
     ///
-    /// Measures the raw kernel time difference for GPT-2 Small dimensions
-    /// (seq_len=128, d_model=768). Run with `--features cublas` to enable fused path.
+    /// Target: >= 180 GB/s (60% of GTX 1660's 336 GB/s peak).
+    ///
+    /// Bandwidth formula for standalone LayerNorm:
+    ///   reads: input (2 passes) + gamma + beta = (2*N + 2*d) * 4 bytes
+    ///   writes: output = N * 4 bytes
+    ///   total = (3*N + 2*d) * 4 bytes
+    #[test]
+    fn bench_layer_norm_bandwidth() {
+        let dev = cudarc::driver::CudaDevice::new(0).expect("CUDA");
+        let registry =
+            Arc::new(KernelRegistry::new(Arc::clone(&dev), crate::ptx::KERNEL).expect("PTX"));
+
+        let num_warmup = 5;
+        let num_runs = 50;
+
+        eprintln!("\n=== LayerNorm Bandwidth Benchmark ===");
+        eprintln!("  Warmup: {num_warmup}, Runs: {num_runs}");
+        eprintln!();
+
+        // GPT-2 Small: 128 tokens, 768 hidden
+        let seq_len = 128;
+        let d_model = 768;
+        let n = seq_len * d_model;
+
+        let input_data: Vec<f32> = (0..n).map(|i| ((i % 97) as f32 - 48.0) * 0.01).collect();
+        let gamma_data: Vec<f32> = (0..d_model).map(|i| 0.9 + (i % 17) as f32 * 0.01).collect();
+        let beta_data: Vec<f32> = (0..d_model).map(|i| (i % 13) as f32 * 0.001).collect();
+        let eps = 1e-5f32;
+
+        let shape = &[seq_len, d_model];
+        let g_shape = &[d_model];
+
+        let input_t = GpuTensor::from_host(&input_data, shape, &dev).expect("input");
+        let gamma_t = GpuTensor::from_host(&gamma_data, g_shape, &dev).expect("gamma");
+        let beta_t = GpuTensor::from_host(&beta_data, g_shape, &dev).expect("beta");
+
+        // Warmup
+        for _ in 0..num_warmup {
+            let _ = layer_norm(&input_t, &gamma_t, &beta_t, eps, &registry).unwrap();
+            dev.synchronize().unwrap();
+        }
+
+        // Benchmark
+        dev.synchronize().unwrap();
+        let t0 = std::time::Instant::now();
+        for _ in 0..num_runs {
+            let _ = layer_norm(&input_t, &gamma_t, &beta_t, eps, &registry).unwrap();
+        }
+        dev.synchronize().unwrap();
+        let elapsed_s = t0.elapsed().as_secs_f64() / num_runs as f64;
+
+        // Bandwidth: input read (2x for 2 passes) + gamma + beta reads + output write
+        let bytes_moved = ((3 * n + 2 * d_model) * 4) as f64;
+        let gbps = bytes_moved / elapsed_s / 1e9;
+        let us = elapsed_s * 1e6;
+
+        eprintln!("  LN v3 (128x768):  {us:7.2} us | {gbps:6.1} GB/s");
+        assert!(
+            gbps > 50.0,
+            "LayerNorm bandwidth {gbps:.1} GB/s is too low (expected > 50 GB/s)"
+        );
+    }
+
+    /// Micro-benchmark: fused vs unfused LayerNorm + residual add with bandwidth.
     #[test]
     fn bench_fused_ln_residual_vs_unfused() {
         let dev = cudarc::driver::CudaDevice::new(0).expect("CUDA");
@@ -522,8 +659,8 @@ mod tests {
         let gamma_t = GpuTensor::from_host(&gamma_data, g_shape, &dev).expect("gamma");
         let beta_t = GpuTensor::from_host(&beta_data, g_shape, &dev).expect("beta");
 
-        let num_warmup = 5;
-        let num_runs = 50;
+        let num_warmup = 10;
+        let num_runs = 200;
 
         // ---------- Unfused: elementwise_add + layer_norm ----------
         for _ in 0..num_warmup {
@@ -541,10 +678,15 @@ mod tests {
             let _ = layer_norm(&tmp, &gamma_t, &beta_t, eps, &registry).unwrap();
         }
         dev.synchronize().unwrap();
-        let unfused_ms = t0.elapsed().as_secs_f64() * 1000.0 / num_runs as f64;
+        let unfused_s = t0.elapsed().as_secs_f64() / num_runs as f64;
+        let unfused_ms = unfused_s * 1000.0;
+
+        // Bandwidth for unfused: add reads 2*N, writes N; LN reads 2*N+2*d, writes N
+        let unfused_bytes = ((5 * n + 2 * d_model) * 4) as f64;
+        let unfused_gbps = unfused_bytes / unfused_s / 1e9;
 
         eprintln!("\n=== LN+Residual Micro-Benchmark (seq={seq_len}, d={d_model}) ===");
-        eprintln!("  Unfused (add + LN):      {unfused_ms:.4} ms/call");
+        eprintln!("  Unfused (add + LN):      {unfused_ms:.4} ms | {unfused_gbps:.1} GB/s");
 
         // ---------- Fused: layer_norm_residual_dual ----------
         #[cfg(feature = "cublas")]
@@ -576,14 +718,43 @@ mod tests {
                 .unwrap();
             }
             dev.synchronize().unwrap();
-            let fused_ms = t1.elapsed().as_secs_f64() * 1000.0 / num_runs as f64;
+            let fused_s = t1.elapsed().as_secs_f64() / num_runs as f64;
+            let fused_ms = fused_s * 1000.0;
+
+            // Fused dual: reads input+residual+gamma+beta = (2*N+2*d)*4, writes norm+sum = 2*N*4
+            let fused_bytes = ((4 * n + 2 * d_model) * 4) as f64;
+            let fused_gbps = fused_bytes / fused_s / 1e9;
 
             let speedup = unfused_ms / fused_ms;
-            let saved_ms = unfused_ms - fused_ms;
-            eprintln!("  Fused (LN+res dual):     {fused_ms:.4} ms/call");
+            eprintln!("  Fused (LN+res dual):     {fused_ms:.4} ms | {fused_gbps:.1} GB/s");
             eprintln!("  Speedup:                 {speedup:.2}x");
-            eprintln!("  Saved per call:          {saved_ms:.4} ms");
-            eprintln!("  Saved per block (2x):    {:.4} ms", saved_ms * 2.0);
+
+            // --- Fused single: layer_norm_residual ---
+            for _ in 0..num_warmup {
+                let _ =
+                    layer_norm_residual(&input_t, &residual_t, &gamma_t, &beta_t, eps, &registry)
+                        .unwrap();
+                dev.synchronize().unwrap();
+            }
+
+            dev.synchronize().unwrap();
+            let t2 = std::time::Instant::now();
+            for _ in 0..num_runs {
+                let _ =
+                    layer_norm_residual(&input_t, &residual_t, &gamma_t, &beta_t, eps, &registry)
+                        .unwrap();
+            }
+            dev.synchronize().unwrap();
+            let fused_single_s = t2.elapsed().as_secs_f64() / num_runs as f64;
+            let fused_single_ms = fused_single_s * 1000.0;
+
+            // Fused single: reads input+residual (2x for 2 passes)+gamma+beta, writes output
+            let fused_single_bytes = ((4 * n + 2 * d_model) * 4) as f64;
+            let fused_single_gbps = fused_single_bytes / fused_single_s / 1e9;
+
+            eprintln!(
+                "  Fused (LN+res single):   {fused_single_ms:.4} ms | {fused_single_gbps:.1} GB/s"
+            );
         }
 
         #[cfg(not(feature = "cublas"))]

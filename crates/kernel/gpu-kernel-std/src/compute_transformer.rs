@@ -218,6 +218,173 @@ pub unsafe extern "gpu-kernel" fn layer_norm_v2(
 }
 
 // ============================================================
+// High-performance LayerNorm v3 — float4 vectorized loads + single-pass Welford
+// ============================================================
+
+/// High-performance LayerNorm with float4 vectorized loads.
+///
+/// Same algorithm as v2 (single-pass sum/sq_sum + normalize), but uses
+/// `ld.global.v4.f32` / `st.global.v4.f32` for 128-bit memory transactions.
+/// This reduces memory transaction count by 4x compared to scalar loads.
+///
+/// grid_dim = (num_rows, 1, 1), block_dim = (256, 1, 1).
+/// shared_mem_bytes = 2048.
+///
+/// **Requirement**: d_model must be divisible by 4.
+/// For GPT-2: d_model=768, d_model/4=192 float4 loads. Each of 256 threads handles ≤1 float4.
+#[no_mangle]
+pub unsafe extern "gpu-kernel" fn layer_norm_v3(
+    input: *const f32,
+    output: *mut f32,
+    gamma: *const f32,
+    beta: *const f32,
+    d_model: u32,
+    eps: f32,
+    status: *mut u32,
+) {
+    let tid = nvptx::_thread_idx_x() as u32;
+
+    #[cfg(target_arch = "nvptx64")]
+    {
+        let row = nvptx::_block_idx_x() as u32;
+        let row_ptr = input.add((row * d_model) as usize);
+        let out_ptr = output.add((row * d_model) as usize);
+        let smem = get_dynamic_smem_ptr() as *mut f32;
+
+        let d_model_v4 = d_model / 4;
+
+        // Phase 1: Single-pass — compute sum and sum of squares with float4 loads.
+        // Each thread accumulates partial sums over its assigned float4 elements.
+        // Strided access: thread i reads float4 at position i, i+256, i+512, ...
+        // Consecutive threads read consecutive float4s → coalesced 128-bit loads.
+        let mut local_sum: f32 = 0.0;
+        let mut local_sq_sum: f32 = 0.0;
+
+        let mut v = tid;
+        while v < d_model_v4 {
+            let addr = row_ptr.add((v * 4) as usize);
+            let x0: f32;
+            let x1: f32;
+            let x2: f32;
+            let x3: f32;
+            core::arch::asm!(
+                "ld.global.v4.f32 {{{x0}, {x1}, {x2}, {x3}}}, [{addr}];",
+                x0 = out(reg32) x0, x1 = out(reg32) x1,
+                x2 = out(reg32) x2, x3 = out(reg32) x3,
+                addr = in(reg64) addr,
+            );
+            local_sum += x0 + x1 + x2 + x3;
+            local_sq_sum += x0 * x0 + x1 * x1 + x2 * x2 + x3 * x3;
+            v += 256;
+        }
+
+        // Warp-level reduction for sum and sq_sum
+        let warp_sum = warp_reduce_sum_f32(local_sum);
+        let warp_sq_sum = warp_reduce_sum_f32(local_sq_sum);
+
+        // Block-level reduction via shared memory
+        let warp_id = tid / 32;
+        let lane_id = tid % 32;
+        if lane_id == 0 {
+            *smem.add(warp_id as usize) = warp_sum;
+            *smem.add((warp_id + 8) as usize) = warp_sq_sum;
+        }
+        bar_sync();
+
+        // Thread 0 reduces across warps
+        if tid == 0 {
+            let mut total_sum: f32 = 0.0;
+            let mut total_sq_sum: f32 = 0.0;
+            let mut w: u32 = 0;
+            while w < 8 {
+                total_sum += *smem.add(w as usize);
+                total_sq_sum += *smem.add((w + 8) as usize);
+                w += 1;
+            }
+            let m = total_sum / d_model as f32;
+            let var = total_sq_sum / d_model as f32 - m * m;
+            *smem.add(16) = m;
+            *smem.add(17) = 1.0 / gpu_sqrtf(var + eps);
+        }
+        bar_sync();
+        let mean = *smem.add(16);
+        let inv_std = *smem.add(17);
+
+        // Phase 2: Normalize + affine with float4 loads/stores
+        v = tid;
+        while v < d_model_v4 {
+            let base = (v * 4) as usize;
+            let addr = row_ptr.add(base);
+
+            // Load input (re-read; cheaper than storing in registers for large d_model)
+            let x0: f32;
+            let x1: f32;
+            let x2: f32;
+            let x3: f32;
+            core::arch::asm!(
+                "ld.global.v4.f32 {{{x0}, {x1}, {x2}, {x3}}}, [{addr}];",
+                x0 = out(reg32) x0, x1 = out(reg32) x1,
+                x2 = out(reg32) x2, x3 = out(reg32) x3,
+                addr = in(reg64) addr,
+            );
+
+            // Load gamma
+            let g0: f32;
+            let g1: f32;
+            let g2: f32;
+            let g3: f32;
+            core::arch::asm!(
+                "ld.global.v4.f32 {{{g0}, {g1}, {g2}, {g3}}}, [{addr}];",
+                g0 = out(reg32) g0, g1 = out(reg32) g1,
+                g2 = out(reg32) g2, g3 = out(reg32) g3,
+                addr = in(reg64) gamma.add(base),
+            );
+
+            // Load beta
+            let b0: f32;
+            let b1: f32;
+            let b2: f32;
+            let b3: f32;
+            core::arch::asm!(
+                "ld.global.v4.f32 {{{b0}, {b1}, {b2}, {b3}}}, [{addr}];",
+                b0 = out(reg32) b0, b1 = out(reg32) b1,
+                b2 = out(reg32) b2, b3 = out(reg32) b3,
+                addr = in(reg64) beta.add(base),
+            );
+
+            // Normalize + affine: g * (x - mean) * inv_std + b
+            let r0 = g0 * (x0 - mean) * inv_std + b0;
+            let r1 = g1 * (x1 - mean) * inv_std + b1;
+            let r2 = g2 * (x2 - mean) * inv_std + b2;
+            let r3 = g3 * (x3 - mean) * inv_std + b3;
+
+            // Store result
+            core::arch::asm!(
+                "st.global.v4.f32 [{addr}], {{{r0}, {r1}, {r2}, {r3}}};",
+                addr = in(reg64) out_ptr.add(base),
+                r0 = in(reg32) r0, r1 = in(reg32) r1,
+                r2 = in(reg32) r2, r3 = in(reg32) r3,
+            );
+
+            v += 256;
+        }
+    }
+    #[cfg(not(target_arch = "nvptx64"))]
+    {
+        let _ = (input, output, gamma, beta, d_model, eps);
+    }
+
+    if tid == 0 {
+        let _prev: u32;
+        core::arch::asm!(
+            "atom.global.add.u32 {prev}, [{addr}], 1;",
+            prev = out(reg32) _prev,
+            addr = in(reg64) status,
+        );
+    }
+}
+
+// ============================================================
 // GELU kernel (transformer-layer.2)
 // ============================================================
 

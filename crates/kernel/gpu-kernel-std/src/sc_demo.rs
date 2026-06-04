@@ -20,10 +20,13 @@ use gpu_runtime::thread;
 // SAFETY: On GPU, all warps share the same address space. Shared memory
 // pointers are valid for all warps within the block. These are only used
 // within a block_scope where lifetime safety is enforced by 'scope.
-#[derive(Clone, Copy)]
 struct SendPtr<T>(*mut T);
 unsafe impl<T> Send for SendPtr<T> {}
 unsafe impl<T> Sync for SendPtr<T> {}
+impl<T> Copy for SendPtr<T> {}
+impl<T> Clone for SendPtr<T> {
+    fn clone(&self) -> Self { *self }
+}
 
 impl<T> SendPtr<T> {
     fn new(p: *mut T) -> Self {

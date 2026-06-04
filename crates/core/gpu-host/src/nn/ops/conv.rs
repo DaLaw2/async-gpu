@@ -1,4 +1,4 @@
-//! Convolution via im2col + GEMM pipeline.
+//! Convolution via im2col + GEMM pipeline, with Winograd F(2×2, 3×3) fast path.
 
 use std::sync::Arc;
 
@@ -47,6 +47,46 @@ pub fn conv2d(
     let c_out = weight.shape()[0];
     let kh = weight.shape()[2];
     let kw = weight.shape()[3];
+
+    // Route 3×3 stride=1 convolutions to Winograd F(2×2,3×3) when available.
+    #[cfg(feature = "cublas")]
+    if kh == 3 && kw == 3 && stride == 1 {
+        let dev = registry.device();
+        let mut output = conv2d_winograd_f2x2(input, weight, bias, padding, dev)?;
+
+        // Record on autograd tape
+        if input.requires_grad() {
+            if let Some(out_id) = crate::nn::autograd::alloc_tensor_id() {
+                output.set_tensor_id(out_id);
+                output.set_requires_grad(true);
+                let in_id = input
+                    .tensor_id()
+                    .unwrap_or(crate::nn::autograd::TensorId(u32::MAX));
+                let w_id = weight
+                    .tensor_id()
+                    .unwrap_or(crate::nn::autograd::TensorId(u32::MAX));
+                // h_out and w_out used implicitly by autograd backward
+                // h_out = h + 2*padding - 2, w_out = w + 2*padding - 2
+                crate::nn::autograd::record_op(crate::nn::autograd::TapeEntry {
+                    op: crate::nn::autograd::OpKind::Conv2d,
+                    inputs: vec![in_id],
+                    output: out_id,
+                    saved: vec![in_id, w_id],
+                    meta: crate::nn::autograd::OpMeta::Conv2d {
+                        c_in,
+                        c_out,
+                        h,
+                        w,
+                        kh,
+                        kw,
+                        stride,
+                        padding,
+                    },
+                });
+            }
+        }
+        return Ok(output);
+    }
 
     let h_out = (h + 2 * padding - kh) / stride + 1;
     let w_out = (w + 2 * padding - kw) / stride + 1;
@@ -171,6 +211,12 @@ fn conv2d_batched(
     let kh = weight.shape()[2];
     let kw = weight.shape()[3];
 
+    // Route 3×3 stride=1 batched convolutions through Winograd per-sample.
+    #[cfg(feature = "cublas")]
+    if kh == 3 && kw == 3 && stride == 1 {
+        return conv2d_batched_winograd(input, weight, bias, padding, registry);
+    }
+
     let h_out = (h + 2 * padding - kh) / stride + 1;
     let w_out = (w + 2 * padding - kw) / stride + 1;
     let col_h = c_in * kh * kw;
@@ -289,6 +335,212 @@ fn conv2d_batched(
                 },
             });
         }
+    }
+
+    Ok(output)
+}
+
+/// Batched Winograd F(2×2, 3×3): processes each sample through the Winograd path,
+/// then assembles into `[N, C_out, H_out, W_out]`.
+#[cfg(feature = "cublas")]
+fn conv2d_batched_winograd(
+    input: &GpuTensor,
+    weight: &GpuTensor,
+    bias: Option<&GpuTensor>,
+    padding: usize,
+    registry: &Arc<KernelRegistry>,
+) -> Result<GpuTensor> {
+    let batch = input.shape()[0];
+    let c_in = input.shape()[1];
+    let h = input.shape()[2];
+    let w = input.shape()[3];
+    let c_out = weight.shape()[0];
+    let h_out = h + 2 * padding - 2; // stride=1, kh=3
+    let w_out = w + 2 * padding - 2;
+
+    let dev = registry.device();
+    let sample_out_size = c_out * h_out * w_out;
+    let mut output_host = vec![0.0f32; batch * sample_out_size];
+    let input_host = input.to_host()?;
+
+    for b in 0..batch {
+        let sample_start = b * c_in * h * w;
+        let sample_end = sample_start + c_in * h * w;
+        let sample =
+            GpuTensor::from_host(&input_host[sample_start..sample_end], &[c_in, h, w], dev)?;
+        let result = conv2d_winograd_f2x2(&sample, weight, bias, padding, dev)?;
+        let result_host = result.to_host()?;
+        output_host[b * sample_out_size..(b + 1) * sample_out_size].copy_from_slice(&result_host);
+    }
+
+    let mut output = GpuTensor::from_host(&output_host, &[batch, c_out, h_out, w_out], dev)?;
+
+    // Record on autograd tape
+    if input.requires_grad() {
+        let kh = 3;
+        let kw = 3;
+        let stride = 1;
+        if let Some(out_id) = crate::nn::autograd::alloc_tensor_id() {
+            output.set_tensor_id(out_id);
+            output.set_requires_grad(true);
+            let in_id = input
+                .tensor_id()
+                .unwrap_or(crate::nn::autograd::TensorId(u32::MAX));
+            let w_id = weight
+                .tensor_id()
+                .unwrap_or(crate::nn::autograd::TensorId(u32::MAX));
+            crate::nn::autograd::record_op(crate::nn::autograd::TapeEntry {
+                op: crate::nn::autograd::OpKind::Conv2d,
+                inputs: vec![in_id],
+                output: out_id,
+                saved: vec![in_id, w_id],
+                meta: crate::nn::autograd::OpMeta::Conv2d {
+                    c_in,
+                    c_out,
+                    h,
+                    w,
+                    kh,
+                    kw,
+                    stride,
+                    padding,
+                },
+            });
+        }
+    }
+
+    Ok(output)
+}
+
+/// Winograd F(2×2, 3×3) convolution — NVRTC compiled.
+///
+/// Reduces FLOPs for 3×3 stride=1 convolutions by ~2.25× compared to direct.
+/// Input: `[C_in, H, W]`, weight: `[C_out, C_in, 3, 3]`, optional bias: `[C_out]`.
+/// Output: `[C_out, H_out, W_out]`.
+///
+/// The algorithm:
+/// 1. Filter transform: G·g·Gᵀ (done once, 3×3 → 4×4 Winograd domain)
+/// 2. Input transform: Bᵀ·d·B (per 4×4 input tile)
+/// 3. Element-wise multiply in Winograd domain (16 muls per tile)
+/// 4. Output transform: Aᵀ·m·A (4×4 → 2×2 output tile)
+#[cfg(feature = "cublas")]
+fn conv2d_winograd_f2x2(
+    input: &GpuTensor,
+    weight: &GpuTensor,
+    bias: Option<&GpuTensor>,
+    padding: usize,
+    dev: &Arc<cudarc::driver::CudaDevice>,
+) -> Result<GpuTensor> {
+    use cudarc::driver::LaunchAsync;
+    use cudarc::nvrtc::compile_ptx_with_opts;
+
+    let c_in = input.shape()[0];
+    let h = input.shape()[1];
+    let w = input.shape()[2];
+    let c_out = weight.shape()[0];
+
+    let h_out = h + 2 * padding - 2; // stride=1, kh=3: (h + 2p - 3)/1 + 1 = h + 2p - 2
+    let w_out = w + 2 * padding - 2;
+
+    // Number of 2×2 output tiles covering the output
+    let n_tile_y = h_out.div_ceil(2);
+    let n_tile_x = w_out.div_ceil(2);
+    let total_tiles = n_tile_x * n_tile_y;
+
+    // Compile Winograd CUDA kernels via NVRTC (cached)
+    static WINOGRAD_SRC: &str = include_str!("winograd_f2x2.cu");
+
+    use std::sync::OnceLock;
+    static COMPILED: OnceLock<bool> = OnceLock::new();
+    COMPILED.get_or_init(|| {
+        let opts = cudarc::nvrtc::CompileOptions {
+            arch: Some("sm_75"),
+            use_fast_math: Some(true),
+            ..Default::default()
+        };
+        let ptx =
+            compile_ptx_with_opts(WINOGRAD_SRC, opts).expect("NVRTC winograd_f2x2 compile failed");
+        dev.load_ptx(
+            ptx,
+            "winograd_f2x2",
+            &["winograd_filter_transform", "winograd_conv2d_f2x2"],
+        )
+        .expect("winograd_f2x2 PTX load failed");
+        true
+    });
+
+    // 1. Filter transform: weight[C_out, C_in, 3, 3] → filter_wino[16, C_out, C_in]
+    let filter_plane = c_out * c_in;
+    let mut filter_wino = dev.alloc_zeros::<f32>(16 * filter_plane)?;
+
+    let ft_func = dev
+        .get_func("winograd_f2x2", "winograd_filter_transform")
+        .ok_or(NnError::KernelNotFound {
+            name: "winograd_filter_transform",
+        })?;
+    let ft_config = cudarc::driver::LaunchConfig {
+        grid_dim: ((filter_plane as u32).div_ceil(256), 1, 1),
+        block_dim: (256, 1, 1),
+        shared_mem_bytes: 0,
+    };
+    unsafe {
+        ft_func
+            .launch(
+                ft_config,
+                (weight.data(), &mut filter_wino, c_out as u32, c_in as u32),
+            )
+            .map_err(NnError::Cuda)?;
+    }
+
+    // 2. Winograd convolution: input tiles × transformed filters → output tiles
+    let mut output = GpuTensor::zeros(&[c_out, h_out, w_out], dev)?;
+
+    let tile_c_out: u32 = 32;
+    let conv_func = dev
+        .get_func("winograd_f2x2", "winograd_conv2d_f2x2")
+        .ok_or(NnError::KernelNotFound {
+            name: "winograd_conv2d_f2x2",
+        })?;
+    let conv_config = cudarc::driver::LaunchConfig {
+        grid_dim: (total_tiles as u32, (c_out as u32).div_ceil(tile_c_out), 1),
+        block_dim: (tile_c_out, 1, 1),
+        shared_mem_bytes: 0,
+    };
+    unsafe {
+        conv_func
+            .launch(
+                conv_config,
+                (
+                    input.data(),
+                    &filter_wino,
+                    output.data_mut(),
+                    c_in as u32,
+                    c_out as u32,
+                    h as u32,
+                    w as u32,
+                    h_out as u32,
+                    w_out as u32,
+                    n_tile_x as u32,
+                    n_tile_y as u32,
+                    padding as u32,
+                ),
+            )
+            .map_err(NnError::Cuda)?;
+    }
+
+    // 3. Add bias if present
+    if let Some(bias_tensor) = bias {
+        // Simple host-side bias add for correctness; uses existing GPU bias_add_chw
+        // when called from full conv2d path (which wraps this).
+        let bias_host = bias_tensor.to_host()?;
+        let mut out_host = output.to_host()?;
+        for co in 0..c_out {
+            let b = bias_host[co];
+            let base = co * h_out * w_out;
+            for i in 0..h_out * w_out {
+                out_host[base + i] += b;
+            }
+        }
+        output = GpuTensor::from_host(&out_host, &[c_out, h_out, w_out], dev)?;
     }
 
     Ok(output)

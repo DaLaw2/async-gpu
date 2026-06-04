@@ -15,11 +15,11 @@ status = "running"     # ready | running | blocked | completed
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
 current_step = "dispatch"
-current_task_id = "perf-attn-v3.4"
+current_task_id = "perf-conv.2,perf-layernorm.2"
 
 # Sequence counters
 brainstorm_seq = 115
-tasks_since_brainstorm = 20   # reset after brainstorm 114
+tasks_since_brainstorm = 22   # reset after brainstorm 114
 
 # ============================================================
 # Epics — Tiered (T0 → T3), sorted by tier then priority
@@ -1039,7 +1039,7 @@ id = "perf-conv.2"
 theme = "perf-conv"
 title = "Experiment: implement Winograd 3×3 conv kernel with shared memory transforms"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["perf-conv.1", "perf-gemm.3"]
 
 [[tasks]]
@@ -1073,7 +1073,7 @@ id = "perf-layernorm.2"
 theme = "perf-layernorm"
 title = "Experiment: float4 vectorized loads + fused residual-add variant"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["perf-layernorm.1"]
 
 [[tasks]]

@@ -424,7 +424,7 @@ id = "lib-extract.3"
 theme = "lib-extract"
 title = "Experiment: remove [[bin]] from gpu-host, change default features to []"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["lib-extract.2"]
 
 [[tasks]]
@@ -432,7 +432,7 @@ id = "lib-extract.4"
 theme = "lib-extract"
 title = "Experiment: verify test harness still passes from new location"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["lib-extract.3"]
 
 [[tasks]]
@@ -531,7 +531,7 @@ id = "coop-compute.1"
 theme = "coop-compute"
 title = "Investigation: kernel-side matmul architecture design"
 kind = "investigation"
-status = "pending"
+status = "done"
 depends = ["coop-api.1"]
 
 [[tasks]]

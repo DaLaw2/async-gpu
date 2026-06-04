@@ -255,6 +255,18 @@ fn main() -> Result<()> {
                 run_std_thread_spawn_demo(Arc::clone(&dev))?;
                 return Ok(());
             }
+            "real_std_thread" => {
+                run_real_std_thread_spawn(Arc::clone(&dev))?;
+                return Ok(());
+            }
+            "std_thread_minimal" => {
+                run_std_thread_spawn_minimal(Arc::clone(&dev))?;
+                return Ok(());
+            }
+            "kernel_std_smoke" => {
+                run_kernel_std_smoke(Arc::clone(&dev))?;
+                return Ok(());
+            }
             #[cfg(feature = "cublas")]
             "fusion_bench" => {
                 run_fusion_benchmark(Arc::clone(&dev))?;
@@ -773,12 +785,23 @@ fn run_std_thread_spawn_demo(dev: Arc<CudaDevice>) -> Result<()> {
 
     println!("\n--- std::thread::spawn Demo (std-thread-gpu) ---");
 
-    let ptx = cudarc::nvrtc::Ptx::from_src(KERNEL_STD_PTX);
-    dev.load_ptx(ptx, "std_thread", &["std_thread_spawn_demo"])
-        .map_err(|e| GpuHostError::Verification {
-            test: "std_thread",
-            detail: format!("{e}"),
-        })?;
+    // Load cubin (pre-compiled) for fast loading; fall back to PTX JIT
+    let cubin_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("kernel_std.cubin");
+    if cubin_path.exists() {
+        let cubin = cudarc::nvrtc::Ptx::from_file(&cubin_path);
+        dev.load_ptx(cubin, "std_thread", &["std_thread_spawn_demo"])
+            .map_err(|e| GpuHostError::Verification {
+                test: "std_thread",
+                detail: format!("{e}"),
+            })?;
+    } else {
+        let ptx = cudarc::nvrtc::Ptx::from_src(KERNEL_STD_PTX);
+        dev.load_ptx(ptx, "std_thread", &["std_thread_spawn_demo"])
+            .map_err(|e| GpuHostError::Verification {
+                test: "std_thread",
+                detail: format!("{e}"),
+            })?;
+    }
 
     let func = dev
         .get_func("std_thread", "std_thread_spawn_demo")
@@ -809,6 +832,235 @@ fn run_std_thread_spawn_demo(dev: Arc<CudaDevice>) -> Result<()> {
     assert_eq!(result[2], 165, "combined wrong");
 
     println!("  std::thread::spawn Demo — PASSED");
+    Ok(())
+}
+
+/// Demo: REAL std::thread::spawn on GPU with println!
+fn run_real_std_thread_spawn(dev: Arc<CudaDevice>) -> Result<()> {
+    use cudarc::driver::{LaunchAsync, LaunchConfig};
+
+    println!("\n--- REAL std::thread::spawn on GPU ---");
+
+    // Load cubin (pre-compiled) for fast loading; fall back to PTX JIT
+    let cubin_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("kernel_std.cubin");
+    let module_name = "real_std_thread";
+    if cubin_path.exists() {
+        let cubin = cudarc::nvrtc::Ptx::from_file(&cubin_path);
+        dev.load_ptx(cubin, module_name, &["real_std_thread_spawn"])
+            .map_err(|e| GpuHostError::Verification {
+                test: "real_std_thread",
+                detail: format!("{e}"),
+            })?;
+    } else {
+        let ptx = cudarc::nvrtc::Ptx::from_src(KERNEL_STD_PTX);
+        dev.load_ptx(ptx, module_name, &["real_std_thread_spawn"])
+            .map_err(|e| GpuHostError::Verification {
+                test: "real_std_thread",
+                detail: format!("{e}"),
+            })?;
+    }
+
+    let func = dev
+        .get_func(module_name, "real_std_thread_spawn")
+        .ok_or(GpuHostError::KernelNotFound("real_std_thread_spawn"))?;
+
+    // Use start_with_print to capture GPU println! output from spawned threads
+    let session = crate::hostcall::HostcallSession::start_with_print(64, |msg| {
+        let s = String::from_utf8_lossy(msg);
+        println!("  [GPU] {}", s.trim());
+    })?;
+    let mut result_dev: cudarc::driver::CudaSlice<u32> = dev.alloc_zeros::<u32>(3)?;
+
+    let config = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (128, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    unsafe {
+        func.launch(config, (session.dev_ptr(), &mut result_dev))?;
+    }
+    dev.synchronize()?;
+    // Brief sleep so hostcall listener can flush remaining messages
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    session.shutdown();
+
+    let result: Vec<u32> = dev.dtoh_sync_copy(&result_dev)?;
+    println!("  Thread 1 (sum 0..10): {} (expected 45)", result[0]);
+    println!("  Thread 2 (5!):        {} (expected 120)", result[1]);
+    println!("  Combined:             {} (expected 165)", result[2]);
+
+    assert_eq!(result[0], 45, "thread 1 wrong");
+    assert_eq!(result[1], 120, "thread 2 wrong");
+    assert_eq!(result[2], 165, "combined wrong");
+
+    println!("  REAL std::thread::spawn — PASSED");
+    Ok(())
+}
+
+/// Minimal std::thread::spawn test — no println in closures.
+fn run_std_thread_spawn_minimal(dev: Arc<CudaDevice>) -> Result<()> {
+    use cudarc::driver::{LaunchAsync, LaunchConfig};
+
+    println!("\n--- Minimal std::thread::spawn on GPU ---");
+
+    let ptx = cudarc::nvrtc::Ptx::from_src(KERNEL_STD_PTX);
+    dev.load_ptx(ptx, "std_thread_min", &["std_thread_spawn_minimal"])
+        .map_err(|e| GpuHostError::Verification {
+            test: "std_thread_min",
+            detail: format!("{e}"),
+        })?;
+
+    let func = dev
+        .get_func("std_thread_min", "std_thread_spawn_minimal")
+        .ok_or(GpuHostError::KernelNotFound("std_thread_spawn_minimal"))?;
+
+    let session = crate::hostcall::HostcallSession::start_with_print(64, |msg| {
+        let s = String::from_utf8_lossy(msg);
+        println!("  [GPU] {}", s.trim());
+    })?;
+    let mut result_dev: cudarc::driver::CudaSlice<u32> = dev.alloc_zeros::<u32>(3)?;
+
+    let config = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (128, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    unsafe {
+        func.launch(config, (session.dev_ptr(), &mut result_dev))?;
+    }
+    dev.synchronize()?;
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    session.shutdown();
+
+    let result: Vec<u32> = dev.dtoh_sync_copy(&result_dev)?;
+    println!("  Thread 1 (sum 0..10): {} (expected 45)", result[0]);
+    println!("  Thread 2 (5!):        {} (expected 120)", result[1]);
+    println!("  Combined:             {} (expected 165)", result[2]);
+
+    assert_eq!(result[0], 45, "thread 1 wrong");
+    assert_eq!(result[1], 120, "thread 2 wrong");
+    assert_eq!(result[2], 165, "combined wrong");
+
+    println!("  Minimal std::thread::spawn — PASSED");
+    Ok(())
+}
+
+/// Smoke tests for kernel_std module.
+fn run_kernel_std_smoke(dev: Arc<CudaDevice>) -> Result<()> {
+    use cudarc::driver::{LaunchAsync, LaunchConfig};
+
+    println!("\n--- kernel_std smoke tests ---");
+
+    // Load cubin (pre-compiled from PTX) for fast module loading
+    // PTX JIT is extremely slow for 5MB+ PTX files (>10 min on GTX 1660)
+    let cubin_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("kernel_std.cubin");
+    if cubin_path.exists() {
+        println!("  Loading cubin from {} ...", cubin_path.display());
+        let ptx = cudarc::nvrtc::Ptx::from_file(&cubin_path);
+        dev.load_ptx(
+            ptx,
+            "kstd_smoke",
+            &[
+                "kernel_std_smoke_test",
+                "kernel_std_println_smoke",
+                "kernel_std_pool_smoke",
+            ],
+        )
+        .map_err(|e| GpuHostError::Verification {
+            test: "kstd_smoke",
+            detail: format!("cubin load: {e}"),
+        })?;
+    } else {
+        println!(
+            "  No cubin found, loading PTX ({} bytes)...",
+            KERNEL_STD_PTX.len()
+        );
+        let ptx = cudarc::nvrtc::Ptx::from_src(KERNEL_STD_PTX);
+        dev.load_ptx(
+            ptx,
+            "kstd_smoke",
+            &[
+                "kernel_std_smoke_test",
+                "kernel_std_println_smoke",
+                "kernel_std_pool_smoke",
+            ],
+        )
+        .map_err(|e| GpuHostError::Verification {
+            test: "kstd_smoke",
+            detail: format!("PTX load: {e}"),
+        })?;
+    }
+    println!("  Module load: OK");
+
+    // Test 1: trivial write (1 thread, no hostcall)
+    {
+        let mut result_dev: cudarc::driver::CudaSlice<u32> = dev.alloc_zeros::<u32>(1)?;
+        let f = dev
+            .get_func("kstd_smoke", "kernel_std_smoke_test")
+            .ok_or(GpuHostError::KernelNotFound("kernel_std_smoke_test"))?;
+        let cfg = LaunchConfig {
+            grid_dim: (1, 1, 1),
+            block_dim: (1, 1, 1),
+            shared_mem_bytes: 0,
+        };
+        unsafe {
+            f.launch(cfg, (&mut result_dev,))?;
+        }
+        dev.synchronize()?;
+        let r = dev.dtoh_sync_copy(&result_dev)?;
+        println!("  smoke_test: {} (expected 0xBEEFCAFE)", r[0]);
+        assert_eq!(r[0], 0xBEEF_CAFE);
+        println!("  smoke_test: PASSED");
+    }
+
+    // Test 2: println (1 thread, with hostcall)
+    {
+        let session = crate::hostcall::HostcallSession::start(64)?;
+        let mut result_dev: cudarc::driver::CudaSlice<u32> = dev.alloc_zeros::<u32>(1)?;
+        let f = dev
+            .get_func("kstd_smoke", "kernel_std_println_smoke")
+            .ok_or(GpuHostError::KernelNotFound("kernel_std_println_smoke"))?;
+        let cfg = LaunchConfig {
+            grid_dim: (1, 1, 1),
+            block_dim: (1, 1, 1),
+            shared_mem_bytes: 0,
+        };
+        unsafe {
+            f.launch(cfg, (session.dev_ptr(), &mut result_dev))?;
+        }
+        dev.synchronize()?;
+        session.shutdown();
+        let r = dev.dtoh_sync_copy(&result_dev)?;
+        println!("  println_smoke: {} (expected 1)", r[0]);
+        assert_eq!(r[0], 1);
+        println!("  println_smoke: PASSED");
+    }
+
+    // Test 3: thread pool (128 threads = 4 warps, no spawn)
+    println!("  pool_smoke: launching 128 threads...");
+    {
+        let mut result_dev: cudarc::driver::CudaSlice<u32> = dev.alloc_zeros::<u32>(1)?;
+        let f = dev
+            .get_func("kstd_smoke", "kernel_std_pool_smoke")
+            .ok_or(GpuHostError::KernelNotFound("kernel_std_pool_smoke"))?;
+        let cfg = LaunchConfig {
+            grid_dim: (1, 1, 1),
+            block_dim: (128, 1, 1),
+            shared_mem_bytes: 0,
+        };
+        unsafe {
+            f.launch(cfg, (&mut result_dev,))?;
+        }
+        dev.synchronize()?;
+        let r = dev.dtoh_sync_copy(&result_dev)?;
+        println!("  pool_smoke: {} (expected 42)", r[0]);
+        assert_eq!(r[0], 42);
+        println!("  pool_smoke: PASSED");
+    }
+
+    println!("  All smoke tests PASSED");
     Ok(())
 }
 

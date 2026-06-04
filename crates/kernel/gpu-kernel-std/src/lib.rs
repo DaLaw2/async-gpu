@@ -551,6 +551,71 @@ pub unsafe extern "ptx-kernel" fn std_thread_spawn_demo(buf: *mut u8, result: *m
 }
 
 // ============================================================
+// TRUE std::thread::spawn demo — uses real std::thread API
+// ============================================================
+
+/// Demo: REAL std::thread::spawn on GPU with println!
+///
+/// Unlike std_thread_spawn_demo (which uses gpu_runtime::thread::spawn),
+/// this uses the actual `std::thread::spawn` API from the Rust standard
+/// library. The patched std routes thread::spawn to gpu_thread_spawn_raw
+/// via the cuda PAL module.
+///
+/// Launch with: block_dim=(128,1,1), 1 block, hostcall enabled.
+#[unsafe(no_mangle)]
+pub unsafe extern "ptx-kernel" fn real_std_thread_spawn(buf: *mut u8, result: *mut u32) {
+    stdio_init(buf);
+
+    extern "C" {
+        fn gpu_thread_spawn_raw_count() -> u32;
+    }
+
+    gpu_runtime::thread::gpu_main_poll(|| {
+        println!("[DBG] spawn_raw_count before = {}", unsafe { gpu_thread_spawn_raw_count() });
+
+        // Use REAL std::thread::spawn — identical to how you'd write it on CPU
+        let handle1 = std::thread::spawn(|| -> u32 {
+            let mut sum = 0u32;
+            for i in 0..10u32 {
+                sum += i;
+            }
+            println!("Thread 1: sum(0..10) = {}", sum);
+            sum // 45
+        });
+
+        println!("[DBG] spawn_raw_count after 1st = {}", unsafe { gpu_thread_spawn_raw_count() });
+
+        let handle2 = std::thread::spawn(|| -> u32 {
+            let mut product = 1u32;
+            for i in 1..=5u32 {
+                product *= i;
+            }
+            println!("Thread 2: 5! = {}", product);
+            product // 120
+        });
+
+        println!("[DBG] spawn_raw_count after 2nd = {}", unsafe { gpu_thread_spawn_raw_count() });
+        println!("[DBG] before join1");
+
+        let r1 = handle1.join().unwrap();
+        println!("[DBG] after join1, r1={}", r1);
+
+        let r2 = handle2.join().unwrap();
+        println!("[DBG] after join2, r2={}", r2);
+
+        println!("Main: {} + {} = {}", r1, r2, r1 + r2);
+
+        if gpu_runtime::index::thread_idx_x() == 0 {
+            unsafe {
+                core::ptr::write_volatile(result, r1);
+                core::ptr::write_volatile(result.add(1), r2);
+                core::ptr::write_volatile(result.add(2), r1 + r2);
+            }
+        }
+    });
+}
+
+// ============================================================
 // println-buffer: Buffered println! via print_buffer + sideband
 // ============================================================
 
@@ -673,6 +738,92 @@ pub unsafe extern "ptx-kernel" fn north_star_demo(buf: *mut u8, result: *mut u32
             unsafe {
                 core::ptr::write_volatile(result, n as u32);
                 core::ptr::write_volatile(result.add(1), 1); // success flag
+            }
+        }
+    });
+}
+
+// ============================================================
+// Debug: trivial kernel to test module loading
+// ============================================================
+
+/// Trivial write to verify kernel_std module loads and runs.
+/// Launch with: 1 block × 1 thread.
+#[unsafe(no_mangle)]
+pub unsafe extern "ptx-kernel" fn kernel_std_smoke_test(result: *mut u32) {
+    unsafe {
+        core::ptr::write_volatile(result, 0xBEEF_CAFE);
+    }
+}
+
+/// Simple println test via kernel_std. Launch with 1×1, hostcall enabled.
+#[unsafe(no_mangle)]
+pub unsafe extern "ptx-kernel" fn kernel_std_println_smoke(buf: *mut u8, result: *mut u32) {
+    stdio_init(buf);
+    println!("kernel_std_println_smoke: alive!");
+    unsafe {
+        core::ptr::write_volatile(result, 1);
+    }
+}
+
+/// Thread pool test without spawn — just gpu_main_poll with no work.
+/// Launch with block_dim=(128,1,1), 1 block.
+#[unsafe(no_mangle)]
+pub unsafe extern "ptx-kernel" fn kernel_std_pool_smoke(result: *mut u32) {
+    gpu_runtime::thread::gpu_main_poll(|| {
+        if gpu_runtime::index::thread_idx_x() == 0 {
+            unsafe {
+                core::ptr::write_volatile(result, 42);
+            }
+        }
+    });
+}
+
+// ============================================================
+// Debug: minimal std::thread::spawn (no println in closures)
+// ============================================================
+
+/// Minimal std::thread::spawn test — no println inside spawned threads.
+/// This isolates whether the hang is from thread spawn or from println.
+/// Launch with: block_dim=(128,1,1), 1 block, hostcall enabled.
+#[unsafe(no_mangle)]
+pub unsafe extern "ptx-kernel" fn std_thread_spawn_minimal(buf: *mut u8, result: *mut u32) {
+    stdio_init(buf);
+
+    gpu_runtime::thread::gpu_main_poll(|| {
+        println!("[DBG] before first spawn");
+
+        let handle1 = std::thread::spawn(|| -> u32 {
+            let mut sum = 0u32;
+            for i in 0..10u32 {
+                sum += i;
+            }
+            sum // 45
+        });
+
+        println!("[DBG] before second spawn");
+
+        let handle2 = std::thread::spawn(|| -> u32 {
+            let mut product = 1u32;
+            for i in 1..=5u32 {
+                product *= i;
+            }
+            product // 120
+        });
+
+        println!("[DBG] before join1");
+        let r1 = handle1.join().unwrap();
+        println!("[DBG] after join1, r1={}", r1);
+
+        let r2 = handle2.join().unwrap();
+        println!("[DBG] after join2, r2={}", r2);
+
+        println!("[DBG] writing results");
+        if gpu_runtime::index::thread_idx_x() == 0 {
+            unsafe {
+                core::ptr::write_volatile(result, r1);
+                core::ptr::write_volatile(result.add(1), r2);
+                core::ptr::write_volatile(result.add(2), r1 + r2);
             }
         }
     });

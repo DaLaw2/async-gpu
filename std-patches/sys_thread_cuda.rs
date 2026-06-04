@@ -37,13 +37,36 @@ impl Thread {
     pub unsafe fn new(_stack: usize, init: Box<ThreadInit>) -> io::Result<Thread> {
         // Trampoline function called by the warp worker.
         // Receives a raw pointer to Box<ThreadInit>.
+        //
+        // IMPORTANT: In CUDA SIMT, all 32 lanes of a warp execute the
+        // trampoline. Only lane 0 should manage the closure data and run
+        // the user's code; other lanes must be idle here. The warp-level
+        // operations (if any) in the user's closure happen through
+        // gpu_runtime's cooperative API, not through std::thread.
         extern "C" fn thread_trampoline(data: *mut u8) {
+            let lane: u32;
+            #[cfg(target_arch = "nvptx64")]
+            unsafe {
+                core::arch::asm!("mov.u32 {}, %laneid;", out(reg32) lane);
+            }
+            #[cfg(not(target_arch = "nvptx64"))]
+            {
+                lane = 0;
+            }
+            if lane != 0 {
+                return;
+            }
             unsafe {
                 let init = Box::from_raw(data as *mut ThreadInit);
                 // init() sets the current thread and returns the closure
                 let main = init.init();
                 main();
             }
+            // Clean up thread-local state so this warp can be reused for
+            // another std::thread::spawn call. On GPU, the thread-local
+            // guard is a no-op (no OS-level thread exit callback), so we
+            // must call thread_cleanup explicitly here.
+            crate::rt::thread_cleanup();
         }
 
         let data_ptr = Box::into_raw(init) as u64;

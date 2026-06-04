@@ -55,6 +55,15 @@ static WARP_RESULT: [AtomicU64; MAX_WARPS] = [ATOMIC_U64_ZERO; MAX_WARPS];
 
 static NUM_WARPS: AtomicU32 = AtomicU32::new(0);
 
+/// Debug counter: incremented each time gpu_thread_spawn_raw is called.
+static SPAWN_RAW_COUNT: AtomicU32 = AtomicU32::new(0);
+
+/// Read the debug spawn counter (for testing).
+#[unsafe(no_mangle)]
+pub extern "C" fn gpu_thread_spawn_raw_count() -> u32 {
+    SPAWN_RAW_COUNT.load(Ordering::Relaxed)
+}
+
 // Per-warp scratch buffer for closure data + result (256 bytes each)
 const SCRATCH_SIZE: usize = 256;
 #[allow(clippy::declare_interior_mutable_const)]
@@ -115,9 +124,11 @@ pub fn gpu_main<F: FnOnce()>(main_fn: F) {
     }
 
     if wid == 0 {
-        main_fn();
-
+        // Only lane 0 runs main_fn. std::thread::spawn and other
+        // heap-allocating code is NOT SIMT-safe across lanes.
         if lane_id() == 0 {
+            main_fn();
+
             for slot in WARP_STATUS.iter().skip(1).take(n_warps as usize - 1) {
                 slot.store(STATUS_EXIT, Ordering::Release);
             }
@@ -151,11 +162,13 @@ pub fn gpu_main_poll<F: FnOnce()>(main_fn: F) {
                 slot.store(STATUS_IDLE, Ordering::Relaxed);
             }
             NUM_WARPS.store(n_warps, Ordering::Release);
-        }
 
-        main_fn();
+            // Only lane 0 runs main_fn. std::thread::spawn (and any
+            // heap-allocating code) is NOT SIMT-safe: each lane would
+            // get its own Box allocation, causing duplicate spawn
+            // assignments and use-after-free on the trampoline data.
+            main_fn();
 
-        if lane_id() == 0 {
             for slot in WARP_STATUS.iter().skip(1).take(n_warps as usize - 1) {
                 slot.store(STATUS_EXIT, Ordering::Release);
             }
@@ -435,12 +448,14 @@ pub fn sleep_nanos(nanos: u32) {
 /// argument pointer. Returns the warp ID (>0) or 0 if no warp available.
 #[unsafe(no_mangle)]
 pub extern "C" fn gpu_thread_spawn_raw(trampoline: u64, data: u64) -> u32 {
+    SPAWN_RAW_COUNT.fetch_add(1, Ordering::Relaxed);
     let n_warps = NUM_WARPS.load(Ordering::Acquire) as usize;
     if n_warps <= 1 {
         return 0;
     }
 
-    // Find an idle warp
+    // Find an idle warp. We write fn/data first, then publish
+    // STATUS_ASSIGNED with a release store so the worker sees consistent data.
     loop {
         for i in 1..n_warps {
             if WARP_STATUS[i].load(Ordering::Acquire) == STATUS_IDLE {

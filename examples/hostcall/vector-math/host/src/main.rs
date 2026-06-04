@@ -5,31 +5,14 @@
 //! 2. Dot product — GPU does element-wise multiply, CPU sums
 //! 3. Softmax — GPU exp + normalize, CPU finds max and sum
 //!
-//! Uses [`GpuRuntime`] for device management, PTX loading, and data transfer.
-//! No hostcall needed — pure compute kernels.
+//! Uses the `gpu::custom()` builder API for clean, minimal boilerplate.
 
-use cudarc::driver::LaunchAsync;
-use gpu_host::GpuRuntime;
+use gpu_host::gpu;
 
 const KERNEL_PTX: &str = include_str!(concat!(env!("OUT_DIR"), "/kernel.ptx"));
 
 fn main() -> gpu_host::Result<()> {
     println!("=== Vector Math Example ===\n");
-
-    let rt = GpuRuntime::new(0)?;
-    println!("[host] CUDA device initialized.");
-
-    rt.load_ptx(
-        KERNEL_PTX,
-        "vecmath",
-        &[
-            "saxpy",
-            "elementwise_mul",
-            "softmax_exp",
-            "softmax_normalize",
-        ],
-    )?;
-    println!("[host] PTX module loaded.\n");
 
     // ---- Demo 1: SAXPY ----
     println!("--- Demo 1: SAXPY (y = 2.0 * x + y) ---");
@@ -39,17 +22,21 @@ fn main() -> gpu_host::Result<()> {
         let y_orig: Vec<f32> = (0..N).map(|i| (i * 2) as f32).collect();
         let a = 2.0f32;
 
-        let x_dev = rt.htod_sync_copy(&x)?;
-        let mut y_dev = rt.htod_sync_copy(&y_orig)?;
+        let ctx = gpu::custom("saxpy")
+            .ptx(KERNEL_PTX)
+            .threads(256)
+            .elements(N as u32)
+            .prepare()?;
 
-        let f = rt.require_func("vecmath", "saxpy")?;
-        let cfg = GpuRuntime::launch_config(((N as u32).div_ceil(256), 1, 1), (256, 1, 1), 0);
-        unsafe { f.launch(cfg, (&x_dev, &mut y_dev, a, N as u32))? };
-        let result = rt.dtoh_sync_copy(&y_dev)?;
+        let x_dev = ctx.upload(&x)?;
+        let mut y_dev = ctx.upload(&y_orig)?;
+
+        let result = unsafe { ctx.launch((&x_dev, &mut y_dev, a, N as u32))? };
+        let y_result = result.download(&y_dev)?;
 
         let ok = (0..N).all(|i| {
             let expected = a * x[i] + y_orig[i];
-            (result[i] - expected).abs() < 0.001
+            (y_result[i] - expected).abs() < 0.001
         });
         println!(
             "[host] SAXPY ({N} elements): {}\n",
@@ -64,14 +51,18 @@ fn main() -> gpu_host::Result<()> {
         let x: Vec<f32> = (0..N).map(|i| (i % 10) as f32).collect();
         let y: Vec<f32> = (0..N).map(|i| ((i + 3) % 7) as f32).collect();
 
-        let x_dev = rt.htod_sync_copy(&x)?;
-        let y_dev = rt.htod_sync_copy(&y)?;
-        let mut products_dev = rt.alloc_zeros::<f32>(N)?;
+        let ctx = gpu::custom("elementwise_mul")
+            .ptx(KERNEL_PTX)
+            .threads(256)
+            .elements(N as u32)
+            .prepare()?;
 
-        let f = rt.require_func("vecmath", "elementwise_mul")?;
-        let cfg = GpuRuntime::launch_config(((N as u32).div_ceil(256), 1, 1), (256, 1, 1), 0);
-        unsafe { f.launch(cfg, (&x_dev, &y_dev, &mut products_dev, N as u32))? };
-        let products = rt.dtoh_sync_copy(&products_dev)?;
+        let x_dev = ctx.upload(&x)?;
+        let y_dev = ctx.upload(&y)?;
+        let mut products_dev = ctx.alloc_zeros::<f32>(N)?;
+
+        let result = unsafe { ctx.launch((&x_dev, &y_dev, &mut products_dev, N as u32))? };
+        let products = result.download(&products_dev)?;
 
         let gpu_dot: f32 = products.iter().sum();
         let cpu_dot: f32 = x.iter().zip(y.iter()).map(|(a, b)| a * b).sum();
@@ -93,31 +84,40 @@ fn main() -> gpu_host::Result<()> {
         // Step 1: CPU finds max for numerical stability
         let max_val = input.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
 
-        let input_dev = rt.htod_sync_copy(&input)?;
-        let mut exp_dev = rt.alloc_zeros::<f32>(N)?;
-
         // Step 2: GPU computes exp(x - max)
-        let f_exp = rt.require_func("vecmath", "softmax_exp")?;
-        let cfg = GpuRuntime::launch_config(((N as u32).div_ceil(256), 1, 1), (256, 1, 1), 0);
-        unsafe { f_exp.launch(cfg, (&input_dev, &mut exp_dev, max_val, N as u32))? };
-        let exp_vals = rt.dtoh_sync_copy(&exp_dev)?;
+        let ctx_exp = gpu::custom("softmax_exp")
+            .ptx(KERNEL_PTX)
+            .threads(256)
+            .elements(N as u32)
+            .prepare()?;
+
+        let input_dev = ctx_exp.upload(&input)?;
+        let mut exp_dev = ctx_exp.alloc_zeros::<f32>(N)?;
+
+        let result_exp = unsafe { ctx_exp.launch((&input_dev, &mut exp_dev, max_val, N as u32))? };
+        let exp_vals = result_exp.download(&exp_dev)?;
 
         // Step 3: CPU sums exp values
         let exp_sum: f32 = exp_vals.iter().sum();
 
         // Step 4: GPU normalizes
-        let mut result_dev = rt.htod_sync_copy(&exp_vals)?;
-        let f_norm = rt.require_func("vecmath", "softmax_normalize")?;
-        unsafe { f_norm.launch(cfg, (&mut result_dev, exp_sum, N as u32))? };
-        let result = rt.dtoh_sync_copy(&result_dev)?;
+        let ctx_norm = gpu::custom("softmax_normalize")
+            .ptx(KERNEL_PTX)
+            .threads(256)
+            .elements(N as u32)
+            .prepare()?;
+
+        let mut result_dev = ctx_norm.upload(&exp_vals)?;
+        let result_norm = unsafe { ctx_norm.launch((&mut result_dev, exp_sum, N as u32))? };
+        let softmax = result_norm.download(&result_dev)?;
 
         // Verify
-        let gpu_sum: f32 = result.iter().sum();
+        let gpu_sum: f32 = softmax.iter().sum();
         let cpu_softmax: Vec<f32> = {
             let exps: Vec<f32> = input.iter().map(|x| (x - max_val).exp()).collect();
             exps.iter().map(|e| e / exp_sum).collect()
         };
-        let max_err = result
+        let max_err = softmax
             .iter()
             .zip(cpu_softmax.iter())
             .map(|(g, c)| (g - c).abs())

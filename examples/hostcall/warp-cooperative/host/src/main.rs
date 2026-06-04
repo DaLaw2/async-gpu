@@ -3,9 +3,11 @@
 //! Loads PTX compiled with patched rustc and verifies:
 //! 1. test_simple_warp: output[tid] = tid + 1
 //! 2. test_multi_await: output[tid] = 2*tid + 12
+//! 3. test_async_pipeline: output[tid] = 29029
+//!
+//! Uses the `gpu::custom()` builder API for clean kernel launches.
 
-use cudarc::driver::{CudaDevice, LaunchAsync, LaunchConfig};
-use cudarc::nvrtc::Ptx;
+use gpu_host::gpu;
 
 const SIMPLE_PTX: &str = include_str!("../minimal.ptx");
 const FULL_PTX: &str = include_str!("../kernel.ptx");
@@ -14,31 +16,26 @@ const WARP_SIZE: u32 = 32;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Warp-Cooperative Async Kernel Test ===\n");
 
-    let dev = CudaDevice::new(0)?;
-
     // ---- Test 1: simple_add (no .await, just bar.warp.sync) ----
     println!("--- Test 1: test_simple_warp ---");
     {
-        let ptx = Ptx::from_src(SIMPLE_PTX);
-        dev.load_ptx(ptx, "simple", &["test_simple_warp"])?;
+        let ctx = gpu::custom("test_simple_warp")
+            .ptx(SIMPLE_PTX)
+            .threads(WARP_SIZE)
+            .prepare()?;
 
-        let mut output = dev.alloc_zeros::<u32>(WARP_SIZE as usize)?;
-        let f = dev
-            .get_func("simple", "test_simple_warp")
-            .expect("test_simple_warp not found");
-        let cfg = LaunchConfig {
-            grid_dim: (1, 1, 1),
-            block_dim: (WARP_SIZE, 1, 1),
-            shared_mem_bytes: 0,
-        };
-        unsafe { f.launch(cfg, (&mut output,))? };
-        let result = dev.dtoh_sync_copy(&output)?;
+        let mut output = ctx.alloc_zeros::<u32>(WARP_SIZE as usize)?;
+        let result = unsafe { ctx.launch((&mut output,))? };
+        let values = result.download(&output)?;
 
         let mut pass = true;
         for tid in 0..WARP_SIZE as usize {
             let expected = tid as u32 + 1;
-            if result[tid] != expected {
-                println!("  FAIL: output[{tid}] = {}, expected {expected}", result[tid]);
+            if values[tid] != expected {
+                println!(
+                    "  FAIL: output[{tid}] = {}, expected {expected}",
+                    values[tid]
+                );
                 pass = false;
             }
         }
@@ -51,27 +48,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ---- Test 2: multi_await (2 .await points, shfl.sync broadcast) ----
     println!("--- Test 2: test_multi_await ---");
     {
-        let ptx = Ptx::from_src(FULL_PTX);
-        match dev.load_ptx(ptx, "full", &["test_multi_await"]) {
-            Ok(()) => {
-                let mut output = dev.alloc_zeros::<u32>(WARP_SIZE as usize)?;
-                let f = dev
-                    .get_func("full", "test_multi_await")
-                    .expect("test_multi_await not found");
-                let cfg = LaunchConfig {
-                    grid_dim: (1, 1, 1),
-                    block_dim: (WARP_SIZE, 1, 1),
-                    shared_mem_bytes: 0,
-                };
-                unsafe { f.launch(cfg, (&mut output,))? };
-                let result = dev.dtoh_sync_copy(&output)?;
+        match gpu::custom("test_multi_await")
+            .ptx(FULL_PTX)
+            .threads(WARP_SIZE)
+            .prepare()
+        {
+            Ok(ctx) => {
+                let mut output = ctx.alloc_zeros::<u32>(WARP_SIZE as usize)?;
+                let result = unsafe { ctx.launch((&mut output,))? };
+                let values = result.download(&output)?;
 
                 let mut pass = true;
                 for tid in 0..WARP_SIZE as usize {
                     // multi_await(x) = (x+1) + (x+1+10) = 2x + 12
                     let expected = 2 * tid as u32 + 12;
-                    if result[tid] != expected {
-                        println!("  FAIL: output[{tid}] = {}, expected {expected}", result[tid]);
+                    if values[tid] != expected {
+                        println!(
+                            "  FAIL: output[{tid}] = {}, expected {expected}",
+                            values[tid]
+                        );
                         pass = false;
                     }
                 }
@@ -90,27 +85,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ---- Test 3: async_pipeline (6 .await points, simulated I/O pipeline) ----
     println!("--- Test 3: test_async_pipeline ---");
     {
-        let ptx = Ptx::from_src(FULL_PTX);
-        match dev.load_ptx(ptx, "pipeline", &["test_async_pipeline"]) {
-            Ok(()) => {
-                let mut output = dev.alloc_zeros::<u32>(WARP_SIZE as usize)?;
-                let f = dev
-                    .get_func("pipeline", "test_async_pipeline")
-                    .expect("test_async_pipeline not found");
-                let cfg = LaunchConfig {
-                    grid_dim: (1, 1, 1),
-                    block_dim: (WARP_SIZE, 1, 1),
-                    shared_mem_bytes: 0,
-                };
-                unsafe { f.launch(cfg, (&mut output,))? };
-                let result = dev.dtoh_sync_copy(&output)?;
+        match gpu::custom("test_async_pipeline")
+            .ptx(FULL_PTX)
+            .threads(WARP_SIZE)
+            .prepare()
+        {
+            Ok(ctx) => {
+                let mut output = ctx.alloc_zeros::<u32>(WARP_SIZE as usize)?;
+                let result = unsafe { ctx.launch((&mut output,))? };
+                let values = result.download(&output)?;
 
                 let mut pass = true;
                 for tid in 0..WARP_SIZE as usize {
                     // async_pipeline always returns 29*1000 + 29 = 29029
                     let expected = 29029u32;
-                    if result[tid] != expected {
-                        println!("  FAIL: output[{tid}] = {}, expected {expected}", result[tid]);
+                    if values[tid] != expected {
+                        println!(
+                            "  FAIL: output[{tid}] = {}, expected {expected}",
+                            values[tid]
+                        );
                         pass = false;
                     }
                 }

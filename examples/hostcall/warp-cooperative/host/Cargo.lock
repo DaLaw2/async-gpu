@@ -18,6 +18,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "gpu-host"
+version = "0.1.0"
+dependencies = [
+ "cudarc",
+ "gpu-protocol",
+]
+
+[[package]]
+name = "gpu-protocol"
+version = "0.1.0"
+
+[[package]]
 name = "libloading"
 version = "0.8.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -32,6 +44,7 @@ name = "test-warp-host"
 version = "0.1.0"
 dependencies = [
  "cudarc",
+ "gpu-host",
 ]
 
 [[package]]

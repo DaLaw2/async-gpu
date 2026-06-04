@@ -167,3 +167,270 @@ pub fn compute<T: cudarc::driver::DeviceRepr + cudarc::driver::ValidAsZeroBits +
 ) -> Result<Vec<T>> {
     launch(kernel_name, n_elements, threads_per_block)
 }
+
+// ============================================================================
+// Builder API: gpu::custom("kernel") → CustomLaunchBuilder → GpuContext → GpuResult
+// ============================================================================
+
+use crate::memory::MappedBuffer;
+use cudarc::driver::{DeviceRepr, ValidAsZeroBits};
+
+/// Create a builder for launching a custom-signature kernel.
+///
+/// Returns a [`CustomLaunchBuilder`] that configures launch parameters,
+/// then call `.prepare()` to get a [`GpuContext`] for uploading data and
+/// launching the kernel.
+///
+/// # Example
+///
+/// ```no_run
+/// use gpu_host::gpu;
+///
+/// let ctx = gpu::custom("my_kernel")
+///     .ptx(include_str!("kernel.ptx"))
+///     .threads(256)
+///     .elements(1024)
+///     .prepare()
+///     .unwrap();
+///
+/// let input = ctx.upload(&[1.0f32; 1024]).unwrap();
+/// let mut output = ctx.alloc_zeros::<f32>(1024).unwrap();
+/// let result = unsafe { ctx.launch((&input, &mut output, 1024u32)).unwrap() };
+/// let data = result.download(&output).unwrap();
+/// ```
+pub fn custom(kernel_name: &'static str) -> CustomLaunchBuilder {
+    CustomLaunchBuilder {
+        kernel_name,
+        ptx_src: None,
+        threads: 128,
+        grid: (1, 1, 1),
+        shared_mem: 0,
+        hostcall: false,
+        hostcall_packets: 64,
+    }
+}
+
+/// Builder for custom-signature kernel launches.
+///
+/// Configures launch parameters (threads, grid, hostcall, PTX source),
+/// then call `.prepare()` to initialize the GPU context.
+pub struct CustomLaunchBuilder {
+    kernel_name: &'static str,
+    ptx_src: Option<&'static str>,
+    threads: u32,
+    grid: (u32, u32, u32),
+    shared_mem: u32,
+    hostcall: bool,
+    hostcall_packets: u16,
+}
+
+impl CustomLaunchBuilder {
+    /// Use a custom PTX source instead of the embedded `kernel.ptx`.
+    ///
+    /// Required for examples that compile their own kernels via build scripts.
+    pub fn ptx(mut self, src: &'static str) -> Self {
+        self.ptx_src = Some(src);
+        self
+    }
+
+    /// Set threads per block (default: 128).
+    pub fn threads(mut self, n: u32) -> Self {
+        self.threads = n;
+        self
+    }
+
+    /// Set grid dimensions (default: `(1,1,1)`).
+    pub fn grid(mut self, dim: (u32, u32, u32)) -> Self {
+        self.grid = dim;
+        self
+    }
+
+    /// Set 1D grid to cover `n` elements with the current thread count.
+    ///
+    /// Equivalent to `.grid((n.div_ceil(threads), 1, 1))`.
+    pub fn elements(mut self, n: u32) -> Self {
+        self.grid = (n.div_ceil(self.threads), 1, 1);
+        self
+    }
+
+    /// Set shared memory bytes (default: 0).
+    pub fn shared_mem(mut self, bytes: u32) -> Self {
+        self.shared_mem = bytes;
+        self
+    }
+
+    /// Enable hostcall support (spawns a [`HostcallSession`]).
+    pub fn hostcall(mut self) -> Self {
+        self.hostcall = true;
+        self
+    }
+
+    /// Set hostcall packet count (default: 64). Implies `.hostcall()`.
+    pub fn hostcall_packets(mut self, n: u16) -> Self {
+        self.hostcall = true;
+        self.hostcall_packets = n;
+        self
+    }
+
+    /// Prepare the launch context.
+    ///
+    /// Initializes the CUDA device, loads PTX, and optionally starts a
+    /// hostcall session. Returns a [`GpuContext`] for uploading data and
+    /// launching the kernel.
+    pub fn prepare(self) -> Result<GpuContext> {
+        let dev = CudaDevice::new(0).map_err(GpuHostError::CudaInit)?;
+
+        let ptx_src = self.ptx_src.unwrap_or(crate::ptx::KERNEL);
+        let module = fresh_module_name();
+
+        let ptx = cudarc::nvrtc::Ptx::from_src(ptx_src);
+        dev.load_ptx(ptx, &module, &[self.kernel_name])
+            .map_err(|e| GpuHostError::Verification {
+                test: "ptx_load",
+                detail: format!("{e}"),
+            })?;
+
+        let func = dev
+            .get_func(&module, self.kernel_name)
+            .ok_or(GpuHostError::KernelNotFound(self.kernel_name))?;
+
+        let session = if self.hostcall {
+            Some(HostcallSession::start(self.hostcall_packets)?)
+        } else {
+            None
+        };
+
+        let config = LaunchConfig {
+            grid_dim: self.grid,
+            block_dim: (self.threads, 1, 1),
+            shared_mem_bytes: self.shared_mem,
+        };
+
+        Ok(GpuContext {
+            dev,
+            func,
+            config,
+            session,
+            kernel_name: self.kernel_name,
+        })
+    }
+}
+
+/// A prepared GPU context with device, function, and optional hostcall session.
+///
+/// Provides methods to upload data and launch kernels with arbitrary arguments.
+/// Created by [`CustomLaunchBuilder::prepare()`].
+pub struct GpuContext {
+    dev: std::sync::Arc<CudaDevice>,
+    func: cudarc::driver::CudaFunction,
+    config: LaunchConfig,
+    session: Option<HostcallSession>,
+    kernel_name: &'static str,
+}
+
+impl GpuContext {
+    /// Upload a slice to device memory (host-to-device copy).
+    pub fn upload<T: DeviceRepr + Unpin>(&self, data: &[T]) -> Result<CudaSlice<T>> {
+        self.dev.htod_sync_copy(data).map_err(GpuHostError::Cudarc)
+    }
+
+    /// Allocate zeroed device memory.
+    pub fn alloc_zeros<T: DeviceRepr + ValidAsZeroBits>(&self, n: usize) -> Result<CudaSlice<T>> {
+        self.dev.alloc_zeros::<T>(n).map_err(GpuHostError::Cudarc)
+    }
+
+    /// Allocate a mapped buffer (pinned host+device memory, GPU-visible).
+    pub fn mapped_buffer<T>(&self, n: usize) -> Result<MappedBuffer<T>> {
+        MappedBuffer::<T>::new_zeroed(n)
+    }
+
+    /// Get the hostcall device pointer as `u64`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if hostcall was not enabled on the builder.
+    pub fn hostcall_ptr(&self) -> u64 {
+        self.session
+            .as_ref()
+            .expect("hostcall not enabled — call .hostcall() on the builder")
+            .dev_ptr()
+    }
+
+    /// Get the sideband device pointer as `u64`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if hostcall was not enabled on the builder.
+    pub fn sideband_ptr(&self) -> u64 {
+        self.session
+            .as_ref()
+            .expect("hostcall not enabled — call .hostcall() on the builder")
+            .sideband_dev_ptr()
+    }
+
+    /// Download device memory to host.
+    ///
+    /// Can be called before launch (e.g., to verify uploaded data).
+    /// For post-launch downloads, use [`GpuResult::download()`].
+    pub fn download<T: DeviceRepr + Unpin + Clone>(&self, buf: &CudaSlice<T>) -> Result<Vec<T>> {
+        self.dev.dtoh_sync_copy(buf).map_err(GpuHostError::Cudarc)
+    }
+
+    /// Launch the kernel with the given argument tuple, synchronize,
+    /// and return a [`GpuResult`] handle for downloading output data.
+    ///
+    /// # Safety
+    ///
+    /// The `args` tuple must match the kernel's parameter signature.
+    /// This is the same tuple type that cudarc's `LaunchAsync` accepts.
+    pub unsafe fn launch<P>(self, args: P) -> Result<GpuResult>
+    where
+        cudarc::driver::CudaFunction: LaunchAsync<P>,
+    {
+        self.func
+            .launch(self.config, args)
+            .map_err(|e| GpuHostError::Verification {
+                test: self.kernel_name,
+                detail: format!("launch: {e}"),
+            })?;
+
+        self.dev
+            .synchronize()
+            .map_err(|e| GpuHostError::Verification {
+                test: self.kernel_name,
+                detail: format!("sync: {e}"),
+            })?;
+
+        Ok(GpuResult {
+            dev: self.dev,
+            session: self.session,
+        })
+    }
+}
+
+/// Handle returned after a successful kernel launch + synchronize.
+///
+/// Use [`download()`](GpuResult::download) to copy device buffers back to host,
+/// then drop or call [`finish()`](GpuResult::finish) to shut down the hostcall
+/// session (if any).
+pub struct GpuResult {
+    dev: std::sync::Arc<CudaDevice>,
+    /// Held for its `Drop` impl which shuts down the hostcall listener.
+    #[allow(dead_code)]
+    session: Option<HostcallSession>,
+}
+
+impl GpuResult {
+    /// Download device memory to host.
+    pub fn download<T: DeviceRepr + Unpin + Clone>(&self, buf: &CudaSlice<T>) -> Result<Vec<T>> {
+        self.dev.dtoh_sync_copy(buf).map_err(GpuHostError::Cudarc)
+    }
+
+    /// Explicitly shut down the hostcall session.
+    ///
+    /// Called automatically on drop, but an explicit call may be useful
+    /// for ordering guarantees.
+    pub fn finish(self) {
+        // session dropped → HostcallSession::drop() handles shutdown
+    }
+}

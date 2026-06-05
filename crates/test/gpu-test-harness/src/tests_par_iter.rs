@@ -994,3 +994,256 @@ pub(crate) fn run_par_iter_rayon_benchmark(dev: Arc<CudaDevice>) -> Result<()> {
 
     Ok(())
 }
+
+// ============================================================
+// Multi-block par_iter benchmark (iter-demo.3)
+// ============================================================
+
+/// All kernels needed for multi-block benchmark.
+const MULTIBLOCK_KERNELS: &[&str] = &["par_iter_map_collect", "par_iter_map_collect_multiblock"];
+
+/// Load both single-block and multi-block par_iter kernels.
+fn load_multiblock_module(dev: &Arc<CudaDevice>) -> Result<()> {
+    println!("  Loading PTX module (uses CUDA JIT cache if available)...");
+    let start = Instant::now();
+    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_STD_PTX);
+    dev.load_ptx(ptx, "par_iter_fusion", MULTIBLOCK_KERNELS)
+        .map_err(|e| GpuHostError::Verification {
+            test: "multiblock_module_load",
+            detail: format!("ptx_load: {e}"),
+        })?;
+    let elapsed = start.elapsed();
+    println!("  PTX module loaded in {elapsed:.1?}");
+    Ok(())
+}
+
+/// Multi-block launch config: N threads spread across blocks.
+///
+/// block_size = 256 threads, grid = ceil(n / 256) blocks.
+/// No shared memory needed for the grid-stride loop kernel.
+fn multiblock_launch_config(n: usize, block_size: u32) -> LaunchConfig {
+    let grid = ((n as u32) + block_size - 1) / block_size;
+    LaunchConfig {
+        grid_dim: (grid, 1, 1),
+        block_dim: (block_size, 1, 1),
+        shared_mem_bytes: 0,
+    }
+}
+
+/// Measure multi-block GPU par_iter kernel time for N f32 elements.
+///
+/// Uses `par_iter_map_collect_multiblock` kernel: f(x) = x * 2.0 + 1.0
+/// Grid-stride loop with cached loads/stores.
+/// Returns (kernel_ms, total_ms_including_transfer).
+fn bench_gpu_multiblock(dev: &Arc<CudaDevice>, n: usize) -> Result<(f64, f64)> {
+    let input: Vec<f32> = (0..n).map(|i| (i as f32) * 0.001).collect();
+    let func = get_func(dev, "par_iter_map_collect_multiblock")?;
+    let cfg = multiblock_launch_config(n, 256);
+
+    let input_dev = dev.htod_sync_copy(&input).map_err(GpuHostError::Cudarc)?;
+    let mut output_dev = dev.alloc_zeros::<f32>(n).map_err(GpuHostError::Cudarc)?;
+    let n_u32 = n as u32;
+
+    // Warmup (3 launches)
+    for _ in 0..3 {
+        unsafe {
+            func.clone()
+                .launch(cfg, (&input_dev, &mut output_dev, n_u32))
+                .map_err(|e| GpuHostError::Verification {
+                    test: "bench_multiblock_warmup",
+                    detail: format!("{e}"),
+                })?;
+        }
+        dev.synchronize().map_err(GpuHostError::Cudarc)?;
+    }
+
+    // Timed kernel-only runs
+    let iters = 10;
+    let start = Instant::now();
+    for _ in 0..iters {
+        unsafe {
+            func.clone()
+                .launch(cfg, (&input_dev, &mut output_dev, n_u32))
+                .map_err(|e| GpuHostError::Verification {
+                    test: "bench_multiblock_timed",
+                    detail: format!("{e}"),
+                })?;
+        }
+        dev.synchronize().map_err(GpuHostError::Cudarc)?;
+    }
+    let kernel_ms = start.elapsed().as_secs_f64() * 1000.0 / iters as f64;
+
+    // Timed end-to-end (htod + kernel + dtoh)
+    let start_e2e = Instant::now();
+    for _ in 0..iters {
+        let in_dev = dev.htod_sync_copy(&input).map_err(GpuHostError::Cudarc)?;
+        let mut out_dev = dev.alloc_zeros::<f32>(n).map_err(GpuHostError::Cudarc)?;
+        unsafe {
+            func.clone()
+                .launch(cfg, (&in_dev, &mut out_dev, n_u32))
+                .map_err(|e| GpuHostError::Verification {
+                    test: "bench_multiblock_e2e",
+                    detail: format!("{e}"),
+                })?;
+        }
+        dev.synchronize().map_err(GpuHostError::Cudarc)?;
+        let _: Vec<f32> = dev.dtoh_sync_copy(&out_dev).map_err(GpuHostError::Cudarc)?;
+    }
+    let e2e_ms = start_e2e.elapsed().as_secs_f64() * 1000.0 / iters as f64;
+
+    Ok((kernel_ms, e2e_ms))
+}
+
+/// Multi-block par_iter benchmark: single-block vs multi-block vs Rayon.
+///
+/// Tests the multi-block kernel with cached loads against:
+/// - Single-block kernel (volatile loads, 1 block x 128 threads)
+/// - CPU Rayon (all cores)
+/// - CPU sequential
+///
+/// Reports speedup from multi-block dispatch and finds crossover point.
+pub(crate) fn run_multiblock_benchmark(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n====================================================");
+    println!("  Multi-block par_iter Benchmark (iter-demo.3)");
+    println!("  Operation: data.par_iter().map(|x| x * 2.0 + 1.0).collect()");
+    println!("  Multi-block: grid-stride loop + cached loads/stores");
+    println!("====================================================");
+
+    load_multiblock_module(&dev)?;
+
+    // === Correctness verification ===
+    {
+        let n = 1_048_576; // 1M elements
+        let input: Vec<f32> = (0..n).map(|i| (i as f32) * 0.001).collect();
+        let func = get_func(&dev, "par_iter_map_collect_multiblock")?;
+        let input_dev = dev.htod_sync_copy(&input).map_err(GpuHostError::Cudarc)?;
+        let mut output_dev = dev.alloc_zeros::<f32>(n).map_err(GpuHostError::Cudarc)?;
+        let cfg = multiblock_launch_config(n, 256);
+
+        unsafe {
+            func.launch(cfg, (&input_dev, &mut output_dev, n as u32))
+                .map_err(|e| GpuHostError::Verification {
+                    test: "multiblock_correctness",
+                    detail: format!("{e}"),
+                })?;
+        }
+        dev.synchronize().map_err(GpuHostError::Cudarc)?;
+
+        let output: Vec<f32> = dev
+            .dtoh_sync_copy(&output_dev)
+            .map_err(GpuHostError::Cudarc)?;
+
+        let mut mismatches = 0usize;
+        let mut max_err: f32 = 0.0;
+        for i in 0..n {
+            let expected = input[i] * 2.0 + 1.0;
+            let err = (output[i] - expected).abs();
+            if err > 1e-5 {
+                if mismatches < 5 {
+                    println!("  MISMATCH at {i}: expected {expected}, got {}", output[i]);
+                }
+                mismatches += 1;
+            }
+            if err > max_err {
+                max_err = err;
+            }
+        }
+
+        if mismatches > 0 {
+            return Err(GpuHostError::Verification {
+                test: "multiblock_correctness",
+                detail: format!("{mismatches} mismatches out of {n}"),
+            });
+        }
+        println!("  Correctness verified at N={n} (max_err={max_err:.2e})");
+    }
+
+    // === Benchmark ===
+    let sizes: &[usize] = &[
+        1_000,      // 1K
+        10_000,     // 10K
+        100_000,    // 100K
+        1_000_000,  // 1M
+        4_000_000,  // 4M
+        16_000_000, // 16M
+    ];
+
+    println!(
+        "\n  {:>6} | {:>9} {:>9} {:>9} {:>9} | {:>9} {:>8}",
+        "N", "CPU seq", "Rayon", "1-blk e2e", "MB e2e", "MB kernel", "MB/Rayon"
+    );
+    println!(
+        "  {:->6}-+-{:->9}-{:->9}-{:->9}-{:->9}-+-{:->9}-{:->8}",
+        "", "", "", "", "", "", ""
+    );
+
+    let mut crossover_n: Option<usize> = None;
+
+    for &n in sizes {
+        let size_label = match n {
+            1_000 => "1K",
+            10_000 => "10K",
+            100_000 => "100K",
+            1_000_000 => "1M",
+            4_000_000 => "4M",
+            16_000_000 => "16M",
+            _ => "?",
+        };
+
+        // CPU sequential
+        let seq_ms = bench_cpu_sequential(n);
+
+        // CPU Rayon
+        let rayon_ms = bench_rayon_par_iter(n);
+
+        // GPU single-block skipped: uses gpu_main which requires hostcall setup.
+        // See iter-demo.2 findings for single-block vs Rayon comparison data.
+        let _single_e2e_ms = f64::NAN;
+
+        // GPU multi-block (new)
+        let (mb_kernel_ms, mb_e2e_ms) = bench_gpu_multiblock(&dev, n)?;
+
+        let mb_vs_rayon = mb_e2e_ms / rayon_ms;
+
+        // Detect crossover: first size where multi-block GPU e2e < Rayon
+        if crossover_n.is_none() && mb_e2e_ms < rayon_ms {
+            crossover_n = Some(n);
+        }
+
+        let blocks = ((n as u32) + 255) / 256;
+
+        println!(
+            "  {:>4}{} | {:>9.3} {:>9.3} {:>9} {:>9.3} | {:>9.3} {:>7.2}x  ({} blks)",
+            "", size_label, seq_ms, rayon_ms, "—", mb_e2e_ms, mb_kernel_ms, mb_vs_rayon, blocks
+        );
+        use std::io::Write;
+        std::io::stdout().flush().ok();
+    }
+
+    // Summary
+    println!("\n====================================================");
+    println!("  MULTI-BLOCK BENCHMARK SUMMARY");
+    println!("====================================================");
+    println!("  Single-block: 1 block x 128 threads (4 warps), volatile loads");
+    println!("  Multi-block:  ceil(N/256) blocks x 256 threads, cached loads");
+    println!("  CPU: Rayon (all cores), same operation f(x) = x * 2.0 + 1.0");
+    println!("  GPU timing includes htod + kernel + dtoh (end-to-end)");
+
+    if let Some(cn) = crossover_n {
+        let label = match cn {
+            1_000 => "1K",
+            10_000 => "10K",
+            100_000 => "100K",
+            1_000_000 => "1M",
+            4_000_000 => "4M",
+            16_000_000 => "16M",
+            _ => "?",
+        };
+        println!("  Crossover point: GPU faster at N >= {} ({})", cn, label);
+    } else {
+        println!("  Crossover point: GPU multi-block did NOT beat Rayon at any tested size");
+    }
+    println!("====================================================");
+
+    Ok(())
+}

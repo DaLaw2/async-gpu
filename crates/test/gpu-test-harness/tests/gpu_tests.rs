@@ -38,6 +38,116 @@ fn test_gpu_vec_operations() {}
 fn test_gpu_thread_spawn() {}
 
 // ============================================================================
+// GPU tests — standard library on GPU
+// ============================================================================
+
+/// Test that Box allocation works on GPU.
+///
+/// The kernel `test_gpu_box_alloc` in gpu-kernel-test:
+///   - Allocates Box<u32> and Box<[u32; 4]>
+///   - Asserts dereference values and computed results
+#[gpu_test]
+fn test_gpu_box_alloc() {}
+
+/// Test that String operations work on GPU.
+///
+/// The kernel `test_gpu_string_ops` in gpu-kernel-test:
+///   - Creates Strings via from(), push_str(), format!()
+///   - Asserts length, equality, and contains()
+#[gpu_test]
+fn test_gpu_string_ops() {}
+
+/// Test that HashMap works on GPU.
+///
+/// The kernel `test_gpu_hashmap` in gpu-kernel-test:
+///   - Inserts 5 entries, verifies get/contains_key/values().sum()
+///   - Removes an entry and verifies
+#[gpu_test]
+fn test_gpu_hashmap() {}
+
+// ============================================================================
+// GPU tests — thread spawn with data passing
+// ============================================================================
+
+/// Test that threads can compute and return data.
+///
+/// The kernel `test_gpu_thread_data_passing` in gpu-kernel-test:
+///   - Spawns thread computing sum(1..=100) = 5050
+///   - Spawns thread computing 10! = 3628800
+///   - Joins and asserts results
+#[gpu_test]
+fn test_gpu_thread_data_passing() {}
+
+/// Test that warps are reused when more tasks than warps are spawned.
+///
+/// The kernel `test_gpu_thread_reuse` in gpu-kernel-test:
+///   - Spawns 6 sequential tasks on 3 available warps
+///   - Joins each and verifies result, sums total
+#[gpu_test]
+fn test_gpu_thread_reuse() {}
+
+// ============================================================================
+// GPU tests — cooperative compute
+// ============================================================================
+
+/// Test cooperative execution — all warps participate.
+///
+/// The kernel `test_gpu_cooperative` in gpu-kernel-test:
+///   - Uses cooperative() to run all 4 warps in parallel
+///   - Each warp writes its ID to a global array
+///   - Verifies all warps participated
+#[gpu_test]
+fn test_gpu_cooperative() {}
+
+/// Test cooperative_map — all warps transform an array.
+///
+/// The kernel `test_gpu_cooperative_map` in gpu-kernel-test:
+///   - Initializes 64-element array with values 0..64
+///   - All warps cooperatively double each element
+///   - Verifies output[i] = i * 2
+#[gpu_test]
+fn test_gpu_cooperative_map() {}
+
+/// Test cooperative_reduce — all warps sum partitions.
+///
+/// The kernel `test_gpu_cooperative_reduce` in gpu-kernel-test:
+///   - Initializes 64-element array with values 0..64
+///   - All warps cooperatively compute the sum
+///   - Verifies total = 2016
+#[gpu_test]
+fn test_gpu_cooperative_reduce() {}
+
+// ============================================================================
+// GPU tests — math, atomics, iterators
+// ============================================================================
+
+/// Test GPU math intrinsics (sin, cos, sqrt, exp, log, abs, fma, tanh, sigmoid).
+///
+/// The kernel `test_gpu_math_intrinsics` in gpu-kernel-test:
+///   - Tests each math function with known input/output
+///   - Verifies results within tolerance
+#[gpu_test]
+fn test_gpu_math_intrinsics() {}
+
+/// Test atomic operations across GPU threads.
+///
+/// The kernel `test_gpu_atomics` in gpu-kernel-test:
+///   - Tests store/load, fetch_add, fetch_sub, CAS on AtomicU32
+///   - Spawns 3 threads each doing 100 atomic increments
+///   - Verifies final count = 300
+#[gpu_test]
+fn test_gpu_atomics() {}
+
+/// Test iterator chain operations (map, filter, fold, zip, enumerate, chain).
+///
+/// The kernel `test_gpu_iterator_chain` in gpu-kernel-test:
+///   - Tests map+collect, filter+collect, fold, zip+map+sum
+///   - Tests enumerate+filter, chain
+///   - All on GPU-allocated Vec
+#[gpu_test]
+fn test_gpu_iterator_chain() {}
+
+// ============================================================================
 // CPU tests — regular #[test] functions that coexist with #[gpu_test]
 // ============================================================================
 

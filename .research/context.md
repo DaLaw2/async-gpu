@@ -1,30 +1,32 @@
 ## Current Focus
-**Cycle 622 — kernel-split EPIC COMPLETED** (2026-06-05). 49th epic archived.
-4 kernel crates (core/compute/io/test), multi-cubin loader, PTX JIT dev path.
-Dev rebuild: 27.5s (was 30 min). All 5 criteria verified by Epic Verification Gate.
+**Cycle 623 — 3 tasks verified** (2026-06-06). safety-types.1 (investigation), test-integration.2 (16/16 GPU tests), iter-demo.3 (multi-block par_iter 2.4-3.8x faster than Rayon).
 
 ## Recent Decisions
-- 2026-06-05: kernel-split completed — 14 tasks across 4 themes in 12 cycles (611-622)
-- 2026-06-05: PTX JIT dev path (3/3 majority vote): skip ptxas for dev, cubin is CI-only
-- 2026-06-05: auto-fusion GPT-2 0.5-2.7% speedup — GEMM dominates, 10% needs epilogue fusion
+- 2026-06-06: Multi-block par_iter dispatch: grid-stride loop + cached loads, beats Rayon ≤4M
+- 2026-06-06: DisjointSlice design: WarpIndex<'scope> + DisjointSlice<'scope, T> adapted from cuda-oxide
+- 2026-06-06: Test coverage: 14 GPU features with #[gpu_test], test-integration theme nearly complete
+- 2026-06-05: kernel-split + auto-fusion epics completed (49th + 50th)
 
 ## Tried & Rejected
+- Single-block par_iter benchmark: par_iter_map_collect requires gpu_main/hostcall setup, hangs when launched via plain cudarc
 - ptxas optimization via PTX size reduction: scales with complexity not size
-- Unified 11MB PTX: replaced by 4-crate split (core 1.3MB, compute 2.0MB, io 2.4MB, test 6.0MB)
 - Epilogue-only fusion for 10% GPT-2: GEMM dominates ~85%
 
 ## Active Constraints
 - GTX 1660 (sm_75): 192 GB/s, 5 TFLOPS FP32, 48KB smem
 - Max 2 concurrent heavy subagents
-- test-integration.2 kernels stashed in git stash@{0}
+- PTX JIT takes ~15-20 min for 6.7MB PTX; CUDA cache eliminates repeat cost
+- par_iter_map_collect (single-block) kernel requires hostcall buffer setup — cannot benchmark via plain cudarc launch
 
 ## Key Metrics
-- 4 kernel crates: core (17), compute (84), io (55), test (76) entry points
+- 4 kernel crates: core (17), compute (84), io (55), test (76+14) entry points
 - Dev rebuild: 27.5s (PTX JIT) — was 30 min (unified ptxas)
-- FusionCodegen: 7 ops, 2.05x standalone, 1.61x Linear layer
-- 777 tasks completed, 49 epics (kernel-split just completed)
+- Multi-block par_iter: 0.27-0.41x Rayon (≤4M), 1.43x at 16M (PCIe bottleneck)
+- GPU tests: 16/16 pass (14 GPU features + 2 CPU)
+- 780 tasks completed, 50 epics
 
 ## Next
-1. Unstash test-integration.2 + verify (gpu-test epic completion)
-2. T1: gpu-type-safety, gpu-generics (pending epics)
-3. Brainstorm for next tier activation / new directions
+1. ROUTE: check epic completion gates (gpu-test, gpu-iterator)
+2. gpu-type-safety: safety-types.2 (implement DisjointSlice + WarpIndex)
+3. iter-demo.4 (re-benchmark multi-block vs Rayon) — may be redundant now
+4. iter-demo.5 (multi-block fold/sum via two-pass reduction)

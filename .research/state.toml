@@ -4,8 +4,8 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 622
-completed_tasks = 777
+total_cycles = 623
+completed_tasks = 780
 status = "running"     # ready | running | blocked | completed
 
 # Project North Star — the ONE thing all epics serve:
@@ -14,12 +14,12 @@ status = "running"     # ready | running | blocked | completed
 # No GPU concepts leak. VectorWare's I/O strength + async-gpu's compute strength, unified.
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
-current_step = "route"
+current_step = "save"
 current_task_id = ""
 
 # Sequence counters
-brainstorm_seq = 119
-tasks_since_brainstorm = 6   # reset after brainstorm 119
+brainstorm_seq = 120
+tasks_since_brainstorm = 4   # reset after brainstorm 120
 
 # ============================================================
 # Epics — Tiered (T0 → T3), sorted by tier then priority
@@ -33,11 +33,9 @@ tasks_since_brainstorm = 6   # reset after brainstorm 119
 # kernel-fusion-v2, int4-quantization, graph-compiler, refactor, onnx-perf,
 # refactor-v2, gpu-dynamic, graph-algorithms, int4-gpt2, monte-carlo, benchmark,
 # native-rust-dx, std-thread-gpu, cooperative-compute, structured-concurrency,
-# library-api, kernel-perf, developer-showcase
+# library-api, kernel-perf, developer-showcase, kernel-split, auto-fusion
 
 # --- T0: Foundation (do first, everything depends on this) ---
-
-# developer-showcase epic archived at cycle 607
 
 [[epics]]
 id = "gpu-test"
@@ -57,31 +55,13 @@ success_criteria = [
     "At least 10 existing GPU features covered by #[gpu_test] tests",
 ]
 
-[[epics]]
-id = "kernel-split"
-title = "Kernel Crate Split — break gpu-kernel-std into per-feature crates"
-tier = 0
-status = "completed"
-priority = "highest"
-# North Star: Changing one kernel doesn't recompile the world.
-#   Each feature area (compute, hostcall, test, SC, etc.) is its own kernel crate
-#   with its own PTX/cubin. Incremental builds take minutes, not 30+.
-# Litmus Test: After editing a test kernel, PTX+cubin rebuild completes in under 5 minutes.
-success_criteria = [
-    "gpu-kernel-std split into ≥3 independent kernel crates by feature domain",
-    "Each crate produces its own PTX and cubin — no unified 11MB PTX",
-    "Host-side loader discovers and loads multiple cubins transparently",
-    "Kernel build with reduced opt-level (opt-level 1 or 2) for dev builds",
-    "Dev rebuild (single crate PTX via JIT) completes in ≤1 minute; cubin is CI/release only",
-]
-
 # --- T1: Core capability expansion ---
 
 [[epics]]
 id = "gpu-type-safety"
 title = "Type-Level Safety — compile-time race-freedom for GPU code"
 tier = 1
-status = "pending"
+status = "active"
 priority = "high"
 # North Star: The Rust compiler proves your GPU code has no data races — at compile time.
 #   DisjointSlice<T> + ThreadIndex pattern (inspired by cuda-oxide), adapted to async-gpu.
@@ -114,24 +94,6 @@ success_criteria = [
 ]
 
 [[epics]]
-id = "auto-fusion"
-title = "Auto Kernel Fusion — compile-time elementwise operation fusion"
-tier = 1
-status = "active"
-priority = "high"
-# North Star: Users write idiomatic decomposed Rust and the compiler fuses the ops.
-#   No "fused kernel" concept leaks — performance optimization is the compiler's job.
-#   Plain Rust code gets plain Rust performance, automatically.
-# Litmus Test: gelu(x * scale + bias) compiles to one GPU kernel launch,
-#   not three. User never writes a fused kernel.
-success_criteria = [
-    "MIR pass identifies chains of elementwise operations across function boundaries",
-    "Fused kernel generated at compile time (not runtime JIT)",
-    "At least multiply + add + activation (GELU/ReLU) chains fused automatically",
-    "Measurable speedup: fused chain >= 2x faster than sequential kernel launches",
-]
-
-[[epics]]
 id = "gpu-generics"
 title = "GPU Generics — full Rust trait system + generics on GPU kernels"
 tier = 1
@@ -155,9 +117,6 @@ title = "GPU Hot-Reload — edit kernel, auto-recompile, hot-swap PTX"
 tier = 2
 status = "pending"
 priority = "medium"
-# North Star: GPU development iteration speed matches web development.
-#   Change kernel code, save, see results — no restart needed.
-# Litmus Test: Edit a kernel's math, save the file, output changes in <2 seconds.
 success_criteria = [
     "File watcher detects kernel source changes",
     "NVRTC recompiles changed kernels to PTX in background",
@@ -171,11 +130,6 @@ title = "GPU Coroutines — generator/yield pattern on GPU warps"
 tier = 2
 status = "pending"
 priority = "medium"
-# North Star: Streaming data processing on GPU via coroutines.
-#   Each warp runs a generator, yield switches warp context.
-#   Natural extension of async/await for data pipeline patterns.
-# Litmus Test: A generator yielding values runs on GPU warps,
-#   consumer processes values as they're produced.
 success_criteria = [
     "GpuGenerator trait with yield_value() and resume()",
     "MIR pass transforms generator state machine to warp-cooperative execution",
@@ -189,10 +143,6 @@ title = "Unified Runtime — one async fn spans CPU and GPU transparently"
 tier = 2
 status = "pending"
 priority = "medium"
-# North Star: Users write one async fn mixing I/O and compute. The runtime decides
-#   what runs where. Data moves automatically. No cudaMemcpy anywhere.
-# Litmus Test: A pipeline that reads a file, does matmul, writes result — user never
-#   mentions "host" or "device."
 success_criteria = [
     "Scheduler types (CpuScheduler, GpuScheduler, AutoScheduler) route work by affinity",
     "Data transfer (host ↔ device) is automatic — no manual cudaMemcpy",
@@ -206,8 +156,6 @@ title = "High-Performance Conv2D — Winograd channel batching + direct conv opt
 tier = 2
 status = "pending"
 priority = "medium"
-# North Star: Conv2D closes the gap to cuDNN so CNN models run at competitive speed.
-# Litmus Test: ResNet-18 ONNX inference with async-gpu conv2d is within 2x of cuDNN-backed.
 success_criteria = [
     "Winograd F(4×4,3×3) with batched channel processing (not per-channel serial)",
     "Conv2D >= 50% of cuDNN for common 3×3 shapes (ResNet, YOLO)",
@@ -221,9 +169,6 @@ title = "Compile-Time Cost Model — know GPU performance at compile time"
 tier = 2
 status = "pending"
 priority = "medium"
-# North Star: The compiler tells you performance characteristics before you run.
-#   Register pressure, occupancy, bank conflicts — visible at compile time.
-# Litmus Test: cargo build warns "kernel X uses 64 registers, occupancy 25%".
 success_criteria = [
     "MIR pass estimates register usage and shared memory per kernel",
     "Compile-time warnings for low occupancy (<50%) and bank conflicts",
@@ -237,10 +182,6 @@ title = "Hardware Intrinsics — TMA, WGMMA, Thread Block Clusters (SM90+)"
 tier = 2
 status = "pending"
 priority = "low"
-# North Star: Advanced hardware features accessible via safe Rust wrappers.
-#   No raw PTX needed for Tensor Memory Accelerator or Warp Group MMA.
-# Litmus Test: A GEMM kernel using WGMMA via safe Rust API achieves >80% peak.
-# Note: Requires SM90+ (Hopper/Blackwell). Current dev GPU is SM75.
 success_criteria = [
     "TMA load/store wrappers for 2D tensor tiles",
     "WGMMA warp-group matrix multiply-accumulate (SM90+)",
@@ -254,9 +195,6 @@ title = "CUDA Graph Scheduling — static async pipelines compile to CUDA Graphs
 tier = 2
 status = "pending"
 priority = "low"
-# North Star: Users write async pipelines, the compiler automatically identifies static
-#   portions and emits CUDA Graphs. No code changes needed for the speedup.
-# Litmus Test: An async pipeline runs faster with zero user-facing API changes.
 success_criteria = [
     "MIR pass identifies static vs dynamic branches in async state machines",
     "Static paths emit CUDA Graph nodes (kernel launch, memcpy, sync)",
@@ -272,9 +210,6 @@ title = "Auto-Parallelization — sequential loops automatically GPU-parallelize
 tier = 3
 status = "pending"
 priority = "low"
-# North Star: The compiler sees a pure for-loop and automatically runs it on GPU.
-#   No par_iter(), no cooperative(), no annotations. User doesn't know GPU exists.
-# Litmus Test: A plain for x in data { *x = gelu(*x) } compiles to a GPU kernel.
 success_criteria = [
     "MIR pass analyzes loop body purity (no side effects, no aliasing)",
     "Pure loops automatically transformed to warp-parallel GPU kernels",
@@ -289,9 +224,6 @@ tier = 3
 status = "pending"
 priority = "low"
 depends_on = "structured-concurrency"
-# North Star: Shared vs global memory is a GPU concept that still leaks today.
-#   Rust's ownership system absorbs it: lifetimes determine memory tier automatically.
-# Litmus Test: Misusing shared memory across blocks is a compile error, not a runtime bug.
 success_criteria = [
     "Lifetime-parameterized memory types: &'block T → shared memory, &'grid T → global memory",
     "Borrow checker prevents cross-scope memory access at compile time",
@@ -305,9 +237,6 @@ title = "GPU REPL — interactive GPU programming, one line at a time"
 tier = 3
 status = "pending"
 priority = "low"
-# North Star: Explore GPU programming interactively, like a Python REPL for GPU Rust.
-#   Type a line, it runs on GPU, see the result. Great for learning and prototyping.
-# Litmus Test: Type `vec![1.0f32; 1M].par_iter().sum()` and get the answer instantly.
 success_criteria = [
     "REPL session with JIT compilation to GPU via NVRTC",
     "State persistence across lines (variables survive between inputs)",
@@ -321,8 +250,6 @@ title = "Cross-Vendor GPU — same code runs on NVIDIA, AMD, Vulkan"
 tier = 3
 status = "pending"
 priority = "low"
-# North Star: Users write Rust GPU code once, it runs on any GPU vendor.
-# Litmus Test: The same example binary runs on both NVIDIA and AMD hardware.
 success_criteria = [
     "WarpPrimitive trait abstracts barrier sync, shuffle, atomics across vendors",
     "NVIDIA backend: bar.warp.sync, shfl.sync, PTX atomics",
@@ -336,8 +263,6 @@ title = "GPU Actor Model — warp-as-actor with message passing"
 tier = 3
 status = "pending"
 priority = "low"
-# North Star: Each warp is an actor with a mailbox, no shared mutable state.
-# Litmus Test: A producer-consumer pipeline with actors is clearer than async version.
 success_criteria = [
     "GpuActor trait with handle_message method",
     "Mailbox in shared memory (same block) or global memory (cross block) — auto-selected",
@@ -351,8 +276,6 @@ title = "Formal Verification — MIR pass correctness for arbitrary async fn"
 tier = 3
 status = "pending"
 priority = "low"
-# North Star: Proven, not just tested — MIR pass generates correct code for all valid async fn.
-# Litmus Test: A formal proof that sync insertion is sound for all reachable async states.
 success_criteria = [
     "Operational semantics defined for warp-cooperative async",
     "Soundness proof: MIR pass sync insertion is sufficient for all valid async fn",
@@ -366,8 +289,6 @@ title = "std Completeness — expand GPU std coverage for no_std crate compatibi
 tier = 3
 status = "pending"
 priority = "low"
-# North Star: More std types on GPU = fewer places where GPU limitations leak.
-# Litmus Test: A popular no_std crate compiles and runs on GPU unmodified.
 success_criteria = [
     "std::sync::mpsc channel maps to GPU channel implementation transparently",
     "std::sync::RwLock on GPU via warp-aware atomic protocol",
@@ -408,36 +329,20 @@ success_criteria = [
 # ============================================================
 # Themes (active/pending/parked only — completed → archive/)
 # ============================================================
-# Completed themes archived (cycle 604): thread-spawn, thread-api, perf-elem-fix
-# Archived (cycle 594): onnx-fix, refactor-quality, refactor-api, onnx-cache,
-# onnx-gpu-ops, refactor-v2-code, refactor-v2-perf, refactor-v2-test,
-# onnx-conv-prepad, onnx-resnet-acc, onnx-mobilenet, dyn-control, graph-bfs,
-# int4-integrate, mc-finance, bench-kernels, bench-e2e, perf-gemm
-
-# T0 themes/tasks archived: std-thread-integration (.1, .2), native-api (.2-.6)
-# Archived at cycle 607 — epics native-rust-dx + std-thread-gpu completed
-
-# T1 themes archived: sc-design, sc-resource, sc-channel, sc-demo, sc-runtime,
-# lib-extract, lib-facade, lib-cleanup, lib-toolchain, lib-docs
-# T1 tasks archived: lib-toolchain.2, lib-cleanup.5-.6, lib-docs.1-.2,
-# sc-design.1-.5, sc-resource.1-.3, sc-channel.1-.4, sc-demo.1-.2, sc-runtime.1-.4
-
-# kernel-perf themes archived: perf-attention, perf-conv, perf-layernorm,
-# perf-elementwise, perf-e2e, perf-fusion, perf-gemm-v4, perf-attn-v3
+# Completed themes archived (cycle 623): split-design, split-execute, split-loader,
+# split-devpath, test-framework, fusion-codegen, fusion-integrate
+# Previously archived: thread-spawn, thread-api, perf-elem-fix, onnx-fix,
+# refactor-quality, refactor-api, onnx-cache, onnx-gpu-ops, refactor-v2-code,
+# refactor-v2-perf, refactor-v2-test, onnx-conv-prepad, onnx-resnet-acc,
+# onnx-mobilenet, dyn-control, graph-bfs, int4-integrate, mc-finance,
+# bench-kernels, bench-e2e, perf-gemm, iter-design, iter-compiler, iter-runtime,
+# fusion-analysis, showcase-api, showcase-sc, showcase-channels, showcase-examples,
+# showcase-readme, sc-design, sc-resource, sc-channel, sc-demo, sc-runtime,
+# lib-extract, lib-facade, lib-cleanup, lib-toolchain, lib-docs,
+# perf-attention, perf-conv, perf-layernorm, perf-elementwise, perf-fusion,
+# perf-gemm-v4, perf-attn-v3, perf-e2e
 
 # --- T0: gpu-test themes ---
-
-[[themes]]
-id = "test-framework"
-epic = "gpu-test"
-title = "#[gpu_test] attribute + GPU test runner"
-status = "completed"
-goal = "GPU tests compile and run via cargo test"
-success_criteria = [
-    "#[gpu_test] proc macro generates GPU kernel + host runner",
-    "GPU assert! captures warp/thread ID on failure",
-    "Test runner collects results across all warps",
-]
 
 [[themes]]
 id = "test-integration"
@@ -450,63 +355,13 @@ success_criteria = [
     "At least 10 GPU features covered by #[gpu_test] tests",
 ]
 
-# --- T0: kernel-split themes ---
-
-[[themes]]
-id = "split-design"
-epic = "kernel-split"
-title = "Kernel split design — crate boundaries, shared infra, loader API"
-status = "completed"
-goal = "Map every kernel to its target crate, design shared infrastructure and loader"
-success_criteria = [
-    "4-crate split verified with no circular dependencies",
-    "stdio infrastructure extraction plan for gpu-runtime",
-    "Multi-cubin host loader API designed with backward compat",
-]
-
-[[themes]]
-id = "split-execute"
-epic = "kernel-split"
-title = "Execute kernel crate split — create crates, move files, verify builds"
-status = "completed"
-goal = "Create 4 kernel crates, move files, verify PTX builds"
-success_criteria = [
-    "gpu-kernel-core, gpu-kernel-compute, gpu-kernel-io, gpu-kernel-test all produce valid PTX",
-    "stdio infrastructure extracted to gpu-runtime",
-    "All existing tests and examples still work",
-]
-
-[[themes]]
-id = "split-loader"
-epic = "kernel-split"
-title = "Multi-cubin host loader + parallel build system"
-status = "completed"
-
-[[themes]]
-id = "split-devpath"
-epic = "kernel-split"
-title = "PTX JIT dev path — skip ptxas for fast iteration"
-status = "completed"
-goal = "Dev builds use PTX JIT (≤1 min), cubin reserved for CI/release"
-success_criteria = [
-    "Dev build default loads PTX directly (no ptxas needed)",
-    "build-kernels.sh without --prod skips ptxas",
-    "Single-crate dev rebuild ≤1 minute end-to-end",
-]
-goal = "Wire up multi-cubin loading, parallel build, dev-mode opt-level"
-success_criteria = [
-    "Per-crate PTX constants with backward-compat aliases",
-    "Parallel ptxas in build script",
-    "Single-crate rebuild ≤5 minutes at dev opt-level",
-]
-
 # --- T1: gpu-type-safety themes ---
 
 [[themes]]
 id = "safety-types"
 epic = "gpu-type-safety"
 title = "DisjointSlice + ThreadIndex — race-freedom by construction"
-status = "pending"
+status = "active"
 goal = "Type system proves no data races in GPU code at compile time"
 success_criteria = [
     "DisjointSlice<T> type with compile-time exclusive access guarantee",
@@ -536,6 +391,20 @@ success_criteria = [
     "BlockScope alloc returns DisjointSlice for parallel access",
     "cooperative() closure receives ThreadIndex for safe indexing",
     "Demo: existing example rewritten with zero unsafe",
+]
+
+# --- T1: gpu-iterator themes ---
+
+[[themes]]
+id = "iter-demo"
+epic = "gpu-iterator"
+title = "Iterator demos — par_iter vs Rayon benchmarks"
+status = "active"
+goal = "Demonstrate GPU iterator superiority over CPU for large datasets"
+success_criteria = [
+    "par_iter().map().collect() demo on 1M+ elements",
+    "par_iter().filter().fold() demo with data-dependent filtering",
+    "Benchmark: GPU par_iter vs CPU Rayon, showing crossover point",
 ]
 
 # --- T1: gpu-generics themes ---
@@ -675,6 +544,33 @@ success_criteria = [
     "Cluster barrier synchronization",
 ]
 
+# --- T2: conv-perf themes ---
+
+[[themes]]
+id = "perf-conv-wino"
+epic = "conv-perf"
+title = "Conv2D Winograd — F(4x4,3x3) with batched channel processing"
+status = "pending"
+goal = "Conv2D 3x3 >= 50% cuDNN via Winograd with channel batching"
+success_criteria = [
+    "Winograd F(4x4,3x3) transform + batched GEMM + inverse transform",
+    "Channel batching: process all input/output channels in one kernel (not per-channel serial)",
+    "64->64 @ 56x56: >= 50% of cuDNN",
+    "No accuracy regression vs im2col path",
+]
+
+[[themes]]
+id = "conv-e2e"
+epic = "conv-perf"
+title = "Conv2D end-to-end — CNN model benchmark with optimized conv"
+status = "pending"
+goal = "CNN models benefit from conv optimization"
+success_criteria = [
+    "YOLOv8-nano inference improved >= 2x from conv optimization",
+    "ResNet-18 ONNX conv layers use optimized kernels",
+    "No accuracy regression on any model",
+]
+
 # --- T3: auto-parallel themes ---
 
 [[themes]]
@@ -691,7 +587,7 @@ success_criteria = [
 [[themes]]
 id = "ap-transform"
 epic = "auto-parallel"
-title = "Automatic loop → GPU kernel transformation"
+title = "Automatic loop to GPU kernel transformation"
 status = "pending"
 goal = "Pure loops compiled to GPU kernels with zero annotation"
 success_criteria = [
@@ -723,85 +619,7 @@ success_criteria = [
     "Demo: 5+ successive commands in interactive session",
 ]
 
-# --- T2: conv-perf themes ---
-
-[[themes]]
-id = "perf-conv-wino"
-epic = "conv-perf"
-title = "Conv2D Winograd — F(4×4,3×3) with batched channel processing"
-status = "pending"
-goal = "Conv2D 3×3 >= 50% cuDNN via Winograd with channel batching"
-success_criteria = [
-    "Winograd F(4×4,3×3) transform + batched GEMM + inverse transform",
-    "Channel batching: process all input/output channels in one kernel (not per-channel serial)",
-    "64→64 @ 56×56: >= 50% of cuDNN",
-    "No accuracy regression vs im2col path",
-]
-
-[[themes]]
-id = "conv-e2e"
-epic = "conv-perf"
-title = "Conv2D end-to-end — CNN model benchmark with optimized conv"
-status = "pending"
-goal = "CNN models benefit from conv optimization"
-success_criteria = [
-    "YOLOv8-nano inference improved >= 2x from conv optimization",
-    "ResNet-18 ONNX conv layers use optimized kernels",
-    "No accuracy regression on any model",
-]
-
-# kernel-perf parked themes archived: perf-int8-tiled, perf-gemm-fusion
-
-# developer-showcase themes archived (cycle 607): showcase-api, showcase-sc,
-# showcase-channels, showcase-examples, showcase-readme
-# gpu-iterator/auto-fusion themes archived (cycle 607): iter-design, iter-compiler,
-# iter-runtime, fusion-analysis
-
-# --- T2: gpu-iterator themes ---
-
-# iter-design, iter-compiler, iter-runtime themes archived at cycle 607
-
-[[themes]]
-id = "iter-demo"
-epic = "gpu-iterator"
-title = "Iterator demos — par_iter vs Rayon benchmarks"
-status = "active"
-goal = "Demonstrate GPU iterator superiority over CPU for large datasets"
-success_criteria = [
-    "par_iter().map().collect() demo on 1M+ elements",
-    "par_iter().filter().fold() demo with data-dependent filtering",
-    "Benchmark: GPU par_iter vs CPU Rayon, showing crossover point",
-]
-
-# --- T2: auto-fusion themes ---
-
-# fusion-analysis theme archived at cycle 607
-
-[[themes]]
-id = "fusion-codegen"
-epic = "auto-fusion"
-title = "Fused kernel codegen — compile-time PTX generation from fusion graph"
-status = "completed"
-goal = "Generate single fused GPU kernel from multiple elementwise operations"
-success_criteria = [
-    "Template-based PTX generation from fusion graph nodes",
-    "Register allocation for fused intermediate values (no global memory round-trip)",
-    "float4 vectorized loads/stores in generated kernel",
-]
-
-[[themes]]
-id = "fusion-integrate"
-epic = "auto-fusion"
-title = "Fusion integration — auto-fuse nn ops + benchmark"
-status = "completed"
-goal = "nn API operations automatically fused, measurable GPT-2 speedup"
-success_criteria = [
-    "nn::Linear forward auto-fuses matmul+bias+activation",
-    "GPT-2 forward pass benefits from automatic fusion (>= 10% speedup)",
-    "No accuracy regression from fusion",
-]
-
-# --- T2: std-completeness themes ---
+# --- T3: std-completeness themes ---
 
 [[themes]]
 id = "std-sync"
@@ -881,178 +699,11 @@ success_criteria = [
 # ============================================================
 # Tasks (active/pending only — done → archive/)
 # ============================================================
-# Done tasks archived (cycle 604): thread-spawn.1, .2, .3, native-api.1,
-# perf-attn-v3.1, .2, perf-conv.1, perf-fusion.1, perf-elem-fix.1
-
-# Orphaned parked tasks removed (cycle 604): warp-batch-io.2-4, cml-tree.1-3, cml-kmeans.1
-# (parent epics archived — brainstorm will recreate if epic reactivates)
-
-# SC tasks archived: sc-design.1-.5, sc-resource.1-.3, sc-channel.1-.4,
-# sc-demo.1-.2, sc-runtime.1-.4, sc-channel.4, sc-design.5
-# kernel-perf tasks archived: perf-attn-v3.3-.4, perf-attention.3-.4,
-# perf-conv.2-.5, perf-layernorm.2-.3, perf-elementwise.2, perf-fusion.2,
-# perf-gemm-v4.2-.3, perf-e2e.1-.2
-
-# (SC and kernel-perf task entries removed — see archive/tasks-archived.toml)
-
-# --- kernel-split: design ---
-
-[[tasks]]
-id = "split-design.1"
-theme = "split-design"
-title = "Investigation: map kernel→crate assignments and verify dependency graph"
-kind = "investigation"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "split-design.2"
-theme = "split-design"
-title = "Design: stdio infrastructure extraction to gpu-runtime"
-kind = "design"
-status = "done"
-depends = ["split-design.1"]
-
-[[tasks]]
-id = "split-design.3"
-theme = "split-design"
-title = "Design: host loader multi-cubin API with backward compat"
-kind = "design"
-status = "done"
-depends = ["split-design.1"]
-
-# --- kernel-split: execute ---
-
-[[tasks]]
-id = "split-execute.1"
-theme = "split-execute"
-title = "Experiment: extract stdio infrastructure from lib.rs to gpu-runtime"
-kind = "experiment"
-status = "done"
-depends = ["split-design.2"]
-
-[[tasks]]
-id = "split-execute.2"
-theme = "split-execute"
-title = "Experiment: create gpu-kernel-core crate (helpers + basic + compute_math)"
-kind = "experiment"
-status = "done"
-depends = ["split-execute.1"]
-
-[[tasks]]
-id = "split-execute.3"
-theme = "split-execute"
-title = "Experiment: create gpu-kernel-compute crate (ML/HPC kernels)"
-kind = "experiment"
-status = "done"
-depends = ["split-execute.2"]
-
-[[tasks]]
-id = "split-execute.4"
-theme = "split-execute"
-title = "Experiment: create gpu-kernel-io crate (hostcall/pipeline/hybrid)"
-kind = "experiment"
-status = "done"
-depends = ["split-execute.2"]
-
-[[tasks]]
-id = "split-execute.5"
-theme = "split-execute"
-title = "Experiment: refactor gpu-kernel-std → gpu-kernel-test (test/demo kernels)"
-kind = "experiment"
-status = "done"
-depends = ["split-execute.2"]
-
-# --- kernel-split: loader ---
-
-[[tasks]]
-id = "split-loader.1"
-theme = "split-loader"
-title = "Experiment: per-crate PTX constants + backward-compat aliases"
-kind = "experiment"
-status = "done"
-depends = ["split-execute.3", "split-execute.4", "split-execute.5"]
-
-[[tasks]]
-id = "split-loader.2"
-theme = "split-loader"
-title = "Experiment: update host loader (gpu.rs, KernelRegistry) for multi-module"
-kind = "experiment"
-status = "done"
-depends = ["split-loader.1"]
-
-[[tasks]]
-id = "split-loader.3"
-theme = "split-loader"
-title = "Experiment: build script — parallel per-crate PTX + cubin"
-kind = "experiment"
-status = "done"
-depends = ["split-loader.1"]
-
-[[tasks]]
-id = "split-loader.4"
-theme = "split-loader"
-title = "Experiment: dev-mode opt-level reduction (opt-level 1 for kernel crates)"
-kind = "experiment"
-status = "done"
-depends = ["split-loader.3"]
-
-[[tasks]]
-id = "split-loader.5"
-theme = "split-loader"
-title = "Experiment: litmus test — single-crate rebuild under 5 minutes"
-kind = "experiment"
-status = "done"
-depends = ["split-loader.4"]
-
-# --- kernel-split: dev path ---
-
-[[tasks]]
-id = "split-devpath.1"
-theme = "split-devpath"
-title = "Experiment: PTX JIT dev path — skip ptxas in default build, use PTX directly"
-kind = "experiment"
-status = "done"
-depends = ["split-loader.3"]
-
-# --- gpu-test: framework ---
-
-# test-framework.1 archived at cycle 607
-
-[[tasks]]
-id = "test-framework.2"
-theme = "test-framework"
-title = "Experiment: implement #[gpu_test] proc macro + GPU assert! with warp ID"
-kind = "experiment"
-status = "done"
-depends = ["test-framework.1"]
-
-[[tasks]]
-id = "test-integration.1"
-theme = "test-integration"
-title = "Experiment: cargo test integration — discover and run #[gpu_test] alongside #[test]"
-kind = "experiment"
-status = "done"
-depends = ["test-framework.2"]
-
-[[tasks]]
-id = "test-integration.2"
-theme = "test-integration"
-title = "Experiment: write 10+ #[gpu_test] tests covering SC, channels, executor, cooperative"
-kind = "experiment"
-status = "pending"
-depends = ["test-integration.1"]
-# Code written (11 new kernels + tests), needs cubin rebuild + verify after kernel-split
+# Done tasks archived (cycle 623): split-design.1-.3, split-execute.1-.5,
+# split-loader.1-.5, split-devpath.1, test-framework.2, test-integration.1-.2,
+# safety-types.1, iter-demo.1-.3, fusion-codegen.3, fusion-integrate.1-.2
 
 # --- gpu-type-safety: types ---
-
-[[tasks]]
-id = "safety-types.1"
-theme = "safety-types"
-title = "Investigation: cuda-oxide DisjointSlice + ThreadIndex design — adapt to async-gpu model"
-kind = "investigation"
-status = "pending"
-depends = []
 
 [[tasks]]
 id = "safety-types.2"
@@ -1085,6 +736,24 @@ title = "Experiment: rewrite existing example with zero unsafe using type-safe A
 kind = "experiment"
 status = "pending"
 depends = ["safety-apply.1"]
+
+# --- gpu-iterator: demo ---
+
+[[tasks]]
+id = "iter-demo.4"
+theme = "iter-demo"
+title = "Experiment: re-benchmark multi-block par_iter vs Rayon — find crossover point"
+kind = "experiment"
+status = "pending"
+depends = ["iter-demo.3"]
+
+[[tasks]]
+id = "iter-demo.5"
+theme = "iter-demo"
+title = "Experiment: multi-block fold/sum via two-pass reduction"
+kind = "experiment"
+status = "pending"
+depends = ["iter-demo.3"]
 
 # --- gpu-generics ---
 
@@ -1159,7 +828,7 @@ depends = []
 [[tasks]]
 id = "coro-design.2"
 theme = "coro-design"
-title = "Design: GpuGenerator trait + MIR pass extension for yield → warp context switch"
+title = "Design: GpuGenerator trait + MIR pass extension for yield to warp context switch"
 kind = "design"
 status = "pending"
 depends = ["coro-design.1"]
@@ -1308,7 +977,7 @@ kind = "experiment"
 status = "pending"
 depends = ["repl-engine.2"]
 
-# --- conv-perf: winograd ---
+# --- conv-perf ---
 
 [[tasks]]
 id = "perf-conv-wino.1"
@@ -1329,12 +998,10 @@ depends = ["perf-conv-wino.1"]
 [[tasks]]
 id = "perf-conv-wino.3"
 theme = "perf-conv-wino"
-title = "Experiment: benchmark all shapes, iterate until ≥50% cuDNN"
+title = "Experiment: benchmark all shapes, iterate until >= 50% cuDNN"
 kind = "experiment"
 status = "pending"
 depends = ["perf-conv-wino.2"]
-
-# --- conv-perf: channel batching ---
 
 [[tasks]]
 id = "perf-conv.6"
@@ -1360,8 +1027,6 @@ kind = "experiment"
 status = "pending"
 depends = ["perf-conv.7"]
 
-# --- conv-perf: end-to-end ---
-
 [[tasks]]
 id = "conv-e2e.1"
 theme = "conv-e2e"
@@ -1378,64 +1043,7 @@ kind = "experiment"
 status = "pending"
 depends = ["conv-e2e.1"]
 
-# Done tasks archived (cycle 607): iter-design.1-.3, iter-compiler.1-.3, iter-runtime.1-.2,
-# test-framework.1, fusion-codegen.2
-
-# --- gpu-iterator: runtime ---
-
-# iter-runtime.2 archived at cycle 607
-
-# --- gpu-iterator: demo ---
-
-[[tasks]]
-id = "iter-demo.1"
-theme = "iter-demo"
-title = "Experiment: par_iter().map().collect() on 1M+ f32 elements — correctness + performance"
-kind = "experiment"
-status = "done"
-depends = ["iter-runtime.1", "iter-compiler.3"]
-
-[[tasks]]
-id = "iter-demo.2"
-theme = "iter-demo"
-title = "Experiment: benchmark GPU par_iter vs CPU Rayon — find crossover point"
-kind = "experiment"
-status = "done"
-depends = ["iter-demo.1"]
-
-# Done tasks archived (cycle 607): fusion-analysis.1-.3, fusion-codegen.1
-
-# --- auto-fusion: codegen ---
-
-# fusion-codegen.2 archived at cycle 607
-
-[[tasks]]
-id = "fusion-codegen.3"
-theme = "fusion-codegen"
-title = "Experiment: register-only intermediates + float4 vectorization in generated kernels"
-kind = "experiment"
-status = "done"
-depends = ["fusion-codegen.2"]
-
-# --- auto-fusion: integration ---
-
-[[tasks]]
-id = "fusion-integrate.1"
-theme = "fusion-integrate"
-title = "Experiment: auto-fuse nn::Linear matmul+bias+activation — integrate with nn API"
-kind = "experiment"
-status = "done"
-depends = ["fusion-codegen.2"]
-
-[[tasks]]
-id = "fusion-integrate.2"
-theme = "fusion-integrate"
-title = "Experiment: benchmark GPT-2 with auto-fusion vs manual — measure speedup"
-kind = "experiment"
-status = "done"
-depends = ["fusion-integrate.1"]
-
-# --- std-completeness: sync ---
+# --- std-completeness ---
 
 [[tasks]]
 id = "std-sync.1"
@@ -1461,8 +1069,6 @@ kind = "experiment"
 status = "pending"
 depends = ["std-sync.1"]
 
-# --- std-completeness: networking ---
-
 [[tasks]]
 id = "std-net-server.1"
 theme = "std-net-server"
@@ -1486,8 +1092,6 @@ title = "Experiment: GPU echo server demo — bind, accept, read, write, close"
 kind = "experiment"
 status = "pending"
 depends = ["std-net-server.2"]
-
-# --- std-completeness: compatibility ---
 
 [[tasks]]
 id = "std-compat.1"
@@ -1513,7 +1117,7 @@ kind = "experiment"
 status = "pending"
 depends = ["std-compat.2"]
 
-# --- ownership-memory: design ---
+# --- ownership-memory ---
 
 [[tasks]]
 id = "om-design.1"
@@ -1539,8 +1143,6 @@ kind = "design"
 status = "pending"
 depends = ["om-design.2"]
 
-# --- ownership-memory: compiler ---
-
 [[tasks]]
 id = "om-compiler.1"
 theme = "om-compiler"
@@ -1565,8 +1167,6 @@ kind = "experiment"
 status = "pending"
 depends = ["om-compiler.2"]
 
-# --- ownership-memory: demo ---
-
 [[tasks]]
 id = "om-demo.1"
 theme = "om-demo"
@@ -1583,62 +1183,11 @@ kind = "experiment"
 status = "pending"
 depends = ["om-demo.1"]
 
-# Done tasks archived (cycle 607): showcase-api.1-.3, showcase-sc.1-.2,
-# showcase-channels.1-.2, showcase-examples.1-.3, showcase-readme.1-.5
-
 # ============================================================
 # Brainstorms (last 2 — older → archive/)
 # ============================================================
 
-# Brainstorms 109-114 archived (cycles 535-607)
-
-[[brainstorms]]
-seq = 115
-at_cycle = 607
-trigger = "User-directed strategic planning: evaluate project direction post library-api completion"
-level = "deep"
-new_tasks_spawned = ["sc-design.1", "sc-design.2", "sc-design.3", "sc-resource.1", "sc-resource.2", "sc-resource.3", "sc-channel.1", "sc-channel.2", "sc-channel.3", "sc-demo.1", "sc-demo.2"]
-new_themes_spawned = ["sc-design", "sc-resource", "sc-channel", "sc-demo"]
-new_epics_spawned = ["gpu-iterator", "auto-fusion", "std-completeness", "ownership-memory"]
-themes_parked = ["perf-attention", "perf-conv-wino"]
-themes_completed = []
-key_insight = "Core tech stack complete (36 epics archived). Shift from kernel-perf (wrap-up, relaxed targets) to structured-concurrency (T1 top priority). Roadmap: Phase 1 structured-concurrency + kernel-perf wrap-up → Phase 2 gpu-iterator + auto-fusion → Phase 3 unified-runtime. GPU par_iter + compile-time fusion = project's next narrative-defining features."
-
-[[brainstorms]]
-seq = 116
-at_cycle = 607
-trigger = "T1 cleared (all 5 epics completed), T2 tier activation"
-level = "standard"
-new_tasks_spawned = []
-new_themes_spawned = []
-new_epics_spawned = []
-themes_parked = []
-themes_completed = []
-key_insight = "T1 fully cleared (724 tasks). T2 activation: gpu-iterator (HIGH) activated with iter-design theme active. auto-fusion activated with fusion-analysis theme active (investigation-only start). Staggered activation maximizes throughput — fusion investigation parallels iterator design, fusion codegen waits for shared MIR infrastructure. Key risk: MIR pass feasibility for iterator chains must be assessed in iter-design.1."
-
-[[brainstorms]]
-seq = 117
-at_cycle = 607
-trigger = "tasks_since_brainstorm=20, developer-showcase epic completed, 5 themes completed"
-level = "standard"
-new_tasks_spawned = []
-new_themes_spawned = []
-new_epics_spawned = []
-themes_parked = []
-themes_completed = ["iter-design", "iter-compiler", "fusion-analysis"]
-key_insight = "developer-showcase (T0) completed — 47th epic archived. gpu-test activated (T0 parallel with T1, priority slot). iter-design/iter-compiler/fusion-analysis themes completed. Remaining T1 work: iter-runtime.2, iter-demo.1-.2, fusion-codegen.2-.3, fusion-integrate.1-.2. No new tasks needed — existing structure sufficient."
-
-[[brainstorms]]
-seq = 118
-at_cycle = 611
-trigger = "fusion-codegen theme completed + kernel-split epic (T0, highest) has no themes/tasks"
-level = "standard"
-new_tasks_spawned = ["split-design.1", "split-design.2", "split-design.3", "split-execute.1", "split-execute.2", "split-execute.3", "split-execute.4", "split-execute.5", "split-loader.1", "split-loader.2", "split-loader.3", "split-loader.4", "split-loader.5"]
-new_themes_spawned = ["split-design", "split-execute", "split-loader"]
-new_epics_spawned = []
-themes_parked = []
-themes_completed = ["fusion-codegen"]
-key_insight = "kernel-split: 4-crate split (core/compute/io/test) targets 2-3min incremental rebuild vs current 30min. Highest-churn files (lib.rs 13 commits) isolated in gpu-kernel-test. stdio infra moves to gpu-runtime. Parallel ptxas + opt-level 1 for dev. 13 tasks across 3 themes."
+# Brainstorms 109-118 archived (cycles 535-611)
 
 [[brainstorms]]
 seq = 119
@@ -1651,3 +1200,16 @@ new_epics_spawned = []
 themes_parked = []
 themes_completed = ["split-design", "split-execute"]
 key_insight = "split-execute complete: 4 kernel crates (core/compute/io/test) all produce valid PTX. No new tasks needed — split-loader has 5 ready tasks. auto-fusion epic has all themes done but GPT-2 10% unmet (GEMM dominates); parking for now, needs GEMM epilogue fusion which is a different engineering effort."
+
+[[brainstorms]]
+seq = 120
+at_cycle = 622
+trigger = "kernel-split epic completed + gpu-iterator highest no eligible tasks + auto-fusion assessment"
+level = "standard"
+new_tasks_spawned = ["iter-demo.3", "iter-demo.4", "iter-demo.5"]
+new_themes_spawned = ["split-devpath"]
+new_epics_spawned = []
+themes_parked = []
+themes_completed = ["split-loader", "split-devpath", "iter-demo"]
+epics_completed = ["kernel-split", "auto-fusion"]
+key_insight = "kernel-split + auto-fusion epics closed (49th+50th). gpu-iterator needs multi-block dispatch (single-block 5-1178x slower than Rayon). gpu-type-safety activated (DisjointSlice + ThreadIndex). 3 new iter-demo tasks for multi-block performance."

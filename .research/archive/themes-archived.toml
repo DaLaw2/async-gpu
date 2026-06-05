@@ -1315,3 +1315,89 @@ success_criteria = [
     "Handles cross-function boundaries (inlined closures, trait method calls)",
     "Fusion graph built with data flow dependencies",
 ]
+
+# Archived at cycle 623 — kernel-split + gpu-test + auto-fusion themes
+
+[[themes]]
+id = "split-design"
+epic = "kernel-split"
+title = "Kernel split design — crate boundaries, shared infra, loader API"
+status = "completed"
+goal = "Map every kernel to its target crate, design shared infrastructure and loader"
+success_criteria = [
+    "4-crate split verified with no circular dependencies",
+    "stdio infrastructure extraction plan for gpu-runtime",
+    "Multi-cubin host loader API designed with backward compat",
+]
+
+[[themes]]
+id = "split-execute"
+epic = "kernel-split"
+title = "Execute kernel crate split — create crates, move files, verify builds"
+status = "completed"
+goal = "Create 4 kernel crates, move files, verify PTX builds"
+success_criteria = [
+    "gpu-kernel-core, gpu-kernel-compute, gpu-kernel-io, gpu-kernel-test all produce valid PTX",
+    "stdio infrastructure extracted to gpu-runtime",
+    "All existing tests and examples still work",
+]
+
+[[themes]]
+id = "split-loader"
+epic = "kernel-split"
+title = "Multi-cubin host loader + parallel build system"
+status = "completed"
+goal = "Wire up multi-cubin loading, parallel build, dev-mode opt-level"
+success_criteria = [
+    "Per-crate PTX constants with backward-compat aliases",
+    "Parallel ptxas in build script",
+    "Single-crate rebuild ≤5 minutes at dev opt-level",
+]
+
+[[themes]]
+id = "split-devpath"
+epic = "kernel-split"
+title = "PTX JIT dev path — skip ptxas for fast iteration"
+status = "completed"
+goal = "Dev builds use PTX JIT (≤1 min), cubin reserved for CI/release"
+success_criteria = [
+    "Dev build default loads PTX directly (no ptxas needed)",
+    "build-kernels.sh without --prod skips ptxas",
+    "Single-crate dev rebuild ≤1 minute end-to-end",
+]
+
+[[themes]]
+id = "test-framework"
+epic = "gpu-test"
+title = "#[gpu_test] attribute + GPU test runner"
+status = "completed"
+goal = "GPU tests compile and run via cargo test"
+success_criteria = [
+    "#[gpu_test] proc macro generates GPU kernel + host runner",
+    "GPU assert! captures warp/thread ID on failure",
+    "Test runner collects results across all warps",
+]
+
+[[themes]]
+id = "fusion-codegen"
+epic = "auto-fusion"
+title = "Fused kernel codegen — compile-time PTX generation from fusion graph"
+status = "completed"
+goal = "Generate single fused GPU kernel from multiple elementwise operations"
+success_criteria = [
+    "Template-based PTX generation from fusion graph nodes",
+    "Register allocation for fused intermediate values (no global memory round-trip)",
+    "float4 vectorized loads/stores in generated kernel",
+]
+
+[[themes]]
+id = "fusion-integrate"
+epic = "auto-fusion"
+title = "Fusion integration — auto-fuse nn ops + benchmark"
+status = "completed"
+goal = "nn API operations automatically fused, measurable GPT-2 speedup"
+success_criteria = [
+    "nn::Linear forward auto-fuses matmul+bias+activation",
+    "GPT-2 forward pass benefits from automatic fusion (>= 10% speedup)",
+    "No accuracy regression from fusion",
+]

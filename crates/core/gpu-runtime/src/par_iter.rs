@@ -470,7 +470,10 @@ impl<T: Copy + Send + Sync + 'static> GpuParallelIterator for GpuParIter<T> {
     }
 
     unsafe fn get_unchecked(&self, i: usize) -> T {
-        core::ptr::read_volatile(self.ptr.add(i))
+        // Cached load: core::ptr::read() compiles to ld.global (not ld.volatile.global),
+        // allowing L1/L2 caching and coalesced access patterns. Input data is read-only
+        // within a kernel launch so volatile semantics are not needed.
+        core::ptr::read(self.ptr.add(i))
     }
 }
 
@@ -1210,7 +1213,11 @@ where
             while i < len {
                 let elem = unsafe { iter.get_unchecked(i) };
                 unsafe {
-                    core::ptr::write_volatile(out_ptr.as_mut_ptr().add(i), elem);
+                    // Cached store: core::ptr::write() compiles to st.global
+                    // (not st.volatile.global), enabling write coalescing.
+                    // Each warp writes to distinct indices (warp-striped), so
+                    // no write conflicts occur.
+                    core::ptr::write(out_ptr.as_mut_ptr().add(i), elem);
                 }
                 i += n_warps as usize;
             }

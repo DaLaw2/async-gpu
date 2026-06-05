@@ -430,6 +430,10 @@ fn main() -> Result<()> {
                 tests_par_iter::run_par_iter_rayon_benchmark(Arc::clone(&dev))?;
                 return Ok(());
             }
+            "par_iter_multiblock" | "par_iter_mb" => {
+                tests_par_iter::run_multiblock_benchmark(Arc::clone(&dev))?;
+                return Ok(());
+            }
             "kernel_std_smoke" => {
                 run_kernel_std_smoke(Arc::clone(&dev))?;
                 return Ok(());

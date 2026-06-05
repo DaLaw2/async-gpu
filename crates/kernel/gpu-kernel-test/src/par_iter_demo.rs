@@ -509,3 +509,53 @@ pub unsafe extern "gpu-kernel" fn par_iter_triple_map_sum(
         }
     });
 }
+
+// ============================================================
+// Demo 10: Multi-block map + collect (grid-stride loop)
+// ============================================================
+//
+// Same operation as Demo 1 (f(x) = x * 2.0 + 1.0), but uses
+// multi-block dispatch with a grid-stride loop instead of the
+// single-block warp-pool pattern.
+//
+// Key differences from Demo 1:
+// - No gpu_main / block_scope / spawn_all overhead
+// - Each thread handles elements directly via grid-stride loop
+// - Uses core::ptr::read() (cached, L1/L2) instead of read_volatile
+// - Uses core::ptr::write() (cached) instead of write_volatile
+// - Launches with grid_dim = ceil(N / block_size) blocks
+//
+// Expected: output[i] = input[i] * 2.0 + 1.0
+//
+// # Arguments
+// * `input`  - N f32 input values
+// * `output` - N f32 output values (pre-allocated)
+// * `n`      - number of elements
+//
+// # Launch config
+// * Grid: (ceil(N / block_size), 1, 1) — multiple blocks
+// * Block: (256, 1, 1) — 256 threads per block
+// * Shared memory: 0 bytes (no shared memory needed)
+
+/// Multi-block par_iter: map(|x| x * 2.0 + 1.0).collect_into() with cached loads
+#[no_mangle]
+pub unsafe extern "gpu-kernel" fn par_iter_map_collect_multiblock(
+    input: *const f32,
+    output: *mut f32,
+    n: u32,
+) {
+    let tid = gpu_runtime::index::global_thread_idx();
+    let stride = gpu_runtime::index::global_thread_count();
+    let len = n as usize;
+
+    let mut i = tid as usize;
+    while i < len {
+        // Cached load: core::ptr::read() compiles to ld.global (not ld.volatile.global)
+        // This allows L1/L2 caching and coalesced access patterns.
+        let x = unsafe { core::ptr::read(input.add(i)) };
+        let y = x * 2.0 + 1.0;
+        // Cached store: core::ptr::write() compiles to st.global (not st.volatile.global)
+        unsafe { core::ptr::write(output.add(i), y) };
+        i += stride as usize;
+    }
+}

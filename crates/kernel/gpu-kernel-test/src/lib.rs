@@ -1083,3 +1083,528 @@ pub unsafe extern "gpu-kernel" fn test_gpu_thread_spawn() {
         println!("[gpu_test] test_gpu_thread_spawn PASSED");
     });
 }
+
+/// GPU test: Box allocation and dereference.
+///
+/// Zero-param entry. Allocates Box<u32> and Box<[u32; 4]> on the GPU heap,
+/// verifies values through dereference, and tests that Drop runs correctly.
+///
+/// Launch with: block_dim=(128,1,1), 1 block, NO kernel args.
+#[unsafe(no_mangle)]
+pub unsafe extern "gpu-kernel" fn test_gpu_box_alloc() {
+    let buf = stdio_auto_init();
+    if buf.is_null() {
+        return;
+    }
+
+    gpu_runtime::thread::gpu_main_poll(|| {
+        // Box a single value
+        let b = Box::new(42u32);
+        assert_eq!(*b, 42, "Box<u32> should deref to 42");
+
+        // Box an array
+        let arr = Box::new([10u32, 20, 30, 40]);
+        assert_eq!(arr[0], 10, "arr[0] should be 10");
+        assert_eq!(arr[3], 40, "arr[3] should be 40");
+        let sum: u32 = arr.iter().sum();
+        assert_eq!(sum, 100, "sum of boxed array should be 100");
+
+        // Box a computed value
+        let c = Box::new(*b + arr[2]);
+        assert_eq!(*c, 72, "42 + 30 should be 72");
+
+        println!("[gpu_test] test_gpu_box_alloc PASSED");
+    });
+}
+
+/// GPU test: String creation and operations.
+///
+/// Zero-param entry. Tests String::from, push_str, len, and format!.
+///
+/// Launch with: block_dim=(128,1,1), 1 block, NO kernel args.
+#[unsafe(no_mangle)]
+pub unsafe extern "gpu-kernel" fn test_gpu_string_ops() {
+    let buf = stdio_auto_init();
+    if buf.is_null() {
+        return;
+    }
+
+    gpu_runtime::thread::gpu_main_poll(|| {
+        // String creation
+        let s = String::from("hello");
+        assert_eq!(s.len(), 5, "String len should be 5");
+
+        // String concatenation
+        let mut s2 = String::from("GPU ");
+        s2.push_str("rocks");
+        assert_eq!(s2.len(), 9, "concatenated len should be 9");
+        assert_eq!(s2.as_str(), "GPU rocks", "concatenated string mismatch");
+
+        // format! macro
+        let s3 = format!("{} {}", 2 + 3, "test");
+        assert_eq!(s3, "5 test", "format! should produce '5 test'");
+
+        // String contains
+        assert!(s2.contains("rock"), "should contain 'rock'");
+        assert!(!s2.contains("CPU"), "should not contain 'CPU'");
+
+        println!("[gpu_test] test_gpu_string_ops PASSED");
+    });
+}
+
+/// GPU test: HashMap insert, get, contains, iteration.
+///
+/// Zero-param entry. Tests std::collections::HashMap on GPU.
+///
+/// Launch with: block_dim=(128,1,1), 1 block, NO kernel args.
+#[unsafe(no_mangle)]
+pub unsafe extern "gpu-kernel" fn test_gpu_hashmap() {
+    let buf = stdio_auto_init();
+    if buf.is_null() {
+        return;
+    }
+
+    gpu_runtime::thread::gpu_main_poll(|| {
+        use std::collections::HashMap;
+
+        let mut map = HashMap::new();
+        for i in 0..5u32 {
+            map.insert(i, i * i);
+        }
+
+        assert_eq!(map.len(), 5, "HashMap should have 5 entries");
+        assert_eq!(*map.get(&0).unwrap(), 0, "map[0] should be 0");
+        assert_eq!(*map.get(&3).unwrap(), 9, "map[3] should be 9");
+        assert_eq!(*map.get(&4).unwrap(), 16, "map[4] should be 16");
+
+        assert!(map.contains_key(&2), "should contain key 2");
+        assert!(!map.contains_key(&99), "should not contain key 99");
+
+        // Iterate and sum values: 0 + 1 + 4 + 9 + 16 = 30
+        let sum: u32 = map.values().sum();
+        assert_eq!(sum, 30, "sum of squares 0..5 should be 30");
+
+        // Remove and verify
+        map.remove(&2);
+        assert_eq!(map.len(), 4, "after remove, len should be 4");
+        assert!(!map.contains_key(&2), "key 2 should be gone");
+
+        println!("[gpu_test] test_gpu_hashmap PASSED");
+    });
+}
+
+/// GPU test: thread spawn with computed data passing.
+///
+/// Zero-param entry. Spawns threads that do real computation and
+/// pass results back through the closure return value.
+///
+/// Launch with: block_dim=(128,1,1), 1 block, NO kernel args.
+#[unsafe(no_mangle)]
+pub unsafe extern "gpu-kernel" fn test_gpu_thread_data_passing() {
+    let buf = stdio_auto_init();
+    if buf.is_null() {
+        return;
+    }
+
+    gpu_runtime::thread::gpu_main_poll(|| {
+        // Spawn a thread that sums 1..=100
+        let h1 = gpu_runtime::thread::spawn(|| -> u64 {
+            let mut sum = 0u64;
+            for i in 1..=100u64 {
+                sum += i;
+            }
+            sum
+        });
+
+        // Spawn a thread that computes factorial(10)
+        let h2 = gpu_runtime::thread::spawn(|| -> u64 {
+            let mut fact = 1u64;
+            for i in 1..=10u64 {
+                fact *= i;
+            }
+            fact
+        });
+
+        let sum = h1.join();
+        let fact = h2.join();
+
+        assert_eq!(sum, 5050, "sum of 1..=100 should be 5050");
+        assert_eq!(fact, 3628800, "10! should be 3628800");
+
+        println!("[gpu_test] test_gpu_thread_data_passing PASSED");
+    });
+}
+
+/// GPU test: thread reuse (spawn more tasks than available warps).
+///
+/// Zero-param entry. With 4 warps (128 threads), 3 are available for spawning.
+/// Spawning 6 tasks sequentially forces warp reuse.
+///
+/// Launch with: block_dim=(128,1,1), 1 block, NO kernel args.
+#[unsafe(no_mangle)]
+pub unsafe extern "gpu-kernel" fn test_gpu_thread_reuse() {
+    let buf = stdio_auto_init();
+    if buf.is_null() {
+        return;
+    }
+
+    gpu_runtime::thread::gpu_main_poll(|| {
+        let mut total = 0u32;
+
+        // Spawn 6 tasks sequentially on 3 available warps.
+        // At least 3 warps must be reused.
+        for i in 0..6u32 {
+            let h = gpu_runtime::thread::spawn(move || -> u32 { (i + 1) * 10 });
+            let r = h.join();
+            assert_eq!(r, (i + 1) * 10, "task result mismatch");
+            total += r;
+        }
+
+        // total = 10 + 20 + 30 + 40 + 50 + 60 = 210
+        assert_eq!(total, 210, "total of 6 tasks should be 210");
+
+        println!("[gpu_test] test_gpu_thread_reuse PASSED");
+    });
+}
+
+// Statics for test_gpu_cooperative
+static TEST_COOP_OUT: [core::sync::atomic::AtomicU32; 4] = {
+    const Z: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+    [Z; 4]
+};
+
+/// GPU test: cooperative execution — all warps work together.
+///
+/// Zero-param entry. Uses cooperative() to have all 4 warps each
+/// write their warp ID to a global array. Verifies all warps participated.
+///
+/// Launch with: block_dim=(128,1,1), 1 block, NO kernel args.
+#[unsafe(no_mangle)]
+pub unsafe extern "gpu-kernel" fn test_gpu_cooperative() {
+    let buf = stdio_auto_init();
+    if buf.is_null() {
+        return;
+    }
+
+    gpu_runtime::thread::gpu_main_poll(|| {
+        // Reset
+        for slot in TEST_COOP_OUT.iter() {
+            slot.store(0, core::sync::atomic::Ordering::Relaxed);
+        }
+
+        unsafe {
+            gpu_runtime::thread::cooperative(&|| {
+                let wid = gpu_runtime::thread::current_id();
+                let lid = gpu_runtime::index::thread_idx_x() % 32;
+                if lid == 0 {
+                    TEST_COOP_OUT[wid as usize].store(
+                        wid + 1,
+                        core::sync::atomic::Ordering::Relaxed,
+                    );
+                }
+            });
+        }
+
+        // Verify all 4 warps participated (warp IDs 0..3 wrote wid+1)
+        for i in 0..4u32 {
+            let val = TEST_COOP_OUT[i as usize].load(core::sync::atomic::Ordering::Relaxed);
+            assert_eq!(val, i + 1, "warp {} should have written {}", i, i + 1);
+        }
+
+        println!("[gpu_test] test_gpu_cooperative PASSED");
+    });
+}
+
+// Statics for test_gpu_cooperative_map
+static TEST_CMAP_INPUT: [core::sync::atomic::AtomicU32; 64] = {
+    const Z: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+    [Z; 64]
+};
+static TEST_CMAP_OUTPUT: [core::sync::atomic::AtomicU32; 64] = {
+    const Z: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+    [Z; 64]
+};
+
+/// GPU test: cooperative_map — all warps double each element.
+///
+/// Zero-param entry. Sets up a 64-element array in global statics,
+/// uses cooperative_map to double each element across all warps.
+///
+/// Launch with: block_dim=(128,1,1), 1 block, NO kernel args.
+#[unsafe(no_mangle)]
+pub unsafe extern "gpu-kernel" fn test_gpu_cooperative_map() {
+    let buf = stdio_auto_init();
+    if buf.is_null() {
+        return;
+    }
+
+    gpu_runtime::thread::gpu_main_poll(|| {
+        // Initialize input
+        for i in 0..64u32 {
+            TEST_CMAP_INPUT[i as usize].store(i, core::sync::atomic::Ordering::Relaxed);
+            TEST_CMAP_OUTPUT[i as usize].store(0, core::sync::atomic::Ordering::Relaxed);
+        }
+
+        gpu_runtime::thread::cooperative_map(
+            TEST_CMAP_INPUT.as_ptr() as *const u8,
+            TEST_CMAP_OUTPUT.as_ptr() as *mut u8,
+            64,
+            |args| {
+                let src = args.src as *const u32;
+                let dst = args.dst as *mut u32;
+                let mut i = args.warp_id as usize;
+                while i < args.len {
+                    unsafe {
+                        let v = core::ptr::read_volatile(src.add(i));
+                        core::ptr::write_volatile(dst.add(i), v * 2);
+                    }
+                    i += args.n_warps as usize;
+                }
+            },
+        );
+
+        // Verify output[i] = i * 2
+        for i in 0..64u32 {
+            let val = TEST_CMAP_OUTPUT[i as usize].load(core::sync::atomic::Ordering::Relaxed);
+            assert_eq!(val, i * 2, "cooperative_map output[{}] should be {}", i, i * 2);
+        }
+
+        println!("[gpu_test] test_gpu_cooperative_map PASSED");
+    });
+}
+
+// Statics for test_gpu_cooperative_reduce
+static TEST_CREDUCE_INPUT: [core::sync::atomic::AtomicU64; 64] = {
+    const Z: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
+    [Z; 64]
+};
+
+/// GPU test: cooperative_reduce — all warps sum partitions.
+///
+/// Zero-param entry. Sums 0..64 using cooperative_reduce.
+/// Expected: 0+1+2+...+63 = 2016.
+///
+/// Launch with: block_dim=(128,1,1), 1 block, NO kernel args.
+#[unsafe(no_mangle)]
+pub unsafe extern "gpu-kernel" fn test_gpu_cooperative_reduce() {
+    let buf = stdio_auto_init();
+    if buf.is_null() {
+        return;
+    }
+
+    gpu_runtime::thread::gpu_main_poll(|| {
+        // Initialize input: values 0..64
+        for i in 0..64u64 {
+            TEST_CREDUCE_INPUT[i as usize].store(i, core::sync::atomic::Ordering::Relaxed);
+        }
+
+        let total = gpu_runtime::thread::cooperative_reduce(
+            TEST_CREDUCE_INPUT.as_ptr() as *const u8,
+            64,
+            |args| {
+                let src = args.src as *const u64;
+                let mut sum = 0u64;
+                let mut i = args.warp_id as usize;
+                while i < args.len {
+                    unsafe {
+                        sum += core::ptr::read_volatile(src.add(i));
+                    }
+                    i += args.n_warps as usize;
+                }
+                sum
+            },
+        );
+
+        // sum of 0..64 = 63*64/2 = 2016
+        assert_eq!(total, 2016, "cooperative_reduce should produce 2016");
+
+        println!("[gpu_test] test_gpu_cooperative_reduce PASSED");
+    });
+}
+
+/// GPU test: GPU math intrinsics (sin, cos, sqrt, exp, log, abs, fma).
+///
+/// Zero-param entry. Tests gpu_runtime::math functions with known values.
+///
+/// Launch with: block_dim=(128,1,1), 1 block, NO kernel args.
+#[unsafe(no_mangle)]
+pub unsafe extern "gpu-kernel" fn test_gpu_math_intrinsics() {
+    let buf = stdio_auto_init();
+    if buf.is_null() {
+        return;
+    }
+
+    gpu_runtime::thread::gpu_main_poll(|| {
+        use gpu_runtime::math;
+
+        // sqrt(4.0) should be ~2.0
+        let s = math::sqrt_f32(4.0);
+        assert!((s - 2.0).abs() < 0.01, "sqrt(4.0) should be ~2.0");
+
+        // sqrt(9.0) should be ~3.0
+        let s2 = math::sqrt_f32(9.0);
+        assert!((s2 - 3.0).abs() < 0.01, "sqrt(9.0) should be ~3.0");
+
+        // sin(0) should be ~0.0
+        let sin0 = math::sin_f32(0.0);
+        assert!(sin0.abs() < 0.01, "sin(0) should be ~0.0");
+
+        // cos(0) should be ~1.0
+        let cos0 = math::cos_f32(0.0);
+        assert!((cos0 - 1.0).abs() < 0.01, "cos(0) should be ~1.0");
+
+        // exp(0) should be ~1.0
+        let exp0 = math::exp_f32(0.0);
+        assert!((exp0 - 1.0).abs() < 0.01, "exp(0) should be ~1.0");
+
+        // exp(1) should be ~2.718
+        let exp1 = math::exp_f32(1.0);
+        assert!((exp1 - 2.718).abs() < 0.05, "exp(1) should be ~2.718");
+
+        // log(1) should be ~0.0
+        let ln1 = math::log_f32(1.0);
+        assert!(ln1.abs() < 0.01, "ln(1) should be ~0.0");
+
+        // abs(-5.0) should be 5.0
+        let a = math::abs_f32(-5.0);
+        assert!((a - 5.0).abs() < 0.001, "abs(-5.0) should be 5.0");
+
+        // fma(2.0, 3.0, 4.0) = 2*3+4 = 10.0
+        let f = math::fma_f32(2.0, 3.0, 4.0);
+        assert!((f - 10.0).abs() < 0.001, "fma(2,3,4) should be 10.0");
+
+        // tanh(0) should be ~0.0
+        let t = math::tanh_f32(0.0);
+        assert!(t.abs() < 0.01, "tanh(0) should be ~0.0");
+
+        // sigmoid(0) should be ~0.5
+        let sig = math::sigmoid_f32(0.0);
+        assert!((sig - 0.5).abs() < 0.01, "sigmoid(0) should be ~0.5");
+
+        println!("[gpu_test] test_gpu_math_intrinsics PASSED");
+    });
+}
+
+// Statics for test_gpu_atomics — GPU atomics must live in global memory, not stack
+static TEST_ATOMIC_BASIC: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+static TEST_ATOMIC_COUNTER: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+
+/// GPU test: atomic operations across threads.
+///
+/// Zero-param entry. Tests store/load/fetch_add/fetch_sub/CAS on global atomics,
+/// then spawns threads that all increment a shared atomic counter.
+///
+/// Launch with: block_dim=(128,1,1), 1 block, NO kernel args.
+#[unsafe(no_mangle)]
+pub unsafe extern "gpu-kernel" fn test_gpu_atomics() {
+    let buf = stdio_auto_init();
+    if buf.is_null() {
+        return;
+    }
+
+    gpu_runtime::thread::gpu_main_poll(|| {
+        use core::sync::atomic::Ordering;
+
+        // Test basic atomic operations on a global static
+        TEST_ATOMIC_BASIC.store(10, Ordering::Relaxed);
+        assert_eq!(TEST_ATOMIC_BASIC.load(Ordering::Relaxed), 10, "store/load should work");
+
+        let old = TEST_ATOMIC_BASIC.fetch_add(5, Ordering::Relaxed);
+        assert_eq!(old, 10, "fetch_add should return old value");
+        assert_eq!(TEST_ATOMIC_BASIC.load(Ordering::Relaxed), 15, "value should be 15 after add");
+
+        let old2 = TEST_ATOMIC_BASIC.fetch_sub(3, Ordering::Relaxed);
+        assert_eq!(old2, 15, "fetch_sub should return old value");
+        assert_eq!(TEST_ATOMIC_BASIC.load(Ordering::Relaxed), 12, "value should be 12 after sub");
+
+        // fetch_and, fetch_or
+        TEST_ATOMIC_BASIC.store(0xFF, Ordering::Relaxed);
+        let _ = TEST_ATOMIC_BASIC.fetch_and(0x0F, Ordering::Relaxed);
+        assert_eq!(TEST_ATOMIC_BASIC.load(Ordering::Relaxed), 0x0F, "fetch_and should mask");
+
+        let _ = TEST_ATOMIC_BASIC.fetch_or(0xF0, Ordering::Relaxed);
+        assert_eq!(TEST_ATOMIC_BASIC.load(Ordering::Relaxed), 0xFF, "fetch_or should set bits");
+
+        // Cross-thread atomics: spawn 3 threads each adding 100
+        TEST_ATOMIC_COUNTER.store(0, Ordering::Relaxed);
+
+        let h1 = gpu_runtime::thread::spawn(|| {
+            for _ in 0..100u32 {
+                TEST_ATOMIC_COUNTER.fetch_add(1, Ordering::Relaxed);
+            }
+        });
+        let h2 = gpu_runtime::thread::spawn(|| {
+            for _ in 0..100u32 {
+                TEST_ATOMIC_COUNTER.fetch_add(1, Ordering::Relaxed);
+            }
+        });
+        let h3 = gpu_runtime::thread::spawn(|| {
+            for _ in 0..100u32 {
+                TEST_ATOMIC_COUNTER.fetch_add(1, Ordering::Relaxed);
+            }
+        });
+
+        h1.join();
+        h2.join();
+        h3.join();
+
+        let final_val = TEST_ATOMIC_COUNTER.load(Ordering::Relaxed);
+        assert_eq!(final_val, 300, "3 threads x 100 increments should give 300");
+
+        println!("[gpu_test] test_gpu_atomics PASSED");
+    });
+}
+
+/// GPU test: iterator chain operations on Vec.
+///
+/// Zero-param entry. Tests map, filter, fold, zip, enumerate, collect
+/// and other iterator combinators on GPU.
+///
+/// Launch with: block_dim=(128,1,1), 1 block, NO kernel args.
+#[unsafe(no_mangle)]
+pub unsafe extern "gpu-kernel" fn test_gpu_iterator_chain() {
+    let buf = stdio_auto_init();
+    if buf.is_null() {
+        return;
+    }
+
+    gpu_runtime::thread::gpu_main_poll(|| {
+        // map + collect
+        let v: Vec<u32> = (0..10).map(|x: u32| x * 3).collect();
+        assert_eq!(v.len(), 10, "mapped vec should have 10 elements");
+        assert_eq!(v[0], 0, "v[0] should be 0");
+        assert_eq!(v[3], 9, "v[3] should be 9");
+
+        // filter + collect
+        let evens: Vec<u32> = (0..20).filter(|x: &u32| x % 2 == 0).collect();
+        assert_eq!(evens.len(), 10, "should have 10 even numbers");
+        assert_eq!(evens[0], 0, "first even should be 0");
+        assert_eq!(evens[9], 18, "last even should be 18");
+
+        // fold (sum of squares)
+        let sum_sq: u32 = (1..=5).fold(0u32, |acc, x| acc + x * x);
+        assert_eq!(sum_sq, 55, "1^2+2^2+3^2+4^2+5^2 should be 55");
+
+        // zip + map + sum
+        let a: Vec<u32> = vec![1, 2, 3, 4];
+        let b: Vec<u32> = vec![10, 20, 30, 40];
+        let dot: u32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
+        assert_eq!(dot, 300, "dot product should be 300");
+
+        // enumerate + filter
+        let indexed: Vec<(usize, u32)> = (10..15u32)
+            .enumerate()
+            .filter(|(i, _)| i % 2 == 0)
+            .collect();
+        assert_eq!(indexed.len(), 3, "should have 3 even-indexed elements");
+        assert_eq!(indexed[0], (0, 10), "first should be (0, 10)");
+        assert_eq!(indexed[2], (4, 14), "last should be (4, 14)");
+
+        // chain
+        let chained: Vec<u32> = (0..3).chain(10..13).collect();
+        assert_eq!(chained.len(), 6, "chained should have 6 elements");
+        assert_eq!(chained, vec![0, 1, 2, 10, 11, 12], "chain values mismatch");
+
+        println!("[gpu_test] test_gpu_iterator_chain PASSED");
+    });
+}

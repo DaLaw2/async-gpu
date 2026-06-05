@@ -3614,3 +3614,193 @@ title = "Experiment: generate fused PTX from fusion graph — multiply+add+activ
 kind = "experiment"
 status = "done"
 depends = ["fusion-codegen.1", "fusion-analysis.3"]
+
+# Archived at cycle 623
+
+# --- split-design (kernel-split) ---
+
+[[tasks]]
+id = "split-design.1"
+theme = "split-design"
+title = "Investigation: map kernel→crate assignments and verify dependency graph"
+kind = "investigation"
+status = "done"
+
+[[tasks]]
+id = "split-design.2"
+theme = "split-design"
+title = "Design: stdio infrastructure extraction to gpu-runtime"
+kind = "design"
+status = "done"
+
+[[tasks]]
+id = "split-design.3"
+theme = "split-design"
+title = "Design: host loader multi-cubin API with backward compat"
+kind = "design"
+status = "done"
+
+# --- split-execute (kernel-split) ---
+
+[[tasks]]
+id = "split-execute.1"
+theme = "split-execute"
+title = "Experiment: extract stdio infrastructure from lib.rs to gpu-runtime"
+kind = "experiment"
+status = "done"
+
+[[tasks]]
+id = "split-execute.2"
+theme = "split-execute"
+title = "Experiment: create gpu-kernel-core crate (helpers + basic + compute_math)"
+kind = "experiment"
+status = "done"
+
+[[tasks]]
+id = "split-execute.3"
+theme = "split-execute"
+title = "Experiment: create gpu-kernel-compute crate (ML/HPC kernels)"
+kind = "experiment"
+status = "done"
+
+[[tasks]]
+id = "split-execute.4"
+theme = "split-execute"
+title = "Experiment: create gpu-kernel-io crate (hostcall/pipeline/hybrid)"
+kind = "experiment"
+status = "done"
+
+[[tasks]]
+id = "split-execute.5"
+theme = "split-execute"
+title = "Experiment: refactor gpu-kernel-std → gpu-kernel-test (test/demo kernels)"
+kind = "experiment"
+status = "done"
+
+# --- split-loader (kernel-split) ---
+
+[[tasks]]
+id = "split-loader.1"
+theme = "split-loader"
+title = "Experiment: per-crate PTX constants + backward-compat aliases"
+kind = "experiment"
+status = "done"
+
+[[tasks]]
+id = "split-loader.2"
+theme = "split-loader"
+title = "Experiment: update host loader (gpu.rs, KernelRegistry) for multi-module"
+kind = "experiment"
+status = "done"
+
+[[tasks]]
+id = "split-loader.3"
+theme = "split-loader"
+title = "Experiment: build script — parallel per-crate PTX + cubin"
+kind = "experiment"
+status = "done"
+
+[[tasks]]
+id = "split-loader.4"
+theme = "split-loader"
+title = "Experiment: dev-mode opt-level reduction (opt-level 1 for kernel crates)"
+kind = "experiment"
+status = "done"
+
+[[tasks]]
+id = "split-loader.5"
+theme = "split-loader"
+title = "Experiment: litmus test — single-crate rebuild under 5 minutes"
+kind = "experiment"
+status = "done"
+
+# --- split-devpath (kernel-split) ---
+
+[[tasks]]
+id = "split-devpath.1"
+theme = "split-devpath"
+title = "Experiment: PTX JIT dev path — skip ptxas in default build, use PTX directly"
+kind = "experiment"
+status = "done"
+
+# --- test-framework (gpu-test) ---
+
+[[tasks]]
+id = "test-framework.2"
+theme = "test-framework"
+title = "Experiment: implement #[gpu_test] proc macro + GPU assert! with warp ID"
+kind = "experiment"
+status = "done"
+
+# --- test-integration (gpu-test) ---
+
+[[tasks]]
+id = "test-integration.1"
+theme = "test-integration"
+title = "Experiment: cargo test integration — discover and run #[gpu_test] alongside #[test]"
+kind = "experiment"
+status = "done"
+
+[[tasks]]
+id = "test-integration.2"
+theme = "test-integration"
+title = "Experiment: write 10+ #[gpu_test] tests covering SC, channels, executor, cooperative"
+kind = "experiment"
+status = "done"
+
+# --- safety-types (gpu-type-safety) ---
+
+[[tasks]]
+id = "safety-types.1"
+theme = "safety-types"
+title = "Investigation: cuda-oxide DisjointSlice + ThreadIndex design — adapt to async-gpu model"
+kind = "investigation"
+status = "done"
+
+# --- iter-demo (gpu-iterator) ---
+
+[[tasks]]
+id = "iter-demo.1"
+theme = "iter-demo"
+title = "Experiment: par_iter().map().collect() on 1M+ f32 elements — correctness + performance"
+kind = "experiment"
+status = "done"
+
+[[tasks]]
+id = "iter-demo.2"
+theme = "iter-demo"
+title = "Experiment: benchmark GPU par_iter vs CPU Rayon — find crossover point"
+kind = "experiment"
+status = "done"
+
+[[tasks]]
+id = "iter-demo.3"
+theme = "iter-demo"
+title = "Experiment: multi-block par_iter dispatch + cached loads for collect/map"
+kind = "experiment"
+status = "done"
+
+# --- fusion-codegen (auto-fusion) ---
+
+[[tasks]]
+id = "fusion-codegen.3"
+theme = "fusion-codegen"
+title = "Experiment: register-only intermediates + float4 vectorization in generated kernels"
+kind = "experiment"
+status = "done"
+
+# --- fusion-integrate (auto-fusion) ---
+
+[[tasks]]
+id = "fusion-integrate.1"
+theme = "fusion-integrate"
+title = "Experiment: auto-fuse nn::Linear matmul+bias+activation — integrate with nn API"
+kind = "experiment"
+status = "done"
+
+[[tasks]]
+id = "fusion-integrate.2"
+theme = "fusion-integrate"
+title = "Experiment: benchmark GPT-2 with auto-fusion vs manual — measure speedup"
+kind = "experiment"
+status = "done"

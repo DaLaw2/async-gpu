@@ -14,12 +14,12 @@ status = "running"     # ready | running | blocked | completed
 # No GPU concepts leak. VectorWare's I/O strength + async-gpu's compute strength, unified.
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
-current_step = "save"
+current_step = "gate"
 current_task_id = ""
 
 # Sequence counters
-brainstorm_seq = 116
-tasks_since_brainstorm = 20   # reset after brainstorm 116
+brainstorm_seq = 117
+tasks_since_brainstorm = 0   # reset after brainstorm 117
 
 # ============================================================
 # Epics — Tiered (T0 → T3), sorted by tier then priority
@@ -33,7 +33,7 @@ tasks_since_brainstorm = 20   # reset after brainstorm 116
 # kernel-fusion-v2, int4-quantization, graph-compiler, refactor, onnx-perf,
 # refactor-v2, gpu-dynamic, graph-algorithms, int4-gpt2, monte-carlo, benchmark,
 # native-rust-dx, std-thread-gpu, cooperative-compute, structured-concurrency,
-# library-api, kernel-perf
+# library-api, kernel-perf, developer-showcase
 
 # --- T0: Foundation (do first, everything depends on this) ---
 
@@ -41,7 +41,7 @@ tasks_since_brainstorm = 20   # reset after brainstorm 116
 id = "developer-showcase"
 title = "Developer Showcase — examples, API surface, and README for all shipped features"
 tier = 0
-status = "active"
+status = "completed"
 priority = "highest"
 # North Star: Every shipped feature has a clean example and is discoverable in README.
 #   A new developer sees what async-gpu can do in 5 minutes of reading.
@@ -53,14 +53,14 @@ success_criteria = [
     "README has feature matrix, performance table, and progressive code snippets",
     "GPU channels and executor have clean examples demonstrating async GPU programming",
     "Every major feature category has at least one clean, documented example",
-    "async-gpu facade re-exports all user-facing kernel-side types (scopes, channels, executor)",
+    "Two-facade architecture: async-gpu re-exports host API (gpu::run/launch/custom), gpu-runtime provides kernel-side types (scopes, channels, executor) via prelude",
 ]
 
 [[epics]]
 id = "gpu-test"
 title = "GPU Test Framework — #[gpu_test] and cargo test on GPU"
 tier = 0
-status = "pending"
+status = "active"
 priority = "high"
 # North Star: Testing GPU code is as natural as testing CPU code.
 #   #[gpu_test] runs on GPU warps, assert! works across lanes, cargo test just works.
@@ -430,7 +430,7 @@ success_criteria = [
 id = "test-framework"
 epic = "gpu-test"
 title = "#[gpu_test] attribute + GPU test runner"
-status = "pending"
+status = "active"
 goal = "GPU tests compile and run via cargo test"
 success_criteria = [
     "#[gpu_test] proc macro generates GPU kernel + host runner",
@@ -710,7 +710,7 @@ success_criteria = [
 id = "iter-design"
 epic = "gpu-iterator"
 title = "Iterator API design — ParallelIterator trait for GPU"
-status = "active"
+status = "completed"
 goal = "Design gpu::par_iter() that maps Rust iterator semantics to GPU execution"
 success_criteria = [
     "ParallelIterator trait with map, filter, fold, collect methods",
@@ -722,7 +722,7 @@ success_criteria = [
 id = "iter-compiler"
 epic = "gpu-iterator"
 title = "MIR pass — iterator chain to GPU kernel compilation"
-status = "pending"
+status = "completed"
 goal = "Compile iterator chains into warp-parallel GPU kernels via MIR transformation"
 success_criteria = [
     "map() body transformed into per-lane computation",
@@ -735,7 +735,7 @@ success_criteria = [
 id = "iter-runtime"
 epic = "gpu-iterator"
 title = "Iterator runtime — GPU execution of compiled iterator chains"
-status = "pending"
+status = "active"
 goal = "Warp-parallel execution of iterator bodies with correct memory management"
 success_criteria = [
     "Input data partitioned across warps/blocks automatically",
@@ -747,7 +747,7 @@ success_criteria = [
 id = "iter-demo"
 epic = "gpu-iterator"
 title = "Iterator demos — par_iter vs Rayon benchmarks"
-status = "pending"
+status = "active"
 goal = "Demonstrate GPU iterator superiority over CPU for large datasets"
 success_criteria = [
     "par_iter().map().collect() demo on 1M+ elements",
@@ -761,7 +761,7 @@ success_criteria = [
 id = "fusion-analysis"
 epic = "auto-fusion"
 title = "Fusion analysis — MIR pattern matching for fusable op chains"
-status = "active"
+status = "completed"
 goal = "Identify elementwise operation chains that can be fused into single kernels"
 success_criteria = [
     "Pattern matcher identifies consecutive elementwise ops in MIR",
@@ -773,7 +773,7 @@ success_criteria = [
 id = "fusion-codegen"
 epic = "auto-fusion"
 title = "Fused kernel codegen — compile-time PTX generation from fusion graph"
-status = "pending"
+status = "active"
 goal = "Generate single fused GPU kernel from multiple elementwise operations"
 success_criteria = [
     "Template-based PTX generation from fusion graph nodes",
@@ -1503,3 +1503,15 @@ new_epics_spawned = []
 themes_parked = []
 themes_completed = []
 key_insight = "T1 fully cleared (724 tasks). T2 activation: gpu-iterator (HIGH) activated with iter-design theme active. auto-fusion activated with fusion-analysis theme active (investigation-only start). Staggered activation maximizes throughput — fusion investigation parallels iterator design, fusion codegen waits for shared MIR infrastructure. Key risk: MIR pass feasibility for iterator chains must be assessed in iter-design.1."
+
+[[brainstorms]]
+seq = 117
+at_cycle = 607
+trigger = "tasks_since_brainstorm=20, developer-showcase epic completed, 5 themes completed"
+level = "standard"
+new_tasks_spawned = []
+new_themes_spawned = []
+new_epics_spawned = []
+themes_parked = []
+themes_completed = ["iter-design", "iter-compiler", "fusion-analysis"]
+key_insight = "developer-showcase (T0) completed — 47th epic archived. gpu-test activated (T0 parallel with T1, priority slot). iter-design/iter-compiler/fusion-analysis themes completed. Remaining T1 work: iter-runtime.2, iter-demo.1-.2, fusion-codegen.2-.3, fusion-integrate.1-.2. No new tasks needed — existing structure sufficient."

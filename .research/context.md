@@ -1,12 +1,12 @@
 ## Current Focus
-**Cycle 627 — gpu-generics epic in progress** (2026-06-06). gen-mono theme complete: Rust generics compile to type-specific PTX via standard monomorphization. gen-traits next.
+**Cycle 628 — gpu-generics epic, gen-demo theme active** (2026-06-06). gen-mono + gen-traits themes complete. gen-demo.1 is the last task for gpu-generics epic.
 
 ## Recent Decisions
-- 2026-06-06: generic_map<f32> → mul.rn.f32 + add.rn.f32, generic_map<i32> → mad.lo.s32 (LLVM fuses int FMA)
+- 2026-06-06: User-defined traits (GpuReducible, GpuTransformable) work on GPU with zero overhead
+- 2026-06-06: Where bounds + multiple trait bounds compose correctly on nvptx64
+- 2026-06-06: Custom Vec2f struct with trait impls compiles to identical PTX as hand-written concrete code
 - 2026-06-06: Pattern: concrete `extern "gpu-kernel"` entry → `#[inline(always)]` generic body
 - 2026-06-06: PTX monomorphization works via standard Rust monomorphization — no special GPU pass needed
-- 2026-06-06: dyn Trait works on GPU via indirect calls (vtable)
-- 2026-06-06: cooperative_indexed() uses HRTB `for<'coop>` to create fresh WarpIndex lifetime
 
 ## Tried & Rejected
 - Round-robin DisjointSlice partitioning: can't return contiguous &mut [T]
@@ -17,11 +17,10 @@
 - Max 2 concurrent heavy subagents
 
 ## Key Metrics
+- gen-traits.1: 8 new kernel entries — GpuReducible, GpuTransformable, where bounds, Vec2f custom struct
+- gen-traits.1: Trait methods fully inlined by LLVM — identical PTX to hand-written concrete code
 - gen-mono.2: 9 new kernel entry points (4 generic + 5 test), all produce correct results on GPU
-- gen-mono.2: LLVM applies type-specific optimizations — int FMA fusion (mad.lo.s32), float separate ops
-- gen-mono theme: generics work identically on nvptx64 as on CPU targets
-- 787 tasks completed, 53 epics
+- 788 tasks completed, 53 epics
 
 ## Next
-1. gen-traits.1: Experiment — user-defined trait with where bounds in GPU kernel
-2. gen-demo.1: Generic parallel_reduce<T: Reducible> for f32, i32, custom types
+1. gen-demo.1: Generic parallel_reduce<T: Reducible> for f32, i32, custom types (last gpu-generics task)

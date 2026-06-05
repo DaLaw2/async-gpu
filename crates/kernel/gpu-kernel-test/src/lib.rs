@@ -2181,3 +2181,467 @@ pub unsafe extern "gpu-kernel" fn test_gpu_generic_dual_type() {
         println!("[gpu_test] test_gpu_generic_dual_type PASSED");
     });
 }
+
+// ============================================================
+// gen-traits.1: User-defined traits with where bounds on GPU
+// ============================================================
+//
+// Proves that user-defined traits (GpuReducible, GpuTransformable)
+// with `where` bounds compile and run correctly on nvptx64.
+// Also tests a custom #[repr(C)] type implementing the trait.
+//
+// Pattern: concrete `extern "gpu-kernel"` entry → `#[inline(always)]`
+// generic body bounded by user-defined trait.
+
+use gpu_runtime::traits::{GpuReducible, GpuTransformable};
+
+/// Custom 2D vector type — proves user-defined #[repr(C)] types work
+/// with user-defined traits on GPU.
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct Vec2f {
+    x: f32,
+    y: f32,
+}
+
+impl GpuReducible for Vec2f {
+    #[inline(always)]
+    fn identity() -> Self {
+        Vec2f { x: 0.0, y: 0.0 }
+    }
+    #[inline(always)]
+    fn combine(self, other: Self) -> Self {
+        Vec2f {
+            x: self.x + other.x,
+            y: self.y + other.y,
+        }
+    }
+}
+
+impl GpuTransformable for Vec2f {
+    #[inline(always)]
+    fn default_value() -> Self {
+        Vec2f { x: 0.0, y: 0.0 }
+    }
+    #[inline(always)]
+    fn scale(self, factor: Self) -> Self {
+        Vec2f {
+            x: self.x * factor.x,
+            y: self.y * factor.y,
+        }
+    }
+    #[inline(always)]
+    fn offset(self, amount: Self) -> Self {
+        Vec2f {
+            x: self.x + amount.x,
+            y: self.y + amount.y,
+        }
+    }
+}
+
+/// Generic parallel reduce using user-defined GpuReducible trait.
+///
+/// Works for any `T: GpuReducible` — the compiler monomorphizes per type,
+/// inlining `identity()` and `combine()` into type-specific PTX instructions.
+#[inline(always)]
+fn trait_reduce<T: GpuReducible>(data: *const T, len: usize) -> T {
+    let mut acc = T::identity();
+    let mut i = 0usize;
+    while i < len {
+        let val = unsafe { core::ptr::read(data.add(i)) };
+        acc = acc.combine(val);
+        i += 1;
+    }
+    acc
+}
+
+/// Generic transform using `where` bounds — proves explicit where-clause
+/// syntax monomorphizes identically to inline trait bounds.
+#[inline(always)]
+fn apply_transform<T>(data: *mut T, len: usize, factor: T, amount: T)
+where
+    T: GpuTransformable,
+{
+    let tid = gpu_runtime::index::global_thread_idx() as usize;
+    let stride = gpu_runtime::index::global_thread_count() as usize;
+    let mut i = tid;
+    while i < len {
+        unsafe {
+            let val = core::ptr::read(data.add(i));
+            let result = val.scale(factor).offset(amount);
+            core::ptr::write(data.add(i), result);
+        }
+        i += stride;
+    }
+}
+
+/// Generic function with combined trait + where bounds.
+///
+/// Proves that a function can use both GpuReducible and GpuTransformable
+/// bounds on the same type parameter.
+#[inline(always)]
+fn transform_then_reduce<T>(data: *mut T, len: usize, factor: T, amount: T) -> T
+where
+    T: GpuReducible + GpuTransformable,
+{
+    // Step 1: transform in place
+    let mut i = 0usize;
+    while i < len {
+        unsafe {
+            let val = core::ptr::read(data.add(i));
+            let result = val.scale(factor).offset(amount);
+            core::ptr::write(data.add(i), result);
+        }
+        i += 1;
+    }
+    // Step 2: reduce
+    trait_reduce(data, len)
+}
+
+// ---- Concrete entry points for trait-based reduce ----
+
+/// Monomorphized trait reduce for f32: sum all elements via GpuReducible.
+///
+/// Result written as u32 bits to result[0]. Launch with 1 thread.
+#[unsafe(no_mangle)]
+pub unsafe extern "gpu-kernel" fn trait_reduce_f32(
+    data: *const f32,
+    n: u32,
+    result: *mut u32,
+) {
+    let total = trait_reduce::<f32>(data, n as usize);
+    unsafe {
+        core::ptr::write(result, total.to_bits());
+    }
+}
+
+/// Monomorphized trait reduce for i32: sum all elements via GpuReducible.
+///
+/// Result written to result[0]. Launch with 1 thread.
+#[unsafe(no_mangle)]
+pub unsafe extern "gpu-kernel" fn trait_reduce_i32(
+    data: *const i32,
+    n: u32,
+    result: *mut i32,
+) {
+    let total = trait_reduce::<i32>(data, n as usize);
+    unsafe {
+        core::ptr::write(result, total);
+    }
+}
+
+// ---- GPU test kernels for trait-based generics ----
+
+/// GPU test: trait-based reduce f32 — sum via GpuReducible.
+///
+/// Proves that user-defined trait methods (identity, combine) monomorphize
+/// to correct f32 PTX instructions.
+///
+/// Zero-param entry. Launch with: block_dim=(128,1,1), 1 block, NO kernel args.
+#[unsafe(no_mangle)]
+pub unsafe extern "gpu-kernel" fn test_gpu_trait_reduce_f32() {
+    let buf = stdio_auto_init();
+    if buf.is_null() {
+        return;
+    }
+
+    gpu_runtime::thread::gpu_main(|| {
+        // Data: [1.0, 2.0, ..., 20.0]
+        let data: Vec<f32> = (1..=20).map(|i| i as f32).collect();
+
+        let total = trait_reduce::<f32>(data.as_ptr(), data.len());
+
+        // Expected: 20*21/2 = 210.0
+        let diff = (total - 210.0).abs();
+        assert!(
+            diff < 0.01,
+            "trait_reduce f32: got {}, expected 210.0",
+            total
+        );
+
+        // Verify identity
+        let id = f32::identity();
+        assert!(
+            id.abs() < 0.001,
+            "f32::identity() should be 0.0, got {}",
+            id
+        );
+
+        // Verify combine
+        let combined = 3.0f32.combine(4.0);
+        let diff2 = (combined - 7.0).abs();
+        assert!(
+            diff2 < 0.001,
+            "3.0.combine(4.0) should be 7.0, got {}",
+            combined
+        );
+
+        println!("[gpu_test] test_gpu_trait_reduce_f32 PASSED");
+    });
+}
+
+/// GPU test: trait-based reduce i32 — sum via GpuReducible.
+///
+/// Zero-param entry. Launch with: block_dim=(128,1,1), 1 block, NO kernel args.
+#[unsafe(no_mangle)]
+pub unsafe extern "gpu-kernel" fn test_gpu_trait_reduce_i32() {
+    let buf = stdio_auto_init();
+    if buf.is_null() {
+        return;
+    }
+
+    gpu_runtime::thread::gpu_main(|| {
+        // Data: [1, 2, ..., 50]
+        let data: Vec<i32> = (1..=50).map(|i| i as i32).collect();
+
+        let total = trait_reduce::<i32>(data.as_ptr(), data.len());
+
+        // Expected: 50*51/2 = 1275
+        assert_eq!(
+            total, 1275,
+            "trait_reduce i32: got {}, expected 1275",
+            total
+        );
+
+        // Verify identity
+        let id = i32::identity();
+        assert_eq!(id, 0, "i32::identity() should be 0");
+
+        // Verify combine
+        let combined = 10i32.combine(20);
+        assert_eq!(combined, 30, "10.combine(20) should be 30");
+
+        println!("[gpu_test] test_gpu_trait_reduce_i32 PASSED");
+    });
+}
+
+/// GPU test: where-clause transform — GpuTransformable with explicit where bounds.
+///
+/// Proves that `where T: GpuTransformable` monomorphizes the same as
+/// `<T: GpuTransformable>` and produces correct type-specific PTX.
+///
+/// Zero-param entry. Launch with: block_dim=(128,1,1), 1 block, NO kernel args.
+#[unsafe(no_mangle)]
+pub unsafe extern "gpu-kernel" fn test_gpu_where_transform() {
+    let buf = stdio_auto_init();
+    if buf.is_null() {
+        return;
+    }
+
+    gpu_runtime::thread::gpu_main(|| {
+        // f32 transform: data[i] = data[i] * 3.0 + 10.0
+        let mut f32_data: Vec<f32> = (0..8).map(|i| i as f32).collect();
+        apply_transform::<f32>(f32_data.as_mut_ptr(), f32_data.len(), 3.0, 10.0);
+
+        for i in 0..8u32 {
+            let expected = i as f32 * 3.0 + 10.0;
+            let actual = f32_data[i as usize];
+            let diff = (actual - expected).abs();
+            assert!(
+                diff < 0.001,
+                "where_transform f32[{}] = {}, expected {}",
+                i, actual, expected
+            );
+        }
+
+        // i32 transform: data[i] = data[i] * 5 + (-2)
+        let mut i32_data: Vec<i32> = (0..8).map(|i| i as i32).collect();
+        apply_transform::<i32>(i32_data.as_mut_ptr(), i32_data.len(), 5, -2);
+
+        for i in 0..8i32 {
+            let expected = i * 5 + (-2);
+            let actual = i32_data[i as usize];
+            assert_eq!(
+                actual, expected,
+                "where_transform i32[{}] = {}, expected {}",
+                i, actual, expected
+            );
+        }
+
+        println!("[gpu_test] test_gpu_where_transform PASSED");
+    });
+}
+
+/// GPU test: combined transform + reduce on primitives.
+///
+/// Uses transform_then_reduce which requires both GpuReducible + GpuTransformable.
+/// Proves that multiple trait bounds on a generic parameter monomorphize correctly.
+///
+/// Zero-param entry. Launch with: block_dim=(128,1,1), 1 block, NO kernel args.
+#[unsafe(no_mangle)]
+pub unsafe extern "gpu-kernel" fn test_gpu_trait_combined() {
+    let buf = stdio_auto_init();
+    if buf.is_null() {
+        return;
+    }
+
+    gpu_runtime::thread::gpu_main(|| {
+        // f32: data = [1,2,3,4,5], transform: x*2+10, then reduce (sum)
+        // After transform: [12, 14, 16, 18, 20]
+        // Sum: 80.0
+        let mut f32_data: Vec<f32> = (1..=5).map(|i| i as f32).collect();
+        let f32_sum = transform_then_reduce::<f32>(
+            f32_data.as_mut_ptr(),
+            f32_data.len(),
+            2.0,
+            10.0,
+        );
+        let diff = (f32_sum - 80.0).abs();
+        assert!(
+            diff < 0.01,
+            "trait_combined f32: got {}, expected 80.0",
+            f32_sum
+        );
+
+        // i32: data = [1,2,3,4], transform: x*3+1, then reduce (sum)
+        // After transform: [4, 7, 10, 13]
+        // Sum: 34
+        let mut i32_data: Vec<i32> = (1..=4).map(|i| i as i32).collect();
+        let i32_sum = transform_then_reduce::<i32>(
+            i32_data.as_mut_ptr(),
+            i32_data.len(),
+            3,
+            1,
+        );
+        assert_eq!(
+            i32_sum, 34,
+            "trait_combined i32: got {}, expected 34",
+            i32_sum
+        );
+
+        println!("[gpu_test] test_gpu_trait_combined PASSED");
+    });
+}
+
+/// GPU test: custom Vec2f type with GpuReducible — user-defined struct on GPU.
+///
+/// Proves that a user-defined `#[repr(C)]` struct implementing `GpuReducible`
+/// monomorphizes through generic reduce to correct per-field PTX operations.
+///
+/// Zero-param entry. Launch with: block_dim=(128,1,1), 1 block, NO kernel args.
+#[unsafe(no_mangle)]
+pub unsafe extern "gpu-kernel" fn test_gpu_trait_custom_vec2f() {
+    let buf = stdio_auto_init();
+    if buf.is_null() {
+        return;
+    }
+
+    gpu_runtime::thread::gpu_main(|| {
+        // Create Vec2f data: [(1,10), (2,20), (3,30), (4,40), (5,50)]
+        let data: Vec<Vec2f> = (1..=5)
+            .map(|i| Vec2f {
+                x: i as f32,
+                y: (i * 10) as f32,
+            })
+            .collect();
+
+        // Reduce: sum of x = 15.0, sum of y = 150.0
+        let total = trait_reduce::<Vec2f>(data.as_ptr(), data.len());
+        let dx = (total.x - 15.0).abs();
+        let dy = (total.y - 150.0).abs();
+        assert!(
+            dx < 0.01,
+            "Vec2f reduce: x = {}, expected 15.0",
+            total.x
+        );
+        assert!(
+            dy < 0.01,
+            "Vec2f reduce: y = {}, expected 150.0",
+            total.y
+        );
+
+        // Verify identity
+        let id = Vec2f::identity();
+        assert!(id.x.abs() < 0.001, "Vec2f identity x should be 0.0");
+        assert!(id.y.abs() < 0.001, "Vec2f identity y should be 0.0");
+
+        // Verify combine
+        let a = Vec2f { x: 1.0, y: 2.0 };
+        let b = Vec2f { x: 3.0, y: 4.0 };
+        let c = a.combine(b);
+        assert!((c.x - 4.0).abs() < 0.001, "combine x: expected 4.0");
+        assert!((c.y - 6.0).abs() < 0.001, "combine y: expected 6.0");
+
+        // Test transform_then_reduce on Vec2f
+        let mut v2_data: Vec<Vec2f> = (1..=3)
+            .map(|i| Vec2f {
+                x: i as f32,
+                y: (i * 2) as f32,
+            })
+            .collect();
+        let factor = Vec2f { x: 2.0, y: 3.0 };
+        let amount = Vec2f { x: 1.0, y: -1.0 };
+        // Transform: [(1,2)→(3,5), (2,4)→(5,11), (3,6)→(7,17)]
+        // x: 1*2+1=3, 2*2+1=5, 3*2+1=7 → sum=15
+        // y: 2*3-1=5, 4*3-1=11, 6*3-1=17 → sum=33
+        let result = transform_then_reduce::<Vec2f>(
+            v2_data.as_mut_ptr(),
+            v2_data.len(),
+            factor,
+            amount,
+        );
+        assert!(
+            (result.x - 15.0).abs() < 0.01,
+            "Vec2f transform_then_reduce x: got {}, expected 15.0",
+            result.x
+        );
+        assert!(
+            (result.y - 33.0).abs() < 0.01,
+            "Vec2f transform_then_reduce y: got {}, expected 33.0",
+            result.y
+        );
+
+        println!("[gpu_test] test_gpu_trait_custom_vec2f PASSED");
+    });
+}
+
+/// GPU test: trait dispatch for multiple types in one kernel.
+///
+/// Calls the same generic function (trait_reduce, apply_transform) with f32,
+/// i32, and Vec2f in a single kernel — the definitive proof that user-defined
+/// traits monomorphize correctly for all types on nvptx64.
+///
+/// Zero-param entry. Launch with: block_dim=(128,1,1), 1 block, NO kernel args.
+#[unsafe(no_mangle)]
+pub unsafe extern "gpu-kernel" fn test_gpu_trait_multi_type() {
+    let buf = stdio_auto_init();
+    if buf.is_null() {
+        return;
+    }
+
+    gpu_runtime::thread::gpu_main(|| {
+        // f32 reduce
+        let f32_data: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0];
+        let f32_sum = trait_reduce::<f32>(f32_data.as_ptr(), f32_data.len());
+        let f32_diff = (f32_sum - 10.0).abs();
+        assert!(f32_diff < 0.01, "multi_type f32 reduce: got {}", f32_sum);
+
+        // i32 reduce
+        let i32_data: Vec<i32> = vec![10, 20, 30, 40];
+        let i32_sum = trait_reduce::<i32>(i32_data.as_ptr(), i32_data.len());
+        assert_eq!(i32_sum, 100, "multi_type i32 reduce: got {}", i32_sum);
+
+        // Vec2f reduce
+        let v2_data: Vec<Vec2f> = vec![
+            Vec2f { x: 1.0, y: 10.0 },
+            Vec2f { x: 2.0, y: 20.0 },
+            Vec2f { x: 3.0, y: 30.0 },
+        ];
+        let v2_sum = trait_reduce::<Vec2f>(v2_data.as_ptr(), v2_data.len());
+        assert!((v2_sum.x - 6.0).abs() < 0.01, "multi_type Vec2f x: got {}", v2_sum.x);
+        assert!((v2_sum.y - 60.0).abs() < 0.01, "multi_type Vec2f y: got {}", v2_sum.y);
+
+        // f32 transform
+        let mut f32_t: Vec<f32> = vec![1.0, 2.0, 3.0];
+        apply_transform::<f32>(f32_t.as_mut_ptr(), f32_t.len(), 2.0, 5.0);
+        assert!((f32_t[0] - 7.0).abs() < 0.01, "multi_type f32 transform[0]");
+        assert!((f32_t[2] - 11.0).abs() < 0.01, "multi_type f32 transform[2]");
+
+        // u32 reduce (proves u32 impl works too)
+        let u32_data: Vec<u32> = vec![100, 200, 300];
+        let u32_sum = trait_reduce::<u32>(u32_data.as_ptr(), u32_data.len());
+        assert_eq!(u32_sum, 600, "multi_type u32 reduce: got {}", u32_sum);
+
+        println!("[gpu_test] test_gpu_trait_multi_type PASSED");
+    });
+}

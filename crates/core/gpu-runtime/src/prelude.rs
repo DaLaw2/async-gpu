@@ -69,6 +69,9 @@ pub use crate::stdio::{gpu_print_buffer_flush, stdio_init, stdio_print_buffer_in
 // --- Safety types ---
 pub use crate::safety::{DisjointSlice, WarpHandle, WarpIndex};
 
+// --- GPU traits for generic algorithms ---
+pub use crate::traits::{GpuReducible, GpuTransformable};
+
 // --- Unified channels ---
 pub use crate::unified_channel::{
     ScopedMpscReceiver, ScopedMpscSendError, ScopedMpscSender, ScopedOneshotClosed,

@@ -216,6 +216,66 @@ fn test_gpu_generic_reduce_i32() {}
 fn test_gpu_generic_dual_type() {}
 
 // ============================================================================
+// GPU tests — user-defined traits + where bounds (gen-traits.1)
+// ============================================================================
+
+/// Test trait-based reduce with f32 monomorphization (GpuReducible).
+///
+/// The kernel `test_gpu_trait_reduce_f32` in gpu-kernel-test:
+///   - Creates Vec<f32> with 1.0..=20.0
+///   - Calls trait_reduce::<f32>() using GpuReducible::combine
+///   - Asserts total == 210.0
+///   - Verifies identity() and combine() trait methods
+#[gpu_test]
+fn test_gpu_trait_reduce_f32() {}
+
+/// Test trait-based reduce with i32 monomorphization (GpuReducible).
+///
+/// The kernel `test_gpu_trait_reduce_i32` in gpu-kernel-test:
+///   - Creates Vec<i32> with 1..=50
+///   - Calls trait_reduce::<i32>() using GpuReducible::combine
+///   - Asserts total == 1275
+///   - Verifies identity() and combine() trait methods
+#[gpu_test]
+fn test_gpu_trait_reduce_i32() {}
+
+/// Test where-clause transform (GpuTransformable with explicit where bounds).
+///
+/// The kernel `test_gpu_where_transform` in gpu-kernel-test:
+///   - f32: apply_transform(scale=3.0, offset=10.0) — verifies where T: GpuTransformable
+///   - i32: apply_transform(scale=5, offset=-2) — verifies i32 monomorphization
+///   - Proves `where T: Trait` syntax works identically to `<T: Trait>` on nvptx64
+#[gpu_test]
+fn test_gpu_where_transform() {}
+
+/// Test combined GpuReducible + GpuTransformable bounds on same type parameter.
+///
+/// The kernel `test_gpu_trait_combined` in gpu-kernel-test:
+///   - f32: transform(x*2+10) then reduce → 80.0
+///   - i32: transform(x*3+1) then reduce → 34
+///   - Proves multiple trait bounds monomorphize correctly
+#[gpu_test]
+fn test_gpu_trait_combined() {}
+
+/// Test custom Vec2f struct implementing GpuReducible + GpuTransformable.
+///
+/// The kernel `test_gpu_trait_custom_vec2f` in gpu-kernel-test:
+///   - Reduces Vec<Vec2f> — per-field f32 additions
+///   - Tests identity(), combine(), transform_then_reduce on Vec2f
+///   - Proves user-defined #[repr(C)] types work with generic trait code on GPU
+#[gpu_test]
+fn test_gpu_trait_custom_vec2f() {}
+
+/// Test all types (f32, i32, u32, Vec2f) through same generic function in one kernel.
+///
+/// The kernel `test_gpu_trait_multi_type` in gpu-kernel-test:
+///   - Calls trait_reduce with f32, i32, u32, and Vec2f
+///   - Calls apply_transform with f32
+///   - Definitive proof that user-defined traits monomorphize for all types on nvptx64
+#[gpu_test]
+fn test_gpu_trait_multi_type() {}
+
+// ============================================================================
 // CPU tests — regular #[test] functions that coexist with #[gpu_test]
 // ============================================================================
 

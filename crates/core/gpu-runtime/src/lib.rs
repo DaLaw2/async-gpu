@@ -185,6 +185,29 @@ pub mod scope;
 /// ```
 pub mod safety;
 
+/// User-extensible GPU traits for generic kernel algorithms.
+///
+/// Provides [`GpuReducible`] and [`GpuTransformable`] — traits that enable
+/// writing generic kernel functions with user-defined behavior. The compiler
+/// monomorphizes each instantiation to type-specific PTX instructions.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use gpu_runtime::traits::GpuReducible;
+///
+/// // Generic reduce — works for any T: GpuReducible
+/// #[inline(always)]
+/// fn reduce<T: GpuReducible>(data: &[T]) -> T {
+///     let mut acc = T::identity();
+///     for &x in data {
+///         acc = acc.combine(x);
+///     }
+///     acc
+/// }
+/// ```
+pub mod traits;
+
 /// Cross-block work coordination for GridScope.
 ///
 /// Provides work-dispatch primitives that let a coordinator block distribute

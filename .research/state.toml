@@ -14,7 +14,7 @@ status = "running"     # ready | running | blocked | completed
 # No GPU concepts leak. VectorWare's I/O strength + async-gpu's compute strength, unified.
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
-current_step = "save"
+current_step = "route"
 current_task_id = ""
 
 # Sequence counters
@@ -33,7 +33,8 @@ tasks_since_brainstorm = 4   # reset after brainstorm 120
 # kernel-fusion-v2, int4-quantization, graph-compiler, refactor, onnx-perf,
 # refactor-v2, gpu-dynamic, graph-algorithms, int4-gpt2, monte-carlo, benchmark,
 # native-rust-dx, std-thread-gpu, cooperative-compute, structured-concurrency,
-# library-api, kernel-perf, developer-showcase, kernel-split, auto-fusion
+# library-api, kernel-perf, developer-showcase, kernel-split, auto-fusion,
+# gpu-test
 
 # --- T0: Foundation (do first, everything depends on this) ---
 
@@ -41,7 +42,7 @@ tasks_since_brainstorm = 4   # reset after brainstorm 120
 id = "gpu-test"
 title = "GPU Test Framework — #[gpu_test] and cargo test on GPU"
 tier = 0
-status = "active"
+status = "completed"
 priority = "high"
 # North Star: Testing GPU code is as natural as testing CPU code.
 #   #[gpu_test] runs on GPU warps, assert! works across lanes, cargo test just works.
@@ -348,7 +349,7 @@ success_criteria = [
 id = "test-integration"
 epic = "gpu-test"
 title = "cargo test integration + coverage"
-status = "active"
+status = "completed"
 goal = "GPU tests are first-class in the Rust test ecosystem"
 success_criteria = [
     "cargo test discovers and runs #[gpu_test] alongside #[test]",

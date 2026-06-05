@@ -34,7 +34,7 @@ tasks_since_brainstorm = 8
 # refactor-v2, gpu-dynamic, graph-algorithms, int4-gpt2, monte-carlo, benchmark,
 # native-rust-dx, std-thread-gpu, cooperative-compute, structured-concurrency,
 # library-api, kernel-perf, developer-showcase, kernel-split, auto-fusion,
-# gpu-test, gpu-iterator, gpu-type-safety, gpu-generics
+# gpu-test, gpu-iterator, gpu-type-safety, gpu-generics, unified-runtime
 
 # --- T0: Foundation (do first, everything depends on this) ---
 
@@ -142,7 +142,7 @@ success_criteria = [
 id = "unified-runtime"
 title = "Unified Runtime — one async fn spans CPU and GPU transparently"
 tier = 2
-status = "active"
+status = "completed"
 priority = "medium"
 success_criteria = [
     "Scheduler types (CpuScheduler, GpuScheduler, AutoScheduler) route work by affinity",

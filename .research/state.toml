@@ -34,7 +34,7 @@ tasks_since_brainstorm = 4
 # refactor-v2, gpu-dynamic, graph-algorithms, int4-gpt2, monte-carlo, benchmark,
 # native-rust-dx, std-thread-gpu, cooperative-compute, structured-concurrency,
 # library-api, kernel-perf, developer-showcase, kernel-split, auto-fusion,
-# gpu-test, gpu-iterator, gpu-type-safety
+# gpu-test, gpu-iterator, gpu-type-safety, gpu-generics
 
 # --- T0: Foundation (do first, everything depends on this) ---
 
@@ -98,7 +98,7 @@ success_criteria = [
 id = "gpu-generics"
 title = "GPU Generics — full Rust trait system + generics on GPU kernels"
 tier = 1
-status = "active"
+status = "completed"
 priority = "medium"
 # North Star: GPU code is composable Rust code. Generic functions, trait bounds,
 #   and impl blocks work on GPU just like on CPU. No concrete-type-only limitation.

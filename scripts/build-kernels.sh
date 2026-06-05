@@ -1,21 +1,24 @@
 #!/usr/bin/env bash
-# Build all kernel crates to PTX and pre-compile to cubin in parallel.
+# Build all kernel crates to PTX, optionally pre-compile to cubin.
 #
 # Builds the 4 kernel crates (core, compute, io, test) sequentially for PTX
-# (so shared dependencies compile once), then runs ptxas in parallel to produce
-# cubins for all crates simultaneously.
+# (so shared dependencies compile once). In --prod mode, also runs ptxas in
+# parallel to produce cubins for all crates simultaneously.
 #
 # Two build modes:
-#   Default (dev):  opt-level 1, no LTO  — fast iteration (~2x faster)
-#   --prod:         opt-level 3, fat LTO — maximum optimization for benchmarks
+#   Default (dev):  PTX only, opt-level 1, no LTO  — fast iteration (~30s)
+#   --prod:         PTX + cubin, opt-level 3, fat LTO — maximum optimization
+#
+# Dev builds skip ptxas entirely. The host loader (gpu.rs) and #[gpu_test]
+# macro both fall back to PTX JIT when cubin is absent.
 #
 # Prerequisites:
 #   - Patched std in sysroot (run apply-std-patches.sh first)
-#   - CUDA toolkit (ptxas)
+#   - CUDA toolkit (ptxas) — only required for --prod builds
 #
 # Usage:
-#   ./scripts/build-kernels.sh              # Build all 4 crates (dev mode)
-#   ./scripts/build-kernels.sh --prod       # Build all 4 crates (production)
+#   ./scripts/build-kernels.sh              # Build all 4 crates (dev, PTX only)
+#   ./scripts/build-kernels.sh --prod       # Build all 4 crates (prod, PTX+cubin)
 #   ./scripts/build-kernels.sh core test    # Build only specified crates (dev)
 #   ./scripts/build-kernels.sh --prod core  # Build specified crates (production)
 #
@@ -76,32 +79,36 @@ if [ -z "$CHANNEL" ]; then
 fi
 echo "Using toolchain: +$CHANNEL"
 
-# ── Find ptxas ──────────────────────────────────────────────────
+# ── Find ptxas (only needed for --prod) ─────────────────────────
 PTXAS=""
-for dir in /usr/local/cuda*/bin /opt/cuda/bin; do
-    if [ -x "$dir/ptxas" ] 2>/dev/null; then
-        PTXAS="$dir/ptxas"
-        break
+SM="sm_75"
+if [ "$BUILD_MODE" = "prod" ]; then
+    for dir in /usr/local/cuda*/bin /opt/cuda/bin; do
+        if [ -x "$dir/ptxas" ] 2>/dev/null; then
+            PTXAS="$dir/ptxas"
+            break
+        fi
+    done
+    if command -v ptxas >/dev/null 2>&1; then
+        PTXAS="$(command -v ptxas)"
     fi
-done
-if command -v ptxas >/dev/null 2>&1; then
-    PTXAS="$(command -v ptxas)"
-fi
-if [ -z "$PTXAS" ]; then
-    echo "ERROR: ptxas not found. Install CUDA toolkit."
-    exit 1
-fi
-echo "Using ptxas: $PTXAS"
+    if [ -z "$PTXAS" ]; then
+        echo "ERROR: ptxas not found. Install CUDA toolkit (required for --prod)."
+        exit 1
+    fi
+    echo "Using ptxas: $PTXAS"
 
-# ── Detect SM architecture ──────────────────────────────────────
-SM="sm_75"  # default (Turing)
-if command -v nvidia-smi >/dev/null 2>&1; then
-    CC=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -1 | tr -d '.')
-    if [ -n "$CC" ] && [ "$CC" -ge 70 ] 2>/dev/null; then
-        SM="sm_$CC"
+    # Detect SM architecture
+    if command -v nvidia-smi >/dev/null 2>&1; then
+        CC=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -1 | tr -d '.')
+        if [ -n "$CC" ] && [ "$CC" -ge 70 ] 2>/dev/null; then
+            SM="sm_$CC"
+        fi
     fi
+    echo "Target architecture: $SM"
+else
+    echo "(skipping ptxas — dev mode, PTX only)"
 fi
-echo "Target architecture: $SM"
 
 # ── Determine PTX output directory based on profile ────────────
 if [ "$BUILD_MODE" = "prod" ]; then
@@ -151,49 +158,56 @@ for crate in "${CRATES[@]}"; do
     fi
 done
 
-# ── Step 3: Run ptxas in PARALLEL for all crates ───────────────
-echo ""
-echo "=== Step 3: Compiling cubins in parallel (ptxas $SM) ==="
-pids=()
-crate_for_pid=()
-for crate in "${CRATES[@]}"; do
-    ptx_file="$HOST_DIR/kernel_${crate}.ptx"
-    cubin_file="$HOST_DIR/kernel_${crate}.cubin"
-    "$PTXAS" --gpu-name "$SM" -o "$cubin_file" "$ptx_file" &
-    pids+=($!)
-    crate_for_pid+=("$crate")
-    echo "  Started ptxas for kernel_${crate} (PID $!)"
-done
-
-echo ""
-echo "Waiting for ${#pids[@]} ptxas process(es)..."
-
-failed=0
-for i in "${!pids[@]}"; do
-    pid="${pids[$i]}"
-    crate="${crate_for_pid[$i]}"
-    if wait "$pid"; then
-        cubin_file="$HOST_DIR/kernel_${crate}.cubin"
-        echo "  OK: kernel_${crate}.cubin ($(du -h "$cubin_file" | cut -f1))"
-    else
-        echo "  FAILED: kernel_${crate}.cubin (ptxas exit code $?)"
-        failed=$((failed + 1))
-    fi
-done
-
-if [ "$failed" -gt 0 ]; then
+# ── Step 3: Run ptxas in PARALLEL for all crates (--prod only) ─
+if [ "$BUILD_MODE" = "prod" ]; then
     echo ""
-    echo "ERROR: $failed ptxas build(s) failed"
-    exit 1
-fi
+    echo "=== Step 3: Compiling cubins in parallel (ptxas $SM) ==="
+    pids=()
+    crate_for_pid=()
+    for crate in "${CRATES[@]}"; do
+        ptx_file="$HOST_DIR/kernel_${crate}.ptx"
+        cubin_file="$HOST_DIR/kernel_${crate}.cubin"
+        "$PTXAS" --gpu-name "$SM" -o "$cubin_file" "$ptx_file" &
+        pids+=($!)
+        crate_for_pid+=("$crate")
+        echo "  Started ptxas for kernel_${crate} (PID $!)"
+    done
 
-# Backward-compat: kernel_test.cubin → kernel_std.cubin
-for crate in "${CRATES[@]}"; do
-    if [ "$crate" = "test" ]; then
-        cp "$HOST_DIR/kernel_test.cubin" "$HOST_DIR/kernel_std.cubin"
-        echo "  kernel_std.cubin (backward-compat copy of kernel_test.cubin)"
+    echo ""
+    echo "Waiting for ${#pids[@]} ptxas process(es)..."
+
+    failed=0
+    for i in "${!pids[@]}"; do
+        pid="${pids[$i]}"
+        crate="${crate_for_pid[$i]}"
+        if wait "$pid"; then
+            cubin_file="$HOST_DIR/kernel_${crate}.cubin"
+            echo "  OK: kernel_${crate}.cubin ($(du -h "$cubin_file" | cut -f1))"
+        else
+            echo "  FAILED: kernel_${crate}.cubin (ptxas exit code $?)"
+            failed=$((failed + 1))
+        fi
+    done
+
+    if [ "$failed" -gt 0 ]; then
+        echo ""
+        echo "ERROR: $failed ptxas build(s) failed"
+        exit 1
     fi
-done
+
+    # Backward-compat: kernel_test.cubin → kernel_std.cubin
+    for crate in "${CRATES[@]}"; do
+        if [ "$crate" = "test" ]; then
+            cp "$HOST_DIR/kernel_test.cubin" "$HOST_DIR/kernel_std.cubin"
+            echo "  kernel_std.cubin (backward-compat copy of kernel_test.cubin)"
+        fi
+    done
+else
+    echo ""
+    echo "=== Step 3: Skipped (dev mode — no cubin compilation) ==="
+    echo "  Host loader will use PTX JIT at runtime."
+    echo "  Use --prod to pre-compile cubins with ptxas."
+fi
 
 echo ""
 echo "=== All ${#CRATES[@]} kernel(s) built successfully ==="
@@ -202,8 +216,10 @@ echo "PTX files:"
 for crate in "${CRATES[@]}"; do
     printf "  %-24s %s\n" "kernel_${crate}.ptx" "$(du -h "$HOST_DIR/kernel_${crate}.ptx" | cut -f1)"
 done
-echo ""
-echo "Cubin files:"
-for crate in "${CRATES[@]}"; do
-    printf "  %-24s %s\n" "kernel_${crate}.cubin" "$(du -h "$HOST_DIR/kernel_${crate}.cubin" | cut -f1)"
-done
+if [ "$BUILD_MODE" = "prod" ]; then
+    echo ""
+    echo "Cubin files:"
+    for crate in "${CRATES[@]}"; do
+        printf "  %-24s %s\n" "kernel_${crate}.cubin" "$(du -h "$HOST_DIR/kernel_${crate}.cubin" | cut -f1)"
+    done
+fi

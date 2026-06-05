@@ -1,34 +1,31 @@
 ## Current Focus
-**Cycle 617 SAVED** (2026-06-05). split-execute theme COMPLETE (5/5).
-4 kernel crates established: core, compute, io, test. All produce valid PTX.
-split-loader phase next: multi-cubin host loader + parallel build + dev opt-level.
+**Cycle 621 SAVED** (2026-06-05). kernel-split all themes complete (13/13 tasks).
+Litmus test FAILED for test crate: 30 min (ptxas scales with complexity, not size).
+4/5 epic criteria met. Criterion 5 (≤5 min) unmet for largest crate.
+Decision needed: further split test crate, or adjust criterion to exclude ptxas.
 
 ## Recent Decisions
-- 2026-06-05: gpu-kernel-std renamed to gpu-kernel-test (full rename, all refs updated)
-- 2026-06-05: compute crate removed stdio/gpu-libc deps (pure compute, no hostcall)
-- 2026-06-05: PTX/cubin output filenames kept as kernel_std.* for backward compat during transition
-- 2026-06-05: Each kernel crate has own stdio_auto_init + #[used] force-link + dynamic_smem
+- 2026-06-05: opt-level 1 default, release-prod preserves opt-level 3
+- 2026-06-05: ptxas bottleneck identified: 76 entry points with std complexity → 30 min
+- 2026-06-05: PTX shrank 47% (11.4→6.0 MB) but ptxas time unchanged
+- 2026-06-05: Smaller crates (core 1.3MB, compute 1.9MB, io 2.3MB) likely meet target
 
 ## Tried & Rejected
-- bar.sync for scope join: deadlocks
-- GPU par_iter single-block: 4.5% SM utilization
-- GPU atomics on stack: ptxas rejects .local space
-- Epilogue-only fusion for 10% GPT-2 speedup: GEMM dominates ~85%
+- PTX size reduction as ptxas optimization: ptxas scales with code complexity, not byte count
+- opt-level 1: reduces PTX size but not ptxas time significantly
 
 ## Active Constraints
-- GTX 1660 (sm_75): 192 GB/s, 5 TFLOPS FP32, 48KB smem
-- Max 2 concurrent heavy subagents
-- test-integration.2 kernels stashed in git stash@{0} (need unstash after loader done)
-- PTX still uses old kernel_std.ptx filename — split-loader.1 will add per-crate constants
+- GTX 1660 (sm_75): ptxas ~30 min for 76-entry-point crate
+- test-integration.2 kernels stashed in git stash@{0}
+- ptxas is an NVIDIA black box — cannot optimize its runtime
 
 ## Key Metrics
-- 4 kernel crates: core (17 entries), compute (84), io (55), test (~60)
-- FusionCodegen: 7 ops, 2.05x standalone, 1.61x Linear layer
-- 771 tasks completed, 48 epics archived
+- 4 kernel crates: core (17), compute (84), io (55), test (76) entry points
+- PTX sizes: core 1.3MB, compute 1.9MB, io 2.3MB, test 6.0MB
+- Single-crate PTX build: 27s. ptxas: 30 min (test), likely <5 min for others
+- 776 tasks completed, 48 epics archived
 
 ## Next
-1. split-loader.1: per-crate PTX constants + backward-compat aliases
-2. split-loader.2: update host loader for multi-module
-3. split-loader.3: parallel build script
-4. split-loader.4: dev-mode opt-level reduction
-5. split-loader.5: litmus test — single-crate rebuild under 5 minutes
+1. Resolve kernel-split criterion 5: further split test crate OR adjust criterion
+2. Unstash test-integration.2 + verify
+3. Continue with T1 epics (gpu-type-safety, gpu-generics)

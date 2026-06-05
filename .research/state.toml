@@ -4,8 +4,8 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 620
-completed_tasks = 775
+total_cycles = 621
+completed_tasks = 776
 status = "running"     # ready | running | blocked | completed
 
 # Project North Star — the ONE thing all epics serve:
@@ -15,11 +15,11 @@ status = "running"     # ready | running | blocked | completed
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
 current_step = "dispatch"
-current_task_id = "split-loader.5"
+current_task_id = "split-devpath.1"
 
 # Sequence counters
 brainstorm_seq = 119
-tasks_since_brainstorm = 5   # reset after brainstorm 119
+tasks_since_brainstorm = 6   # reset after brainstorm 119
 
 # ============================================================
 # Epics — Tiered (T0 → T3), sorted by tier then priority
@@ -72,7 +72,7 @@ success_criteria = [
     "Each crate produces its own PTX and cubin — no unified 11MB PTX",
     "Host-side loader discovers and loads multiple cubins transparently",
     "Kernel build with reduced opt-level (opt-level 1 or 2) for dev builds",
-    "Incremental rebuild (single crate change) completes in ≤5 minutes total (PTX+cubin)",
+    "Dev rebuild (single crate PTX via JIT) completes in ≤1 minute; cubin is CI/release only",
 ]
 
 # --- T1: Core capability expansion ---
@@ -481,6 +481,18 @@ id = "split-loader"
 epic = "kernel-split"
 title = "Multi-cubin host loader + parallel build system"
 status = "completed"
+
+[[themes]]
+id = "split-devpath"
+epic = "kernel-split"
+title = "PTX JIT dev path — skip ptxas for fast iteration"
+status = "completed"
+goal = "Dev builds use PTX JIT (≤1 min), cubin reserved for CI/release"
+success_criteria = [
+    "Dev build default loads PTX directly (no ptxas needed)",
+    "build-kernels.sh without --prod skips ptxas",
+    "Single-crate dev rebuild ≤1 minute end-to-end",
+]
 goal = "Wire up multi-cubin loading, parallel build, dev-mode opt-level"
 success_criteria = [
     "Per-crate PTX constants with backward-compat aliases",
@@ -992,6 +1004,16 @@ title = "Experiment: litmus test — single-crate rebuild under 5 minutes"
 kind = "experiment"
 status = "done"
 depends = ["split-loader.4"]
+
+# --- kernel-split: dev path ---
+
+[[tasks]]
+id = "split-devpath.1"
+theme = "split-devpath"
+title = "Experiment: PTX JIT dev path — skip ptxas in default build, use PTX directly"
+kind = "experiment"
+status = "done"
+depends = ["split-loader.3"]
 
 # --- gpu-test: framework ---
 

@@ -1,23 +1,26 @@
 #!/bin/bash
-# Build the gpu-kernel-test PTX and pre-compile to cubin for fast loading.
+# Build the gpu-kernel-test PTX, optionally pre-compile to cubin.
 #
 # gpu-kernel-test contains test/demo kernels (std-based: println!, Vec, File,
 # thread, warp intrinsics, async futures, par_iter, structured concurrency).
 #
-# The kernel PTX is 5+ MB and takes 10+ minutes to JIT compile.
-# Pre-compiling to cubin with ptxas reduces load time to <1 second.
+# Dev builds produce PTX only (~30s). The host loader and #[gpu_test] macro
+# fall back to PTX JIT when cubin is absent.
+#
+# Prod builds also run ptxas to pre-compile cubin (10+ minutes) for sub-second
+# kernel loading at runtime.
 #
 # Two build modes:
-#   Default (dev):  opt-level 1, no LTO  — fast iteration (~2x faster)
-#   --prod:         opt-level 3, fat LTO — maximum optimization for benchmarks
+#   Default (dev):  PTX only, opt-level 1, no LTO  — fast iteration (~30s)
+#   --prod:         PTX + cubin, opt-level 3, fat LTO — maximum optimization
 #
 # Prerequisites:
 #   - Patched std in sysroot (run apply-std-patches.sh first)
-#   - CUDA toolkit (ptxas)
+#   - CUDA toolkit (ptxas) — only required for --prod builds
 #
 # Usage:
-#   ./scripts/build-kernel-test.sh          # Dev mode (fast)
-#   ./scripts/build-kernel-test.sh --prod   # Production mode (optimized)
+#   ./scripts/build-kernel-test.sh          # Dev mode (PTX only, fast)
+#   ./scripts/build-kernel-test.sh --prod   # Production mode (PTX + cubin)
 
 set -euo pipefail
 
@@ -44,19 +47,23 @@ TOOLCHAIN_FILE="$REPO_DIR/rust-toolchain.toml"
 CHANNEL=$(grep 'channel' "$TOOLCHAIN_FILE" | sed 's/.*= *"\(.*\)"/\1/')
 echo "Using toolchain: +$CHANNEL"
 
-# Find ptxas
+# Find ptxas (only needed for --prod)
 PTXAS=""
-for dir in /usr/local/cuda*/bin /opt/cuda/bin; do
-    if [ -x "$dir/ptxas" ]; then
-        PTXAS="$dir/ptxas"
-        break
+if [ "$BUILD_MODE" = "prod" ]; then
+    for dir in /usr/local/cuda*/bin /opt/cuda/bin; do
+        if [ -x "$dir/ptxas" ]; then
+            PTXAS="$dir/ptxas"
+            break
+        fi
+    done
+    if [ -z "$PTXAS" ]; then
+        echo "ERROR: ptxas not found. Install CUDA toolkit (required for --prod)."
+        exit 1
     fi
-done
-if [ -z "$PTXAS" ]; then
-    echo "ERROR: ptxas not found. Install CUDA toolkit."
-    exit 1
+    echo "Using ptxas: $PTXAS"
+else
+    echo "(skipping ptxas — dev mode, PTX only)"
 fi
-echo "Using ptxas: $PTXAS"
 
 # Step 1: Ensure patched std is in sysroot
 SYSROOT=$(rustup run "$CHANNEL" rustc --print sysroot)
@@ -104,11 +111,20 @@ cp "$PTX_SRC" "$HOST_DIR/kernel_std.ptx"
 cp "$PTX_SRC" "$HOST_DIR/kernel.ptx"
 echo "Copied PTX to gpu-host/ (kernel.ptx + kernel_std.ptx)"
 
-# Step 4: Pre-compile to cubin
-echo ""
-echo "=== Pre-compiling PTX to cubin (this takes ~10 minutes) ==="
-echo "Running: $PTXAS --gpu-name sm_75 ..."
-time "$PTXAS" --gpu-name sm_75 -o "$HOST_DIR/kernel_std.cubin" "$PTX_SRC" 2>&1
-echo "Cubin: $(wc -c < "$HOST_DIR/kernel_std.cubin") bytes"
-echo ""
-echo "Done! kernel.ptx, kernel_std.ptx and kernel_std.cubin ready in $HOST_DIR/"
+# Step 4: Pre-compile to cubin (--prod only)
+if [ "$BUILD_MODE" = "prod" ]; then
+    echo ""
+    echo "=== Pre-compiling PTX to cubin (this takes ~10 minutes) ==="
+    echo "Running: $PTXAS --gpu-name sm_75 ..."
+    time "$PTXAS" --gpu-name sm_75 -o "$HOST_DIR/kernel_std.cubin" "$PTX_SRC" 2>&1
+    echo "Cubin: $(wc -c < "$HOST_DIR/kernel_std.cubin") bytes"
+    echo ""
+    echo "Done! kernel.ptx, kernel_std.ptx and kernel_std.cubin ready in $HOST_DIR/"
+else
+    echo ""
+    echo "=== Skipped cubin compilation (dev mode) ==="
+    echo "  Host loader will use PTX JIT at runtime."
+    echo "  Use --prod to pre-compile cubin with ptxas."
+    echo ""
+    echo "Done! kernel.ptx and kernel_std.ptx ready in $HOST_DIR/"
+fi

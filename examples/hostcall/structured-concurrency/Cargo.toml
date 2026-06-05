@@ -1,0 +1,10 @@
+[workspace]
+
+[package]
+name = "structured-concurrency"
+version = "0.1.0"
+edition = "2021"
+description = "Demo: structured concurrency on GPU — BlockScope, channels, spawn_all"
+
+[dependencies]
+async-gpu = { path = "../../../crates/async-gpu" }

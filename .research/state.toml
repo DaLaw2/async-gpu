@@ -15,7 +15,7 @@ status = "running"     # ready | running | blocked | completed
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
 current_step = "dispatch"
-current_task_id = "showcase-api.3,iter-compiler.2"
+current_task_id = "iter-compiler.3,showcase-sc.1"
 
 # Sequence counters
 brainstorm_seq = 116
@@ -35,16 +35,14 @@ tasks_since_brainstorm = 13   # reset after brainstorm 116
 # native-rust-dx, std-thread-gpu, cooperative-compute, structured-concurrency,
 # library-api, kernel-perf
 
-# --- T0/T1 all completed and archived ---
-
-# --- T2: Advanced (now active tier — T0/T1 all completed) ---
+# --- T0: Foundation (do first, everything depends on this) ---
 
 [[epics]]
 id = "developer-showcase"
 title = "Developer Showcase — examples, API surface, and README for all shipped features"
-tier = 2
+tier = 0
 status = "active"
-priority = "high"
+priority = "highest"
 # North Star: Every shipped feature has a clean example and is discoverable in README.
 #   A new developer sees what async-gpu can do in 5 minutes of reading.
 #   Hidden features (SC, channels, executor) become first-class user-facing APIs.
@@ -59,19 +57,129 @@ success_criteria = [
 ]
 
 [[epics]]
-id = "cuda-graph-scheduling"
-title = "CUDA Graph Scheduling — static async pipelines compile to CUDA Graphs"
+id = "gpu-test"
+title = "GPU Test Framework — #[gpu_test] and cargo test on GPU"
+tier = 0
+status = "pending"
+priority = "high"
+# North Star: Testing GPU code is as natural as testing CPU code.
+#   #[gpu_test] runs on GPU warps, assert! works across lanes, cargo test just works.
+#   No GPU concepts leak into the test workflow.
+# Litmus Test: A developer writes #[gpu_test] fn test_sum() { assert_eq!(gpu_sum(), 42); }
+#   and cargo test runs it on GPU automatically.
+success_criteria = [
+    "#[gpu_test] attribute compiles test function to GPU kernel + host runner",
+    "GPU-native assert! with warp/thread ID in failure messages",
+    "cargo test integration — GPU tests discovered and run alongside CPU tests",
+    "At least 10 existing GPU features covered by #[gpu_test] tests",
+]
+
+# --- T1: Core capability expansion ---
+
+[[epics]]
+id = "gpu-type-safety"
+title = "Type-Level Safety — compile-time race-freedom for GPU code"
+tier = 1
+status = "pending"
+priority = "high"
+# North Star: The Rust compiler proves your GPU code has no data races — at compile time.
+#   DisjointSlice<T> + ThreadIndex pattern (inspired by cuda-oxide), adapted to async-gpu.
+#   GPU safety is a Rust type system feature, not a runtime check.
+# Litmus Test: Writing overlapping writes to a shared buffer is a compile error.
+success_criteria = [
+    "DisjointSlice<T> type proves exclusive access per thread at compile time",
+    "ThreadIndex<'kernel> is !Send + !Sync + !Copy, scoped to kernel lifetime",
+    "3-tier safety model: safe (proven no races) / scoped unsafe / raw intrinsics",
+    "Existing BlockScope/GridScope enhanced with type-level safety guarantees",
+]
+
+[[epics]]
+id = "gpu-iterator"
+title = "GPU Iterator — par_iter() compiles to warp-parallel GPU kernels"
+tier = 1
+status = "active"
+priority = "highest"
+depends_on = "structured-concurrency"
+# North Star: Iterator chains are Rust's native way to express data-parallel compute.
+#   par_iter() makes "compute walks all-warp cooperative" invisible — just iterators.
+#   No GPU concepts leak: no kernel launch, no thread config, no cooperative() call.
+# Litmus Test: data.par_iter().map(|x| x * 2.0 + 1.0).collect() produces
+#   correct results on GPU, user doesn't know it's GPU code.
+success_criteria = [
+    "gpu::par_iter() maps Rust iterator chains to GPU warp-parallel execution",
+    "MIR pass transforms iterator chain bodies into warp-parallel kernel code",
+    "At least map, filter, fold, collect operations supported",
+    "Demo: iterator chain that outperforms CPU Rayon on large data (>1M elements)",
+]
+
+[[epics]]
+id = "auto-fusion"
+title = "Auto Kernel Fusion — compile-time elementwise operation fusion"
+tier = 1
+status = "active"
+priority = "high"
+# North Star: Users write idiomatic decomposed Rust and the compiler fuses the ops.
+#   No "fused kernel" concept leaks — performance optimization is the compiler's job.
+#   Plain Rust code gets plain Rust performance, automatically.
+# Litmus Test: gelu(x * scale + bias) compiles to one GPU kernel launch,
+#   not three. User never writes a fused kernel.
+success_criteria = [
+    "MIR pass identifies chains of elementwise operations across function boundaries",
+    "Fused kernel generated at compile time (not runtime JIT)",
+    "At least multiply + add + activation (GELU/ReLU) chains fused automatically",
+    "Measurable speedup: fused chain >= 2x faster than sequential kernel launches",
+]
+
+[[epics]]
+id = "gpu-generics"
+title = "GPU Generics — full Rust trait system + generics on GPU kernels"
+tier = 1
+status = "pending"
+priority = "medium"
+# North Star: GPU code is composable Rust code. Generic functions, trait bounds,
+#   and impl blocks work on GPU just like on CPU. No concrete-type-only limitation.
+# Litmus Test: fn parallel_reduce<T: Add>(data: &[T]) -> T works on GPU for any T.
+success_criteria = [
+    "Generic kernel functions compile to PTX via monomorphization",
+    "Trait bounds work in GPU code (T: Add + Copy, etc.)",
+    "User-defined traits implementable for GPU types",
+    "Demo: generic parallel_reduce<T: Reducible> working for f32, i32, custom types",
+]
+
+# --- T2: Advanced ---
+
+[[epics]]
+id = "gpu-hot-reload"
+title = "GPU Hot-Reload — edit kernel, auto-recompile, hot-swap PTX"
 tier = 2
 status = "pending"
 priority = "medium"
-# North Star: Users write async pipelines, the compiler automatically identifies static
-#   portions and emits CUDA Graphs. No code changes needed for the speedup.
-# Litmus Test: An async pipeline runs faster with zero user-facing API changes.
+# North Star: GPU development iteration speed matches web development.
+#   Change kernel code, save, see results — no restart needed.
+# Litmus Test: Edit a kernel's math, save the file, output changes in <2 seconds.
 success_criteria = [
-    "MIR pass identifies static vs dynamic branches in async state machines",
-    "Static paths emit CUDA Graph nodes (kernel launch, memcpy, sync)",
-    "Dynamic branches fallback to polling — no correctness regression",
-    "Measurable speedup (>= 20%) on a multi-stage async pipeline vs polling-only baseline",
+    "File watcher detects kernel source changes",
+    "NVRTC recompiles changed kernels to PTX in background",
+    "Hot-swap PTX module in running host process without restart",
+    "Demo: live-edit a compute kernel, see output update in running program",
+]
+
+[[epics]]
+id = "gpu-coroutines"
+title = "GPU Coroutines — generator/yield pattern on GPU warps"
+tier = 2
+status = "pending"
+priority = "medium"
+# North Star: Streaming data processing on GPU via coroutines.
+#   Each warp runs a generator, yield switches warp context.
+#   Natural extension of async/await for data pipeline patterns.
+# Litmus Test: A generator yielding values runs on GPU warps,
+#   consumer processes values as they're produced.
+success_criteria = [
+    "GpuGenerator trait with yield_value() and resume()",
+    "MIR pass transforms generator state machine to warp-cooperative execution",
+    "Multiple generators run concurrently across warps",
+    "Demo: streaming pipeline — producer yields, consumer processes, zero buffering",
 ]
 
 [[epics]]
@@ -92,9 +200,124 @@ success_criteria = [
 ]
 
 [[epics]]
+id = "conv-perf"
+title = "High-Performance Conv2D — Winograd channel batching + direct conv optimization"
+tier = 2
+status = "pending"
+priority = "medium"
+# North Star: Conv2D closes the gap to cuDNN so CNN models run at competitive speed.
+# Litmus Test: ResNet-18 ONNX inference with async-gpu conv2d is within 2x of cuDNN-backed.
+success_criteria = [
+    "Winograd F(4×4,3×3) with batched channel processing (not per-channel serial)",
+    "Conv2D >= 50% of cuDNN for common 3×3 shapes (ResNet, YOLO)",
+    "Direct conv kernel for non-3×3 sizes with shared memory tiling",
+    "YOLOv8-nano inference improved >= 2x from conv optimization",
+]
+
+[[epics]]
+id = "compile-time-cost"
+title = "Compile-Time Cost Model — know GPU performance at compile time"
+tier = 2
+status = "pending"
+priority = "medium"
+# North Star: The compiler tells you performance characteristics before you run.
+#   Register pressure, occupancy, bank conflicts — visible at compile time.
+# Litmus Test: cargo build warns "kernel X uses 64 registers, occupancy 25%".
+success_criteria = [
+    "MIR pass estimates register usage and shared memory per kernel",
+    "Compile-time warnings for low occupancy (<50%) and bank conflicts",
+    "Report: per-kernel resource usage summary in build output",
+    "At least one real kernel where compile-time warning catches a performance issue",
+]
+
+[[epics]]
+id = "hardware-intrinsics"
+title = "Hardware Intrinsics — TMA, WGMMA, Thread Block Clusters (SM90+)"
+tier = 2
+status = "pending"
+priority = "low"
+# North Star: Advanced hardware features accessible via safe Rust wrappers.
+#   No raw PTX needed for Tensor Memory Accelerator or Warp Group MMA.
+# Litmus Test: A GEMM kernel using WGMMA via safe Rust API achieves >80% peak.
+# Note: Requires SM90+ (Hopper/Blackwell). Current dev GPU is SM75.
+success_criteria = [
+    "TMA load/store wrappers for 2D tensor tiles",
+    "WGMMA warp-group matrix multiply-accumulate (SM90+)",
+    "Thread Block Cluster primitives (cluster_rank, distributed shared memory)",
+    "At least one kernel demonstrating TMA+WGMMA with safe Rust API",
+]
+
+[[epics]]
+id = "cuda-graph-scheduling"
+title = "CUDA Graph Scheduling — static async pipelines compile to CUDA Graphs"
+tier = 2
+status = "pending"
+priority = "low"
+# North Star: Users write async pipelines, the compiler automatically identifies static
+#   portions and emits CUDA Graphs. No code changes needed for the speedup.
+# Litmus Test: An async pipeline runs faster with zero user-facing API changes.
+success_criteria = [
+    "MIR pass identifies static vs dynamic branches in async state machines",
+    "Static paths emit CUDA Graph nodes (kernel launch, memcpy, sync)",
+    "Dynamic branches fallback to polling — no correctness regression",
+    "Measurable speedup (>= 20%) on a multi-stage async pipeline vs polling-only baseline",
+]
+
+# --- T3: Exploratory ---
+
+[[epics]]
+id = "auto-parallel"
+title = "Auto-Parallelization — sequential loops automatically GPU-parallelized"
+tier = 3
+status = "pending"
+priority = "low"
+# North Star: The compiler sees a pure for-loop and automatically runs it on GPU.
+#   No par_iter(), no cooperative(), no annotations. User doesn't know GPU exists.
+# Litmus Test: A plain for x in data { *x = gelu(*x) } compiles to a GPU kernel.
+success_criteria = [
+    "MIR pass analyzes loop body purity (no side effects, no aliasing)",
+    "Pure loops automatically transformed to warp-parallel GPU kernels",
+    "Heuristic: only parallelize when data size exceeds crossover threshold",
+    "Demo: sequential code runs on GPU with zero annotations, outperforms CPU",
+]
+
+[[epics]]
+id = "ownership-memory"
+title = "Ownership = Memory Hierarchy — Rust lifetimes map to GPU memory tiers"
+tier = 3
+status = "pending"
+priority = "low"
+depends_on = "structured-concurrency"
+# North Star: Shared vs global memory is a GPU concept that still leaks today.
+#   Rust's ownership system absorbs it: lifetimes determine memory tier automatically.
+# Litmus Test: Misusing shared memory across blocks is a compile error, not a runtime bug.
+success_criteria = [
+    "Lifetime-parameterized memory types: &'block T → shared memory, &'grid T → global memory",
+    "Borrow checker prevents cross-scope memory access at compile time",
+    "Register promotion for move semantics in inner loops",
+    "At least one real kernel where the type system catches a memory hierarchy bug",
+]
+
+[[epics]]
+id = "gpu-repl"
+title = "GPU REPL — interactive GPU programming, one line at a time"
+tier = 3
+status = "pending"
+priority = "low"
+# North Star: Explore GPU programming interactively, like a Python REPL for GPU Rust.
+#   Type a line, it runs on GPU, see the result. Great for learning and prototyping.
+# Litmus Test: Type `vec![1.0f32; 1M].par_iter().sum()` and get the answer instantly.
+success_criteria = [
+    "REPL session with JIT compilation to GPU via NVRTC",
+    "State persistence across lines (variables survive between inputs)",
+    "Output formatting for GPU results (tensors, buffers, scalars)",
+    "Demo: interactive GPU session with 5+ successive commands",
+]
+
+[[epics]]
 id = "cross-vendor"
 title = "Cross-Vendor GPU — same code runs on NVIDIA, AMD, Vulkan"
-tier = 2
+tier = 3
 status = "pending"
 priority = "low"
 # North Star: Users write Rust GPU code once, it runs on any GPU vendor.
@@ -107,89 +330,13 @@ success_criteria = [
 ]
 
 [[epics]]
-id = "conv-perf"
-title = "High-Performance Conv2D — Winograd channel batching + direct conv optimization"
-tier = 2
-status = "pending"
-priority = "medium"
-depends_on = "kernel-perf"
-# North Star: Conv2D must close the gap to cuDNN so CNN models (ResNet, YOLO) run
-#   at competitive speed. The compute pillar is fast for GEMM and Attention —
-#   Conv2D is the remaining bottleneck for vision workloads.
-# Litmus Test: ResNet-18 ONNX inference with async-gpu conv2d is within 2x of cuDNN-backed.
-success_criteria = [
-    "Winograd F(4×4,3×3) with batched channel processing (not per-channel serial)",
-    "Conv2D >= 50% of cuDNN for common 3×3 shapes (ResNet, YOLO)",
-    "Direct conv kernel for non-3×3 sizes with shared memory tiling",
-    "YOLOv8-nano inference improved >= 2x from conv optimization",
-]
-
-[[epics]]
-id = "gpu-iterator"
-title = "GPU Iterator — par_iter() compiles to warp-parallel GPU kernels"
-tier = 2
-status = "active"
-priority = "high"
-depends_on = "structured-concurrency"
-# North Star: Iterator chains are Rust's native way to express data-parallel compute.
-#   par_iter() makes "compute walks all-warp cooperative" invisible — just iterators.
-#   No GPU concepts leak: no kernel launch, no thread config, no cooperative() call.
-# Litmus Test: data.par_iter().map(|x| x * 2.0 + 1.0).collect() produces
-#   correct results on GPU, user doesn't know it's GPU code.
-success_criteria = [
-    "gpu::par_iter() maps Rust iterator chains to GPU warp-parallel execution",
-    "MIR pass transforms iterator chain bodies into warp-parallel kernel code",
-    "At least map, filter, fold, collect operations supported",
-    "Demo: iterator chain that outperforms CPU Rayon on large data (>1M elements)",
-]
-
-[[epics]]
-id = "auto-fusion"
-title = "Auto Kernel Fusion — compile-time elementwise operation fusion"
-tier = 2
-status = "active"
-priority = "medium"
-# North Star: Users write idiomatic decomposed Rust and the compiler fuses the ops.
-#   No "fused kernel" concept leaks — performance optimization is the compiler's job.
-#   Plain Rust code gets plain Rust performance, automatically.
-# Litmus Test: gelu(x * scale + bias) compiles to one GPU kernel launch,
-#   not three. User never writes a fused kernel.
-success_criteria = [
-    "MIR pass identifies chains of elementwise operations across function boundaries",
-    "Fused kernel generated at compile time (not runtime JIT)",
-    "At least multiply + add + activation (GELU/ReLU) chains fused automatically",
-    "Measurable speedup: fused chain >= 2x faster than sequential kernel launches",
-]
-
-[[epics]]
-id = "std-completeness"
-title = "std Completeness — expand GPU std coverage for no_std crate compatibility"
-tier = 2
-status = "pending"
-priority = "low"
-# North Star: "Both look like plain Rust" means the full standard library works.
-#   More std types on GPU = fewer places where GPU limitations leak into user code.
-#   Extends the real-std vision to cover the rest of the standard library.
-# Litmus Test: A popular no_std crate (heapless, hashbrown) compiles and runs on GPU unmodified.
-success_criteria = [
-    "std::sync::mpsc channel maps to GPU channel implementation transparently",
-    "std::sync::RwLock on GPU via warp-aware atomic protocol",
-    "std::net::TcpListener::bind() on GPU (server-side networking via hostcall)",
-    "At least one third-party no_std crate compiles and runs on GPU unmodified",
-]
-
-# --- T3: Exploratory ---
-
-[[epics]]
 id = "actor-model"
 title = "GPU Actor Model — warp-as-actor with message passing"
 tier = 3
 status = "pending"
 priority = "low"
-# North Star: An alternative to async/await for task parallelism — each warp is an actor
-#   with a mailbox, no shared mutable state, fault isolation.
-# Litmus Test: A producer-consumer pipeline written with actors is shorter and clearer
-#   than the equivalent async version.
+# North Star: Each warp is an actor with a mailbox, no shared mutable state.
+# Litmus Test: A producer-consumer pipeline with actors is clearer than async version.
 success_criteria = [
     "GpuActor trait with handle_message method",
     "Mailbox in shared memory (same block) or global memory (cross block) — auto-selected",
@@ -203,8 +350,7 @@ title = "Formal Verification — MIR pass correctness for arbitrary async fn"
 tier = 3
 status = "pending"
 priority = "low"
-# North Star: Users can trust that the MIR pass won't generate wrong code for any
-#   valid async fn — proven, not just tested.
+# North Star: Proven, not just tested — MIR pass generates correct code for all valid async fn.
 # Litmus Test: A formal proof that sync insertion is sound for all reachable async states.
 success_criteria = [
     "Operational semantics defined for warp-cooperative async",
@@ -214,21 +360,18 @@ success_criteria = [
 ]
 
 [[epics]]
-id = "ownership-memory"
-title = "Ownership = Memory Hierarchy — Rust lifetimes map to GPU memory tiers"
+id = "std-completeness"
+title = "std Completeness — expand GPU std coverage for no_std crate compatibility"
 tier = 3
 status = "pending"
 priority = "low"
-depends_on = "structured-concurrency"
-# North Star: Shared vs global memory is a GPU concept that still leaks today.
-#   Rust's ownership system absorbs it: lifetimes determine memory tier automatically.
-#   No GPU concepts leak — not even memory hierarchy. It's just Rust lifetimes.
-# Litmus Test: Misusing shared memory across blocks is a compile error, not a runtime bug.
+# North Star: More std types on GPU = fewer places where GPU limitations leak.
+# Litmus Test: A popular no_std crate compiles and runs on GPU unmodified.
 success_criteria = [
-    "Lifetime-parameterized memory types: &'block T → shared memory, &'grid T → global memory",
-    "Borrow checker prevents cross-scope memory access at compile time",
-    "Register promotion for move semantics in inner loops",
-    "At least one real kernel where the type system catches a memory hierarchy bug",
+    "std::sync::mpsc channel maps to GPU channel implementation transparently",
+    "std::sync::RwLock on GPU via warp-aware atomic protocol",
+    "std::net::TcpListener::bind() on GPU (server-side networking via hostcall)",
+    "At least one third-party no_std crate compiles and runs on GPU unmodified",
 ]
 
 # --- Evergreen ---
@@ -254,7 +397,6 @@ id = "classical-ml"
 title = "Classical ML on GPU — decision trees, random forest, k-means"
 status = "parked"
 priority = "medium"
-# Parked: revisit as showcase example after native-rust-dx is done
 success_criteria = [
     "GPU decision tree inference: load trained tree, classify 10K+ samples in parallel",
     "GPU random forest: ensemble of 100+ trees, majority-vote, accuracy matches CPU reference",
@@ -281,6 +423,254 @@ success_criteria = [
 
 # kernel-perf themes archived: perf-attention, perf-conv, perf-layernorm,
 # perf-elementwise, perf-e2e, perf-fusion, perf-gemm-v4, perf-attn-v3
+
+# --- T0: gpu-test themes ---
+
+[[themes]]
+id = "test-framework"
+epic = "gpu-test"
+title = "#[gpu_test] attribute + GPU test runner"
+status = "pending"
+goal = "GPU tests compile and run via cargo test"
+success_criteria = [
+    "#[gpu_test] proc macro generates GPU kernel + host runner",
+    "GPU assert! captures warp/thread ID on failure",
+    "Test runner collects results across all warps",
+]
+
+[[themes]]
+id = "test-integration"
+epic = "gpu-test"
+title = "cargo test integration + coverage"
+status = "pending"
+goal = "GPU tests are first-class in the Rust test ecosystem"
+success_criteria = [
+    "cargo test discovers and runs #[gpu_test] alongside #[test]",
+    "At least 10 GPU features covered by #[gpu_test] tests",
+]
+
+# --- T1: gpu-type-safety themes ---
+
+[[themes]]
+id = "safety-types"
+epic = "gpu-type-safety"
+title = "DisjointSlice + ThreadIndex — race-freedom by construction"
+status = "pending"
+goal = "Type system proves no data races in GPU code at compile time"
+success_criteria = [
+    "DisjointSlice<T> type with compile-time exclusive access guarantee",
+    "ThreadIndex<'kernel> is !Send + !Sync + !Copy with kernel-scoped lifetime",
+    "Overlapping writes to shared buffer are compile errors",
+]
+
+[[themes]]
+id = "safety-tiers"
+epic = "gpu-type-safety"
+title = "3-tier safety model for GPU operations"
+status = "pending"
+goal = "Clear safety tiers: safe / scoped unsafe / raw intrinsics"
+success_criteria = [
+    "Tier 1: safe API (DisjointSlice, ThreadIndex)",
+    "Tier 2: scoped unsafe (shared memory, warp shuffles, atomics)",
+    "Tier 3: raw intrinsics (TMA, WGMMA)",
+]
+
+[[themes]]
+id = "safety-apply"
+epic = "gpu-type-safety"
+title = "Apply type safety to existing SC and cooperative APIs"
+status = "pending"
+goal = "BlockScope/GridScope gain type-level safety guarantees"
+success_criteria = [
+    "BlockScope alloc returns DisjointSlice for parallel access",
+    "cooperative() closure receives ThreadIndex for safe indexing",
+    "Demo: existing example rewritten with zero unsafe",
+]
+
+# --- T1: gpu-generics themes ---
+
+[[themes]]
+id = "gen-mono"
+epic = "gpu-generics"
+title = "PTX monomorphization for generic kernel functions"
+status = "pending"
+goal = "Generic Rust functions compile to concrete PTX per type"
+success_criteria = [
+    "fn kernel<T: Copy + Add>(data: &[T]) compiles to PTX for f32, i32",
+    "Monomorphization at PTX generation time",
+    "No runtime dispatch overhead",
+]
+
+[[themes]]
+id = "gen-traits"
+epic = "gpu-generics"
+title = "Trait dispatch on GPU — impl + where bounds"
+status = "pending"
+goal = "User-defined traits work in GPU code"
+success_criteria = [
+    "Custom trait definitions usable in GPU kernel code",
+    "Where clauses constrain GPU generic parameters",
+    "Trait objects rejected with helpful compile error",
+]
+
+[[themes]]
+id = "gen-demo"
+epic = "gpu-generics"
+title = "Generic algorithms demo"
+status = "pending"
+goal = "Show composable GPU code via generics"
+success_criteria = [
+    "parallel_reduce<T: Reducible> works for f32, i32, custom types",
+    "Performance matches concrete-type implementation",
+]
+
+# --- T2: gpu-hot-reload themes ---
+
+[[themes]]
+id = "reload-impl"
+epic = "gpu-hot-reload"
+title = "File watcher + NVRTC recompile + hot-swap"
+status = "pending"
+goal = "Change kernel code, see results in <2 seconds"
+success_criteria = [
+    "File watcher triggers on kernel source changes",
+    "NVRTC recompiles to PTX in background",
+    "Hot-swap PTX in running host without restart",
+]
+
+# --- T2: gpu-coroutines themes ---
+
+[[themes]]
+id = "coro-design"
+epic = "gpu-coroutines"
+title = "Generator trait + MIR pass design"
+status = "pending"
+goal = "Design GPU generator pattern building on async/await MIR pass"
+success_criteria = [
+    "GpuGenerator trait with yield_value() and resume()",
+    "MIR pass extension for generator state machines",
+    "Warp-cooperative yield: all lanes yield together",
+]
+
+[[themes]]
+id = "coro-impl"
+epic = "gpu-coroutines"
+title = "Generator implementation + streaming pipeline"
+status = "pending"
+goal = "Working generators on GPU warps"
+success_criteria = [
+    "Generator compiles to PTX via extended MIR pass",
+    "Demo: producer yields → consumer processes → zero buffering",
+]
+
+# --- T2: compile-time-cost themes ---
+
+[[themes]]
+id = "cost-analysis"
+epic = "compile-time-cost"
+title = "MIR-level GPU resource estimation"
+status = "pending"
+goal = "Estimate register usage, shared memory, occupancy at compile time"
+success_criteria = [
+    "Register usage estimated from MIR live value analysis",
+    "Shared memory tracked from alloc calls",
+    "Occupancy computed from resource estimates",
+]
+
+[[themes]]
+id = "cost-warnings"
+epic = "compile-time-cost"
+title = "Compile-time GPU performance lints"
+status = "pending"
+goal = "Warn about common GPU performance issues during compilation"
+success_criteria = [
+    "Warning: low occupancy due to register pressure",
+    "Warning: shared memory bank conflicts",
+    "Warning: uncoalesced global memory access",
+]
+
+# --- T2: hardware-intrinsics themes ---
+
+[[themes]]
+id = "hw-tma"
+epic = "hardware-intrinsics"
+title = "TMA — Tensor Memory Accelerator wrappers"
+status = "pending"
+goal = "Safe Rust API for TMA 2D tile loads/stores"
+success_criteria = [
+    "tma_load_2d / tma_store_2d safe wrappers",
+    "TmaDescriptor builder API",
+]
+
+[[themes]]
+id = "hw-wgmma"
+epic = "hardware-intrinsics"
+title = "WGMMA — Warp Group Matrix Multiply-Accumulate"
+status = "pending"
+goal = "Safe Rust API for warp-group MMA (SM90+)"
+success_criteria = [
+    "wgmma_mma_async safe wrapper",
+    "GEMM kernel with WGMMA achieving >80% peak",
+]
+
+[[themes]]
+id = "hw-clusters"
+epic = "hardware-intrinsics"
+title = "Thread Block Clusters"
+status = "pending"
+goal = "Cluster-level coordination primitives"
+success_criteria = [
+    "cluster_rank(), distributed shared memory",
+    "Cluster barrier synchronization",
+]
+
+# --- T3: auto-parallel themes ---
+
+[[themes]]
+id = "ap-analysis"
+epic = "auto-parallel"
+title = "Loop purity analysis in MIR"
+status = "pending"
+goal = "Identify pure loops that can be auto-parallelized"
+success_criteria = [
+    "MIR pass detects side-effect-free, non-aliasing loops",
+    "Heuristic for minimum data size threshold",
+]
+
+[[themes]]
+id = "ap-transform"
+epic = "auto-parallel"
+title = "Automatic loop → GPU kernel transformation"
+status = "pending"
+goal = "Pure loops compiled to GPU kernels with zero annotation"
+success_criteria = [
+    "Loop body transformed to per-lane GPU code",
+    "Demo: plain for-loop runs on GPU, outperforms CPU",
+]
+
+# --- T3: gpu-repl themes ---
+
+[[themes]]
+id = "repl-engine"
+epic = "gpu-repl"
+title = "JIT compilation + session state management"
+status = "pending"
+goal = "Interactive GPU execution with persistent state"
+success_criteria = [
+    "NVRTC-based JIT for single-line GPU expressions",
+    "Variable state persists across inputs",
+]
+
+[[themes]]
+id = "repl-ux"
+epic = "gpu-repl"
+title = "REPL user experience"
+status = "pending"
+goal = "Polished interactive GPU programming experience"
+success_criteria = [
+    "Tensor/buffer output formatting",
+    "Demo: 5+ successive commands in interactive session",
+]
 
 # --- T2: conv-perf themes ---
 
@@ -557,6 +947,304 @@ success_criteria = [
 
 # (SC and kernel-perf task entries removed — see archive/tasks-archived.toml)
 
+# --- gpu-test: framework ---
+
+[[tasks]]
+id = "test-framework.1"
+theme = "test-framework"
+title = "Investigation: design #[gpu_test] proc macro — kernel generation + host runner pattern"
+kind = "investigation"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "test-framework.2"
+theme = "test-framework"
+title = "Experiment: implement #[gpu_test] proc macro + GPU assert! with warp ID"
+kind = "experiment"
+status = "pending"
+depends = ["test-framework.1"]
+
+[[tasks]]
+id = "test-integration.1"
+theme = "test-integration"
+title = "Experiment: cargo test integration — discover and run #[gpu_test] alongside #[test]"
+kind = "experiment"
+status = "pending"
+depends = ["test-framework.2"]
+
+[[tasks]]
+id = "test-integration.2"
+theme = "test-integration"
+title = "Experiment: write 10+ #[gpu_test] tests covering SC, channels, executor, cooperative"
+kind = "experiment"
+status = "pending"
+depends = ["test-integration.1"]
+
+# --- gpu-type-safety: types ---
+
+[[tasks]]
+id = "safety-types.1"
+theme = "safety-types"
+title = "Investigation: cuda-oxide DisjointSlice + ThreadIndex design — adapt to async-gpu model"
+kind = "investigation"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "safety-types.2"
+theme = "safety-types"
+title = "Experiment: implement DisjointSlice<T> + ThreadIndex<'kernel> types"
+kind = "experiment"
+status = "pending"
+depends = ["safety-types.1"]
+
+[[tasks]]
+id = "safety-tiers.1"
+theme = "safety-tiers"
+title = "Design: 3-tier safety model — categorize all GPU operations into tiers"
+kind = "design"
+status = "pending"
+depends = ["safety-types.1"]
+
+[[tasks]]
+id = "safety-apply.1"
+theme = "safety-apply"
+title = "Experiment: enhance BlockScope/GridScope with DisjointSlice + ThreadIndex"
+kind = "experiment"
+status = "pending"
+depends = ["safety-types.2", "safety-tiers.1"]
+
+[[tasks]]
+id = "safety-apply.2"
+theme = "safety-apply"
+title = "Experiment: rewrite existing example with zero unsafe using type-safe APIs"
+kind = "experiment"
+status = "pending"
+depends = ["safety-apply.1"]
+
+# --- gpu-generics ---
+
+[[tasks]]
+id = "gen-mono.1"
+theme = "gen-mono"
+title = "Investigation: how PTX monomorphization works — LLVM IR level vs Rust MIR level"
+kind = "investigation"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "gen-mono.2"
+theme = "gen-mono"
+title = "Experiment: compile generic fn<T: Copy + Add> to PTX for f32 and i32"
+kind = "experiment"
+status = "pending"
+depends = ["gen-mono.1"]
+
+[[tasks]]
+id = "gen-traits.1"
+theme = "gen-traits"
+title = "Experiment: user-defined trait with where bounds working in GPU kernel"
+kind = "experiment"
+status = "pending"
+depends = ["gen-mono.2"]
+
+[[tasks]]
+id = "gen-demo.1"
+theme = "gen-demo"
+title = "Experiment: generic parallel_reduce<T: Reducible> — f32, i32, custom struct"
+kind = "experiment"
+status = "pending"
+depends = ["gen-traits.1"]
+
+# --- gpu-hot-reload ---
+
+[[tasks]]
+id = "reload-impl.1"
+theme = "reload-impl"
+title = "Investigation: file watcher + NVRTC pipeline design for hot PTX swap"
+kind = "investigation"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "reload-impl.2"
+theme = "reload-impl"
+title = "Experiment: implement file watcher → NVRTC recompile → hot-swap PTX"
+kind = "experiment"
+status = "pending"
+depends = ["reload-impl.1"]
+
+[[tasks]]
+id = "reload-impl.3"
+theme = "reload-impl"
+title = "Experiment: demo — live-edit kernel math, output updates in <2 seconds"
+kind = "experiment"
+status = "pending"
+depends = ["reload-impl.2"]
+
+# --- gpu-coroutines ---
+
+[[tasks]]
+id = "coro-design.1"
+theme = "coro-design"
+title = "Investigation: map Rust generator/coroutine semantics to GPU warp state machines"
+kind = "investigation"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "coro-design.2"
+theme = "coro-design"
+title = "Design: GpuGenerator trait + MIR pass extension for yield → warp context switch"
+kind = "design"
+status = "pending"
+depends = ["coro-design.1"]
+
+[[tasks]]
+id = "coro-impl.1"
+theme = "coro-impl"
+title = "Experiment: implement generator compilation to PTX + warp-cooperative yield"
+kind = "experiment"
+status = "pending"
+depends = ["coro-design.2"]
+
+[[tasks]]
+id = "coro-impl.2"
+theme = "coro-impl"
+title = "Experiment: streaming pipeline demo — producer yields, consumer processes"
+kind = "experiment"
+status = "pending"
+depends = ["coro-impl.1"]
+
+# --- compile-time-cost ---
+
+[[tasks]]
+id = "cost-analysis.1"
+theme = "cost-analysis"
+title = "Investigation: estimate register + shared memory usage from MIR/PTX"
+kind = "investigation"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "cost-analysis.2"
+theme = "cost-analysis"
+title = "Experiment: implement per-kernel resource estimation pass"
+kind = "experiment"
+status = "pending"
+depends = ["cost-analysis.1"]
+
+[[tasks]]
+id = "cost-warnings.1"
+theme = "cost-warnings"
+title = "Experiment: emit compile-time warnings for low occupancy + bank conflicts"
+kind = "experiment"
+status = "pending"
+depends = ["cost-analysis.2"]
+
+[[tasks]]
+id = "cost-warnings.2"
+theme = "cost-warnings"
+title = "Experiment: catch real perf issue in existing kernel via compile-time lint"
+kind = "experiment"
+status = "pending"
+depends = ["cost-warnings.1"]
+
+# --- hardware-intrinsics ---
+
+[[tasks]]
+id = "hw-tma.1"
+theme = "hw-tma"
+title = "Investigation: TMA 2D load/store semantics + safe wrapper design"
+kind = "investigation"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "hw-tma.2"
+theme = "hw-tma"
+title = "Experiment: implement TMA safe wrappers + tiled GEMM demo"
+kind = "experiment"
+status = "pending"
+depends = ["hw-tma.1"]
+
+[[tasks]]
+id = "hw-wgmma.1"
+theme = "hw-wgmma"
+title = "Experiment: implement WGMMA safe wrapper + GEMM achieving >80% peak"
+kind = "experiment"
+status = "pending"
+depends = ["hw-tma.2"]
+
+[[tasks]]
+id = "hw-clusters.1"
+theme = "hw-clusters"
+title = "Experiment: Thread Block Cluster primitives + distributed shared memory"
+kind = "experiment"
+status = "pending"
+depends = []
+
+# --- auto-parallel ---
+
+[[tasks]]
+id = "ap-analysis.1"
+theme = "ap-analysis"
+title = "Investigation: MIR-level loop purity analysis — detect parallelizable loops"
+kind = "investigation"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "ap-analysis.2"
+theme = "ap-analysis"
+title = "Design: auto-parallelization heuristics — data size threshold, cost model"
+kind = "design"
+status = "pending"
+depends = ["ap-analysis.1"]
+
+[[tasks]]
+id = "ap-transform.1"
+theme = "ap-transform"
+title = "Experiment: transform pure for-loop to GPU kernel — zero annotations"
+kind = "experiment"
+status = "pending"
+depends = ["ap-analysis.2"]
+
+[[tasks]]
+id = "ap-transform.2"
+theme = "ap-transform"
+title = "Experiment: demo — sequential code auto-parallelized, outperforms CPU"
+kind = "experiment"
+status = "pending"
+depends = ["ap-transform.1"]
+
+# --- gpu-repl ---
+
+[[tasks]]
+id = "repl-engine.1"
+theme = "repl-engine"
+title = "Investigation: NVRTC JIT pipeline for interactive single-line GPU execution"
+kind = "investigation"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "repl-engine.2"
+theme = "repl-engine"
+title = "Experiment: implement REPL with JIT compile + state persistence across lines"
+kind = "experiment"
+status = "pending"
+depends = ["repl-engine.1"]
+
+[[tasks]]
+id = "repl-ux.1"
+theme = "repl-ux"
+title = "Experiment: output formatting + demo with 5+ interactive GPU commands"
+kind = "experiment"
+status = "pending"
+depends = ["repl-engine.2"]
+
 # --- conv-perf: winograd ---
 
 [[tasks]]
@@ -674,9 +1362,9 @@ depends = ["iter-compiler.1"]
 [[tasks]]
 id = "iter-compiler.3"
 theme = "iter-compiler"
-title = "Experiment: MIR pass for collect() — atomic output sizing + coalesced writes"
+title = "Experiment: collect_count() + filter demo kernels"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["iter-compiler.1"]
 
 # --- gpu-iterator: runtime ---
@@ -966,7 +1654,7 @@ id = "showcase-sc.1"
 theme = "showcase-sc"
 title = "Experiment: create examples/hostcall/structured-concurrency/ — BlockScope producer-consumer"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["showcase-api.2"]
 
 [[tasks]]

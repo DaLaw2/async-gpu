@@ -762,6 +762,16 @@ where
         WARP_RESULT[0].load(Ordering::Acquire) as usize
     }
 
+    /// Compact matching elements into an output buffer and return the count.
+    ///
+    /// This is a convenience alias for [`collect_into`](Self::collect_into)
+    /// that makes the "collect and count" intent explicit. Semantically
+    /// identical: writes matching elements contiguously and returns how
+    /// many were written.
+    pub fn collect_count(self, output: GpuSliceMut<I::Item>) -> usize {
+        self.collect_into(output)
+    }
+
     /// Count elements that pass the predicate.
     pub fn count(self) -> usize {
         let iter = self.inner;
@@ -985,6 +995,17 @@ where
         });
 
         WARP_RESULT[0].load(Ordering::Acquire) as usize
+    }
+
+    /// Compact filtered-and-mapped elements into an output buffer and return
+    /// the count.
+    ///
+    /// This is a convenience alias for [`collect_into`](Self::collect_into)
+    /// that makes the "collect and count" intent explicit. Semantically
+    /// identical: writes matching elements contiguously and returns how
+    /// many were written.
+    pub fn collect_count(self, output: GpuSliceMut<B>) -> usize {
+        self.collect_into(output)
     }
 
     /// Count elements that pass the predicate.

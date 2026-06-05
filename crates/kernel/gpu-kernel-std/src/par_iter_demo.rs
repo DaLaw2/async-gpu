@@ -1,10 +1,12 @@
 // Parallel iterator demo — showcases GpuParallelIterator API on GPU.
 //
-// Four kernels demonstrate the par_iter combinator chains:
+// Six kernels demonstrate the par_iter combinator chains:
 // 1. map + collect_into:   output[i] = input[i] * 2.0 + 1.0
 // 2. map + sum (fold):     sum of input[i]^2
 // 3. enumerate + map + collect_into: output[i] = input[i] + i as f32
 // 4. zip + map + collect_into: output[i] = a[i] + b[i]
+// 5. filter + collect_count: filter even indices, collect, return count
+// 6. filter + map + sum:   filter(> threshold).map(square).sum()
 //
 // Each kernel uses block_scope + spawn_all for warp-parallel execution.
 // The par_iter chain fuses at compile time — no intermediate buffers.
@@ -215,6 +217,120 @@ pub unsafe extern "gpu-kernel" fn par_iter_zip_collect(
         if gpu_runtime::index::thread_idx_x() == 0 {
             unsafe {
                 core::ptr::write_volatile(status, 1);
+            }
+        }
+    });
+}
+
+// ============================================================
+// Demo 5: filter + collect_count
+// ============================================================
+//
+// Filters even-indexed elements and collects them into an output buffer.
+// Uses `collect_count` to get the number of elements written.
+//
+// Expected: output contains input[0], input[2], input[4], ...
+//           result[0] = count of even-indexed elements (= ceil(n/2))
+//           result[1] = done flag
+//
+// # Arguments
+// * `input`  - N f32 input values
+// * `output` - N f32 output buffer (pre-allocated, worst-case size)
+// * `n`      - number of elements
+// * `result` - output: [count, done_flag]
+//
+// # Launch config
+// * Grid: (1, 1, 1)
+// * Block: (128, 1, 1) — 4 warps
+// * Shared memory: 512 bytes
+
+/// Par_iter demo: enumerate().filter(even index).collect_count()
+#[no_mangle]
+pub unsafe extern "gpu-kernel" fn par_iter_filter_collect(
+    input: *const f32,
+    output: *mut f32,
+    n: u32,
+    result: *mut u32,
+) {
+    thread::gpu_main(|| {
+        unsafe {
+            init_shared_mem_allocator(512);
+        }
+
+        let len = n as usize;
+        let src = unsafe { GpuSlice::from_raw_parts(input, len) };
+        let dst = unsafe { GpuSliceMut::from_raw_parts(output, len) };
+
+        // Filter even indices: enumerate, keep elements at even positions,
+        // map back to just the value, then collect_count.
+        let count = src
+            .par_iter()
+            .enumerate()
+            .filter(|(_i, _x): &(usize, f32)| _i % 2 == 0)
+            .map(|(_i, x): (usize, f32)| x)
+            .collect_count(dst);
+
+        if gpu_runtime::index::thread_idx_x() == 0 {
+            unsafe {
+                core::ptr::write_volatile(result, count as u32);
+                core::ptr::write_volatile(result.add(1), 1); // done flag
+            }
+        }
+    });
+}
+
+// ============================================================
+// Demo 6: filter + map + sum (fused filter-map-reduce)
+// ============================================================
+//
+// Filters elements greater than a threshold, squares them, and sums.
+// Demonstrates the full filter().map().sum() fusion chain.
+//
+// Expected: result[0] = sum of (x*x) for all x in input where x > threshold
+//           result[1] = done flag
+//
+// # Arguments
+// * `input`     - N f32 input values
+// * `n`         - number of elements
+// * `threshold` - f32 threshold (as u32 bits)
+// * `result`    - output: [sum_bits, done_flag]
+//
+// # Launch config
+// * Grid: (1, 1, 1)
+// * Block: (128, 1, 1) — 4 warps
+// * Shared memory: 512 bytes
+
+/// Par_iter demo: filter(|x| x > threshold).map(|x| x * x).sum()
+#[no_mangle]
+pub unsafe extern "gpu-kernel" fn par_iter_filter_map_sum(
+    input: *const f32,
+    n: u32,
+    threshold_bits: u32,
+    result: *mut u32,
+) {
+    thread::gpu_main(|| {
+        unsafe {
+            init_shared_mem_allocator(512);
+        }
+
+        let len = n as usize;
+        let threshold = f32::from_bits(threshold_bits);
+        let src = unsafe { GpuSlice::from_raw_parts(input, len) };
+
+        // Fused chain: filter(> threshold) → map(square) → sum.
+        // The filter predicate and map function are inlined into a single
+        // loop body per warp — no intermediate buffers.
+        let total: f32 = src
+            .par_iter()
+            .filter(|x: &f32| *x > threshold)
+            .map(|x: f32| x * x)
+            .sum();
+
+        if gpu_runtime::index::thread_idx_x() == 0 {
+            let bits = total.to_bits();
+            unsafe {
+                core::ptr::write_volatile(result, bits);
+                core::ptr::write_volatile(result.add(1), 1); // done flag
             }
         }
     });

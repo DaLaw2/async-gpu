@@ -1,11 +1,11 @@
 ## Current Focus
-**Cycle 630 — unified-runtime investigations complete** (2026-06-06). T2 unified-runtime epic first batch done: scheduler routing design + zero-copy GpuVec transfer design. Next: parallel implementation tasks (unified-scheduler.2 + unified-transfer.2).
+**Cycle 631 — Scheduler trait + GpuVec<T> implemented** (2026-06-06). Scheduler trait with CpuScheduler/GpuScheduler + GpuVec<T> zero-copy buffer wrapping MappedBuffer. Foundation for unified-runtime laid. Next: unified-scheduler.3 (AutoScheduler) + unified-transfer.3 (par_iter integration).
 
 ## Recent Decisions
+- 2026-06-06: unified-scheduler.2 — Scheduler trait with cpu()/gpu_launch(), CpuScheduler routes to tokio, GpuScheduler routes to gpu::launch. NoGpu error variant added.
+- 2026-06-06: unified-transfer.2 — GpuVec<T> wraps MappedBuffer for zero-copy. from_vec, zeroed, dev_ptr, as_slice, into_vec. No cudaMemcpy in user code.
 - 2026-06-06: unified-scheduler.1 — Scheduler is work-routing, not a magic GPU compiler. CpuScheduler/GpuScheduler/AutoScheduler with par_map/par_reduce combinators. AutoScheduler uses size-based heuristics (small → CPU, large → GPU).
 - 2026-06-06: unified-transfer.1 — GpuVec<T> wraps MappedBuffer for zero-copy default path. Two-tier buffer model: MappedBuffer (zero-copy, host+device visible) vs DeviceBuffer (opt-in, for multi-read GPU-only data).
-- 2026-06-06: No manual cudaMemcpy — GpuVec<T> provides From<Vec<T>> / Into<Vec<T>> transparent conversion.
-- 2026-06-06: gpu-generics epic PASS — all 4 criteria met, T1 fully cleared (54 epics)
 
 ## Tried & Rejected
 - Round-robin DisjointSlice partitioning: can't return contiguous &mut [T]
@@ -17,11 +17,11 @@
 - All T0 and T1 epics completed — T2 unified-runtime active
 
 ## Key Metrics
-- unified-runtime: 3 themes, 2/8 tasks done (investigations complete)
-- 791 tasks completed, 54 epics completed
+- unified-runtime: 3 themes, 4/8 tasks done (scheduler.1-2, transfer.1-2)
+- 793 tasks completed, 54 epics completed
 - T1 complete: gpu-test, gpu-iterator, gpu-type-safety, gpu-generics
 
 ## Next
-1. unified-scheduler.2: implement CpuScheduler + GpuScheduler with explicit affinity routing
-2. unified-transfer.2: transparent host <-> device transfer — From<Vec<T>> / Into<Vec<T>>
-3. Both can run in parallel (no dependency between them)
+1. unified-scheduler.3: AutoScheduler with work type heuristics (I/O → CPU, compute → GPU)
+2. unified-transfer.3: lazy transfer + redundancy elimination — skip unnecessary copies
+3. unified-demo.1: read → compute → write pipeline (depends on scheduler.2 + transfer.2 — now unblocked)

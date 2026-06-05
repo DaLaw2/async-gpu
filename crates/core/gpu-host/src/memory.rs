@@ -143,6 +143,136 @@ impl<T> MappedBuffer<T> {
     }
 }
 
+/// High-level GPU buffer with zero-copy semantics.
+///
+/// Wraps [`MappedBuffer<T>`] to provide automatic host-device visibility.
+/// No explicit transfers needed — data is accessible from both CPU and GPU
+/// through CUDA pinned device-mapped memory.
+///
+/// # Zero-copy model
+///
+/// `GpuVec` uses pinned host memory that is mapped into the GPU's address space.
+/// The GPU reads/writes this memory over PCIe — no `cudaMemcpy` is needed.
+/// After kernel completion (and `dev.synchronize()`), results are immediately
+/// visible on the host via [`as_slice()`](GpuVec::as_slice).
+///
+/// # Example
+///
+/// ```no_run
+/// use gpu_host::memory::GpuVec;
+///
+/// let data = GpuVec::from_vec(vec![1.0f32; 1024]).unwrap();
+/// // Pass data.dev_ptr() to a GPU kernel — zero-copy, no cudaMemcpy
+/// // After kernel + synchronize, read results:
+/// // let results = data.as_slice();
+/// ```
+pub struct GpuVec<T> {
+    inner: MappedBuffer<T>,
+}
+
+impl<T: Copy> GpuVec<T> {
+    /// Create from an existing `Vec<T>`, copying data into pinned memory.
+    ///
+    /// The data is immediately accessible from both CPU and GPU after creation.
+    pub fn from_vec(data: Vec<T>) -> Result<Self> {
+        let len = data.len();
+        let buf = MappedBuffer::new_zeroed(len)?;
+        // SAFETY: No GPU kernel is running yet; we just allocated the buffer.
+        // The copy is from a valid Vec slice into pinned memory of the same length.
+        unsafe {
+            std::ptr::copy_nonoverlapping(data.as_ptr(), buf.host_ptr(), len);
+        }
+        Ok(Self { inner: buf })
+    }
+
+    /// Create a zeroed buffer of `len` elements.
+    ///
+    /// Useful for output buffers that the GPU kernel will write into.
+    pub fn zeroed(len: usize) -> Result<Self> {
+        Ok(Self {
+            inner: MappedBuffer::new_zeroed(len)?,
+        })
+    }
+
+    /// Device pointer for GPU kernel access.
+    ///
+    /// Returns the device-visible address of this buffer. Pass this value
+    /// as a kernel argument so the GPU can read/write the data.
+    pub fn dev_ptr(&self) -> u64 {
+        self.inner.dev_ptr()
+    }
+
+    /// Host-side slice for CPU access (zero-copy read).
+    ///
+    /// # Safety contract
+    ///
+    /// The caller must ensure the GPU has finished writing to this buffer
+    /// (e.g., after `dev.synchronize()`) before reading the returned slice.
+    /// This method itself is safe because it returns an immutable view;
+    /// however, reading stale data is possible if the GPU has not been
+    /// synchronized.
+    pub fn as_slice(&self) -> &[T] {
+        // SAFETY: The borrow rules of &self prevent concurrent &mut access
+        // from Rust code. GPU synchronization is the caller's responsibility
+        // (same as MappedBuffer). The host pointer is valid for self.inner.len()
+        // elements for the lifetime of this borrow.
+        unsafe { self.inner.as_slice() }
+    }
+
+    /// Mutable host-side slice for CPU writes.
+    ///
+    /// # Safety contract
+    ///
+    /// The caller must ensure no GPU kernel is concurrently accessing this
+    /// buffer. The `&mut self` borrow prevents aliasing from Rust code.
+    pub fn as_mut_slice(&mut self) -> &mut [T] {
+        // SAFETY: The &mut self borrow prevents aliasing from Rust code.
+        // GPU synchronization is the caller's responsibility (same as
+        // MappedBuffer). The host pointer is valid for self.inner.len() elements.
+        unsafe { self.inner.as_mut_slice() }
+    }
+
+    /// Number of elements in the buffer.
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    /// Returns true if the buffer has zero length (never true for valid buffers).
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+
+    /// Convert back to a `Vec<T>`, copying from pinned memory to an owned Vec.
+    pub fn into_vec(self) -> Vec<T> {
+        let len = self.inner.len();
+        let mut v = Vec::with_capacity(len);
+        // SAFETY: We are consuming self, so no kernel should be in-flight.
+        // The host pointer is valid for `len` elements. We copy into the Vec's
+        // uninitialized buffer and then set its length.
+        unsafe {
+            std::ptr::copy_nonoverlapping(self.inner.host_ptr(), v.as_mut_ptr(), len);
+            v.set_len(len);
+        }
+        v
+    }
+}
+
+impl<T: Copy> TryFrom<Vec<T>> for GpuVec<T> {
+    type Error = GpuHostError;
+
+    fn try_from(data: Vec<T>) -> Result<Self> {
+        Self::from_vec(data)
+    }
+}
+
+impl<T: Copy> TryFrom<&[T]> for GpuVec<T> {
+    type Error = GpuHostError;
+
+    fn try_from(data: &[T]) -> Result<Self> {
+        Self::from_vec(data.to_vec())
+    }
+}
+
 impl<T> Drop for MappedBuffer<T> {
     fn drop(&mut self) {
         // SAFETY: cuda_lib() returns the CUDA driver function table.

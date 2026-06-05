@@ -51,7 +51,8 @@
 //! - [`GpuRuntime`] — CUDA device wrapper (init, PTX loading, kernel launch, memory ops)
 //! - [`HostcallBuffer`] — Shared pinned memory packet pool for GPU-host RPC
 //! - [`hostcall::HostcallSession`] — Persistent hostcall listener across kernel launches
-//! - [`MappedBuffer`] — RAII wrapper for CUDA pinned device-mapped memory
+//! - [`GpuVec`] — High-level GPU buffer with zero-copy semantics (wraps MappedBuffer)
+//! - [`MappedBuffer`] — Low-level RAII wrapper for CUDA pinned device-mapped memory
 //! - [`hostcall::Pipeline`] — Multi-stage kernel pipeline with automatic packet reinit
 //! - [`hostcall::FlightRecorder`] — Mapped-memory ring buffer for post-mortem tracing
 //!
@@ -81,6 +82,7 @@ pub mod hostcall;
 pub mod mapped_mem;
 pub mod memory;
 pub mod runtime;
+pub mod scheduler;
 pub mod streams;
 
 #[cfg(feature = "async")]
@@ -214,7 +216,7 @@ pub mod ptx {
 pub mod gpu;
 pub use error::{GpuHostError, Result};
 pub use hostcall::{HostcallBuffer, HostcallSession, Pipeline};
-pub use memory::MappedBuffer;
+pub use memory::{GpuVec, MappedBuffer};
 pub use runtime::GpuRuntime;
 
 /// Returns the path to the repository-root `models/` directory.

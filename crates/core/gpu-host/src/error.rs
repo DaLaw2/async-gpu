@@ -34,6 +34,8 @@ pub enum GpuHostError {
     },
     /// Hostcall buffer allocation error.
     Hostcall(crate::hostcall::HostcallError),
+    /// No GPU available (CpuScheduler cannot run GPU work).
+    NoGpu,
 }
 
 /// Structured error info extracted from a GPU kernel result buffer.
@@ -113,6 +115,7 @@ impl fmt::Display for GpuHostError {
                 write!(f, "{test}: timeout: {detail}")
             }
             Self::Hostcall(e) => write!(f, "hostcall error: {e}"),
+            Self::NoGpu => write!(f, "no GPU available (CPU-only scheduler)"),
         }
     }
 }

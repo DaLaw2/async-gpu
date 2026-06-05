@@ -26,23 +26,12 @@ core::arch::global_asm!(".extern .shared .align 4 .b8 dynamic_smem[];");
 // Other kernel modules import helpers via `gpu_kernel_core::helpers::*`.
 
 // basic and compute_math are now in gpu-kernel-core (split-execute.2).
+// compute_* modules are now in gpu-kernel-compute (split-execute.3).
+// hostcall_kernels, hybrid, and pipeline are now in gpu-kernel-io (split-execute.4).
 // Re-export gpu-kernel-core so its kernel symbols are linked into this crate's cdylib.
 extern crate gpu_kernel_core;
 
-mod compute_cnn;
-mod compute_demo;
-mod compute_fused;
-mod compute_gemm;
-#[cfg(feature = "sm_80")]
-mod compute_mma;
-mod compute_persistent;
-mod compute_physics;
-mod compute_search;
-mod compute_transformer;
-mod hostcall_kernels;
-mod hybrid;
 mod par_iter_demo;
-mod pipeline;
 mod sc_demo;
 mod thread_test;
 mod warp;

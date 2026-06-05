@@ -777,7 +777,6 @@ const PP_PRINT_START: u32 = 0;
 const PP_WAIT_START: u32 = 1;
 const PP_SUBMIT_COMPUTING: u32 = 2;
 const PP_COMPUTE_WHILE_IO: u32 = 3; // Compute happens HERE while I/O is pending
-const PP_WAIT_COMPUTING: u32 = 4;
 const PP_PRINT_RESULT: u32 = 5;
 const PP_WAIT_RESULT: u32 = 6;
 const PP_DONE: u32 = 7;

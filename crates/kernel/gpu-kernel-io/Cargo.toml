@@ -1,0 +1,22 @@
+[workspace]
+
+[package]
+name = "gpu-kernel-io"
+version = "0.1.0"
+edition = "2021"
+description = "GPU hostcall, I/O, and pipeline kernels"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+gpu-atomics = { path = "../../core/gpu-atomics" }
+gpu-libc = { path = "../../core/gpu-libc" }
+gpu-protocol = { path = "../../core/gpu-protocol" }
+gpu-runtime = { path = "../../core/gpu-runtime" }
+gpu-kernel-core = { path = "../gpu-kernel-core" }
+
+[profile.release]
+panic = "abort"
+opt-level = 3
+lto = "fat"

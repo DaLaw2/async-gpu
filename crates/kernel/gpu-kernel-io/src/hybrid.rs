@@ -2,7 +2,6 @@
 
 use core::arch::nvptx;
 use gpu_atomics::{sys_fetch_add_u64, sys_spin_load_acquire_u32, sys_store_release_u32};
-use gpu_protocol::*;
 
 // ============================================================
 // Shared helpers for hybrid kernels

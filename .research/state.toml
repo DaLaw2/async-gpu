@@ -4,8 +4,8 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 614
-completed_tasks = 767
+total_cycles = 615
+completed_tasks = 768
 status = "running"     # ready | running | blocked | completed
 
 # Project North Star — the ONE thing all epics serve:
@@ -15,11 +15,11 @@ status = "running"     # ready | running | blocked | completed
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
 current_step = "dispatch"
-current_task_id = "split-execute.2"
+current_task_id = "split-execute.3,split-execute.4"
 
 # Sequence counters
 brainstorm_seq = 118
-tasks_since_brainstorm = 7   # reset after brainstorm 118
+tasks_since_brainstorm = 9   # reset after brainstorm 118
 
 # ============================================================
 # Epics — Tiered (T0 → T3), sorted by tier then priority
@@ -932,7 +932,7 @@ id = "split-execute.3"
 theme = "split-execute"
 title = "Experiment: create gpu-kernel-compute crate (ML/HPC kernels)"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["split-execute.2"]
 
 [[tasks]]
@@ -940,7 +940,7 @@ id = "split-execute.4"
 theme = "split-execute"
 title = "Experiment: create gpu-kernel-io crate (hostcall/pipeline/hybrid)"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["split-execute.2"]
 
 [[tasks]]

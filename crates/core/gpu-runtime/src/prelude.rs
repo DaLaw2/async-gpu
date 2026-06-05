@@ -59,8 +59,8 @@ pub use crate::collections::GpuHashMap;
 
 // --- Parallel iterators ---
 pub use crate::par_iter::{
-    GpuMaxValue, GpuMinValue, GpuOne, GpuParIter, GpuParallelIterator, GpuSlice, GpuSliceMut,
-    GpuZero, SendPtr, SendPtrMut,
+    GpuFilter, GpuFilterMap, GpuMaxValue, GpuMinValue, GpuOne, GpuParIter, GpuParallelIterator,
+    GpuSlice, GpuSliceMut, GpuZero, SendPtr, SendPtrMut,
 };
 
 // --- Unified channels ---

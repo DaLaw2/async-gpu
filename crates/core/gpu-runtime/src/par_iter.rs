@@ -338,6 +338,37 @@ pub trait GpuParallelIterator: Sized + Copy + Send + Sync + 'static {
         GpuZip { a: self, b: other }
     }
 
+    /// Filter elements by a predicate.
+    ///
+    /// Returns a [`GpuFilter`] adapter that yields only elements for which
+    /// `predicate` returns `true`. Unlike `map`/`enumerate`/`zip`, filter
+    /// is a **non-indexed** adapter: the output length is data-dependent,
+    /// so `GpuFilter` does NOT implement `GpuParallelIterator`. Instead,
+    /// it provides its own terminal methods.
+    ///
+    /// For `collect_into`, filter uses warp ballot + popcount for intra-warp
+    /// compaction and an atomic counter for cross-warp output coordination.
+    /// For `fold`/`for_each`, elements that fail the predicate are simply
+    /// skipped — no compaction needed.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// data.par_iter()
+    ///     .map(|x| x * 2.0)
+    ///     .filter(|x| *x > 5.0)
+    ///     .fold(0.0f32, |a, b| a + b);
+    /// ```
+    fn filter<F>(self, predicate: F) -> GpuFilter<Self, F>
+    where
+        F: Fn(&Self::Item) -> bool + Copy + Send + Sync,
+    {
+        GpuFilter {
+            inner: self,
+            predicate,
+        }
+    }
+
     // === Terminal methods (eager, dispatch via spawn_all) ===
 
     /// Execute a side-effect for each element. No output buffer.
@@ -532,6 +563,501 @@ where
         (self.a.get_unchecked(i), self.b.get_unchecked(i))
     }
 }
+
+// ============================================================
+// GpuFilter — filter adapter (non-indexed)
+// ============================================================
+
+/// Filter adapter: yields only elements where `predicate` returns `true`.
+///
+/// Created by [`GpuParallelIterator::filter()`].
+///
+/// Unlike `GpuMap`/`GpuEnumerate`/`GpuZip`, this adapter is **non-indexed**:
+/// the output length depends on the data, so it cannot implement
+/// `GpuParallelIterator` (which requires `len()` and `get_unchecked()`).
+/// Instead, `GpuFilter` provides its own terminal methods.
+///
+/// # GPU implementation
+///
+/// - **`for_each`/`fold`**: Each warp iterates over its partition and simply
+///   skips elements that fail the predicate. No compaction needed.
+/// - **`collect_into`**: Uses an atomic counter for cross-warp output
+///   coordination. Each warp evaluates the predicate for its elements and
+///   atomically reserves output slots for matching elements, writing them
+///   to contiguous output positions (Approach B: single-pass with atomic
+///   reservation).
+#[derive(Clone, Copy)]
+pub struct GpuFilter<I, F> {
+    inner: I,
+    predicate: F,
+}
+
+impl<I, F> GpuFilter<I, F>
+where
+    I: GpuParallelIterator,
+    F: Fn(&I::Item) -> bool + Copy + Send + Sync + 'static,
+{
+    /// Apply a transform to each filtered element.
+    ///
+    /// Returns a [`GpuFilterMap`] that fuses the filter predicate with the
+    /// map function — the map is applied only to elements that pass the
+    /// predicate, in a single pass with no intermediate buffer.
+    pub fn map<B, M>(self, map_fn: M) -> GpuFilterMap<I, F, M>
+    where
+        B: Copy + Send + Sync + 'static,
+        M: Fn(I::Item) -> B + Copy + Send + Sync,
+    {
+        GpuFilterMap {
+            inner: self.inner,
+            predicate: self.predicate,
+            map_fn,
+        }
+    }
+
+    /// Execute a side-effect for each element that passes the predicate.
+    pub fn for_each<G>(self, f: G)
+    where
+        G: Fn(I::Item) + Copy + Send + Sync + 'static,
+    {
+        let iter = self.inner;
+        let pred = self.predicate;
+        let len = iter.len();
+        if len == 0 {
+            return;
+        }
+
+        block_scope(move |scope| {
+            scope.spawn_all(move |wid, n_warps| {
+                let mut i = wid as usize;
+                while i < len {
+                    let elem = unsafe { iter.get_unchecked(i) };
+                    if pred(&elem) {
+                        f(elem);
+                    }
+                    i += n_warps as usize;
+                }
+            });
+        });
+    }
+
+    /// Fold only elements that pass the predicate.
+    ///
+    /// Each warp folds its matching elements — non-matching elements are
+    /// skipped. Cross-warp reduction uses `WARP_RESULT` slots (same as
+    /// the default fold).
+    pub fn fold<G>(self, identity: I::Item, fold_op: G) -> I::Item
+    where
+        G: Fn(I::Item, I::Item) -> I::Item + Copy + Send + Sync + 'static,
+    {
+        let iter = self.inner;
+        let pred = self.predicate;
+        let len = iter.len();
+        if len == 0 {
+            return identity;
+        }
+
+        assert!(
+            core::mem::size_of::<I::Item>() <= 8,
+            "fold result type must fit in 8 bytes (u64)"
+        );
+
+        block_scope(move |scope| {
+            scope.spawn_all(move |wid, n_warps| {
+                let mut acc = identity;
+                let mut i = wid as usize;
+                while i < len {
+                    let elem = unsafe { iter.get_unchecked(i) };
+                    if pred(&elem) {
+                        acc = fold_op(acc, elem);
+                    }
+                    i += n_warps as usize;
+                }
+                let bits = unsafe {
+                    let mut buf = 0u64;
+                    core::ptr::copy_nonoverlapping(
+                        &acc as *const I::Item as *const u8,
+                        &mut buf as *mut u64 as *mut u8,
+                        core::mem::size_of::<I::Item>(),
+                    );
+                    buf
+                };
+                WARP_RESULT[wid as usize].store(bits, Ordering::Release);
+            });
+        });
+
+        let n_warps = NUM_WARPS.load(Ordering::Acquire) as usize;
+        let total = if n_warps == 0 { 1 } else { n_warps };
+        let mut combined = identity;
+        #[allow(clippy::needless_range_loop)]
+        for w in 0..total {
+            let bits = WARP_RESULT[w].load(Ordering::Acquire);
+            let partial = unsafe {
+                let mut val = core::mem::MaybeUninit::<I::Item>::uninit();
+                core::ptr::copy_nonoverlapping(
+                    &bits as *const u64 as *const u8,
+                    val.as_mut_ptr() as *mut u8,
+                    core::mem::size_of::<I::Item>(),
+                );
+                val.assume_init()
+            };
+            combined = fold_op(combined, partial);
+        }
+        combined
+    }
+
+    /// Compact matching elements into an output buffer.
+    ///
+    /// Uses an atomic counter (`WARP_RESULT[0]`) for cross-warp output
+    /// coordination. Each warp evaluates the predicate for its elements
+    /// and atomically reserves output slots for matching elements, writing
+    /// them to contiguous output positions.
+    ///
+    /// Returns the number of elements written. The output buffer must be
+    /// large enough for the worst case (all elements pass).
+    ///
+    /// # Panics
+    ///
+    /// Panics if the output buffer is smaller than the input length (which
+    /// is the maximum possible number of matching elements).
+    pub fn collect_into(self, output: GpuSliceMut<I::Item>) -> usize {
+        let iter = self.inner;
+        let pred = self.predicate;
+        let len = iter.len();
+
+        assert!(
+            output.len() >= len,
+            "filter collect_into: output buffer must be at least as large as input (got {} < {})",
+            output.len(),
+            len
+        );
+
+        if len == 0 {
+            return 0;
+        }
+
+        let out_ptr = SendPtrMut::new(output.as_mut_ptr());
+
+        // Use WARP_RESULT[0] as the atomic output counter.
+        // Reset it before launching.
+        WARP_RESULT[0].store(0, Ordering::Release);
+
+        block_scope(move |scope| {
+            scope.spawn_all(move |wid, n_warps| {
+                let mut i = wid as usize;
+                while i < len {
+                    let elem = unsafe { iter.get_unchecked(i) };
+                    let pass = pred(&elem);
+                    if pass {
+                        // Atomically reserve one output slot.
+                        let idx = WARP_RESULT[0].fetch_add(1, Ordering::AcqRel) as usize;
+                        unsafe {
+                            core::ptr::write_volatile(out_ptr.as_mut_ptr().add(idx), elem);
+                        }
+                    }
+                    i += n_warps as usize;
+                }
+            });
+        });
+
+        WARP_RESULT[0].load(Ordering::Acquire) as usize
+    }
+
+    /// Count elements that pass the predicate.
+    pub fn count(self) -> usize {
+        let iter = self.inner;
+        let pred = self.predicate;
+        let len = iter.len();
+        if len == 0 {
+            return 0;
+        }
+
+        block_scope(move |scope| {
+            scope.spawn_all(move |wid, n_warps| {
+                let mut count = 0u64;
+                let mut i = wid as usize;
+                while i < len {
+                    let elem = unsafe { iter.get_unchecked(i) };
+                    if pred(&elem) {
+                        count += 1;
+                    }
+                    i += n_warps as usize;
+                }
+                WARP_RESULT[wid as usize].store(count, Ordering::Release);
+            });
+        });
+
+        let n_warps = NUM_WARPS.load(Ordering::Acquire) as usize;
+        let total = if n_warps == 0 { 1 } else { n_warps };
+        let mut combined = 0u64;
+        #[allow(clippy::needless_range_loop)]
+        for w in 0..total {
+            combined += WARP_RESULT[w].load(Ordering::Acquire);
+        }
+        combined as usize
+    }
+
+    /// Sum elements that pass the predicate.
+    pub fn sum(self) -> I::Item
+    where
+        I::Item: core::ops::Add<Output = I::Item> + GpuZero,
+    {
+        self.fold(GpuZero::zero(), |a, b| a + b)
+    }
+
+    /// Product of elements that pass the predicate.
+    pub fn product(self) -> I::Item
+    where
+        I::Item: core::ops::Mul<Output = I::Item> + GpuOne,
+    {
+        self.fold(GpuOne::one(), |a, b| a * b)
+    }
+
+    /// Minimum of elements that pass the predicate.
+    pub fn min(self) -> I::Item
+    where
+        I::Item: PartialOrd + GpuMaxValue,
+    {
+        self.fold(GpuMaxValue::max_value(), |a, b| if a < b { a } else { b })
+    }
+
+    /// Maximum of elements that pass the predicate.
+    pub fn max(self) -> I::Item
+    where
+        I::Item: PartialOrd + GpuMinValue,
+    {
+        self.fold(GpuMinValue::min_value(), |a, b| if a > b { a } else { b })
+    }
+}
+
+// SAFETY: GpuFilter is safe to send/sync because inner iterator and
+// predicate are both Copy + Send + Sync.
+unsafe impl<I: Send, F: Send> Send for GpuFilter<I, F> {}
+unsafe impl<I: Sync, F: Sync> Sync for GpuFilter<I, F> {}
+
+// ============================================================
+// GpuFilterMap — fused filter + map adapter (non-indexed)
+// ============================================================
+
+/// Fused filter-then-map adapter.
+///
+/// Created by [`GpuFilter::map()`]. Combines filtering and mapping in a
+/// single pass — the map function is applied only to elements that pass
+/// the predicate, with no intermediate buffer.
+#[derive(Clone, Copy)]
+pub struct GpuFilterMap<I, P, M> {
+    inner: I,
+    predicate: P,
+    map_fn: M,
+}
+
+impl<I, P, M, B> GpuFilterMap<I, P, M>
+where
+    I: GpuParallelIterator,
+    P: Fn(&I::Item) -> bool + Copy + Send + Sync + 'static,
+    M: Fn(I::Item) -> B + Copy + Send + Sync + 'static,
+    B: Copy + Send + Sync + 'static,
+{
+    /// Execute a side-effect for each filtered-and-mapped element.
+    pub fn for_each<G>(self, f: G)
+    where
+        G: Fn(B) + Copy + Send + Sync + 'static,
+    {
+        let iter = self.inner;
+        let pred = self.predicate;
+        let map_fn = self.map_fn;
+        let len = iter.len();
+        if len == 0 {
+            return;
+        }
+
+        block_scope(move |scope| {
+            scope.spawn_all(move |wid, n_warps| {
+                let mut i = wid as usize;
+                while i < len {
+                    let elem = unsafe { iter.get_unchecked(i) };
+                    if pred(&elem) {
+                        f(map_fn(elem));
+                    }
+                    i += n_warps as usize;
+                }
+            });
+        });
+    }
+
+    /// Fold filtered-and-mapped elements.
+    pub fn fold<G>(self, identity: B, fold_op: G) -> B
+    where
+        G: Fn(B, B) -> B + Copy + Send + Sync + 'static,
+    {
+        let iter = self.inner;
+        let pred = self.predicate;
+        let map_fn = self.map_fn;
+        let len = iter.len();
+        if len == 0 {
+            return identity;
+        }
+
+        assert!(
+            core::mem::size_of::<B>() <= 8,
+            "fold result type must fit in 8 bytes (u64)"
+        );
+
+        block_scope(move |scope| {
+            scope.spawn_all(move |wid, n_warps| {
+                let mut acc = identity;
+                let mut i = wid as usize;
+                while i < len {
+                    let elem = unsafe { iter.get_unchecked(i) };
+                    if pred(&elem) {
+                        acc = fold_op(acc, map_fn(elem));
+                    }
+                    i += n_warps as usize;
+                }
+                let bits = unsafe {
+                    let mut buf = 0u64;
+                    core::ptr::copy_nonoverlapping(
+                        &acc as *const B as *const u8,
+                        &mut buf as *mut u64 as *mut u8,
+                        core::mem::size_of::<B>(),
+                    );
+                    buf
+                };
+                WARP_RESULT[wid as usize].store(bits, Ordering::Release);
+            });
+        });
+
+        let n_warps = NUM_WARPS.load(Ordering::Acquire) as usize;
+        let total = if n_warps == 0 { 1 } else { n_warps };
+        let mut combined = identity;
+        #[allow(clippy::needless_range_loop)]
+        for w in 0..total {
+            let bits = WARP_RESULT[w].load(Ordering::Acquire);
+            let partial = unsafe {
+                let mut val = core::mem::MaybeUninit::<B>::uninit();
+                core::ptr::copy_nonoverlapping(
+                    &bits as *const u64 as *const u8,
+                    val.as_mut_ptr() as *mut u8,
+                    core::mem::size_of::<B>(),
+                );
+                val.assume_init()
+            };
+            combined = fold_op(combined, partial);
+        }
+        combined
+    }
+
+    /// Compact filtered-and-mapped elements into an output buffer.
+    ///
+    /// Returns the number of elements written.
+    pub fn collect_into(self, output: GpuSliceMut<B>) -> usize {
+        let iter = self.inner;
+        let pred = self.predicate;
+        let map_fn = self.map_fn;
+        let len = iter.len();
+
+        assert!(
+            output.len() >= len,
+            "filter_map collect_into: output buffer must be at least as large as input"
+        );
+
+        if len == 0 {
+            return 0;
+        }
+
+        let out_ptr = SendPtrMut::new(output.as_mut_ptr());
+        WARP_RESULT[0].store(0, Ordering::Release);
+
+        block_scope(move |scope| {
+            scope.spawn_all(move |wid, n_warps| {
+                let mut i = wid as usize;
+                while i < len {
+                    let elem = unsafe { iter.get_unchecked(i) };
+                    if pred(&elem) {
+                        let mapped = map_fn(elem);
+                        let idx = WARP_RESULT[0].fetch_add(1, Ordering::AcqRel) as usize;
+                        unsafe {
+                            core::ptr::write_volatile(out_ptr.as_mut_ptr().add(idx), mapped);
+                        }
+                    }
+                    i += n_warps as usize;
+                }
+            });
+        });
+
+        WARP_RESULT[0].load(Ordering::Acquire) as usize
+    }
+
+    /// Count elements that pass the predicate.
+    pub fn count(self) -> usize {
+        let iter = self.inner;
+        let pred = self.predicate;
+        let len = iter.len();
+        if len == 0 {
+            return 0;
+        }
+
+        block_scope(move |scope| {
+            scope.spawn_all(move |wid, n_warps| {
+                let mut count = 0u64;
+                let mut i = wid as usize;
+                while i < len {
+                    let elem = unsafe { iter.get_unchecked(i) };
+                    if pred(&elem) {
+                        count += 1;
+                    }
+                    i += n_warps as usize;
+                }
+                WARP_RESULT[wid as usize].store(count, Ordering::Release);
+            });
+        });
+
+        let n_warps = NUM_WARPS.load(Ordering::Acquire) as usize;
+        let total = if n_warps == 0 { 1 } else { n_warps };
+        let mut combined = 0u64;
+        #[allow(clippy::needless_range_loop)]
+        for w in 0..total {
+            combined += WARP_RESULT[w].load(Ordering::Acquire);
+        }
+        combined as usize
+    }
+
+    /// Sum filtered-and-mapped elements.
+    pub fn sum(self) -> B
+    where
+        B: core::ops::Add<Output = B> + GpuZero,
+    {
+        self.fold(GpuZero::zero(), |a, b| a + b)
+    }
+
+    /// Product of filtered-and-mapped elements.
+    pub fn product(self) -> B
+    where
+        B: core::ops::Mul<Output = B> + GpuOne,
+    {
+        self.fold(GpuOne::one(), |a, b| a * b)
+    }
+
+    /// Minimum of filtered-and-mapped elements.
+    pub fn min(self) -> B
+    where
+        B: PartialOrd + GpuMaxValue,
+    {
+        self.fold(GpuMaxValue::max_value(), |a, b| if a < b { a } else { b })
+    }
+
+    /// Maximum of filtered-and-mapped elements.
+    pub fn max(self) -> B
+    where
+        B: PartialOrd + GpuMinValue,
+    {
+        self.fold(GpuMinValue::min_value(), |a, b| if a > b { a } else { b })
+    }
+}
+
+// SAFETY: GpuFilterMap is safe to send/sync because all components are
+// Copy + Send + Sync.
+unsafe impl<I: Send, P: Send, M: Send> Send for GpuFilterMap<I, P, M> {}
+unsafe impl<I: Sync, P: Sync, M: Sync> Sync for GpuFilterMap<I, P, M> {}
 
 // ============================================================
 // Terminal operation implementations

@@ -15,11 +15,11 @@ status = "running"     # ready | running | blocked | completed
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
 current_step = "dispatch"
-current_task_id = "showcase-api.2,iter-runtime.1"
+current_task_id = "showcase-api.3,iter-compiler.2"
 
 # Sequence counters
 brainstorm_seq = 116
-tasks_since_brainstorm = 11   # reset after brainstorm 116
+tasks_since_brainstorm = 13   # reset after brainstorm 116
 
 # ============================================================
 # Epics — Tiered (T0 → T3), sorted by tier then priority
@@ -666,9 +666,9 @@ depends = ["iter-design.3"]
 [[tasks]]
 id = "iter-compiler.2"
 theme = "iter-compiler"
-title = "Experiment: MIR pass for filter() + fold() — ballot compaction + shuffle reduction"
+title = "Experiment: implement filter() with atomic compaction + fused filter_map()"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["iter-compiler.1"]
 
 [[tasks]]
@@ -956,7 +956,7 @@ id = "showcase-api.3"
 theme = "showcase-api"
 title = "Experiment: verify cargo doc --no-deps with new exports, fix any doc issues"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["showcase-api.2"]
 
 # --- developer-showcase: structured concurrency ---

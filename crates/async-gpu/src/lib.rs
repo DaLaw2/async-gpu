@@ -63,7 +63,6 @@ pub use gpu_host::error::error_category_name;
 pub use gpu_host::error::GpuHostError;
 pub use gpu_host::error::GpuKernelErrorInfo;
 
-/// Convenience type alias: `Result<T, GpuHostError>`.
 pub use gpu_host::Result;
 
 // Runtime & session types — for users who need full control
@@ -77,10 +76,8 @@ pub use gpu_host::Pipeline;
 pub use gpu_host::hostcall::HostcallError;
 
 // Debugging tools
-/// Post-mortem GPU trace ring buffer for crash investigation.
 pub use gpu_host::hostcall::FlightRecorder;
 
-/// CUDA stream overlap support.
 pub use gpu_host::streams::GpuStream;
 
 /// Embedded PTX sources for GPU kernels.

@@ -657,6 +657,24 @@ pub mod collections;
 /// ```
 pub mod par_iter;
 
+/// GPU stdio infrastructure — hostcall-backed stdout/stdin for patched std.
+///
+/// Provides `#[no_mangle]` functions (`gpu_stdout_write`, `gpu_stdin_read`)
+/// that the patched Rust std PAL calls for I/O on `nvptx64-nvidia-cuda`.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// // At kernel entry:
+/// gpu_runtime::stdio::stdio_init(hostcall_buf);
+///
+/// // For buffered printing:
+/// gpu_runtime::stdio::stdio_print_buffer_init(buf, sideband, 1);
+/// // ... println!() calls routed through print_buffer ...
+/// gpu_runtime::stdio::gpu_print_buffer_flush();
+/// ```
+pub mod stdio;
+
 /// Prelude — import everything you need for a basic GPU kernel.
 ///
 /// The prelude exports high-level APIs for common tasks. For low-level

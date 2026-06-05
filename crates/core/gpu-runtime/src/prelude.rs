@@ -63,6 +63,9 @@ pub use crate::par_iter::{
     GpuSlice, GpuSliceMut, GpuZero, SendPtr, SendPtrMut,
 };
 
+// --- Stdio ---
+pub use crate::stdio::{gpu_print_buffer_flush, stdio_init, stdio_print_buffer_init};
+
 // --- Unified channels ---
 pub use crate::unified_channel::{
     ScopedMpscReceiver, ScopedMpscSendError, ScopedMpscSender, ScopedOneshotClosed,

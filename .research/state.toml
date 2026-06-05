@@ -4,8 +4,8 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 612
-completed_tasks = 763
+total_cycles = 613
+completed_tasks = 766
 status = "running"     # ready | running | blocked | completed
 
 # Project North Star — the ONE thing all epics serve:
@@ -15,11 +15,11 @@ status = "running"     # ready | running | blocked | completed
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
 current_step = "dispatch"
-current_task_id = "split-design.2,split-design.3,fusion-integrate.2"
+current_task_id = "split-execute.1"
 
 # Sequence counters
 brainstorm_seq = 118
-tasks_since_brainstorm = 5   # reset after brainstorm 118
+tasks_since_brainstorm = 6   # reset after brainstorm 118
 
 # ============================================================
 # Epics — Tiered (T0 → T3), sorted by tier then priority
@@ -916,7 +916,7 @@ id = "split-execute.1"
 theme = "split-execute"
 title = "Experiment: extract stdio infrastructure from lib.rs to gpu-runtime"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["split-design.2"]
 
 [[tasks]]

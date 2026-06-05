@@ -1845,3 +1845,339 @@ pub unsafe extern "gpu-kernel" fn test_gpu_iterator_chain() {
         println!("[gpu_test] test_gpu_iterator_chain PASSED");
     });
 }
+
+// ============================================================
+// gen-mono.2: Generic monomorphization experiment
+// ============================================================
+//
+// Proves that Rust generics compile and run correctly on nvptx64.
+// Pattern: concrete `extern "gpu-kernel"` entry → `#[inline(always)]` generic body.
+//
+// The compiler monomorphizes the generic body at the MIR level, then LLVM
+// emits type-specific PTX instructions (e.g., add.rn.f32 vs add.s32).
+//
+// Two generic operations:
+//   1. generic_map_inplace: data[i] = data[i] * scale + bias  (affine transform)
+//   2. generic_reduce_sum:  sum of all elements                (reduction)
+
+/// Generic affine transform: data[i] = data[i] * scale + bias.
+///
+/// Uses a grid-stride loop so it works with any launch configuration.
+/// The `#[inline(always)]` ensures LLVM inlines the generic body into
+/// each concrete entry point, producing type-specialized PTX.
+#[inline(always)]
+fn generic_map_inplace<
+    T: Copy + core::ops::Mul<Output = T> + core::ops::Add<Output = T>,
+>(
+    data: *mut T,
+    len: usize,
+    scale: T,
+    bias: T,
+) {
+    let tid = gpu_runtime::index::global_thread_idx() as usize;
+    let stride = gpu_runtime::index::global_thread_count() as usize;
+    let mut i = tid;
+    while i < len {
+        unsafe {
+            let val = core::ptr::read(data.add(i));
+            let result = val * scale + bias;
+            core::ptr::write(data.add(i), result);
+        }
+        i += stride;
+    }
+}
+
+/// Generic reduction: sum all elements and return the total.
+///
+/// Sequential single-thread reduction (launched with 1 thread for simplicity).
+/// The generic body monomorphizes to type-specific add instructions.
+#[inline(always)]
+fn generic_reduce_sum<T: Copy + core::ops::Add<Output = T>>(
+    data: *const T,
+    len: usize,
+    identity: T,
+) -> T {
+    let mut acc = identity;
+    let mut i = 0usize;
+    while i < len {
+        unsafe {
+            let val = core::ptr::read(data.add(i));
+            acc = acc + val;
+        }
+        i += 1;
+    }
+    acc
+}
+
+// ---- Concrete entry points for f32 ----
+
+/// Monomorphized map kernel for f32: data[i] = data[i] * scale + bias.
+///
+/// f32 params passed as u32 bits to avoid ABI issues with GPU kernel args.
+///
+/// Launch with: any grid/block config (grid-stride loop).
+#[unsafe(no_mangle)]
+pub unsafe extern "gpu-kernel" fn generic_map_f32(
+    data: *mut f32,
+    n: u32,
+    scale_bits: u32,
+    bias_bits: u32,
+) {
+    let scale = f32::from_bits(scale_bits);
+    let bias = f32::from_bits(bias_bits);
+    generic_map_inplace::<f32>(data, n as usize, scale, bias);
+}
+
+/// Monomorphized reduce kernel for f32: sum all elements.
+///
+/// Result written as u32 bits to result[0]. Launch with 1 thread.
+#[unsafe(no_mangle)]
+pub unsafe extern "gpu-kernel" fn generic_reduce_f32(
+    data: *const f32,
+    n: u32,
+    result: *mut u32,
+) {
+    let total = generic_reduce_sum::<f32>(data, n as usize, 0.0f32);
+    unsafe {
+        core::ptr::write(result, total.to_bits());
+    }
+}
+
+// ---- Concrete entry points for i32 ----
+
+/// Monomorphized map kernel for i32: data[i] = data[i] * scale + bias.
+///
+/// Launch with: any grid/block config (grid-stride loop).
+#[unsafe(no_mangle)]
+pub unsafe extern "gpu-kernel" fn generic_map_i32(
+    data: *mut i32,
+    n: u32,
+    scale: i32,
+    bias: i32,
+) {
+    generic_map_inplace::<i32>(data, n as usize, scale, bias);
+}
+
+/// Monomorphized reduce kernel for i32: sum all elements.
+///
+/// Result written to result[0]. Launch with 1 thread.
+#[unsafe(no_mangle)]
+pub unsafe extern "gpu-kernel" fn generic_reduce_i32(
+    data: *const i32,
+    n: u32,
+    result: *mut i32,
+) {
+    let total = generic_reduce_sum::<i32>(data, n as usize, 0i32);
+    unsafe {
+        core::ptr::write(result, total);
+    }
+}
+
+// ---- GPU test kernels for generic monomorphization ----
+
+/// GPU test: generic map f32 — data[i] = data[i] * 2.0 + 1.0.
+///
+/// Allocates a Vec, fills with known values, applies the generic affine
+/// transform, and verifies the results. Proves that generic_map_inplace<f32>
+/// monomorphizes to correct f32 PTX instructions.
+///
+/// Zero-param entry. Launch with: block_dim=(128,1,1), 1 block, NO kernel args.
+#[unsafe(no_mangle)]
+pub unsafe extern "gpu-kernel" fn test_gpu_generic_map_f32() {
+    let buf = stdio_auto_init();
+    if buf.is_null() {
+        return;
+    }
+
+    gpu_runtime::thread::gpu_main(|| {
+        // Prepare data: [0.0, 1.0, 2.0, ..., 15.0]
+        let mut data: Vec<f32> = (0..16).map(|i| i as f32).collect();
+
+        // Apply: data[i] = data[i] * 2.0 + 1.0
+        generic_map_inplace::<f32>(data.as_mut_ptr(), data.len(), 2.0, 1.0);
+
+        // Verify: expected[i] = i * 2.0 + 1.0
+        for i in 0..16u32 {
+            let expected = i as f32 * 2.0 + 1.0;
+            let actual = data[i as usize];
+            let diff = (actual - expected).abs();
+            assert!(
+                diff < 0.001,
+                "generic_map f32: data[{}] = {}, expected {}",
+                i,
+                actual,
+                expected
+            );
+        }
+
+        println!("[gpu_test] test_gpu_generic_map_f32 PASSED");
+    });
+}
+
+/// GPU test: generic map i32 — data[i] = data[i] * 3 + 10.
+///
+/// Same pattern as f32 but with integer types. Proves that
+/// generic_map_inplace<i32> monomorphizes to correct i32 PTX instructions.
+///
+/// Zero-param entry. Launch with: block_dim=(128,1,1), 1 block, NO kernel args.
+#[unsafe(no_mangle)]
+pub unsafe extern "gpu-kernel" fn test_gpu_generic_map_i32() {
+    let buf = stdio_auto_init();
+    if buf.is_null() {
+        return;
+    }
+
+    gpu_runtime::thread::gpu_main(|| {
+        // Prepare data: [0, 1, 2, ..., 15]
+        let mut data: Vec<i32> = (0..16).map(|i| i as i32).collect();
+
+        // Apply: data[i] = data[i] * 3 + 10
+        generic_map_inplace::<i32>(data.as_mut_ptr(), data.len(), 3, 10);
+
+        // Verify: expected[i] = i * 3 + 10
+        for i in 0..16i32 {
+            let expected = i * 3 + 10;
+            let actual = data[i as usize];
+            assert_eq!(
+                actual, expected,
+                "generic_map i32: data[{}] = {}, expected {}",
+                i, actual, expected
+            );
+        }
+
+        println!("[gpu_test] test_gpu_generic_map_i32 PASSED");
+    });
+}
+
+/// GPU test: generic reduce f32 — sum of [1.0, 2.0, ..., 16.0].
+///
+/// Proves that generic_reduce_sum<f32> monomorphizes to correct f32 add
+/// instructions and produces the right result.
+///
+/// Zero-param entry. Launch with: block_dim=(128,1,1), 1 block, NO kernel args.
+#[unsafe(no_mangle)]
+pub unsafe extern "gpu-kernel" fn test_gpu_generic_reduce_f32() {
+    let buf = stdio_auto_init();
+    if buf.is_null() {
+        return;
+    }
+
+    gpu_runtime::thread::gpu_main(|| {
+        // Data: [1.0, 2.0, ..., 16.0]
+        let data: Vec<f32> = (1..=16).map(|i| i as f32).collect();
+
+        let total = generic_reduce_sum::<f32>(data.as_ptr(), data.len(), 0.0);
+
+        // Expected: 1+2+...+16 = 136.0
+        let diff = (total - 136.0).abs();
+        assert!(
+            diff < 0.01,
+            "generic_reduce f32: got {}, expected 136.0",
+            total
+        );
+
+        println!("[gpu_test] test_gpu_generic_reduce_f32 PASSED");
+    });
+}
+
+/// GPU test: generic reduce i32 — sum of [1, 2, ..., 100].
+///
+/// Proves that generic_reduce_sum<i32> monomorphizes to correct i32 add
+/// instructions and produces the right result.
+///
+/// Zero-param entry. Launch with: block_dim=(128,1,1), 1 block, NO kernel args.
+#[unsafe(no_mangle)]
+pub unsafe extern "gpu-kernel" fn test_gpu_generic_reduce_i32() {
+    let buf = stdio_auto_init();
+    if buf.is_null() {
+        return;
+    }
+
+    gpu_runtime::thread::gpu_main(|| {
+        // Data: [1, 2, ..., 100]
+        let data: Vec<i32> = (1..=100).map(|i| i as i32).collect();
+
+        let total = generic_reduce_sum::<i32>(data.as_ptr(), data.len(), 0);
+
+        // Expected: 100*101/2 = 5050
+        assert_eq!(
+            total, 5050,
+            "generic_reduce i32: got {}, expected 5050",
+            total
+        );
+
+        println!("[gpu_test] test_gpu_generic_reduce_i32 PASSED");
+    });
+}
+
+/// GPU test: same generic body, two types — proves monomorphization correctness.
+///
+/// Calls the SAME generic_map_inplace function with both f32 and i32 data
+/// in a single kernel, then verifies both produce correct type-specific results.
+/// This is the definitive proof that Rust monomorphization works on nvptx64.
+///
+/// Zero-param entry. Launch with: block_dim=(128,1,1), 1 block, NO kernel args.
+#[unsafe(no_mangle)]
+pub unsafe extern "gpu-kernel" fn test_gpu_generic_dual_type() {
+    let buf = stdio_auto_init();
+    if buf.is_null() {
+        return;
+    }
+
+    gpu_runtime::thread::gpu_main(|| {
+        // f32 path: data[i] = i * 0.5 + 100.0
+        let mut f32_data: Vec<f32> = (0..8).map(|i| i as f32).collect();
+        generic_map_inplace::<f32>(f32_data.as_mut_ptr(), f32_data.len(), 0.5, 100.0);
+
+        // i32 path: data[i] = i * 7 + (-3)
+        let mut i32_data: Vec<i32> = (0..8).map(|i| i as i32).collect();
+        generic_map_inplace::<i32>(i32_data.as_mut_ptr(), i32_data.len(), 7, -3);
+
+        // Verify f32
+        for i in 0..8u32 {
+            let expected = i as f32 * 0.5 + 100.0;
+            let actual = f32_data[i as usize];
+            let diff = (actual - expected).abs();
+            assert!(
+                diff < 0.001,
+                "dual_type f32[{}] = {}, expected {}",
+                i,
+                actual,
+                expected
+            );
+        }
+
+        // Verify i32
+        for i in 0..8i32 {
+            let expected = i * 7 + (-3);
+            let actual = i32_data[i as usize];
+            assert_eq!(
+                actual, expected,
+                "dual_type i32[{}] = {}, expected {}",
+                i, actual, expected
+            );
+        }
+
+        // Also verify reduce on both types
+        let f32_sum = generic_reduce_sum::<f32>(f32_data.as_ptr(), f32_data.len(), 0.0);
+        // Expected: sum of (i*0.5+100.0) for i=0..8 = (0+0.5+1+1.5+2+2.5+3+3.5) + 800 = 814.0
+        let expected_f32_sum = 814.0f32;
+        let diff = (f32_sum - expected_f32_sum).abs();
+        assert!(
+            diff < 0.1,
+            "dual_type f32 reduce: got {}, expected {}",
+            f32_sum,
+            expected_f32_sum
+        );
+
+        let i32_sum = generic_reduce_sum::<i32>(i32_data.as_ptr(), i32_data.len(), 0);
+        // Expected: sum of (i*7-3) for i=0..8 = (0+7+14+21+28+35+42+49) - 24 = 196 - 24 = 172
+        assert_eq!(
+            i32_sum, 172,
+            "dual_type i32 reduce: got {}, expected 172",
+            i32_sum
+        );
+
+        println!("[gpu_test] test_gpu_generic_dual_type PASSED");
+    });
+}

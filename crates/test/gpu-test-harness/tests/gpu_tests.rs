@@ -167,6 +167,55 @@ fn test_gpu_atomics() {}
 fn test_gpu_iterator_chain() {}
 
 // ============================================================================
+// GPU tests — generic monomorphization (gen-mono.2)
+// ============================================================================
+
+/// Test generic map with f32 monomorphization.
+///
+/// The kernel `test_gpu_generic_map_f32` in gpu-kernel-test:
+///   - Allocates Vec<f32>, fills with 0.0..16.0
+///   - Applies generic_map_inplace::<f32>(scale=2.0, bias=1.0)
+///   - Asserts data[i] == i * 2.0 + 1.0
+#[gpu_test]
+fn test_gpu_generic_map_f32() {}
+
+/// Test generic map with i32 monomorphization.
+///
+/// The kernel `test_gpu_generic_map_i32` in gpu-kernel-test:
+///   - Allocates Vec<i32>, fills with 0..16
+///   - Applies generic_map_inplace::<i32>(scale=3, bias=10)
+///   - Asserts data[i] == i * 3 + 10
+#[gpu_test]
+fn test_gpu_generic_map_i32() {}
+
+/// Test generic reduce with f32 monomorphization.
+///
+/// The kernel `test_gpu_generic_reduce_f32` in gpu-kernel-test:
+///   - Creates Vec<f32> with 1.0..=16.0
+///   - Calls generic_reduce_sum::<f32>()
+///   - Asserts total == 136.0
+#[gpu_test]
+fn test_gpu_generic_reduce_f32() {}
+
+/// Test generic reduce with i32 monomorphization.
+///
+/// The kernel `test_gpu_generic_reduce_i32` in gpu-kernel-test:
+///   - Creates Vec<i32> with 1..=100
+///   - Calls generic_reduce_sum::<i32>()
+///   - Asserts total == 5050
+#[gpu_test]
+fn test_gpu_generic_reduce_i32() {}
+
+/// Test that the same generic body works for both f32 and i32 in one kernel.
+///
+/// The kernel `test_gpu_generic_dual_type` in gpu-kernel-test:
+///   - Calls generic_map_inplace with f32 and i32 data
+///   - Calls generic_reduce_sum with f32 and i32 data
+///   - Verifies all four operations produce correct type-specific results
+#[gpu_test]
+fn test_gpu_generic_dual_type() {}
+
+// ============================================================================
 // CPU tests — regular #[test] functions that coexist with #[gpu_test]
 // ============================================================================
 

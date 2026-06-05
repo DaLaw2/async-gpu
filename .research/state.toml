@@ -4,8 +4,8 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 626
-completed_tasks = 786
+total_cycles = 627
+completed_tasks = 787
 status = "running"     # ready | running | blocked | completed
 
 # Project North Star — the ONE thing all epics serve:
@@ -19,7 +19,7 @@ current_task_id = ""
 
 # Sequence counters
 brainstorm_seq = 122
-tasks_since_brainstorm = 1
+tasks_since_brainstorm = 2
 
 # ============================================================
 # Epics — Tiered (T0 → T3), sorted by tier then priority
@@ -414,7 +414,7 @@ success_criteria = [
 id = "gen-mono"
 epic = "gpu-generics"
 title = "PTX monomorphization for generic kernel functions"
-status = "active"
+status = "completed"
 goal = "Generic Rust functions compile to concrete PTX per type"
 success_criteria = [
     "fn kernel<T: Copy + Add>(data: &[T]) compiles to PTX for f32, i32",
@@ -771,7 +771,7 @@ id = "gen-mono.2"
 theme = "gen-mono"
 title = "Experiment: compile generic fn<T: Copy + Add> to PTX for f32 and i32"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["gen-mono.1"]
 
 [[tasks]]

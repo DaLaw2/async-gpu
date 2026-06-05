@@ -130,15 +130,15 @@ pub use onnx_rt::fusion as onnx_fusion;
 ///
 /// These are compiled from the various kernel crates and embedded at build time.
 ///
-/// `KERNEL` and `KERNEL_STD` now point to the same unified PTX — the former
-/// gpu-kernel and gpu-kernel-std crates have been merged into a single
-/// gpu-kernel-std crate.
+/// `KERNEL` and `KERNEL_STD` point to the same PTX built from gpu-kernel-test
+/// (formerly gpu-kernel-std). This crate contains test/demo kernels.
 #[doc(hidden)]
 pub mod ptx {
-    /// Unified GPU kernel PTX (from crates/gpu-kernel-std).
+    /// GPU test/demo kernel PTX (from crates/kernel/gpu-kernel-test).
     ///
-    /// Contains all kernel entry points: compute, hostcall, warp, thread,
-    /// and std-based kernels (println!, Vec, File I/O, HashMap, thread::spawn).
+    /// Contains test kernel entry points: warp intrinsics, async futures,
+    /// std-based kernels (println!, Vec, File I/O, HashMap, thread::spawn),
+    /// structured concurrency demos, and par_iter demos.
     pub const KERNEL: &str = include_str!("../kernel.ptx");
     /// Embassy async/await test PTX (from crates/embassy-test).
     pub const EMBASSY_TEST: &str = include_str!("../embassy_test.ptx");

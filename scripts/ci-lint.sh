@@ -63,8 +63,8 @@ run "check gpu-test-macro" "cargo +stable check --manifest-path crates/test/gpu-
 # Read nightly version from rust-toolchain.toml (single source of truth)
 NIGHTLY=$(grep '^channel' rust-toolchain.toml | sed 's/.*= *"\(.*\)"/\1/')
 PTX_KERNELS="crates/test/async-hostcall-test crates/test/async-pipeline-test crates/test/embassy-test crates/test/multi-warp-test crates/test/gpu-std-test examples/hostcall/hello-gpu/kernel examples/hostcall/async-io/kernel examples/hostcall/vector-math/kernel examples/hostcall/parallel-search/kernel examples/hostcall/tcp-echo/kernel"
-# Note: crates/test/std-build-test, crates/kernel/gpu-kernel-std, crates/kernel/gpu-kernel-core, crates/kernel/gpu-kernel-compute, crates/kernel/gpu-kernel-io excluded — require patched std to build
-# Note: crates/kernel/gpu-kernel removed — merged into gpu-kernel-std (lib-cleanup.4)
+# Note: crates/test/std-build-test, crates/kernel/gpu-kernel-test, crates/kernel/gpu-kernel-core, crates/kernel/gpu-kernel-compute, crates/kernel/gpu-kernel-io excluded — require patched std to build
+# Note: crates/kernel/gpu-kernel removed — merged into gpu-kernel-test (lib-cleanup.4)
 # Note: examples/hostcall/async-pipeline/kernel excluded — requires patched rustc MIR pass (#[warp_cooperative])
 for k in $PTX_KERNELS; do
     name=$(basename "$k")

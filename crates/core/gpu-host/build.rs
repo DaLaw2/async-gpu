@@ -1,9 +1,8 @@
 /// Build script for gpu-host.
 ///
-/// Automatically compiles the gpu-kernel-std crate for nvptx64 and copies the PTX
-/// to this crate's directory. Since the kernel crates were merged into a single
-/// gpu-kernel-std crate, this produces one unified PTX containing all kernel
-/// entry points (both compute/hostcall kernels and std-based kernels).
+/// Automatically compiles the gpu-kernel-test crate for nvptx64 and copies the PTX
+/// to this crate's directory. gpu-kernel-test contains test/demo kernels that
+/// exercise std features on GPU (println!, Vec, File I/O, thread::spawn, etc.).
 ///
 /// The PTX is copied to both `kernel.ptx` and `kernel_std.ptx` for backward
 /// compatibility — all code that references either constant gets the same PTX.
@@ -39,7 +38,7 @@ fn main() {
     let kernel_dir = repo_root
         .join("crates")
         .join("kernel")
-        .join("gpu-kernel-std");
+        .join("gpu-kernel-test");
     let ptx_dst = manifest_dir.join("kernel.ptx");
     let ptx_std_dst = manifest_dir.join("kernel_std.ptx");
     let toolchain = nightly_toolchain(&repo_root);
@@ -47,12 +46,12 @@ fn main() {
     // Rerun if kernel source or PTX file changes
     println!("cargo:rerun-if-changed=kernel.ptx");
     println!("cargo:rerun-if-changed=kernel_std.ptx");
-    println!("cargo:rerun-if-changed=../../kernel/gpu-kernel-std/src/lib.rs");
-    println!("cargo:rerun-if-changed=../../kernel/gpu-kernel-std/src/hostcall_kernels.rs");
-    println!("cargo:rerun-if-changed=../../kernel/gpu-kernel-std/src/compute_fused.rs");
-    println!("cargo:rerun-if-changed=../../kernel/gpu-kernel-std/src/compute_physics.rs");
-    println!("cargo:rerun-if-changed=../../kernel/gpu-kernel-std/src/compute_transformer.rs");
-    println!("cargo:rerun-if-changed=../../kernel/gpu-kernel-std/Cargo.toml");
+    println!("cargo:rerun-if-changed=../../kernel/gpu-kernel-test/src/lib.rs");
+    println!("cargo:rerun-if-changed=../../kernel/gpu-kernel-test/src/warp.rs");
+    println!("cargo:rerun-if-changed=../../kernel/gpu-kernel-test/src/thread_test.rs");
+    println!("cargo:rerun-if-changed=../../kernel/gpu-kernel-test/src/sc_demo.rs");
+    println!("cargo:rerun-if-changed=../../kernel/gpu-kernel-test/src/par_iter_demo.rs");
+    println!("cargo:rerun-if-changed=../../kernel/gpu-kernel-test/Cargo.toml");
     println!("cargo:rerun-if-changed=../../../rust-toolchain.toml");
 
     // Skip kernel build if AUTO_BUILD_KERNEL=0 (for CI or manual workflows)
@@ -63,7 +62,7 @@ fn main() {
     // Check if kernel_dir exists
     if !kernel_dir.exists() {
         eprintln!(
-            "cargo:warning=gpu-kernel-std directory not found at {kernel_dir:?}, using existing PTX"
+            "cargo:warning=gpu-kernel-test directory not found at {kernel_dir:?}, using existing PTX"
         );
         return;
     }
@@ -87,7 +86,7 @@ fn main() {
                 .join("target")
                 .join("nvptx64-nvidia-cuda")
                 .join("release")
-                .join("gpu_kernel_std.ptx");
+                .join("gpu_kernel_test.ptx");
 
             if ptx_src.exists() {
                 // Copy to kernel.ptx (primary)

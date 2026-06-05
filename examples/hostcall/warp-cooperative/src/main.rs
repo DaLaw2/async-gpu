@@ -23,7 +23,7 @@
 //!
 //! # How It Works
 //!
-//! The kernel side (in `crates/kernel/gpu-kernel-std/src/thread_test.rs`) uses:
+//! The kernel side (in `crates/kernel/gpu-kernel-test/src/thread_test.rs`) uses:
 //! - `gpu_runtime::thread::gpu_main` — sets up the warp thread pool
 //! - `thread::cooperative(&|| { ... })` — runs closure on all warps
 //! - `thread::cooperative_map(src, dst, len, fn)` — data-parallel transform
@@ -38,7 +38,7 @@ use async_gpu::gpu;
 /// Path to the pre-compiled cubin for fast kernel loading.
 ///
 /// When available, kernel loading takes <1 second instead of 10+ minutes
-/// (PTX JIT compilation). Build with `scripts/build-kernel-std.sh`.
+/// (PTX JIT compilation). Build with `scripts/build-kernel-test.sh`.
 const CUBIN_PATH: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../../crates/core/gpu-host/kernel_std.cubin"
@@ -209,7 +209,7 @@ fn main() {
 
 /// Demo 1: cooperative() — all warps execute the same closure.
 ///
-/// Kernel: `cooperative_compute_test` from gpu-kernel-std/thread_test.rs.
+/// Kernel: `cooperative_compute_test` from gpu-kernel-test/thread_test.rs.
 /// Each warp fills its slice of output[i] = i * 2 + 1.
 ///
 /// Launch: 4 warps (128 threads), 256 output elements.
@@ -240,7 +240,7 @@ fn run_cooperative_basic() -> Result<bool, Box<dyn std::error::Error>> {
 
 /// Demo 2: cooperative_map() — data-parallel transform, zero global atomics.
 ///
-/// Kernel: `cooperative_map_test` from gpu-kernel-std/thread_test.rs.
+/// Kernel: `cooperative_map_test` from gpu-kernel-test/thread_test.rs.
 /// All warps double each element: output[i] = input[i] * 2.
 ///
 /// Launch: 4 warps (128 threads), 256 elements.
@@ -271,7 +271,7 @@ fn run_cooperative_map() -> Result<bool, Box<dyn std::error::Error>> {
 
 /// Demo 3: cooperative_reduce() — multi-warp sum reduction.
 ///
-/// Kernel: `cooperative_reduce_test` from gpu-kernel-std/thread_test.rs.
+/// Kernel: `cooperative_reduce_test` from gpu-kernel-test/thread_test.rs.
 /// All warps compute partial sums; warp 0 combines into total.
 ///
 /// Launch: 4 warps (128 threads), reducing 256 elements.
@@ -301,7 +301,7 @@ fn run_cooperative_reduce() -> Result<bool, Box<dyn std::error::Error>> {
 
 /// Demo 4: cooperative_map_with_params() — scalar multiply via params.
 ///
-/// Kernel: `cooperative_map_ext_test` from gpu-kernel-std/thread_test.rs.
+/// Kernel: `cooperative_map_ext_test` from gpu-kernel-test/thread_test.rs.
 /// Each element multiplied by scalar=7 (passed via params[0]).
 ///
 /// Launch: 4 warps (128 threads), 256 elements.
@@ -332,7 +332,7 @@ fn run_cooperative_map_ext() -> Result<bool, Box<dyn std::error::Error>> {
 
 /// Demo 5: cooperative matmul — C[8x6] = A[8x4] x B[4x6].
 ///
-/// Kernel: `cooperative_matmul_test` from gpu-kernel-std/thread_test.rs.
+/// Kernel: `cooperative_matmul_test` from gpu-kernel-test/thread_test.rs.
 /// Row-parallel matmul: each warp computes rows where i % n_warps == warp_id.
 ///
 /// Launch: 4 warps (128 threads), 8x6 = 48 output floats.

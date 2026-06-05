@@ -4,8 +4,8 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 615
-completed_tasks = 768
+total_cycles = 616
+completed_tasks = 770
 status = "running"     # ready | running | blocked | completed
 
 # Project North Star — the ONE thing all epics serve:
@@ -15,11 +15,11 @@ status = "running"     # ready | running | blocked | completed
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
 current_step = "dispatch"
-current_task_id = "split-execute.3,split-execute.4"
+current_task_id = "split-execute.5"
 
 # Sequence counters
 brainstorm_seq = 118
-tasks_since_brainstorm = 9   # reset after brainstorm 118
+tasks_since_brainstorm = 10   # reset after brainstorm 118
 
 # ============================================================
 # Epics — Tiered (T0 → T3), sorted by tier then priority
@@ -468,7 +468,7 @@ success_criteria = [
 id = "split-execute"
 epic = "kernel-split"
 title = "Execute kernel crate split — create crates, move files, verify builds"
-status = "active"
+status = "completed"
 goal = "Create 4 kernel crates, move files, verify PTX builds"
 success_criteria = [
     "gpu-kernel-core, gpu-kernel-compute, gpu-kernel-io, gpu-kernel-test all produce valid PTX",
@@ -948,7 +948,7 @@ id = "split-execute.5"
 theme = "split-execute"
 title = "Experiment: refactor gpu-kernel-std → gpu-kernel-test (test/demo kernels)"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["split-execute.2"]
 
 # --- kernel-split: loader ---

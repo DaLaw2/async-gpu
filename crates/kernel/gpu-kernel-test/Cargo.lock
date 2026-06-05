@@ -30,7 +30,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "gpu-kernel-std"
+name = "gpu-kernel-test"
 version = "0.1.0"
 dependencies = [
  "gpu-atomics",

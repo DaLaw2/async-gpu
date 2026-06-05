@@ -1,6 +1,6 @@
 //! Host-side tests for par_iter chained iterator fusion on GPU.
 //!
-//! Launches par_iter demo kernels from gpu-kernel-std and verifies
+//! Launches par_iter demo kernels from gpu-kernel-test and verifies
 //! correctness against CPU reference computations.
 //!
 //! These tests demonstrate that chained `.map()` calls produce ZERO

@@ -2,7 +2,7 @@
 //
 // This crate contains kernel entry points for hostcall protocol testing,
 // file I/O pipelines (WarpFuture-based), and hybrid executor kernels.
-// Extracted from gpu-kernel-std as part of the kernel-split epic.
+// Extracted from the former gpu-kernel-std (now gpu-kernel-test) as part of the kernel-split epic.
 
 #![no_main]
 #![feature(restricted_std)]

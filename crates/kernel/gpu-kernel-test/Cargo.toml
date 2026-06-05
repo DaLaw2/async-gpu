@@ -1,10 +1,10 @@
 [workspace]
 
 [package]
-name = "gpu-kernel-std"
+name = "gpu-kernel-test"
 version = "0.1.0"
 edition = "2021"
-description = "GPU kernels — all kernel entry points (no_std + std) in a single crate"
+description = "GPU test and demo kernels — std-based entry points for testing (println!, Vec, File, thread, etc.)"
 
 [features]
 default = []

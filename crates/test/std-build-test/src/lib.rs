@@ -88,8 +88,8 @@ fn stdio_init(buf: *mut u8) {
 }
 
 /// Minimal hostcall PRINT implementation using inline PTX.
-/// This duplicates the logic from gpu-kernel-std's gpu_hostcall_print but is
-/// self-contained so std-build-test doesn't need to depend on gpu-kernel-std.
+/// This duplicates the logic from gpu-kernel-test's gpu_hostcall_print but is
+/// self-contained so std-build-test doesn't need to depend on gpu-kernel-test.
 unsafe fn gpu_hostcall_print_raw(hc_buf: *mut u8, msg: *const u8, msg_len: u32) -> bool {
     const BUF_OFF_FREE_STACK: usize = 0;
     const BUF_OFF_READY_STACK: usize = 8;

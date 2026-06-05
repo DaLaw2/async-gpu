@@ -1,8 +1,11 @@
-// Unified GPU kernel crate — all kernel entry points live here.
+// GPU test and demo kernels — std-based entry points for testing.
 //
-// This crate merges the former gpu-kernel (no_std, compute/hostcall/warp kernels)
-// and gpu-kernel-std (std, println!/Vec/File I/O kernels) into a single crate.
-// Building with `-Zbuild-std=std` means all code has access to both core and std.
+// This crate contains test/demo kernels that exercise std features on GPU:
+// println!, Vec, HashMap, File I/O, thread::spawn, structured concurrency,
+// par_iter, warp intrinsics, and async futures.
+//
+// Builds with `-Zbuild-std=std` so all code has access to both core and std.
+// Re-exports gpu-kernel-core for shared helpers and basic kernels.
 
 #![no_main]
 #![feature(restricted_std)]
@@ -79,7 +82,7 @@ pub unsafe extern "gpu-kernel" fn std_println_test() {
         return;
     }
 
-    println!("Hello from gpu-kernel-std!");
+    println!("Hello from gpu-kernel-test!");
     println!("This uses real Rust std println!, not a custom macro.");
 }
 
@@ -108,7 +111,7 @@ pub unsafe extern "gpu-kernel" fn std_vec_format_test() {
 
     // Vec with_capacity
     let mut v2: Vec<u8> = Vec::with_capacity(64);
-    v2.extend_from_slice(b"gpu-kernel-std works!");
+    v2.extend_from_slice(b"gpu-kernel-test works!");
     println!("String from bytes: {}", core::str::from_utf8(&v2).unwrap());
 }
 

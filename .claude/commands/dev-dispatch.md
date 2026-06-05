@@ -28,7 +28,7 @@ Relevant scripts: {paths found by orchestrator via ls/find}
 Entry point: {specific file, script, or function to start from}
 
 ## Build Policy
-- PTX/cubin: Do NOT run scripts/build-kernel-std.sh or ptxas unless your task specifically
+- PTX/cubin: Do NOT run scripts/build-kernel-test.sh or ptxas unless your task specifically
   requires GPU kernel execution to verify results. If you do build, limit to ONE build.
 - Host crates: cargo build/check/test for host crates is always OK.
 - Lint: cargo +stable fmt --check && cargo +stable clippy -- -D warnings

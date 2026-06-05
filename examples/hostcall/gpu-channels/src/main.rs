@@ -23,7 +23,7 @@
 //!
 //! # How It Works
 //!
-//! The kernel side (in `crates/kernel/gpu-kernel-std/src/hostcall_kernels.rs`) uses:
+//! The kernel side (in `crates/kernel/gpu-kernel-test/src/hostcall_kernels.rs`) uses:
 //! - `gpu_runtime::executor::GpuExecutor` — a cooperative task executor running on GPU
 //! - `gpu_runtime::channel::OneshotSlot` — single-use channel with system-scope atomics
 //! - `gpu_runtime::channel::MpscChannel` — lock-free ring buffer with waker integration
@@ -31,7 +31,7 @@
 //!
 //! The host side (this file) allocates mapped memory for the executor and result
 //! buffers, launches the kernels, and verifies results. No manual PTX loading
-//! is needed — the pre-built kernels from `gpu-kernel-std` are used via `gpu::custom()`.
+//! is needed — the pre-built kernels from `gpu-kernel-test` are used via `gpu::custom()`.
 
 use async_gpu::gpu;
 

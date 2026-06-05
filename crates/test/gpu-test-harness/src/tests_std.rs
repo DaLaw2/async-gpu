@@ -370,7 +370,7 @@ pub(crate) fn run_dynamic_alloc_test(dev: Arc<CudaDevice>) -> Result<()> {
 
 /// Test: std::fs File I/O on GPU via hostcall (std-fs.4).
 ///
-/// Launches std_file_io_test kernel from gpu-kernel-std which uses
+/// Launches std_file_io_test kernel from gpu-kernel-test which uses
 /// std::fs::File::create() + write_all() + File::open() + read_to_end().
 ///
 /// Zero-param entry: hostcall buffer injected via `__HOSTCALL_BUF` device global.
@@ -590,7 +590,7 @@ pub(crate) fn run_std_stdin_test(dev: Arc<CudaDevice>) -> Result<()> {
     Ok(())
 }
 
-/// Test: stdin().read_line() end-to-end via gpu-kernel-std (std-migration.4).
+/// Test: stdin().read_line() end-to-end via gpu-kernel-test (std-migration.4).
 ///
 /// Unlike run_std_stdin_test which tests raw gpu_stdin_read() via std-build-test,
 /// this tests the full std path: stdin().lock().read_line() → PAL → gpu_stdin_read()
@@ -776,7 +776,7 @@ pub(crate) fn run_std_stdin_readline_test(_dev: Arc<CudaDevice>) -> Result<()> {
 
     println!("  std_stdin_test (read_line): PASSED!");
     println!("    stdin().lock().read_line() → PAL → gpu_stdin_read → hostcall");
-    println!("    Full std::io::stdin() path verified on GPU via gpu-kernel-std");
+    println!("    Full std::io::stdin() path verified on GPU via gpu-kernel-test");
 
     Ok(())
 }

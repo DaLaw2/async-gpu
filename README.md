@@ -441,7 +441,10 @@ crates/
     gpu-atomics/       System-scope GPU atomics via inline PTX (CAS, shfl, activemask)
     gpu-libc/          Minimal libc shim for GPU: routes sys calls to hostcall
   kernel/
-    gpu-kernel-std/    Unified GPU kernel crate (130+ kernels: compute, hostcall, pipeline, fused, physics, persistent, thread, std)
+    gpu-kernel-core/    Shared GPU kernel helpers and basic kernels (entry points, compute math)
+    gpu-kernel-compute/ GPU compute kernels (fused ops, physics, transformer, persistent)
+    gpu-kernel-io/      GPU I/O kernels (hostcall, hybrid, async pipeline)
+    gpu-kernel-test/    GPU test/demo kernels (std-based: println!, Vec, File, thread, warp, async, par_iter)
   test/
     async-hostcall-test/   Async hostcall integration tests
     async-pipeline-test/   Async pipeline integration tests

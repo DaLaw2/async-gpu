@@ -47,7 +47,7 @@ pub fn hostcall_buf_ptr() -> *mut u8 {
 /// Reads `__HOSTCALL_BUF` and initializes:
 /// - Panic handler (`gpu_panic_init`)
 ///
-/// For kernels that use `gpu-kernel-std` (with patched std), the
+/// For kernels that use `gpu-kernel-test` (with patched std), the
 /// stdio and libc subsystems should be initialized by the kernel
 /// crate's own `stdio_init` and `gpu_libc_io_init` calls, which
 /// can also read from `__HOSTCALL_BUF` via this module.

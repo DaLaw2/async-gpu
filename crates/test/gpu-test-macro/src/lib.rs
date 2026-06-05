@@ -95,7 +95,7 @@ impl Parse for GpuTestConfig {
 /// matches the function name.
 ///
 /// The corresponding `extern "gpu-kernel" fn <name>()` must exist in the
-/// kernel crate (gpu-kernel-std) and be compiled into the PTX.
+/// kernel crate (gpu-kernel-test) and be compiled into the PTX.
 ///
 /// # Examples
 ///

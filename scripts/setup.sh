@@ -46,7 +46,7 @@ TOOLCHAIN_FILE="$REPO_DIR/rust-toolchain.toml"
 
 # ── Smoke test: compile a trivial nvptx64 kernel ────────────
 # This verifies the nightly toolchain + nvptx64 target are functional
-# without needing the full gpu-kernel-std crate.
+# without needing the full gpu-kernel-test crate.
 
 smoke_test_ptx() {
     local toolchain="$1"
@@ -300,14 +300,14 @@ if [ "$MODE" = "check" ]; then
     if [ "$ISSUES" -gt 0 ]; then
         warn "Skipping full build — $ISSUES prerequisite issue(s) above"
     else
-        # Build gpu-kernel-std
-        info "Building gpu-kernel-std (PTX)..."
-        KERNEL_DIR="$REPO_DIR/crates/kernel/gpu-kernel-std"
+        # Build gpu-kernel-test
+        info "Building gpu-kernel-test (PTX)..."
+        KERNEL_DIR="$REPO_DIR/crates/kernel/gpu-kernel-test"
         BUILD_LOG=$(mktemp "${TMPDIR:-/tmp}/async_gpu_build.XXXXXX")
         if (cd "$KERNEL_DIR" && cargo +"$NIGHTLY" build --release) >"$BUILD_LOG" 2>&1; then
-            ok "gpu-kernel-std PTX build succeeded"
+            ok "gpu-kernel-test PTX build succeeded"
         else
-            fail "gpu-kernel-std PTX build failed"
+            fail "gpu-kernel-test PTX build failed"
             info "Last 10 lines of build output:"
             tail -10 "$BUILD_LOG" | while IFS= read -r line; do
                 info "  $line"
@@ -477,10 +477,10 @@ fi
 
 # ── Step: Build PTX kernel (smoke test) ──────────────────────
 
-next_step "Building gpu-kernel-std PTX (~30s)"
+next_step "Building gpu-kernel-test PTX (~30s)"
 
-KERNEL_DIR="$REPO_DIR/crates/kernel/gpu-kernel-std"
-info "Building gpu-kernel-std for nvptx64..."
+KERNEL_DIR="$REPO_DIR/crates/kernel/gpu-kernel-test"
+info "Building gpu-kernel-test for nvptx64..."
 BUILD_LOG=$(mktemp "${TMPDIR:-/tmp}/async_gpu_build.XXXXXX")
 if (cd "$KERNEL_DIR" && cargo +"$NIGHTLY" build --release) >"$BUILD_LOG" 2>&1; then
     ok "PTX kernel build succeeded"
@@ -491,7 +491,7 @@ else
         info "  $line"
     done
     rm -f "$BUILD_LOG"
-    die "gpu-kernel-std failed to build for nvptx64." \
+    die "gpu-kernel-test failed to build for nvptx64." \
         "Check that the nightly toolchain and components are correctly installed."
 fi
 rm -f "$BUILD_LOG"
@@ -578,11 +578,11 @@ if [ -f "$HOST_DIR/kernel_std.cubin" ] && [ -f "$HOST_DIR/kernel_std.ptx" ]; the
     info "To force rebuild: rm crates/core/gpu-host/kernel_std.{ptx,cubin} && re-run"
 else
     info "This may take 10-15 minutes (PTX build + ptxas compilation)..."
-    bash "$SCRIPT_DIR/build-kernel-std.sh"
+    bash "$SCRIPT_DIR/build-kernel-test.sh"
     if [ -f "$HOST_DIR/kernel_std.cubin" ]; then
         ok "kernel_std.ptx + cubin built successfully"
     else
-        die "build-kernel-std.sh completed but kernel_std.cubin not found."
+        die "build-kernel-test.sh completed but kernel_std.cubin not found."
     fi
 fi
 

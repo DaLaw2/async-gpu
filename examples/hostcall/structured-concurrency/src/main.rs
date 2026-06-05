@@ -2,7 +2,7 @@
 //!
 //! Demonstrates GPU structured concurrency using `BlockScope`, `BlockOneshotSlot`,
 //! `spawn_all`, and nested scopes. Each demo launches a pre-built kernel from
-//! `gpu-kernel-std` that exercises these primitives:
+//! `gpu-kernel-test` that exercises these primitives:
 //!
 //! 1. **Producer-Consumer Pipeline** — two warps communicate via a shared-memory
 //!    oneshot channel inside a `BlockScope`. The producer fills a buffer, signals
@@ -25,7 +25,7 @@
 //!
 //! # How It Works
 //!
-//! The kernel side (in `crates/kernel/gpu-kernel-std/src/sc_demo.rs`) uses:
+//! The kernel side (in `crates/kernel/gpu-kernel-test/src/sc_demo.rs`) uses:
 //! - `gpu_runtime::scope::block_scope` — creates a lifetime-bounded scope
 //! - `scope.alloc::<T>(n)` — bump-allocates from shared memory
 //! - `scope.spawn(closure)` — dispatches a closure to an idle warp

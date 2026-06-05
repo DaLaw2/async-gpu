@@ -1,23 +1,23 @@
 #!/bin/bash
-# Build the unified gpu-kernel-std PTX and pre-compile to cubin for fast loading.
+# Build the gpu-kernel-test PTX and pre-compile to cubin for fast loading.
 #
-# After the kernel crate merge, gpu-kernel-std is the ONLY kernel crate.
-# It contains all kernel entry points (compute, hostcall, warp, thread, std).
+# gpu-kernel-test contains test/demo kernels (std-based: println!, Vec, File,
+# thread, warp intrinsics, async futures, par_iter, structured concurrency).
 #
-# The kernel_std.ptx is 5+ MB and takes 10+ minutes to JIT compile.
+# The kernel PTX is 5+ MB and takes 10+ minutes to JIT compile.
 # Pre-compiling to cubin with ptxas reduces load time to <1 second.
 #
 # Prerequisites:
 #   - Patched std in sysroot (run apply-std-patches.sh first)
 #   - CUDA toolkit (ptxas)
 #
-# Usage: ./scripts/build-kernel-std.sh
+# Usage: ./scripts/build-kernel-test.sh
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
-KERNEL_STD_DIR="$REPO_DIR/crates/kernel/gpu-kernel-std"
+KERNEL_TEST_DIR="$REPO_DIR/crates/kernel/gpu-kernel-test"
 HOST_DIR="$REPO_DIR/crates/core/gpu-host"
 
 # Find toolchain
@@ -67,12 +67,12 @@ if [ ! -f "$STD_SRC/src/sys/thread/cuda.rs" ]; then
     echo "Patched std applied to sysroot."
 fi
 
-# Step 2: Build gpu-kernel-std (unified kernel crate)
+# Step 2: Build gpu-kernel-test (test/demo kernel crate)
 echo ""
-echo "=== Building gpu-kernel-std (unified kernel crate) ==="
-cd "$KERNEL_STD_DIR"
+echo "=== Building gpu-kernel-test (test/demo kernel crate) ==="
+cd "$KERNEL_TEST_DIR"
 cargo "+$CHANNEL" build --release 2>&1 | grep -E "Compiling|Finished|error|warning.*gpu-kernel"
-PTX_SRC="$KERNEL_STD_DIR/target/nvptx64-nvidia-cuda/release/gpu_kernel_std.ptx"
+PTX_SRC="$KERNEL_TEST_DIR/target/nvptx64-nvidia-cuda/release/gpu_kernel_test.ptx"
 if [ ! -f "$PTX_SRC" ]; then
     echo "ERROR: PTX not generated at $PTX_SRC"
     exit 1

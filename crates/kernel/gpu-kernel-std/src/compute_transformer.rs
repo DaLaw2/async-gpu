@@ -2,8 +2,8 @@
 // embedding lookup, bias add, elementwise add, QKV split, concat heads,
 // f32-to-f16x2 pack, zero pad.
 
-use crate::helpers::{bar_sync, get_dynamic_smem_ptr, gpu_exp_f32, gpu_sqrtf};
 use core::arch::nvptx;
+use gpu_kernel_core::helpers::{bar_sync, get_dynamic_smem_ptr, gpu_exp_f32, gpu_sqrtf};
 
 // ============================================================
 // LayerNorm kernel (transformer-layer.1)
@@ -695,7 +695,7 @@ pub unsafe extern "gpu-kernel" fn flash_attention(
                 }
             }
 
-            crate::helpers::bar_sync();
+            gpu_kernel_core::helpers::bar_sync();
 
             if my_row < seq_len {
                 // Compute scores for this row against tile columns
@@ -778,7 +778,7 @@ pub unsafe extern "gpu-kernel" fn flash_attention(
                 m = m_new;
             }
 
-            crate::helpers::bar_sync();
+            gpu_kernel_core::helpers::bar_sync();
             t += 1;
         }
 
@@ -1043,7 +1043,15 @@ pub unsafe extern "gpu-kernel" fn flash_attention_v2(
     }
     #[cfg(not(target_arch = "nvptx64"))]
     {
-        let _ = (q_global, k_global, v_global, out_global, seq_len, d_head, causal_mask);
+        let _ = (
+            q_global,
+            k_global,
+            v_global,
+            out_global,
+            seq_len,
+            d_head,
+            causal_mask,
+        );
     }
 
     if tid == 0 {
@@ -1168,7 +1176,7 @@ pub unsafe extern "gpu-kernel" fn flash_attention_kv(
                 }
             }
 
-            crate::helpers::bar_sync();
+            gpu_kernel_core::helpers::bar_sync();
 
             if my_row < q_len {
                 let mut tile_max: f32 = -1.0e38;
@@ -1239,7 +1247,7 @@ pub unsafe extern "gpu-kernel" fn flash_attention_kv(
                 m = m_new;
             }
 
-            crate::helpers::bar_sync();
+            gpu_kernel_core::helpers::bar_sync();
             t += 1;
         }
 
@@ -1256,8 +1264,16 @@ pub unsafe extern "gpu-kernel" fn flash_attention_kv(
     #[cfg(not(target_arch = "nvptx64"))]
     {
         let _ = (
-            q_global, k_global, v_global, out_global, q_len, kv_len, d_head, causal_mask,
-            q_offset, kv_stride,
+            q_global,
+            k_global,
+            v_global,
+            out_global,
+            q_len,
+            kv_len,
+            d_head,
+            causal_mask,
+            q_offset,
+            kv_stride,
         );
     }
 
@@ -1405,11 +1421,7 @@ pub unsafe extern "gpu-kernel" fn elementwise_add(a: *mut f32, b: *const f32, n:
 /// grid_dim = (ceil(n/1024), 1, 1), block_dim = (256, 1, 1).
 /// Each thread handles 4 consecutive elements for better memory coalescing.
 #[no_mangle]
-pub unsafe extern "gpu-kernel" fn elementwise_add_v2(
-    a: *mut f32,
-    b: *const f32,
-    n: u32,
-) {
+pub unsafe extern "gpu-kernel" fn elementwise_add_v2(a: *mut f32, b: *const f32, n: u32) {
     let tid = nvptx::_thread_idx_x() as u32;
 
     #[cfg(target_arch = "nvptx64")]
@@ -1529,11 +1541,7 @@ pub unsafe extern "gpu-kernel" fn gelu_forward_v2(
 ///
 /// grid_dim = (ceil(n/1024), 1, 1), block_dim = (256, 1, 1).
 #[no_mangle]
-pub unsafe extern "gpu-kernel" fn elementwise_add_v3(
-    a: *mut f32,
-    b: *const f32,
-    n: u32,
-) {
+pub unsafe extern "gpu-kernel" fn elementwise_add_v3(a: *mut f32, b: *const f32, n: u32) {
     let tid = nvptx::_thread_idx_x() as u32;
 
     #[cfg(target_arch = "nvptx64")]
@@ -1546,8 +1554,14 @@ pub unsafe extern "gpu-kernel" fn elementwise_add_v3(
             let a_ptr = a.add(base as usize) as *const u64;
             let b_ptr = b.add(base as usize) as *const u64;
 
-            let a0: f32; let a1: f32; let a2: f32; let a3: f32;
-            let b0: f32; let b1: f32; let b2: f32; let b3: f32;
+            let a0: f32;
+            let a1: f32;
+            let a2: f32;
+            let a3: f32;
+            let b0: f32;
+            let b1: f32;
+            let b2: f32;
+            let b3: f32;
 
             core::arch::asm!(
                 "ld.global.v4.f32 {{{a0}, {a1}, {a2}, {a3}}}, [{addr}];",
@@ -1784,7 +1798,16 @@ pub unsafe extern "gpu-kernel" fn kv_cache_append(
     }
     #[cfg(not(target_arch = "nvptx64"))]
     {
-        let _ = (src, cache, n_heads, src_seq_stride, max_seq, d_head, write_pos, _status);
+        let _ = (
+            src,
+            cache,
+            n_heads,
+            src_seq_stride,
+            max_seq,
+            d_head,
+            write_pos,
+            _status,
+        );
     }
 }
 

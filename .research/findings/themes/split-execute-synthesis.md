@@ -6,15 +6,15 @@
 ## Completed tasks
 
 ### split-execute.1 — Extract stdio to gpu-runtime (c614)
-Moved 3 statics + 5 functions from gpu-kernel-std/lib.rs to gpu-runtime/stdio.rs.
-Force-link via `#[used]` confirmed working through LTO. Functions marked `unsafe`
-to satisfy clippy in gpu-runtime. PTX symbols verified present. Zero regressions.
+Moved stdio statics + functions to gpu-runtime. Force-link via #[used] confirmed.
 
-## Pattern established
+### split-execute.2 — Create gpu-kernel-core crate (c615)
+Created gpu-kernel-core with helpers (pub), basic, compute_math. gpu-kernel-std
+depends on it and imports helpers via gpu_kernel_core::helpers::*. Removed
+helpers.rs/basic.rs/compute_math.rs from gpu-kernel-std. All 181 PTX kernel
+symbols preserved. extern crate force-links rlib into cdylib.
 
-Migration pattern for future extractions (panic, entry, etc.):
-1. Create module in gpu-runtime with moved code
-2. Register in lib.rs + add prelude re-exports
-3. Add `#[used]` force-link in kernel crate for PAL-called `#[no_mangle]` symbols
-4. Mark functions `unsafe` if they take/deref raw pointers (clippy requirement)
-5. Verify PTX symbols + clippy + fmt
+## Patterns established
+- Cross-crate helper access: `pub` functions + `pub mod helpers` in core crate
+- Kernel symbol linking: `extern crate gpu_kernel_core;` in cdylib crates
+- Each kernel crate needs: #![no_main], dynamic_smem global_asm, stdio force-link statics

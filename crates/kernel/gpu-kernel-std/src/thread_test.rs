@@ -89,7 +89,8 @@ pub unsafe extern "gpu-kernel" fn cooperative_debug(result: *mut u32) {
                 let wid = thread::current_id();
                 let lid = gpu_runtime::index::thread_idx_x() % 32;
                 if lid == 0 {
-                    COOP_RESULT[wid as usize].store(wid + 100, core::sync::atomic::Ordering::Relaxed);
+                    COOP_RESULT[wid as usize]
+                        .store(wid + 100, core::sync::atomic::Ordering::Relaxed);
                 }
             });
         }
@@ -211,22 +212,18 @@ pub unsafe extern "gpu-kernel" fn cooperative_reduce_test(result: *mut u64) {
             CREDUCE_INPUT[i as usize].store(i, core::sync::atomic::Ordering::Relaxed);
         }
 
-        let total = thread::cooperative_reduce(
-            CREDUCE_INPUT.as_ptr() as *const u8,
-            256,
-            |args| {
-                let src = args.src as *const u64;
-                let mut sum = 0u64;
-                let mut i = args.warp_id as usize;
-                while i < args.len {
-                    unsafe {
-                        sum += core::ptr::read_volatile(src.add(i));
-                    }
-                    i += args.n_warps as usize;
+        let total = thread::cooperative_reduce(CREDUCE_INPUT.as_ptr() as *const u8, 256, |args| {
+            let src = args.src as *const u64;
+            let mut sum = 0u64;
+            let mut i = args.warp_id as usize;
+            while i < args.len {
+                unsafe {
+                    sum += core::ptr::read_volatile(src.add(i));
                 }
-                sum
-            },
-        );
+                i += args.n_warps as usize;
+            }
+            sum
+        });
 
         if gpu_runtime::index::thread_idx_x() == 0 {
             unsafe {

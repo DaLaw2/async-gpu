@@ -1,9 +1,9 @@
 // Pipeline/IO kernels — file transform, branching pipeline, pipelined compute, parallel grep.
 
-use crate::helpers::{gpu_hostcall_close, gpu_hostcall_open, grep_buffer};
 use crate::hybrid::{hybrid_warp_print_init, hybrid_warp_wait};
 use core::arch::nvptx;
 use gpu_atomics::{membar_sys, sys_spin_load_acquire_u32};
+use gpu_kernel_core::helpers::{gpu_hostcall_close, gpu_hostcall_open, grep_buffer};
 use gpu_protocol::*;
 use gpu_runtime::warp_future::{warp_hostcall_submit, warp_hostcall_wait_u64};
 

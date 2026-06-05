@@ -1,8 +1,8 @@
 // Fused GEMM + bias + activation kernels.
 // Eliminates 2 kernel launches (bias_add + activation) per Linear layer.
 
-use crate::helpers::{bar_sync, get_dynamic_smem_ptr, gpu_exp_f32};
 use core::arch::nvptx;
+use gpu_kernel_core::helpers::{bar_sync, get_dynamic_smem_ptr, gpu_exp_f32};
 
 /// Fused GEMM + bias + GELU.
 ///

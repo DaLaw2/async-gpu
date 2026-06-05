@@ -78,10 +78,7 @@ pub unsafe extern "gpu-kernel" fn bench_stage_reduce(
 /// * Block: (32, 1, 1) — one full warp
 /// * Shared memory: 0
 #[no_mangle]
-pub unsafe extern "gpu-kernel" fn compute_pipeline_demo(
-    output: *mut f32,
-    status: *mut u32,
-) {
+pub unsafe extern "gpu-kernel" fn compute_pipeline_demo(output: *mut f32, status: *mut u32) {
     #[cfg(target_arch = "nvptx64")]
     {
         use gpu_runtime::{index, math, warp};

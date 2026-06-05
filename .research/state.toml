@@ -4,8 +4,8 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 613
-completed_tasks = 766
+total_cycles = 614
+completed_tasks = 767
 status = "running"     # ready | running | blocked | completed
 
 # Project North Star — the ONE thing all epics serve:
@@ -15,11 +15,11 @@ status = "running"     # ready | running | blocked | completed
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
 current_step = "dispatch"
-current_task_id = "split-execute.1"
+current_task_id = "split-execute.2"
 
 # Sequence counters
 brainstorm_seq = 118
-tasks_since_brainstorm = 6   # reset after brainstorm 118
+tasks_since_brainstorm = 7   # reset after brainstorm 118
 
 # ============================================================
 # Epics — Tiered (T0 → T3), sorted by tier then priority
@@ -924,7 +924,7 @@ id = "split-execute.2"
 theme = "split-execute"
 title = "Experiment: create gpu-kernel-core crate (helpers + basic + compute_math)"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["split-execute.1"]
 
 [[tasks]]

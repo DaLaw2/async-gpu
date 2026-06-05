@@ -25,7 +25,9 @@ unsafe impl<T> Send for SendPtr<T> {}
 unsafe impl<T> Sync for SendPtr<T> {}
 impl<T> Copy for SendPtr<T> {}
 impl<T> Clone for SendPtr<T> {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 
 impl<T> SendPtr<T> {
@@ -79,12 +81,10 @@ pub unsafe extern "gpu-kernel" fn sc_producer_consumer(result: *mut u32) {
             // Allocate raw bytes for the oneshot channel slot.
             // BlockOneshotSlot doesn't implement Copy, so we allocate as bytes
             // and reinterpret. The slot layout is repr(C): [state: u32, pad: u32, value: T].
-            let slot_bytes: &mut [u8] = scope.alloc::<u8>(
-                core::mem::size_of::<BlockOneshotSlot<u32>>(),
-            );
-            let oneshot_slot: &mut BlockOneshotSlot<u32> = unsafe {
-                &mut *(slot_bytes.as_mut_ptr() as *mut BlockOneshotSlot<u32>)
-            };
+            let slot_bytes: &mut [u8] =
+                scope.alloc::<u8>(core::mem::size_of::<BlockOneshotSlot<u32>>());
+            let oneshot_slot: &mut BlockOneshotSlot<u32> =
+                unsafe { &mut *(slot_bytes.as_mut_ptr() as *mut BlockOneshotSlot<u32>) };
 
             // Create the oneshot channel pair.
             // SAFETY: slot is in shared memory, allocated by scope.alloc().
@@ -380,12 +380,10 @@ pub unsafe extern "gpu-kernel" fn sc_combined_demo(result: *mut u32) {
             let partial_sums: &mut [u32] = scope.alloc::<u32>(4); // one per warp
 
             // Allocate oneshot slot as raw bytes (BlockOneshotSlot is not Copy).
-            let slot_bytes: &mut [u8] = scope.alloc::<u8>(
-                core::mem::size_of::<BlockOneshotSlot<u32>>(),
-            );
-            let oneshot_slot: &mut BlockOneshotSlot<u32> = unsafe {
-                &mut *(slot_bytes.as_mut_ptr() as *mut BlockOneshotSlot<u32>)
-            };
+            let slot_bytes: &mut [u8] =
+                scope.alloc::<u8>(core::mem::size_of::<BlockOneshotSlot<u32>>());
+            let oneshot_slot: &mut BlockOneshotSlot<u32> =
+                unsafe { &mut *(slot_bytes.as_mut_ptr() as *mut BlockOneshotSlot<u32>) };
 
             let (tx, rx) = unsafe { block_oneshot(oneshot_slot) };
 
@@ -502,11 +500,7 @@ pub unsafe extern "gpu-kernel" fn sc_combined_demo(result: *mut u32) {
 /// * Block: (128, 1, 1) — 4 warps (warp 0 = coordinator, warps 1-3 = workers)
 /// * Shared memory: 2048 bytes
 #[no_mangle]
-pub unsafe extern "gpu-kernel" fn sc_grid_reduce(
-    pool: *mut u8,
-    pool_size: u32,
-    result: *mut u32,
-) {
+pub unsafe extern "gpu-kernel" fn sc_grid_reduce(pool: *mut u8, pool_size: u32, result: *mut u32) {
     thread::gpu_main(|| {
         unsafe {
             init_shared_mem_allocator(2048);
@@ -565,19 +559,14 @@ pub unsafe extern "gpu-kernel" fn sc_grid_reduce(
                         let mut sum = 0u32;
                         let mut idx = worker_id as usize;
                         while idx < DATA_LEN {
-                            let val = unsafe {
-                                core::ptr::read_volatile(src.add(idx))
-                            };
+                            let val = unsafe { core::ptr::read_volatile(src.add(idx)) };
                             sum += val;
                             idx += nw as usize;
                         }
 
                         // Write partial sum to global memory.
                         unsafe {
-                            core::ptr::write_volatile(
-                                dst.add(worker_id as usize),
-                                sum,
-                            );
+                            core::ptr::write_volatile(dst.add(worker_id as usize), sum);
                         }
 
                         // Signal completion via GridScope's atomic counter.
@@ -592,9 +581,7 @@ pub unsafe extern "gpu-kernel" fn sc_grid_reduce(
 
                 // Read the completion counter for verification.
                 let done = unsafe {
-                    gpu_atomics::sys_load_acquire_u32(
-                        gscope.completion_counter_ptr() as *const u32,
-                    )
+                    gpu_atomics::sys_load_acquire_u32(gscope.completion_counter_ptr() as *const u32)
                 };
 
                 // Reduce partial sums on the coordinator.
@@ -723,12 +710,10 @@ fn bench_block_oneshot() -> u64 {
     while i < BENCH_ITERS {
         block_scope(|scope| {
             // Allocate oneshot slot in shared memory
-            let slot_bytes: &mut [u8] = scope.alloc::<u8>(
-                core::mem::size_of::<BlockOneshotSlot<u32>>(),
-            );
-            let oneshot_slot: &mut BlockOneshotSlot<u32> = unsafe {
-                &mut *(slot_bytes.as_mut_ptr() as *mut BlockOneshotSlot<u32>)
-            };
+            let slot_bytes: &mut [u8] =
+                scope.alloc::<u8>(core::mem::size_of::<BlockOneshotSlot<u32>>());
+            let oneshot_slot: &mut BlockOneshotSlot<u32> =
+                unsafe { &mut *(slot_bytes.as_mut_ptr() as *mut BlockOneshotSlot<u32>) };
             let (tx, rx) = unsafe { block_oneshot(oneshot_slot) };
 
             // Producer: send the iteration index
@@ -737,9 +722,7 @@ fn bench_block_oneshot() -> u64 {
             });
 
             // Consumer: spin-receive and return value
-            let consumer = scope.spawn(move || -> u32 {
-                unsafe { rx.recv_spin().unwrap_or(0) }
-            });
+            let consumer = scope.spawn(move || -> u32 { unsafe { rx.recv_spin().unwrap_or(0) } });
 
             let _val = consumer.join();
         });
@@ -764,12 +747,10 @@ fn bench_block_mpsc() -> u64 {
         // Allocate MPSC channel with 8-slot ring buffer in shared memory.
         // BlockMpscChannel<u32, 8> must be allocated as raw bytes and cast,
         // since it isn't Copy.
-        let ch_bytes: &mut [u8] = scope.alloc::<u8>(
-            core::mem::size_of::<BlockMpscChannel<u32, 8>>(),
-        );
-        let channel: &BlockMpscChannel<u32, 8> = unsafe {
-            &*(ch_bytes.as_ptr() as *const BlockMpscChannel<u32, 8>)
-        };
+        let ch_bytes: &mut [u8] =
+            scope.alloc::<u8>(core::mem::size_of::<BlockMpscChannel<u32, 8>>());
+        let channel: &BlockMpscChannel<u32, 8> =
+            unsafe { &*(ch_bytes.as_ptr() as *const BlockMpscChannel<u32, 8>) };
         let (tx, rx) = unsafe { gpu_runtime::block_channel::block_mpsc(channel) };
         let ch_close_ptr = SendPtr::new(
             channel as *const BlockMpscChannel<u32, 8> as *mut BlockMpscChannel<u32, 8>,
@@ -853,10 +834,7 @@ unsafe fn bench_global_oneshot(pool: *mut u8) -> u64 {
             let _producer = scope.spawn(move || unsafe {
                 let sp = s.as_ptr();
                 // Write value before state transition
-                core::ptr::write_volatile(
-                    (*sp).value_ptr() as *mut u32,
-                    iter_val,
-                );
+                core::ptr::write_volatile((*sp).value_ptr() as *mut u32, iter_val);
                 // System-scope release store: SENT = 1
                 gpu_atomics::sys_store_release_u32((*sp).state_ptr(), 1);
             });
@@ -867,9 +845,8 @@ unsafe fn bench_global_oneshot(pool: *mut u8) -> u64 {
                     let rp = r.as_ptr() as *const OneshotSlot<u32>;
                     // Spin until state != EMPTY (0)
                     loop {
-                        let state = gpu_atomics::sys_load_acquire_u32(
-                            (*rp).state_ptr() as *const u32,
-                        );
+                        let state =
+                            gpu_atomics::sys_load_acquire_u32((*rp).state_ptr() as *const u32);
                         if state != 0 {
                             break;
                         }

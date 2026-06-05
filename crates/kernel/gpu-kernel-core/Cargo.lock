@@ -30,17 +30,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "gpu-kernel-std"
-version = "0.1.0"
-dependencies = [
- "gpu-atomics",
- "gpu-kernel-core",
- "gpu-libc",
- "gpu-protocol",
- "gpu-runtime",
-]
-
-[[package]]
 name = "gpu-libc"
 version = "0.1.0"
 dependencies = [

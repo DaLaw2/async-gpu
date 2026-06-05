@@ -1,21 +1,19 @@
 [workspace]
 
 [package]
-name = "gpu-kernel-std"
+name = "gpu-kernel-core"
 version = "0.1.0"
 edition = "2021"
-description = "GPU kernels — all kernel entry points (no_std + std) in a single crate"
+description = "Shared GPU kernel helpers and basic kernels"
 
 [features]
 default = []
-sm_80 = []  # Enable sm_80+ features (MMA tensor cores, bf16, tf32)
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["rlib", "cdylib"]
 
 [dependencies]
 gpu-atomics = { path = "../../core/gpu-atomics" }
-gpu-kernel-core = { path = "../gpu-kernel-core" }
 gpu-libc = { path = "../../core/gpu-libc" }
 gpu-protocol = { path = "../../core/gpu-protocol" }
 gpu-runtime = { path = "../../core/gpu-runtime" }

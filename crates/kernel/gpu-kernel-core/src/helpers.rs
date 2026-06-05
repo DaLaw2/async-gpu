@@ -1,6 +1,7 @@
-// Shared helper functions used by multiple kernel modules.
+// Shared helper functions used by multiple kernel crates.
 //
-// All functions here are `pub(crate)` — they are internal helpers, not kernel entry points.
+// All functions here are `pub` — they are shared helpers available to all kernel crates
+// via `gpu_kernel_core::helpers::*`.
 
 use gpu_atomics::{sys_cas_u64, sys_load_acquire_u64};
 use gpu_protocol::*;
@@ -12,7 +13,7 @@ use gpu_protocol::*;
 /// GPU-side hostcall: open a file.
 /// Returns `(fd, 0)` on success, `(0, error_category)` on failure.
 #[inline(always)]
-pub(crate) unsafe fn gpu_hostcall_open(
+pub unsafe fn gpu_hostcall_open(
     buf: *mut u8,
     path: *const u8,
     path_len: u32,
@@ -48,7 +49,7 @@ pub(crate) unsafe fn gpu_hostcall_open(
 /// GPU-side hostcall: write data to a file.
 /// Returns `(bytes_written, 0)` on success, `(0, error_category)` on failure.
 #[inline(always)]
-pub(crate) unsafe fn gpu_hostcall_write(
+pub unsafe fn gpu_hostcall_write(
     buf: *mut u8,
     fd: u64,
     data: *const u8,
@@ -84,7 +85,7 @@ pub(crate) unsafe fn gpu_hostcall_write(
 /// GPU-side hostcall: close a file.
 /// Returns `(0, 0)` on success, `(0, error_category)` on failure.
 #[inline(always)]
-pub(crate) unsafe fn gpu_hostcall_close(buf: *mut u8, fd: u64) -> (u64, u16) {
+pub unsafe fn gpu_hostcall_close(buf: *mut u8, fd: u64) -> (u64, u16) {
     let pkt = match gpu_runtime::hostcall::gpu_hostcall_request(buf, SERVICE_CLOSE, |payload| {
         // Slot 0: fd
         core::ptr::write_volatile(payload as *mut u64, fd);
@@ -101,7 +102,7 @@ pub(crate) unsafe fn gpu_hostcall_close(buf: *mut u8, fd: u64) -> (u64, u16) {
 /// GPU-side hostcall: read data from a file.
 /// Returns `(bytes_read, 0)` on success (data copied to out_buf), `(0, error_category)` on failure.
 #[inline(always)]
-pub(crate) unsafe fn gpu_hostcall_read(
+pub unsafe fn gpu_hostcall_read(
     buf: *mut u8,
     fd: u64,
     out_buf: *mut u8,
@@ -119,7 +120,7 @@ pub(crate) unsafe fn gpu_hostcall_read(
 
     let slot0 = core::ptr::read_volatile(pkt.add(PKT_OFF_PAYLOAD) as *const u64);
 
-    // Success — copy data from slots 1-7
+    // Success -- copy data from slots 1-7
     let src = pkt.add(PKT_OFF_PAYLOAD).add(8);
     let copy_len = if slot0 > max_len as u64 {
         max_len
@@ -143,7 +144,7 @@ pub(crate) unsafe fn gpu_hostcall_read(
 /// Available on SM 3.0+ (all modern GPUs).
 /// Returns a monotonic nanosecond timestamp.
 #[inline(always)]
-pub(crate) unsafe fn gpu_instant_nanos() -> u64 {
+pub unsafe fn gpu_instant_nanos() -> u64 {
     let result: u64;
     core::arch::asm!(
         "mov.u64 {result}, %globaltimer;",
@@ -155,11 +156,7 @@ pub(crate) unsafe fn gpu_instant_nanos() -> u64 {
 /// GPU-side hostcall: read a line from stdin.
 /// Returns `(bytes_read, 0)` on success (data copied to out_buf), `(0, error_category)` on failure.
 #[inline(always)]
-pub(crate) unsafe fn gpu_hostcall_stdin_read(
-    buf: *mut u8,
-    out_buf: *mut u8,
-    max_len: u32,
-) -> (u64, u16) {
+pub unsafe fn gpu_hostcall_stdin_read(buf: *mut u8, out_buf: *mut u8, max_len: u32) -> (u64, u16) {
     let pkt = match gpu_runtime::hostcall::gpu_hostcall_request(buf, SERVICE_STDIN, |payload| {
         // Slot 0: max bytes to read
         core::ptr::write_volatile(payload as *mut u64, max_len as u64);
@@ -170,7 +167,7 @@ pub(crate) unsafe fn gpu_hostcall_stdin_read(
 
     let slot0 = core::ptr::read_volatile(pkt.add(PKT_OFF_PAYLOAD) as *const u64);
 
-    // Success — copy data from slots 1-7
+    // Success -- copy data from slots 1-7
     let src = pkt.add(PKT_OFF_PAYLOAD).add(8);
     let copy_len = if slot0 > max_len as u64 {
         max_len
@@ -189,7 +186,7 @@ pub(crate) unsafe fn gpu_hostcall_stdin_read(
 /// GPU-side hostcall: get wall-clock time from host.
 /// Returns (seconds_since_epoch, nanoseconds) on success, (0, 0) on failure.
 #[inline(always)]
-pub(crate) unsafe fn gpu_hostcall_time(buf: *mut u8) -> (u64, u64) {
+pub unsafe fn gpu_hostcall_time(buf: *mut u8) -> (u64, u64) {
     let pkt = match gpu_runtime::hostcall::gpu_hostcall_request(buf, SERVICE_TIME, |_payload| {
         // No request payload needed
     }) {
@@ -209,7 +206,7 @@ pub(crate) unsafe fn gpu_hostcall_time(buf: *mut u8) -> (u64, u64) {
 
 /// Instrumented hc_pop_free: returns (packet_index, cas_retry_count).
 #[inline(always)]
-pub(crate) unsafe fn hc_pop_free_counted(buf: *mut u8) -> (u16, u32) {
+pub unsafe fn hc_pop_free_counted(buf: *mut u8) -> (u16, u32) {
     let free_ptr = buf.add(BUF_OFF_FREE_STACK) as *mut u64;
     let mut retries: u32 = 0;
     loop {
@@ -230,7 +227,7 @@ pub(crate) unsafe fn hc_pop_free_counted(buf: *mut u8) -> (u16, u32) {
 /// Instrumented shard-aware hc_pop_free: returns (packet_index, cas_retry_count).
 /// Uses shard-local free stack when num_shards > 0, global free stack otherwise.
 #[inline(always)]
-pub(crate) unsafe fn hc_pop_free_counted_v2(
+pub unsafe fn hc_pop_free_counted_v2(
     buf: *mut u8,
     free_ptr: *mut u64,
     num_shards: u32,
@@ -268,7 +265,7 @@ pub(crate) unsafe fn hc_pop_free_counted_v2(
 /// the launch config.
 #[cfg(target_arch = "nvptx64")]
 #[inline(always)]
-pub(crate) unsafe fn get_dynamic_smem_ptr() -> *mut u8 {
+pub unsafe fn get_dynamic_smem_ptr() -> *mut u8 {
     let ptr: u64;
     core::arch::asm!(
         "cvta.shared.u64 {out}, dynamic_smem;",
@@ -280,14 +277,14 @@ pub(crate) unsafe fn get_dynamic_smem_ptr() -> *mut u8 {
 /// Block-level barrier synchronization.
 #[cfg(target_arch = "nvptx64")]
 #[inline(always)]
-pub(crate) unsafe fn bar_sync() {
+pub unsafe fn bar_sync() {
     core::arch::asm!("bar.sync 0;");
 }
 
 /// Fast f32 exponential using PTX ex2.approx + multiplication.
-/// exp(x) = 2^(x * log2(e)) where log2(e) ≈ 1.4426950408889634
+/// exp(x) = 2^(x * log2(e)) where log2(e) ~= 1.4426950408889634
 #[inline(always)]
-pub(crate) unsafe fn gpu_exp_f32(x: f32) -> f32 {
+pub unsafe fn gpu_exp_f32(x: f32) -> f32 {
     #[cfg(target_arch = "nvptx64")]
     {
         let result: f32;
@@ -309,7 +306,7 @@ pub(crate) unsafe fn gpu_exp_f32(x: f32) -> f32 {
 
 /// Approximate square root via inline PTX. Uses `sqrt.approx.f32` (1 ULP precision).
 #[inline(always)]
-pub(crate) unsafe fn gpu_sqrtf(x: f32) -> f32 {
+pub unsafe fn gpu_sqrtf(x: f32) -> f32 {
     let result: f32;
     core::arch::asm!("sqrt.approx.f32 {out}, {inp};", out = out(reg32) result, inp = in(reg32) x);
     result
@@ -317,7 +314,7 @@ pub(crate) unsafe fn gpu_sqrtf(x: f32) -> f32 {
 
 /// Search a byte buffer for lines containing a pattern.
 #[inline(always)]
-pub(crate) unsafe fn grep_buffer(
+pub unsafe fn grep_buffer(
     buf: *mut u8,
     data: *const u8,
     data_len: usize,
@@ -374,7 +371,8 @@ pub(crate) unsafe fn grep_buffer(
                         pos += 1;
                         c += 1;
                     }
-                    let _ = gpu_runtime::hostcall::gpu_hostcall_print(buf, msg.as_ptr(), pos as u32);
+                    let _ =
+                        gpu_runtime::hostcall::gpu_hostcall_print(buf, msg.as_ptr(), pos as u32);
                     matches += 1;
                 }
             }
@@ -384,4 +382,3 @@ pub(crate) unsafe fn grep_buffer(
     }
     matches
 }
-

@@ -80,7 +80,15 @@ pub unsafe extern "gpu-kernel" fn spring_forces(
     }
     #[cfg(not(target_arch = "nvptx64"))]
     {
-        let _ = (pos, forces, spring_a, spring_b, n_springs, spring_k, rest_length);
+        let _ = (
+            pos,
+            forces,
+            spring_a,
+            spring_b,
+            n_springs,
+            spring_k,
+            rest_length,
+        );
     }
 
     if tid == 0 {

@@ -54,9 +54,7 @@ pub unsafe extern "gpu-kernel" fn par_iter_map_collect(
 
         // Fused chain: compiles to a single loop body per warp.
         // x * 2.0 + 1.0 — two operations, zero intermediate buffers.
-        src.par_iter()
-            .map(|x: f32| x * 2.0 + 1.0)
-            .collect_into(dst);
+        src.par_iter().map(|x: f32| x * 2.0 + 1.0).collect_into(dst);
 
         if gpu_runtime::index::thread_idx_x() == 0 {
             unsafe {
@@ -87,11 +85,7 @@ pub unsafe extern "gpu-kernel" fn par_iter_map_collect(
 
 /// Par_iter demo: map(|x| x * x).sum()
 #[no_mangle]
-pub unsafe extern "gpu-kernel" fn par_iter_map_sum(
-    input: *const f32,
-    n: u32,
-    result: *mut u32,
-) {
+pub unsafe extern "gpu-kernel" fn par_iter_map_sum(input: *const f32, n: u32, result: *mut u32) {
     thread::gpu_main(|| {
         unsafe {
             init_shared_mem_allocator(512);

@@ -3,8 +3,8 @@
 // 20-state WarpFuture. Each state does exactly ONE thing (submit or wait).
 // No multi-phase states, no sentinel values.
 
-use crate::helpers::gpu_sqrtf;
 use gpu_atomics::membar_sys;
+use gpu_kernel_core::helpers::gpu_sqrtf;
 use gpu_protocol::*;
 use gpu_runtime::warp_future::{warp_hostcall_submit, warp_hostcall_wait_u64};
 

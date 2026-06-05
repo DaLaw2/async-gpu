@@ -1,7 +1,7 @@
 // GEMM variants: tiled GEMM, softmax, multi-tile, multi-warp, multi-block, full GEMM, f32 GEMM.
 
-use crate::helpers::{bar_sync, get_dynamic_smem_ptr, gpu_exp_f32};
 use core::arch::nvptx;
+use gpu_kernel_core::helpers::{bar_sync, get_dynamic_smem_ptr, gpu_exp_f32};
 
 // ============================================================
 // gpu-compute.5: Tiled GEMM — MMA + shared memory pipeline
@@ -1868,14 +1868,38 @@ pub unsafe extern "gpu-kernel" fn gemm_f32_v2(
         let thread_col = tid % 8; // 0..7
 
         // 32 named accumulators (4 rows × 8 cols) — prevents register spilling
-        let mut c00: f32 = 0.0; let mut c01: f32 = 0.0; let mut c02: f32 = 0.0; let mut c03: f32 = 0.0;
-        let mut c04: f32 = 0.0; let mut c05: f32 = 0.0; let mut c06: f32 = 0.0; let mut c07: f32 = 0.0;
-        let mut c10: f32 = 0.0; let mut c11: f32 = 0.0; let mut c12: f32 = 0.0; let mut c13: f32 = 0.0;
-        let mut c14: f32 = 0.0; let mut c15: f32 = 0.0; let mut c16: f32 = 0.0; let mut c17: f32 = 0.0;
-        let mut c20: f32 = 0.0; let mut c21: f32 = 0.0; let mut c22: f32 = 0.0; let mut c23: f32 = 0.0;
-        let mut c24: f32 = 0.0; let mut c25: f32 = 0.0; let mut c26: f32 = 0.0; let mut c27: f32 = 0.0;
-        let mut c30: f32 = 0.0; let mut c31: f32 = 0.0; let mut c32: f32 = 0.0; let mut c33: f32 = 0.0;
-        let mut c34: f32 = 0.0; let mut c35: f32 = 0.0; let mut c36: f32 = 0.0; let mut c37: f32 = 0.0;
+        let mut c00: f32 = 0.0;
+        let mut c01: f32 = 0.0;
+        let mut c02: f32 = 0.0;
+        let mut c03: f32 = 0.0;
+        let mut c04: f32 = 0.0;
+        let mut c05: f32 = 0.0;
+        let mut c06: f32 = 0.0;
+        let mut c07: f32 = 0.0;
+        let mut c10: f32 = 0.0;
+        let mut c11: f32 = 0.0;
+        let mut c12: f32 = 0.0;
+        let mut c13: f32 = 0.0;
+        let mut c14: f32 = 0.0;
+        let mut c15: f32 = 0.0;
+        let mut c16: f32 = 0.0;
+        let mut c17: f32 = 0.0;
+        let mut c20: f32 = 0.0;
+        let mut c21: f32 = 0.0;
+        let mut c22: f32 = 0.0;
+        let mut c23: f32 = 0.0;
+        let mut c24: f32 = 0.0;
+        let mut c25: f32 = 0.0;
+        let mut c26: f32 = 0.0;
+        let mut c27: f32 = 0.0;
+        let mut c30: f32 = 0.0;
+        let mut c31: f32 = 0.0;
+        let mut c32: f32 = 0.0;
+        let mut c33: f32 = 0.0;
+        let mut c34: f32 = 0.0;
+        let mut c35: f32 = 0.0;
+        let mut c36: f32 = 0.0;
+        let mut c37: f32 = 0.0;
 
         let a_base_row = block_m * BM;
         let b_base_col = block_n * BN;
@@ -1884,8 +1908,19 @@ pub unsafe extern "gpu-kernel" fn gemm_f32_v2(
         // Load first tile into buffer 0
         let mut buf: u32 = 0;
         gemm_v2_load_tile_128x64(
-            smem, buf, STAGE_FLOATS, A_STRIDE, a_global, b_global, a_base_row, b_base_col, 0,
-            m_dim, n_dim, k_dim, tid,
+            smem,
+            buf,
+            STAGE_FLOATS,
+            A_STRIDE,
+            a_global,
+            b_global,
+            a_base_row,
+            b_base_col,
+            0,
+            m_dim,
+            n_dim,
+            k_dim,
+            tid,
         );
         bar_sync();
 
@@ -1895,8 +1930,19 @@ pub unsafe extern "gpu-kernel" fn gemm_f32_v2(
             if t + 1 < k_tiles {
                 let next_buf = 1 - buf;
                 gemm_v2_load_tile_128x64(
-                    smem, next_buf, STAGE_FLOATS, A_STRIDE, a_global, b_global, a_base_row,
-                    b_base_col, (t + 1) * BK, m_dim, n_dim, k_dim, tid,
+                    smem,
+                    next_buf,
+                    STAGE_FLOATS,
+                    A_STRIDE,
+                    a_global,
+                    b_global,
+                    a_base_row,
+                    b_base_col,
+                    (t + 1) * BK,
+                    m_dim,
+                    n_dim,
+                    k_dim,
+                    tid,
                 );
             }
 
@@ -1983,14 +2029,38 @@ pub unsafe extern "gpu-kernel" fn gemm_f32_v2(
                 }
             };
         }
-        write_if!(out_r, out_c, c00); write_if!(out_r, out_c+1, c01); write_if!(out_r, out_c+2, c02); write_if!(out_r, out_c+3, c03);
-        write_if!(out_r, out_c+4, c04); write_if!(out_r, out_c+5, c05); write_if!(out_r, out_c+6, c06); write_if!(out_r, out_c+7, c07);
-        write_if!(out_r+1, out_c, c10); write_if!(out_r+1, out_c+1, c11); write_if!(out_r+1, out_c+2, c12); write_if!(out_r+1, out_c+3, c13);
-        write_if!(out_r+1, out_c+4, c14); write_if!(out_r+1, out_c+5, c15); write_if!(out_r+1, out_c+6, c16); write_if!(out_r+1, out_c+7, c17);
-        write_if!(out_r+2, out_c, c20); write_if!(out_r+2, out_c+1, c21); write_if!(out_r+2, out_c+2, c22); write_if!(out_r+2, out_c+3, c23);
-        write_if!(out_r+2, out_c+4, c24); write_if!(out_r+2, out_c+5, c25); write_if!(out_r+2, out_c+6, c26); write_if!(out_r+2, out_c+7, c27);
-        write_if!(out_r+3, out_c, c30); write_if!(out_r+3, out_c+1, c31); write_if!(out_r+3, out_c+2, c32); write_if!(out_r+3, out_c+3, c33);
-        write_if!(out_r+3, out_c+4, c34); write_if!(out_r+3, out_c+5, c35); write_if!(out_r+3, out_c+6, c36); write_if!(out_r+3, out_c+7, c37);
+        write_if!(out_r, out_c, c00);
+        write_if!(out_r, out_c + 1, c01);
+        write_if!(out_r, out_c + 2, c02);
+        write_if!(out_r, out_c + 3, c03);
+        write_if!(out_r, out_c + 4, c04);
+        write_if!(out_r, out_c + 5, c05);
+        write_if!(out_r, out_c + 6, c06);
+        write_if!(out_r, out_c + 7, c07);
+        write_if!(out_r + 1, out_c, c10);
+        write_if!(out_r + 1, out_c + 1, c11);
+        write_if!(out_r + 1, out_c + 2, c12);
+        write_if!(out_r + 1, out_c + 3, c13);
+        write_if!(out_r + 1, out_c + 4, c14);
+        write_if!(out_r + 1, out_c + 5, c15);
+        write_if!(out_r + 1, out_c + 6, c16);
+        write_if!(out_r + 1, out_c + 7, c17);
+        write_if!(out_r + 2, out_c, c20);
+        write_if!(out_r + 2, out_c + 1, c21);
+        write_if!(out_r + 2, out_c + 2, c22);
+        write_if!(out_r + 2, out_c + 3, c23);
+        write_if!(out_r + 2, out_c + 4, c24);
+        write_if!(out_r + 2, out_c + 5, c25);
+        write_if!(out_r + 2, out_c + 6, c26);
+        write_if!(out_r + 2, out_c + 7, c27);
+        write_if!(out_r + 3, out_c, c30);
+        write_if!(out_r + 3, out_c + 1, c31);
+        write_if!(out_r + 3, out_c + 2, c32);
+        write_if!(out_r + 3, out_c + 3, c33);
+        write_if!(out_r + 3, out_c + 4, c34);
+        write_if!(out_r + 3, out_c + 5, c35);
+        write_if!(out_r + 3, out_c + 6, c36);
+        write_if!(out_r + 3, out_c + 7, c37);
     }
     #[cfg(not(target_arch = "nvptx64"))]
     {
@@ -2118,22 +2188,70 @@ pub unsafe extern "gpu-kernel" fn gemm_f32_v3(
         let thread_col = tid % 16; // 0..15
 
         // 64 named accumulators (8 rows × 8 cols)
-        let mut c00: f32 = 0.0; let mut c01: f32 = 0.0; let mut c02: f32 = 0.0; let mut c03: f32 = 0.0;
-        let mut c04: f32 = 0.0; let mut c05: f32 = 0.0; let mut c06: f32 = 0.0; let mut c07: f32 = 0.0;
-        let mut c10: f32 = 0.0; let mut c11: f32 = 0.0; let mut c12: f32 = 0.0; let mut c13: f32 = 0.0;
-        let mut c14: f32 = 0.0; let mut c15: f32 = 0.0; let mut c16: f32 = 0.0; let mut c17: f32 = 0.0;
-        let mut c20: f32 = 0.0; let mut c21: f32 = 0.0; let mut c22: f32 = 0.0; let mut c23: f32 = 0.0;
-        let mut c24: f32 = 0.0; let mut c25: f32 = 0.0; let mut c26: f32 = 0.0; let mut c27: f32 = 0.0;
-        let mut c30: f32 = 0.0; let mut c31: f32 = 0.0; let mut c32: f32 = 0.0; let mut c33: f32 = 0.0;
-        let mut c34: f32 = 0.0; let mut c35: f32 = 0.0; let mut c36: f32 = 0.0; let mut c37: f32 = 0.0;
-        let mut c40: f32 = 0.0; let mut c41: f32 = 0.0; let mut c42: f32 = 0.0; let mut c43: f32 = 0.0;
-        let mut c44: f32 = 0.0; let mut c45: f32 = 0.0; let mut c46: f32 = 0.0; let mut c47: f32 = 0.0;
-        let mut c50: f32 = 0.0; let mut c51: f32 = 0.0; let mut c52: f32 = 0.0; let mut c53: f32 = 0.0;
-        let mut c54: f32 = 0.0; let mut c55: f32 = 0.0; let mut c56: f32 = 0.0; let mut c57: f32 = 0.0;
-        let mut c60: f32 = 0.0; let mut c61: f32 = 0.0; let mut c62: f32 = 0.0; let mut c63: f32 = 0.0;
-        let mut c64: f32 = 0.0; let mut c65: f32 = 0.0; let mut c66: f32 = 0.0; let mut c67: f32 = 0.0;
-        let mut c70: f32 = 0.0; let mut c71: f32 = 0.0; let mut c72: f32 = 0.0; let mut c73: f32 = 0.0;
-        let mut c74: f32 = 0.0; let mut c75: f32 = 0.0; let mut c76: f32 = 0.0; let mut c77: f32 = 0.0;
+        let mut c00: f32 = 0.0;
+        let mut c01: f32 = 0.0;
+        let mut c02: f32 = 0.0;
+        let mut c03: f32 = 0.0;
+        let mut c04: f32 = 0.0;
+        let mut c05: f32 = 0.0;
+        let mut c06: f32 = 0.0;
+        let mut c07: f32 = 0.0;
+        let mut c10: f32 = 0.0;
+        let mut c11: f32 = 0.0;
+        let mut c12: f32 = 0.0;
+        let mut c13: f32 = 0.0;
+        let mut c14: f32 = 0.0;
+        let mut c15: f32 = 0.0;
+        let mut c16: f32 = 0.0;
+        let mut c17: f32 = 0.0;
+        let mut c20: f32 = 0.0;
+        let mut c21: f32 = 0.0;
+        let mut c22: f32 = 0.0;
+        let mut c23: f32 = 0.0;
+        let mut c24: f32 = 0.0;
+        let mut c25: f32 = 0.0;
+        let mut c26: f32 = 0.0;
+        let mut c27: f32 = 0.0;
+        let mut c30: f32 = 0.0;
+        let mut c31: f32 = 0.0;
+        let mut c32: f32 = 0.0;
+        let mut c33: f32 = 0.0;
+        let mut c34: f32 = 0.0;
+        let mut c35: f32 = 0.0;
+        let mut c36: f32 = 0.0;
+        let mut c37: f32 = 0.0;
+        let mut c40: f32 = 0.0;
+        let mut c41: f32 = 0.0;
+        let mut c42: f32 = 0.0;
+        let mut c43: f32 = 0.0;
+        let mut c44: f32 = 0.0;
+        let mut c45: f32 = 0.0;
+        let mut c46: f32 = 0.0;
+        let mut c47: f32 = 0.0;
+        let mut c50: f32 = 0.0;
+        let mut c51: f32 = 0.0;
+        let mut c52: f32 = 0.0;
+        let mut c53: f32 = 0.0;
+        let mut c54: f32 = 0.0;
+        let mut c55: f32 = 0.0;
+        let mut c56: f32 = 0.0;
+        let mut c57: f32 = 0.0;
+        let mut c60: f32 = 0.0;
+        let mut c61: f32 = 0.0;
+        let mut c62: f32 = 0.0;
+        let mut c63: f32 = 0.0;
+        let mut c64: f32 = 0.0;
+        let mut c65: f32 = 0.0;
+        let mut c66: f32 = 0.0;
+        let mut c67: f32 = 0.0;
+        let mut c70: f32 = 0.0;
+        let mut c71: f32 = 0.0;
+        let mut c72: f32 = 0.0;
+        let mut c73: f32 = 0.0;
+        let mut c74: f32 = 0.0;
+        let mut c75: f32 = 0.0;
+        let mut c76: f32 = 0.0;
+        let mut c77: f32 = 0.0;
 
         let a_base_row = block_m * BM;
         let b_base_col = block_n * BN;
@@ -2141,16 +2259,42 @@ pub unsafe extern "gpu-kernel" fn gemm_f32_v3(
 
         // Load first tile
         let mut buf: u32 = 0;
-        gemm_v3_load_tile(smem, buf, STAGE_FLOATS, A_STRIDE, a_global, b_global,
-            a_base_row, b_base_col, 0, m_dim, n_dim, k_dim, tid);
+        gemm_v3_load_tile(
+            smem,
+            buf,
+            STAGE_FLOATS,
+            A_STRIDE,
+            a_global,
+            b_global,
+            a_base_row,
+            b_base_col,
+            0,
+            m_dim,
+            n_dim,
+            k_dim,
+            tid,
+        );
         bar_sync();
 
         let mut t: u32 = 0;
         while t < k_tiles {
             if t + 1 < k_tiles {
                 let nb = 1 - buf;
-                gemm_v3_load_tile(smem, nb, STAGE_FLOATS, A_STRIDE, a_global, b_global,
-                    a_base_row, b_base_col, (t + 1) * BK, m_dim, n_dim, k_dim, tid);
+                gemm_v3_load_tile(
+                    smem,
+                    nb,
+                    STAGE_FLOATS,
+                    A_STRIDE,
+                    a_global,
+                    b_global,
+                    a_base_row,
+                    b_base_col,
+                    (t + 1) * BK,
+                    m_dim,
+                    n_dim,
+                    k_dim,
+                    tid,
+                );
             }
 
             let as_ = (buf * STAGE_FLOATS) as usize;
@@ -2160,26 +2304,96 @@ pub unsafe extern "gpu-kernel" fn gemm_f32_v3(
 
             let mut k: u32 = 0;
             while k < BK {
-                if t * BK + k >= k_dim { break; }
+                if t * BK + k >= k_dim {
+                    break;
+                }
 
                 let ao = as_ + (k * A_STRIDE) as usize + arb;
-                let a0 = *smem.add(ao); let a1 = *smem.add(ao+1); let a2 = *smem.add(ao+2); let a3 = *smem.add(ao+3);
-                let a4 = *smem.add(ao+4); let a5 = *smem.add(ao+5); let a6 = *smem.add(ao+6); let a7 = *smem.add(ao+7);
+                let a0 = *smem.add(ao);
+                let a1 = *smem.add(ao + 1);
+                let a2 = *smem.add(ao + 2);
+                let a3 = *smem.add(ao + 3);
+                let a4 = *smem.add(ao + 4);
+                let a5 = *smem.add(ao + 5);
+                let a6 = *smem.add(ao + 6);
+                let a7 = *smem.add(ao + 7);
 
                 let bo = bs_ + (k * BN) as usize + bcb;
-                let b0 = *smem.add(bo); let b1 = *smem.add(bo+1); let b2 = *smem.add(bo+2); let b3 = *smem.add(bo+3);
-                let b4 = *smem.add(bo+4); let b5 = *smem.add(bo+5); let b6 = *smem.add(bo+6); let b7 = *smem.add(bo+7);
+                let b0 = *smem.add(bo);
+                let b1 = *smem.add(bo + 1);
+                let b2 = *smem.add(bo + 2);
+                let b3 = *smem.add(bo + 3);
+                let b4 = *smem.add(bo + 4);
+                let b5 = *smem.add(bo + 5);
+                let b6 = *smem.add(bo + 6);
+                let b7 = *smem.add(bo + 7);
 
                 // 64 FMAs — 8×8 outer product
                 macro_rules! fma { ($d:ident, $a:ident, $b:ident) => { core::arch::asm!("fma.rn.f32 {d}, {a}, {b}, {c};", d = out(reg32) $d, a = in(reg32) $a, b = in(reg32) $b, c = in(reg32) $d); }; }
-                fma!(c00,a0,b0); fma!(c01,a0,b1); fma!(c02,a0,b2); fma!(c03,a0,b3); fma!(c04,a0,b4); fma!(c05,a0,b5); fma!(c06,a0,b6); fma!(c07,a0,b7);
-                fma!(c10,a1,b0); fma!(c11,a1,b1); fma!(c12,a1,b2); fma!(c13,a1,b3); fma!(c14,a1,b4); fma!(c15,a1,b5); fma!(c16,a1,b6); fma!(c17,a1,b7);
-                fma!(c20,a2,b0); fma!(c21,a2,b1); fma!(c22,a2,b2); fma!(c23,a2,b3); fma!(c24,a2,b4); fma!(c25,a2,b5); fma!(c26,a2,b6); fma!(c27,a2,b7);
-                fma!(c30,a3,b0); fma!(c31,a3,b1); fma!(c32,a3,b2); fma!(c33,a3,b3); fma!(c34,a3,b4); fma!(c35,a3,b5); fma!(c36,a3,b6); fma!(c37,a3,b7);
-                fma!(c40,a4,b0); fma!(c41,a4,b1); fma!(c42,a4,b2); fma!(c43,a4,b3); fma!(c44,a4,b4); fma!(c45,a4,b5); fma!(c46,a4,b6); fma!(c47,a4,b7);
-                fma!(c50,a5,b0); fma!(c51,a5,b1); fma!(c52,a5,b2); fma!(c53,a5,b3); fma!(c54,a5,b4); fma!(c55,a5,b5); fma!(c56,a5,b6); fma!(c57,a5,b7);
-                fma!(c60,a6,b0); fma!(c61,a6,b1); fma!(c62,a6,b2); fma!(c63,a6,b3); fma!(c64,a6,b4); fma!(c65,a6,b5); fma!(c66,a6,b6); fma!(c67,a6,b7);
-                fma!(c70,a7,b0); fma!(c71,a7,b1); fma!(c72,a7,b2); fma!(c73,a7,b3); fma!(c74,a7,b4); fma!(c75,a7,b5); fma!(c76,a7,b6); fma!(c77,a7,b7);
+                fma!(c00, a0, b0);
+                fma!(c01, a0, b1);
+                fma!(c02, a0, b2);
+                fma!(c03, a0, b3);
+                fma!(c04, a0, b4);
+                fma!(c05, a0, b5);
+                fma!(c06, a0, b6);
+                fma!(c07, a0, b7);
+                fma!(c10, a1, b0);
+                fma!(c11, a1, b1);
+                fma!(c12, a1, b2);
+                fma!(c13, a1, b3);
+                fma!(c14, a1, b4);
+                fma!(c15, a1, b5);
+                fma!(c16, a1, b6);
+                fma!(c17, a1, b7);
+                fma!(c20, a2, b0);
+                fma!(c21, a2, b1);
+                fma!(c22, a2, b2);
+                fma!(c23, a2, b3);
+                fma!(c24, a2, b4);
+                fma!(c25, a2, b5);
+                fma!(c26, a2, b6);
+                fma!(c27, a2, b7);
+                fma!(c30, a3, b0);
+                fma!(c31, a3, b1);
+                fma!(c32, a3, b2);
+                fma!(c33, a3, b3);
+                fma!(c34, a3, b4);
+                fma!(c35, a3, b5);
+                fma!(c36, a3, b6);
+                fma!(c37, a3, b7);
+                fma!(c40, a4, b0);
+                fma!(c41, a4, b1);
+                fma!(c42, a4, b2);
+                fma!(c43, a4, b3);
+                fma!(c44, a4, b4);
+                fma!(c45, a4, b5);
+                fma!(c46, a4, b6);
+                fma!(c47, a4, b7);
+                fma!(c50, a5, b0);
+                fma!(c51, a5, b1);
+                fma!(c52, a5, b2);
+                fma!(c53, a5, b3);
+                fma!(c54, a5, b4);
+                fma!(c55, a5, b5);
+                fma!(c56, a5, b6);
+                fma!(c57, a5, b7);
+                fma!(c60, a6, b0);
+                fma!(c61, a6, b1);
+                fma!(c62, a6, b2);
+                fma!(c63, a6, b3);
+                fma!(c64, a6, b4);
+                fma!(c65, a6, b5);
+                fma!(c66, a6, b6);
+                fma!(c67, a6, b7);
+                fma!(c70, a7, b0);
+                fma!(c71, a7, b1);
+                fma!(c72, a7, b2);
+                fma!(c73, a7, b3);
+                fma!(c74, a7, b4);
+                fma!(c75, a7, b5);
+                fma!(c76, a7, b6);
+                fma!(c77, a7, b7);
 
                 k += 1;
             }
@@ -2192,18 +2406,82 @@ pub unsafe extern "gpu-kernel" fn gemm_f32_v3(
         // Write 8×8 output
         let or = a_base_row + thread_row * 8;
         let oc = b_base_col + thread_col * 8;
-        macro_rules! w { ($r:expr, $c:expr, $v:expr) => { if $r < m_dim && $c < n_dim { *d_global.add(($r * n_dim + $c) as usize) = $v; } }; }
-        w!(or,oc,c00); w!(or,oc+1,c01); w!(or,oc+2,c02); w!(or,oc+3,c03); w!(or,oc+4,c04); w!(or,oc+5,c05); w!(or,oc+6,c06); w!(or,oc+7,c07);
-        w!(or+1,oc,c10); w!(or+1,oc+1,c11); w!(or+1,oc+2,c12); w!(or+1,oc+3,c13); w!(or+1,oc+4,c14); w!(or+1,oc+5,c15); w!(or+1,oc+6,c16); w!(or+1,oc+7,c17);
-        w!(or+2,oc,c20); w!(or+2,oc+1,c21); w!(or+2,oc+2,c22); w!(or+2,oc+3,c23); w!(or+2,oc+4,c24); w!(or+2,oc+5,c25); w!(or+2,oc+6,c26); w!(or+2,oc+7,c27);
-        w!(or+3,oc,c30); w!(or+3,oc+1,c31); w!(or+3,oc+2,c32); w!(or+3,oc+3,c33); w!(or+3,oc+4,c34); w!(or+3,oc+5,c35); w!(or+3,oc+6,c36); w!(or+3,oc+7,c37);
-        w!(or+4,oc,c40); w!(or+4,oc+1,c41); w!(or+4,oc+2,c42); w!(or+4,oc+3,c43); w!(or+4,oc+4,c44); w!(or+4,oc+5,c45); w!(or+4,oc+6,c46); w!(or+4,oc+7,c47);
-        w!(or+5,oc,c50); w!(or+5,oc+1,c51); w!(or+5,oc+2,c52); w!(or+5,oc+3,c53); w!(or+5,oc+4,c54); w!(or+5,oc+5,c55); w!(or+5,oc+6,c56); w!(or+5,oc+7,c57);
-        w!(or+6,oc,c60); w!(or+6,oc+1,c61); w!(or+6,oc+2,c62); w!(or+6,oc+3,c63); w!(or+6,oc+4,c64); w!(or+6,oc+5,c65); w!(or+6,oc+6,c66); w!(or+6,oc+7,c67);
-        w!(or+7,oc,c70); w!(or+7,oc+1,c71); w!(or+7,oc+2,c72); w!(or+7,oc+3,c73); w!(or+7,oc+4,c74); w!(or+7,oc+5,c75); w!(or+7,oc+6,c76); w!(or+7,oc+7,c77);
+        macro_rules! w {
+            ($r:expr, $c:expr, $v:expr) => {
+                if $r < m_dim && $c < n_dim {
+                    *d_global.add(($r * n_dim + $c) as usize) = $v;
+                }
+            };
+        }
+        w!(or, oc, c00);
+        w!(or, oc + 1, c01);
+        w!(or, oc + 2, c02);
+        w!(or, oc + 3, c03);
+        w!(or, oc + 4, c04);
+        w!(or, oc + 5, c05);
+        w!(or, oc + 6, c06);
+        w!(or, oc + 7, c07);
+        w!(or + 1, oc, c10);
+        w!(or + 1, oc + 1, c11);
+        w!(or + 1, oc + 2, c12);
+        w!(or + 1, oc + 3, c13);
+        w!(or + 1, oc + 4, c14);
+        w!(or + 1, oc + 5, c15);
+        w!(or + 1, oc + 6, c16);
+        w!(or + 1, oc + 7, c17);
+        w!(or + 2, oc, c20);
+        w!(or + 2, oc + 1, c21);
+        w!(or + 2, oc + 2, c22);
+        w!(or + 2, oc + 3, c23);
+        w!(or + 2, oc + 4, c24);
+        w!(or + 2, oc + 5, c25);
+        w!(or + 2, oc + 6, c26);
+        w!(or + 2, oc + 7, c27);
+        w!(or + 3, oc, c30);
+        w!(or + 3, oc + 1, c31);
+        w!(or + 3, oc + 2, c32);
+        w!(or + 3, oc + 3, c33);
+        w!(or + 3, oc + 4, c34);
+        w!(or + 3, oc + 5, c35);
+        w!(or + 3, oc + 6, c36);
+        w!(or + 3, oc + 7, c37);
+        w!(or + 4, oc, c40);
+        w!(or + 4, oc + 1, c41);
+        w!(or + 4, oc + 2, c42);
+        w!(or + 4, oc + 3, c43);
+        w!(or + 4, oc + 4, c44);
+        w!(or + 4, oc + 5, c45);
+        w!(or + 4, oc + 6, c46);
+        w!(or + 4, oc + 7, c47);
+        w!(or + 5, oc, c50);
+        w!(or + 5, oc + 1, c51);
+        w!(or + 5, oc + 2, c52);
+        w!(or + 5, oc + 3, c53);
+        w!(or + 5, oc + 4, c54);
+        w!(or + 5, oc + 5, c55);
+        w!(or + 5, oc + 6, c56);
+        w!(or + 5, oc + 7, c57);
+        w!(or + 6, oc, c60);
+        w!(or + 6, oc + 1, c61);
+        w!(or + 6, oc + 2, c62);
+        w!(or + 6, oc + 3, c63);
+        w!(or + 6, oc + 4, c64);
+        w!(or + 6, oc + 5, c65);
+        w!(or + 6, oc + 6, c66);
+        w!(or + 6, oc + 7, c67);
+        w!(or + 7, oc, c70);
+        w!(or + 7, oc + 1, c71);
+        w!(or + 7, oc + 2, c72);
+        w!(or + 7, oc + 3, c73);
+        w!(or + 7, oc + 4, c74);
+        w!(or + 7, oc + 5, c75);
+        w!(or + 7, oc + 6, c76);
+        w!(or + 7, oc + 7, c77);
     }
     #[cfg(not(target_arch = "nvptx64"))]
-    { let _ = (a_global, b_global, d_global, m_dim, n_dim, k_dim); }
+    {
+        let _ = (a_global, b_global, d_global, m_dim, n_dim, k_dim);
+    }
 
     if tid == 0 {
         let _prev: u32;
@@ -2215,22 +2493,39 @@ pub unsafe extern "gpu-kernel" fn gemm_f32_v3(
 #[inline(always)]
 #[allow(clippy::too_many_arguments)]
 unsafe fn gemm_v3_load_tile(
-    smem: *mut f32, buf: u32, stage_floats: u32, a_stride: u32,
-    a_global: *const f32, b_global: *const f32,
-    a_base_row: u32, b_base_col: u32, k_start: u32,
-    m_dim: u32, n_dim: u32, k_dim: u32, tid: u32,
+    smem: *mut f32,
+    buf: u32,
+    stage_floats: u32,
+    a_stride: u32,
+    a_global: *const f32,
+    b_global: *const f32,
+    a_base_row: u32,
+    b_base_col: u32,
+    k_start: u32,
+    m_dim: u32,
+    n_dim: u32,
+    k_dim: u32,
+    tid: u32,
 ) {
     let a_smem_base = (buf * stage_floats) as usize;
     let b_smem_base = (buf * stage_floats + 8 * a_stride) as usize;
-    const BM: u32 = 128; const BN: u32 = 128; const BK: u32 = 8;
+    const BM: u32 = 128;
+    const BN: u32 = 128;
+    const BK: u32 = 8;
 
     // Load A: 128×8 = 1024 elems, 256 threads → 4 each
     let mut i: u32 = 0;
     while i < 4 {
         let flat = tid * 4 + i;
-        let ar = flat / BK; let ak = flat % BK;
-        let gr = a_base_row + ar; let gk = k_start + ak;
-        let v = if gr < m_dim && gk < k_dim { *a_global.add((gr * k_dim + gk) as usize) } else { 0.0 };
+        let ar = flat / BK;
+        let ak = flat % BK;
+        let gr = a_base_row + ar;
+        let gk = k_start + ak;
+        let v = if gr < m_dim && gk < k_dim {
+            *a_global.add((gr * k_dim + gk) as usize)
+        } else {
+            0.0
+        };
         *smem.add(a_smem_base + (ak * a_stride + ar) as usize) = v;
         i += 1;
     }
@@ -2238,9 +2533,15 @@ unsafe fn gemm_v3_load_tile(
     let mut j: u32 = 0;
     while j < 4 {
         let flat = tid * 4 + j;
-        let bk = flat / BN; let bc = flat % BN;
-        let gk = k_start + bk; let gc = b_base_col + bc;
-        let v = if gk < k_dim && gc < n_dim { *b_global.add((gk * n_dim + gc) as usize) } else { 0.0 };
+        let bk = flat / BN;
+        let bc = flat % BN;
+        let gk = k_start + bk;
+        let gc = b_base_col + bc;
+        let v = if gk < k_dim && gc < n_dim {
+            *b_global.add((gk * n_dim + gc) as usize)
+        } else {
+            0.0
+        };
         *smem.add(b_smem_base + (bk * BN + bc) as usize) = v;
         j += 1;
     }

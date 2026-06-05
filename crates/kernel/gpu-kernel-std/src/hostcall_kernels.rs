@@ -1,13 +1,13 @@
 // Hostcall test/bench kernels — kernel entry points for hostcall protocol testing.
 
-use crate::helpers::{
-    gpu_hostcall_close, gpu_hostcall_open, gpu_hostcall_read, gpu_hostcall_stdin_read,
-    gpu_hostcall_time, gpu_hostcall_write, gpu_instant_nanos, hc_pop_free_counted,
-    hc_pop_free_counted_v2,
-};
 use core::arch::nvptx;
 use gpu_atomics::{
     activemask, sys_fetch_add_u64, sys_spin_load_acquire_u32, sys_store_release_u32,
+};
+use gpu_kernel_core::helpers::{
+    gpu_hostcall_close, gpu_hostcall_open, gpu_hostcall_read, gpu_hostcall_stdin_read,
+    gpu_hostcall_time, gpu_hostcall_write, gpu_instant_nanos, hc_pop_free_counted,
+    hc_pop_free_counted_v2,
 };
 use gpu_protocol::*;
 
@@ -744,10 +744,7 @@ impl core::future::Future for OneshotConsumer {
 /// The channel slots are placed at the end of the executor memory region.
 /// executor_ptr must have enough space for GpuExecutor + 4 OneshotSlot<u32>.
 #[no_mangle]
-pub unsafe extern "gpu-kernel" fn channel_oneshot_demo(
-    executor_ptr: *mut u8,
-    results: *mut u32,
-) {
+pub unsafe extern "gpu-kernel" fn channel_oneshot_demo(executor_ptr: *mut u8, results: *mut u32) {
     let thread_x = nvptx::_thread_idx_x() as u32;
 
     // Initialize result buffer (thread 0 only)
@@ -821,13 +818,7 @@ pub unsafe extern "gpu-kernel" fn channel_oneshot_demo(
         let spawned = core::ptr::read_volatile(results.add(0) as *const u32);
         let completed = core::ptr::read_volatile(results.add(1) as *const u32);
 
-        if spawned == 8
-            && completed == 8
-            && v0 == 42
-            && v1 == 100
-            && v2 == 255
-            && v3 == 1337
-        {
+        if spawned == 8 && completed == 8 && v0 == 42 && v1 == 100 && v2 == 255 && v3 == 1337 {
             core::ptr::write_volatile(results.add(9), 1); // success
         }
     }
@@ -858,11 +849,7 @@ pub unsafe extern "gpu-kernel" fn channel_oneshot_demo(
 /// `results` = output array, must have space for (2 + num_iters * 6) u64 entries
 /// `num_iters` = number of full open-write-close-open-read-close cycles
 #[no_mangle]
-pub unsafe extern "gpu-kernel" fn file_io_bench(
-    buf: *mut u8,
-    results: *mut u64,
-    num_iters: u32,
-) {
+pub unsafe extern "gpu-kernel" fn file_io_bench(buf: *mut u8, results: *mut u64, num_iters: u32) {
     let thread_x = nvptx::_thread_idx_x() as u32;
     let block_x = nvptx::_block_idx_x() as u32;
     let block_dim_x = nvptx::_block_dim_x() as u32;
@@ -1356,10 +1343,7 @@ pub unsafe extern "gpu-kernel" fn session_kernel_b(
 /// - CMD_EXIT: acknowledges and breaks
 /// - CMD_NOP / unknown: acknowledges and continues
 #[no_mangle]
-pub unsafe extern "gpu-kernel" fn multi_cmd_kernel(
-    hc_buf: *mut u8,
-    cmd_buf: *mut u8,
-) {
+pub unsafe extern "gpu-kernel" fn multi_cmd_kernel(hc_buf: *mut u8, cmd_buf: *mut u8) {
     let tid = nvptx::_thread_idx_x() as u32;
     if tid != 0 {
         return;
@@ -1371,12 +1355,9 @@ pub unsafe extern "gpu-kernel" fn multi_cmd_kernel(
         match gpu_runtime::cmd::cmd_poll(cmd_buf) {
             Some((gpu_protocol::CMD_COMPUTE, payload)) => {
                 // payload layout: input_ptr(u64), output_ptr(u64), count(u32), op_code(u32)
-                let input_ptr =
-                    core::ptr::read_volatile(payload as *const u64) as *const u32;
-                let output_ptr =
-                    core::ptr::read_volatile(payload.add(8) as *const u64) as *mut u32;
-                let count =
-                    core::ptr::read_volatile(payload.add(16) as *const u32);
+                let input_ptr = core::ptr::read_volatile(payload as *const u64) as *const u32;
+                let output_ptr = core::ptr::read_volatile(payload.add(8) as *const u64) as *mut u32;
+                let count = core::ptr::read_volatile(payload.add(16) as *const u32);
                 // op_code ignored for now — always "double"
                 for i in 0..count as isize {
                     let val = core::ptr::read_volatile(input_ptr.offset(i));
@@ -1385,8 +1366,7 @@ pub unsafe extern "gpu-kernel" fn multi_cmd_kernel(
                 gpu_runtime::cmd::cmd_ack(cmd_buf);
             }
             Some((gpu_protocol::CMD_PRINT, payload)) => {
-                let msg_len =
-                    core::ptr::read_volatile(payload as *const u32);
+                let msg_len = core::ptr::read_volatile(payload as *const u32);
                 let msg_ptr = payload.add(4);
                 let _ = gpu_runtime::hostcall::gpu_hostcall_print(hc_buf, msg_ptr, msg_len);
                 gpu_runtime::cmd::cmd_ack(cmd_buf);
@@ -1736,10 +1716,8 @@ pub unsafe extern "gpu-kernel" fn warp_cooperative_future_kernel(
     }
 
     // All 32 lanes create the future (but only lane 0 will poll it)
-    let mut future = gpu_runtime::std_future::GpuPrintFuture::new(
-        buf,
-        b"Hello from warp-cooperative Future!",
-    );
+    let mut future =
+        gpu_runtime::std_future::GpuPrintFuture::new(buf, b"Hello from warp-cooperative Future!");
 
     // Warp-cooperative poll: lane 0 polls, broadcasts result
     let ok = gpu_runtime::warp_cooperative::warp_run_future(&mut future);
@@ -1780,14 +1758,8 @@ pub unsafe extern "gpu-kernel" fn warp_cooperative_two_futures_kernel(
         core::ptr::write_volatile(result, 0);
     }
 
-    let mut f1 = gpu_runtime::std_future::GpuPrintFuture::new(
-        buf,
-        b"warp-coop sequential 1",
-    );
-    let mut f2 = gpu_runtime::std_future::GpuPrintFuture::new(
-        buf,
-        b"warp-coop sequential 2",
-    );
+    let mut f1 = gpu_runtime::std_future::GpuPrintFuture::new(buf, b"warp-coop sequential 1");
+    let mut f2 = gpu_runtime::std_future::GpuPrintFuture::new(buf, b"warp-coop sequential 2");
 
     let (ok1, ok2) = gpu_runtime::warp_sequential::warp_run_two_futures(&mut f1, &mut f2);
 
@@ -1831,14 +1803,8 @@ pub unsafe extern "gpu-kernel" fn warp_result_future_kernel(
         core::ptr::write_volatile(result, 0);
     }
 
-    let mut f1 = gpu_runtime::std_future::GpuPrintResultFuture::new(
-        buf,
-        b"warp-result print 1",
-    );
-    let mut f2 = gpu_runtime::std_future::GpuPrintResultFuture::new(
-        buf,
-        b"warp-result print 2",
-    );
+    let mut f1 = gpu_runtime::std_future::GpuPrintResultFuture::new(buf, b"warp-result print 1");
+    let mut f2 = gpu_runtime::std_future::GpuPrintResultFuture::new(buf, b"warp-result print 2");
 
     let outcome = gpu_runtime::warp_result::warp_run_two_result_futures(&mut f1, &mut f2);
 
@@ -2100,10 +2066,7 @@ impl core::future::Future for MpscConsumer {
 ///
 /// The MPSC channel is placed after the executor struct in mapped memory.
 #[no_mangle]
-pub unsafe extern "gpu-kernel" fn channel_mpsc_demo(
-    executor_ptr: *mut u8,
-    results: *mut u32,
-) {
+pub unsafe extern "gpu-kernel" fn channel_mpsc_demo(executor_ptr: *mut u8, results: *mut u32) {
     let thread_x = nvptx::_thread_idx_x() as u32;
 
     // Initialize result buffer (thread 0 only)

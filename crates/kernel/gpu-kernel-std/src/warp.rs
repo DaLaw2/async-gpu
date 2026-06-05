@@ -555,11 +555,7 @@ async unsafe fn warp_cfg_if_else_test_async(buf: *mut u8, flag: u64) -> bool {
 }
 
 #[no_mangle]
-pub unsafe extern "gpu-kernel" fn warp_cfg_if_else_test(
-    buf: *mut u8,
-    flag: u64,
-    result: *mut u32,
-) {
+pub unsafe extern "gpu-kernel" fn warp_cfg_if_else_test(buf: *mut u8, flag: u64, result: *mut u32) {
     gpu_runtime::panic::gpu_panic_init(buf);
     if nvptx::_thread_idx_x() != 0 {
         return;
@@ -591,11 +587,7 @@ async unsafe fn warp_cfg_loop_test_async(buf: *mut u8, counter: u64) -> bool {
 }
 
 #[no_mangle]
-pub unsafe extern "gpu-kernel" fn warp_cfg_loop_test(
-    buf: *mut u8,
-    counter: u64,
-    result: *mut u32,
-) {
+pub unsafe extern "gpu-kernel" fn warp_cfg_loop_test(buf: *mut u8, counter: u64, result: *mut u32) {
     gpu_runtime::panic::gpu_panic_init(buf);
     if nvptx::_thread_idx_x() != 0 {
         return;
@@ -628,11 +620,7 @@ async unsafe fn warp_cfg_match_test_async(buf: *mut u8, cmd: u64) -> bool {
 }
 
 #[no_mangle]
-pub unsafe extern "gpu-kernel" fn warp_cfg_match_test(
-    buf: *mut u8,
-    cmd: u64,
-    result: *mut u32,
-) {
+pub unsafe extern "gpu-kernel" fn warp_cfg_match_test(buf: *mut u8, cmd: u64, result: *mut u32) {
     gpu_runtime::panic::gpu_panic_init(buf);
     if nvptx::_thread_idx_x() != 0 {
         return;
@@ -763,11 +751,7 @@ async unsafe fn autonomous_pipeline_async(buf: *mut u8, mode: u64) -> bool {
 }
 
 #[no_mangle]
-pub unsafe extern "gpu-kernel" fn autonomous_pipeline(
-    buf: *mut u8,
-    mode: u64,
-    result: *mut u32,
-) {
+pub unsafe extern "gpu-kernel" fn autonomous_pipeline(buf: *mut u8, mode: u64, result: *mut u32) {
     gpu_runtime::panic::gpu_panic_init(buf);
     if nvptx::_thread_idx_x() != 0 {
         return;

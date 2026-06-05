@@ -22,27 +22,30 @@
 core::arch::global_asm!(".extern .shared .align 4 .b8 dynamic_smem[];");
 
 // === Modules merged from former gpu-kernel (no_std) ===
-mod helpers;
+// NOTE: helpers, basic, and compute_math have been extracted to gpu-kernel-core.
+// Other kernel modules import helpers via `gpu_kernel_core::helpers::*`.
 
-mod basic;
+// basic and compute_math are now in gpu-kernel-core (split-execute.2).
+// Re-export gpu-kernel-core so its kernel symbols are linked into this crate's cdylib.
+extern crate gpu_kernel_core;
+
 mod compute_cnn;
 mod compute_demo;
 mod compute_fused;
-mod compute_persistent;
-mod compute_physics;
 mod compute_gemm;
-mod compute_math;
 #[cfg(feature = "sm_80")]
 mod compute_mma;
+mod compute_persistent;
+mod compute_physics;
 mod compute_search;
 mod compute_transformer;
 mod hostcall_kernels;
 mod hybrid;
+mod par_iter_demo;
 mod pipeline;
+mod sc_demo;
 mod thread_test;
 mod warp;
-mod par_iter_demo;
-mod sc_demo;
 
 // === Std-specific kernel code below ===
 
@@ -529,7 +532,9 @@ pub unsafe extern "gpu-kernel" fn real_std_thread_spawn(result: *mut u32) {
     }
 
     gpu_runtime::thread::gpu_main_poll(|| {
-        println!("[DBG] spawn_raw_count before = {}", unsafe { gpu_thread_spawn_raw_count() });
+        println!("[DBG] spawn_raw_count before = {}", unsafe {
+            gpu_thread_spawn_raw_count()
+        });
 
         // Use REAL std::thread::spawn — identical to how you'd write it on CPU
         let handle1 = std::thread::spawn(|| -> u32 {
@@ -541,7 +546,9 @@ pub unsafe extern "gpu-kernel" fn real_std_thread_spawn(result: *mut u32) {
             sum // 45
         });
 
-        println!("[DBG] spawn_raw_count after 1st = {}", unsafe { gpu_thread_spawn_raw_count() });
+        println!("[DBG] spawn_raw_count after 1st = {}", unsafe {
+            gpu_thread_spawn_raw_count()
+        });
 
         let handle2 = std::thread::spawn(|| -> u32 {
             let mut product = 1u32;
@@ -552,7 +559,9 @@ pub unsafe extern "gpu-kernel" fn real_std_thread_spawn(result: *mut u32) {
             product // 120
         });
 
-        println!("[DBG] spawn_raw_count after 2nd = {}", unsafe { gpu_thread_spawn_raw_count() });
+        println!("[DBG] spawn_raw_count after 2nd = {}", unsafe {
+            gpu_thread_spawn_raw_count()
+        });
         println!("[DBG] before join1");
 
         let r1 = handle1.join().unwrap();
@@ -848,7 +857,11 @@ fn matmul_io_inner(buf: *mut u8, dims: *const u32, result: *mut u32) {
         }
     };
     let a_elems = a_data.len() / 4;
-    println!("[MATMUL] Read A: {} floats ({} bytes)", a_elems, a_data.len());
+    println!(
+        "[MATMUL] Read A: {} floats ({} bytes)",
+        a_elems,
+        a_data.len()
+    );
 
     // === SEQUENTIAL I/O: read matrix B (K×N f32) ===
     let b_data = match std::fs::File::open("matmul_b.bin") {
@@ -863,15 +876,27 @@ fn matmul_io_inner(buf: *mut u8, dims: *const u32, result: *mut u32) {
         }
     };
     let b_elems = b_data.len() / 4;
-    println!("[MATMUL] Read B: {} floats ({} bytes)", b_elems, b_data.len());
+    println!(
+        "[MATMUL] Read B: {} floats ({} bytes)",
+        b_elems,
+        b_data.len()
+    );
 
     // Sanity check
     if a_elems != m * k {
-        println!("[MATMUL] ERR: A has {} floats, expected M*K={}", a_elems, m * k);
+        println!(
+            "[MATMUL] ERR: A has {} floats, expected M*K={}",
+            a_elems,
+            m * k
+        );
         return;
     }
     if b_elems != k * n {
-        println!("[MATMUL] ERR: B has {} floats, expected K*N={}", b_elems, k * n);
+        println!(
+            "[MATMUL] ERR: B has {} floats, expected K*N={}",
+            b_elems,
+            k * n
+        );
         return;
     }
 
@@ -929,10 +954,7 @@ fn matmul_io_inner(buf: *mut u8, dims: *const u32, result: *mut u32) {
 ///   dims[0] = M, dims[1] = K, dims[2] = N
 ///   result[0] = success flag (1 = ok), result[1] = M*N (elements written)
 #[unsafe(no_mangle)]
-pub unsafe extern "gpu-kernel" fn matmul_io_compute(
-    dims: *const u32,
-    result: *mut u32,
-) {
+pub unsafe extern "gpu-kernel" fn matmul_io_compute(dims: *const u32, result: *mut u32) {
     let buf = stdio_auto_init();
     if buf.is_null() {
         return;

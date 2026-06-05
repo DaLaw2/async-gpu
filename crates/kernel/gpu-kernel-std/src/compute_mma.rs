@@ -1,7 +1,7 @@
 // gpu-compute.3 & .4: Tensor Core MMA + shared memory tests
 
-use crate::helpers::{bar_sync, get_dynamic_smem_ptr};
 use core::arch::nvptx;
+use gpu_kernel_core::helpers::{bar_sync, get_dynamic_smem_ptr};
 
 // ============================================================
 // gpu-compute.3: Tensor Core MMA via inline PTX

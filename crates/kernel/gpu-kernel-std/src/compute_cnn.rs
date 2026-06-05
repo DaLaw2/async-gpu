@@ -1,8 +1,8 @@
 // CNN building blocks: BatchNorm+SiLU fused, im2col, MaxPool2D, Upsample, Concat.
 // Used by YOLOv8-nano inference pipeline.
 
-use crate::helpers::gpu_exp_f32;
 use core::arch::nvptx;
+use gpu_kernel_core::helpers::gpu_exp_f32;
 
 // ============================================================
 // Fused BatchNorm + SiLU kernel (yolo-inference.3)
@@ -46,7 +46,7 @@ pub unsafe extern "gpu-kernel" fn batchnorm_silu(
             let var = *running_var.add(c as usize);
 
             // BatchNorm: y = gamma * (x - mean) / sqrt(var + eps) + beta
-            let inv_std = 1.0 / crate::helpers::gpu_sqrtf(var + eps);
+            let inv_std = 1.0 / gpu_kernel_core::helpers::gpu_sqrtf(var + eps);
             let bn_out = g * (x - mean) * inv_std + b;
 
             // SiLU: silu(x) = x / (1 + exp(-x))
@@ -58,7 +58,17 @@ pub unsafe extern "gpu-kernel" fn batchnorm_silu(
     }
     #[cfg(not(target_arch = "nvptx64"))]
     {
-        let _ = (input, output, gamma, beta, running_mean, running_var, n, hw, eps);
+        let _ = (
+            input,
+            output,
+            gamma,
+            beta,
+            running_mean,
+            running_var,
+            n,
+            hw,
+            eps,
+        );
     }
 
     if tid == 0 {
@@ -845,7 +855,20 @@ pub unsafe extern "gpu-kernel" fn im2col_offset(
     }
     #[cfg(not(target_arch = "nvptx64"))]
     {
-        let _ = (input, output, base_offset, c_in, h, w, kh, kw, stride, pad, h_out, w_out);
+        let _ = (
+            input,
+            output,
+            base_offset,
+            c_in,
+            h,
+            w,
+            kh,
+            kw,
+            stride,
+            pad,
+            h_out,
+            w_out,
+        );
     }
 
     if tid == 0 {

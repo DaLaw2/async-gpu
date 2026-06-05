@@ -4,8 +4,8 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 606
-completed_tasks = 724
+total_cycles = 607
+completed_tasks = 757
 status = "running"     # ready | running | blocked | completed
 
 # Project North Star — the ONE thing all epics serve:
@@ -14,12 +14,12 @@ status = "running"     # ready | running | blocked | completed
 # No GPU concepts leak. VectorWare's I/O strength + async-gpu's compute strength, unified.
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
-current_step = "dispatch"
-current_task_id = "showcase-examples.2,showcase-readme.1"
+current_step = "save"
+current_task_id = ""
 
 # Sequence counters
 brainstorm_seq = 116
-tasks_since_brainstorm = 13   # reset after brainstorm 116
+tasks_since_brainstorm = 20   # reset after brainstorm 116
 
 # ============================================================
 # Epics — Tiered (T0 → T3), sorted by tier then priority
@@ -701,68 +701,8 @@ success_criteria = [
 
 # kernel-perf parked themes archived: perf-int8-tiled, perf-gemm-fusion
 
-# --- T2: developer-showcase themes ---
-
-[[themes]]
-id = "showcase-api"
-epic = "developer-showcase"
-title = "Facade re-exports — make hidden features discoverable"
-status = "active"
-goal = "async-gpu crate re-exports SC scopes, channels, and executor types"
-success_criteria = [
-    "BlockScope, GridScope, block_scope(), grid_scope() re-exported from async-gpu",
-    "OneshotSender/Receiver, MpscSender/Receiver re-exported from async-gpu",
-    "GpuExecutor re-exported from async-gpu",
-    "cargo doc --no-deps shows all new public types cleanly",
-]
-
-[[themes]]
-id = "showcase-sc"
-epic = "developer-showcase"
-title = "Structured Concurrency example — BlockScope producer-consumer"
-status = "pending"
-goal = "Standalone example demonstrating structured concurrency on GPU"
-success_criteria = [
-    "examples/hostcall/structured-concurrency/ with host + kernel",
-    "Shows BlockScope allocation, spawn, join, and auto-cleanup",
-    "GpuChannel used for producer-consumer communication",
-]
-
-[[themes]]
-id = "showcase-channels"
-epic = "developer-showcase"
-title = "GPU Channels + Executor example — async programming on GPU"
-status = "pending"
-goal = "Standalone examples demonstrating GPU async channels and executor"
-success_criteria = [
-    "Example using Oneshot and MPSC channels between GPU tasks",
-    "GPU executor example: spawn 4+ async tasks dynamically",
-]
-
-[[themes]]
-id = "showcase-examples"
-epic = "developer-showcase"
-title = "Example gap-fill — ensure all shipped features have examples"
-status = "pending"
-goal = "Every major feature has at least one clean, documented example"
-success_criteria = [
-    "Cooperative compute example cleaned up as showcase",
-    "Benchmark example updated with latest numbers",
-]
-
-[[themes]]
-id = "showcase-readme"
-epic = "developer-showcase"
-title = "README overhaul — feature matrix, perf table, hero examples"
-status = "pending"
-goal = "README serves as landing page that sells async-gpu in 5 minutes"
-success_criteria = [
-    "Feature matrix: all GPU capabilities in one table",
-    "Performance table: SGEMM 90% cuBLAS, FA 47-60%, GPT-2 39ms",
-    "North Star hero: File::read → matmul → File::write code in README",
-    "Progressive snippets: hello → cooperative → SC pipeline",
-    "Getting-started guide updated with SC and channels",
-]
+# developer-showcase themes archived (cycle 607): showcase-api, showcase-sc,
+# showcase-channels, showcase-examples, showcase-readme
 
 # --- T2: gpu-iterator themes ---
 
@@ -1315,67 +1255,9 @@ kind = "experiment"
 status = "pending"
 depends = ["conv-e2e.1"]
 
-# --- gpu-iterator: design ---
-
-[[tasks]]
-id = "iter-design.1"
-theme = "iter-design"
-title = "Investigation: Rust Iterator/Rayon traits — which semantics map to GPU, which don't"
-kind = "investigation"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "iter-design.2"
-theme = "iter-design"
-title = "Design: ParallelIterator trait API surface + closure capture rules"
-kind = "design"
-status = "done"
-depends = ["iter-design.1"]
-
-[[tasks]]
-id = "iter-design.3"
-theme = "iter-design"
-title = "Design: MIR pass strategy — iterator chain → single fused GPU kernel"
-kind = "design"
-status = "done"
-depends = ["iter-design.2"]
-
-# --- gpu-iterator: compiler ---
-
-[[tasks]]
-id = "iter-compiler.1"
-theme = "iter-compiler"
-title = "Experiment: implement GpuParallelIterator trait with map/for_each/collect_into"
-kind = "experiment"
-status = "done"
-depends = ["iter-design.3"]
-
-[[tasks]]
-id = "iter-compiler.2"
-theme = "iter-compiler"
-title = "Experiment: implement filter() with atomic compaction + fused filter_map()"
-kind = "experiment"
-status = "done"
-depends = ["iter-compiler.1"]
-
-[[tasks]]
-id = "iter-compiler.3"
-theme = "iter-compiler"
-title = "Experiment: collect_count() + filter demo kernels"
-kind = "experiment"
-status = "done"
-depends = ["iter-compiler.1"]
+# Done tasks archived (cycle 607): iter-design.1-.3, iter-compiler.1-.3, iter-runtime.1
 
 # --- gpu-iterator: runtime ---
-
-[[tasks]]
-id = "iter-runtime.1"
-theme = "iter-runtime"
-title = "Experiment: warp-parallel input partitioning + output buffer management"
-kind = "experiment"
-status = "done"
-depends = ["iter-compiler.1"]
 
 [[tasks]]
 id = "iter-runtime.2"
@@ -1403,41 +1285,9 @@ kind = "experiment"
 status = "pending"
 depends = ["iter-demo.1"]
 
-# --- auto-fusion: analysis ---
-
-[[tasks]]
-id = "fusion-analysis.1"
-theme = "fusion-analysis"
-title = "Investigation: fusable patterns in MIR — elementwise chains, broadcast, reductions"
-kind = "investigation"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "fusion-analysis.2"
-theme = "fusion-analysis"
-title = "Design: tape-level pattern matching rules for fusion candidates"
-kind = "design"
-status = "done"
-depends = ["fusion-analysis.1"]
-
-[[tasks]]
-id = "fusion-analysis.3"
-theme = "fusion-analysis"
-title = "Experiment: implement fusion candidate detection in tape optimizer"
-kind = "experiment"
-status = "done"
-depends = ["fusion-analysis.2"]
+# Done tasks archived (cycle 607): fusion-analysis.1-.3, fusion-codegen.1
 
 # --- auto-fusion: codegen ---
-
-[[tasks]]
-id = "fusion-codegen.1"
-theme = "fusion-codegen"
-title = "Investigation: code generation strategies — template PTX vs NVRTC vs dynamic"
-kind = "investigation"
-status = "done"
-depends = ["fusion-analysis.2"]
 
 [[tasks]]
 id = "fusion-codegen.2"
@@ -1621,135 +1471,8 @@ kind = "experiment"
 status = "pending"
 depends = ["om-demo.1"]
 
-# --- developer-showcase: api ---
-
-[[tasks]]
-id = "showcase-api.1"
-theme = "showcase-api"
-title = "Investigation: audit async-gpu facade for all missing re-exports (SC, channels, executor)"
-kind = "investigation"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "showcase-api.2"
-theme = "showcase-api"
-title = "Experiment: add SC types + channels + executor to async-gpu facade re-exports"
-kind = "experiment"
-status = "done"
-depends = ["showcase-api.1"]
-
-[[tasks]]
-id = "showcase-api.3"
-theme = "showcase-api"
-title = "Experiment: verify cargo doc --no-deps with new exports, fix any doc issues"
-kind = "experiment"
-status = "done"
-depends = ["showcase-api.2"]
-
-# --- developer-showcase: structured concurrency ---
-
-[[tasks]]
-id = "showcase-sc.1"
-theme = "showcase-sc"
-title = "Experiment: create examples/hostcall/structured-concurrency/ — BlockScope producer-consumer"
-kind = "experiment"
-status = "done"
-depends = ["showcase-api.2"]
-
-[[tasks]]
-id = "showcase-sc.2"
-theme = "showcase-sc"
-title = "Experiment: add GridScope multi-block reduce to SC example"
-kind = "experiment"
-status = "done"
-depends = ["showcase-sc.1"]
-
-# --- developer-showcase: channels + executor ---
-
-[[tasks]]
-id = "showcase-channels.1"
-theme = "showcase-channels"
-title = "Experiment: create GPU channels example — oneshot + MPSC producer-consumer pipeline"
-kind = "experiment"
-status = "done"
-depends = ["showcase-api.2"]
-
-[[tasks]]
-id = "showcase-channels.2"
-theme = "showcase-channels"
-title = "Experiment: create GPU executor example — spawn 4+ async tasks dynamically"
-kind = "experiment"
-status = "done"
-depends = ["showcase-api.2"]
-
-# --- developer-showcase: example gap-fill ---
-
-[[tasks]]
-id = "showcase-examples.1"
-theme = "showcase-examples"
-title = "Investigation: scan all 42 completed epics — list features without clean public examples"
-kind = "investigation"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "showcase-examples.2"
-theme = "showcase-examples"
-title = "Experiment: clean up warp-cooperative as cooperative compute showcase"
-kind = "experiment"
-status = "active"
-depends = []
-
-[[tasks]]
-id = "showcase-examples.3"
-theme = "showcase-examples"
-title = "Experiment: update benchmark example with latest perf numbers (SGEMM 90%, FA 47-60%)"
-kind = "experiment"
-status = "pending"
-depends = []
-
-# --- developer-showcase: readme ---
-
-[[tasks]]
-id = "showcase-readme.1"
-theme = "showcase-readme"
-title = "Experiment: write feature matrix — all GPU capabilities in one table"
-kind = "experiment"
-status = "active"
-depends = ["showcase-examples.1"]
-
-[[tasks]]
-id = "showcase-readme.2"
-theme = "showcase-readme"
-title = "Experiment: write performance comparison table — vs cuBLAS/cuDNN with actual numbers"
-kind = "experiment"
-status = "pending"
-depends = []
-
-[[tasks]]
-id = "showcase-readme.3"
-theme = "showcase-readme"
-title = "Experiment: North Star hero example in README — File::read → matmul → File::write"
-kind = "experiment"
-status = "pending"
-depends = []
-
-[[tasks]]
-id = "showcase-readme.4"
-theme = "showcase-readme"
-title = "Experiment: progressive code snippets — hello → cooperative → SC pipeline"
-kind = "experiment"
-status = "pending"
-depends = ["showcase-sc.1"]
-
-[[tasks]]
-id = "showcase-readme.5"
-theme = "showcase-readme"
-title = "Experiment: update getting-started guide with SC, channels, executor sections"
-kind = "experiment"
-status = "pending"
-depends = ["showcase-sc.1", "showcase-channels.1"]
+# Done tasks archived (cycle 607): showcase-api.1-.3, showcase-sc.1-.2,
+# showcase-channels.1-.2, showcase-examples.1-.3, showcase-readme.1-.5
 
 # ============================================================
 # Brainstorms (last 2 — older → archive/)

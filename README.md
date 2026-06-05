@@ -5,45 +5,44 @@
 
 **What if the GPU could drive its own computation?** Open files, read data, branch on results, loop until convergence, write output — all from GPU code, with zero CPU orchestration between steps.
 
-async_gpu makes this real: **Rust async/await running natively on NVIDIA GPUs**, with a custom rustc MIR pass that turns standard `async fn` into warp-cooperative state machines — and GPU compute kernels powerful enough to run **GPT-2 inference in 25ms** (8.8x optimized), **YOLOv8-nano object detection**, **graph algorithms** (BFS, PageRank), and **Monte Carlo simulations** (129x throughput). Custom SGEMM at **90% of cuBLAS**, Flash Attention at **54% of cuDNN FA2**.
+async_gpu makes this real: **Rust async/await running natively on NVIDIA GPUs**, with a custom rustc MIR pass that turns standard `async fn` into warp-cooperative state machines — and GPU compute kernels powerful enough to run **GPT-2 inference in 25ms** (8.8x optimized), **YOLOv8-nano object detection**, **graph algorithms** (BFS, PageRank), and **Monte Carlo simulations** (129x throughput). Custom SGEMM at **90% of cuBLAS**, Flash Attention V3 at **47-60% of cuDNN FA2**.
 
 ```rust
-// GPU kernel — looks like normal Rust
+// GPU kernel — looks like normal Rust, runs on GPU
 #[no_mangle]
-pub unsafe extern "gpu-kernel" fn unified_io_compute(buf: *mut u8, result: *mut u32) {
+pub unsafe extern "gpu-kernel" fn matmul_pipeline(buf: *mut u8, result: *mut u32) {
     use std::fs::File;
     use std::io::{Read, Write};
+    use std::thread;
 
-    // Sequential I/O: read input file from GPU
-    let mut f = File::open("input.bin").unwrap();
-    let mut data = Vec::new();
-    f.read_to_end(&mut data).unwrap();
-    println!("[GPU] Read {} bytes from input", data.len());
+    // Read matrices from files — real std::fs on GPU
+    let a = read_matrix(File::open("a.bin").unwrap());  // M×K
+    let b = read_matrix(File::open("b.bin").unwrap());  // K×N
 
-    // Cooperative compute: all warps process in parallel
-    gpu_runtime::thread::cooperative(&|| {
-        // ... each warp processes its portion of data ...
+    // Matrix multiply — all warps cooperate in parallel
+    let mut c = vec![0.0f32; a.rows * b.cols];
+    thread::cooperative(|| {
+        let wid = thread::current_id() as usize;
+        let n_warps = thread::available_parallelism() + 1;
+        for row in (wid..a.rows).step_by(n_warps) {
+            for col in 0..b.cols {
+                let mut sum = 0.0;
+                for k in 0..a.cols { sum += a[(row, k)] * b[(k, col)]; }
+                c[row * b.cols + col] = sum;
+            }
+        }
     });
 
-    // Sequential I/O: write results back
-    let mut out = File::create("output.bin").unwrap();
-    out.write_all(&data).unwrap();
+    // Write result — same std::fs, back to a file
+    File::create("c.bin").unwrap().write_all(as_bytes(&c)).unwrap();
+    println!("[GPU] {}×{} matmul complete", a.rows, b.cols);
 }
 ```
 
 ```rust
-// Host side — one-liner API
-use async_gpu::gpu;
-
+// Host side — one line launches the entire pipeline
 fn main() -> async_gpu::Result<()> {
-    // Launch a hostcall-enabled kernel (supports println!, file I/O)
-    gpu::run("unified_io_compute")?;
-
-    // Launch a pure compute kernel, get output back
-    let result: Vec<u32> = gpu::launch("thread_spawn_test", 4, 128)?;
-    println!("Thread 1: {}, Thread 2: {}", result[0], result[1]);
-
-    Ok(())
+    async_gpu::gpu::run("matmul_pipeline")
 }
 ```
 
@@ -74,6 +73,15 @@ cargo run --manifest-path examples/std/thread-demo/Cargo.toml
 
 # Vector Math — SAXPY, dot product, softmax (gpu::custom() builder API)
 cargo run --manifest-path examples/hostcall/vector-math/host/Cargo.toml
+
+# Structured Concurrency — block_scope, scoped spawn, oneshot channels
+cargo run --release --manifest-path examples/hostcall/structured-concurrency/Cargo.toml
+
+# GPU Channels — MPSC channels + GpuExecutor multi-task scheduling
+cargo run --release --manifest-path examples/hostcall/gpu-channels/Cargo.toml
+
+# Warp Cooperative — cooperative compute, all warps process in parallel
+cargo run --release --manifest-path examples/hostcall/warp-cooperative/Cargo.toml
 ```
 
 <details>
@@ -89,7 +97,9 @@ cargo run --manifest-path examples/hostcall/vector-math/host/Cargo.toml
 | `vector-math` | SAXPY, dot product, softmax (`gpu::custom` builder API) | Stock nightly |
 | `tcp-echo` | GPU-initiated TCP networking (`gpu::custom` + hostcall) | Stock nightly |
 | `tokio-offload` | Async kernel launch from tokio runtime | Stock nightly |
-| `warp-cooperative` | MIR pass verification tests (`gpu::custom` API) | Patched rustc |
+| `structured-concurrency` | Block-scoped spawn, oneshot channels, shared memory (`gpu::custom` API) | Stock nightly |
+| `gpu-channels` | MPSC channels + `GpuExecutor` multi-task scheduling (`gpu::custom` API) | Stock nightly |
+| `warp-cooperative` | Cooperative compute showcase + MIR pass verification (`gpu::custom` API) | Patched rustc |
 | **Std / NN API examples** (`examples/std/`) | | |
 | `thread-demo` | `std::thread::spawn` on GPU — spawn, join, warp reuse (`gpu::launch` API) | Stock nightly |
 | `gpt2-inference` | GPT-2 Small text generation using `nn` module | Stock nightly |
@@ -121,6 +131,120 @@ bash scripts/build-toolchain.sh
 ```
 
 This clones the latest rustc, applies patches from `rustc-patches/` and `std-patches/`, and builds a stage1 compiler at `patched-rustc/build/host/stage1/`. The build requires ~30GB disk, cmake, ninja, and clang/gcc. The `async-pipeline` example's `build.rs` automatically detects and uses it.
+
+## Progressive Examples
+
+Three snippets, increasing complexity. Each is extracted from a runnable example.
+
+**1. Hello GPU** -- spawn threads on GPU, join results. Looks like normal Rust. ([hello-gpu](examples/hostcall/hello-gpu/), [thread-demo](examples/std/thread-demo/))
+
+```rust
+// GPU kernel — spawn two warps as threads, join results
+#[no_mangle]
+pub unsafe extern "gpu-kernel" fn thread_spawn_test(result: *mut u32) {
+    thread::gpu_main(|| {
+        let h1 = thread::spawn(|| 42u32);
+        let h2 = thread::spawn(|| 99u32);
+        let (r1, r2) = (h1.join(), h2.join());
+    });
+}
+
+// Host — one line launches the kernel and downloads results
+let result: Vec<u32> = gpu::launch("thread_spawn_test", 4, 128)?;
+assert_eq!(result[0], 42);
+```
+
+**2. Cooperative Compute** -- all warps process data in parallel, then return to sequential. ([warp-cooperative](examples/hostcall/warp-cooperative/))
+
+```rust
+// All warps cooperate: each handles rows where row % n_warps == warp_id
+thread::cooperative(|| {
+    let wid = thread::current_id() as usize;
+    let n_warps = thread::available_parallelism() + 1;
+    for row in (wid..M).step_by(n_warps) {
+        for col in 0..N {
+            let mut sum = 0.0;
+            for k in 0..K { sum += a[row * K + k] * b[k * N + col]; }
+            c[row * N + col] = sum;
+        }
+    }
+});
+```
+
+**3. Structured Concurrency Pipeline** -- scoped spawn, oneshot channels, lifetime-bounded shared memory. ([structured-concurrency](examples/hostcall/structured-concurrency/))
+
+```rust
+// Block-scoped producer-consumer on GPU — memory freed when scope exits
+block_scope(|scope| {
+    let data: &mut [u32] = scope.alloc::<u32>(64);   // shared memory
+    let (tx, rx) = block_oneshot(scope.alloc_slot()); // oneshot channel
+
+    scope.spawn(move || {                 // producer warp
+        for i in 0..64 { data[i] = i; }
+        tx.send(1);                       // signal completion
+    });
+    scope.spawn(move || -> u32 {          // consumer warp
+        let _signal = rx.recv_spin();     // wait for data
+        data.iter().sum()                 // sum = 2016
+    });
+});
+```
+
+## Feature Matrix
+
+### Language & Runtime
+
+| Feature | Description | Example |
+|---------|-------------|---------|
+| `gpu::run` / `gpu::launch` / `gpu::custom` | One-liner, pure-compute, and builder kernel launch APIs | [hello-gpu](examples/hostcall/hello-gpu/), [vector-math](examples/hostcall/vector-math/) |
+| `extern "gpu-kernel"` | Native GPU entry point — no proc macros needed | [hello-gpu](examples/hostcall/hello-gpu/) |
+| Real `std` on GPU | `Vec`, `String`, `HashMap`, `Mutex`, `println!`, `File`, `stdin` via patched std | [hello-gpu](examples/hostcall/hello-gpu/) |
+| `std::thread::spawn` on GPU | Warp-as-thread model with `JoinHandle::join()` and warp reuse | [thread-demo](examples/std/thread-demo/) |
+| GPU async/await | `async fn` with warp-cooperative state machines (custom MIR pass) | [async-pipeline](examples/hostcall/async-pipeline/) |
+| GPU async executor | `GpuExecutor` — multi-task scheduling on GPU | [gpu-channels](examples/hostcall/gpu-channels/) |
+| Cooperative compute | `cooperative()` closure — all warps process in parallel | [hello-gpu](examples/hostcall/hello-gpu/) |
+| Structured concurrency | `BlockScope`, `GridScope`, `spawn_all`, nested scopes | [structured-concurrency](examples/hostcall/structured-concurrency/) |
+| GPU channels | Oneshot and MPSC channels for inter-warp communication | [gpu-channels](examples/hostcall/gpu-channels/) |
+| Parallel iterator | `GpuParallelIterator` — `map`, `filter`, `fold`, `collect`, `zip` on GPU | — |
+| Tokio integration | `AsyncGpuRuntime`, `GpuTask`, non-blocking kernel launch | [tokio-offload](examples/hostcall/tokio-offload/) |
+
+### I/O & Networking
+
+| Feature | Description | Example |
+|---------|-------------|---------|
+| File I/O on GPU | `std::fs::File` open/read/write/close via hostcall | [hello-gpu](examples/hostcall/hello-gpu/), [async-io](examples/hostcall/async-io/) |
+| GPU TCP networking | GPU-initiated TCP connect/send/recv/close | [tcp-echo](examples/hostcall/tcp-echo/) |
+| Lock-free hostcall protocol | ROCm-inspired GPU-host RPC (TLA+ verified, 367M states) | [formal/](formal/) |
+
+### Compute Patterns
+
+| Feature | Description | Example |
+|---------|-------------|---------|
+| SAXPY / dot product / softmax | Pure compute kernels with `gpu::custom` builder | [vector-math](examples/hostcall/vector-math/) |
+| Warp-parallel search | 32-lane GPU grep with `shfl.sync` warp reduction | [parallel-search](examples/hostcall/parallel-search/) |
+| Monte Carlo simulation | xoshiro256++ PRNG, Pi estimation, Black-Scholes (129x CPU) | [monte-carlo](examples/std/monte-carlo/) |
+| Graph algorithms | BFS + PageRank on RMAT CSR graphs (1M+ vertices, 4.3x CPU) | [graph-algorithms](examples/std/graph-algorithms/) |
+| Dynamic control flow | Variable-length generation, top-k sampling, early exit | [dynamic-control](examples/std/dynamic-control/) |
+| Differentiable physics | Spring-mass / N-body with analytical backward (47.1x CPU) | [diff-physics](examples/std/diff-physics/) |
+| Kernel fusion | Fused GEMM+bias+GELU in a single kernel launch | [gpu-rag](examples/std/gpu-rag/) `--bench-fused` |
+| GPU benchmarks | SGEMM/Conv2D/Attention vs cuBLAS, memory bandwidth profiling | [benchmark](examples/std/benchmark/) |
+
+### ML / AI
+
+| Feature | Description | Example |
+|---------|-------------|---------|
+| GPT-2 inference (124M) | Full transformer, BPE tokenizer, KV-cached generation | [gpt2-inference](examples/std/gpt2-inference/) |
+| YOLOv8-nano detection | 23-layer backbone, DFL decode, NMS — all pure Rust PTX | [yolo-detect](examples/std/yolo-detect/) |
+| ResNet-18 inference | Pretrained CIFAR-10 (91.3%), full conv training | [resnet-cifar](examples/std/resnet-cifar/) |
+| GPU-RAG pipeline | 1030-chunk vector search + GPT-2 generation | [gpu-rag](examples/std/gpu-rag/) |
+| Autograd (tape-based AD) | Reverse-mode AD, SGD/Adam, cross-entropy/MSE | [mnist-train](examples/std/mnist-train/), [mnist-cnn](examples/std/mnist-cnn/) |
+| LoRA fine-tuning | GPT-2 LoRA on WikiText-2 (ppl 128 to 16, rank=8) | [gpt2-lora](examples/std/gpt2-lora/) |
+| ONNX runtime | 43 operators, graph fusion, prost parser (no protoc) | [resnet-cifar](examples/std/resnet-cifar/) `--onnx` |
+| INT8/INT4 quantization | dp4a GEMM, W4A16 quantized inference (7.5x mem reduction) | [gpu-rag](examples/std/gpu-rag/) `--bench-int8` |
+
+### GPU Compute Kernels (pure Rust inline PTX)
+
+SGEMM (f32 FMA + f16 Tensor Core + INT8 dp4a), FlashAttention (tiled online softmax, causal, KV cache), Conv2D (im2col + GEMM), BatchNorm+SiLU (fused), LayerNorm, GELU, Softmax, MaxPool2D, Upsample, Embedding — 130+ kernels total.
 
 ## Real Rust `std` on GPU
 
@@ -330,7 +454,7 @@ crates/
 rustc-patches/       Custom MIR pass patches for rustc (auto-applies to async fn on nvptx64)
 scripts/             Build/CI automation, model download (download-models.sh, export_yolo.py)
 examples/
-  hostcall/          8 hostcall examples using gpu:: API (hello-gpu, async-pipeline, vector-math, etc.)
+  hostcall/          10 hostcall examples using gpu:: API (hello-gpu, async-pipeline, vector-math, structured-concurrency, gpu-channels, etc.)
   std/               14 std/nn examples (thread-demo, gpt2-inference, yolo-detect, mnist-train, mnist-cnn, cifar-train, gpt2-lora, resnet-cifar, gpu-rag, diff-physics, dynamic-control, graph-algorithms, monte-carlo, benchmark)
 formal/              TLA+ specification and model-checking config
 ```
@@ -354,20 +478,23 @@ formal/              TLA+ specification and model-checking config
 | **GPU PageRank** (1M vertices, 16M edges) | 4.3x speedup over CPU (scale=22) |
 | **GPU Monte Carlo** (Black-Scholes, f32) | 129x throughput speedup, 0.004% error |
 
-**Kernel Performance vs cuBLAS / cuDNN** (NVIDIA A2, SM 86):
+**Kernel Performance vs cuBLAS / cuDNN** (NVIDIA A2 SM 86 unless noted):
 
 | Kernel | async-gpu | cuBLAS/cuDNN | % of Reference | Improvement |
 |--------|-----------|-------------|----------------|-------------|
 | **GPT-2 forward** (seq=128) | **25.1ms** | ~20ms est. | — | **8.8x** over baseline |
+| **GPT-2 forward** (seq=128)¹ | **39.4ms** | — | — | **5.6x** over baseline |
 | **SGEMM** (4096³) | 2,691 GFLOPS | 2,987 GFLOPS | **90%** | 17.1x over v1 |
-| **Flash Attention V3** (seq=512, causal) | 559 GFLOPS | — | — | V3 rewrite |
+| **Flash Attention V3** (seq=512, causal)¹ | 559 GFLOPS | ~1,000-1,200 est. | **47-60%** | V3 rewrite |
 | **Flash Attention** (seq=64) | 0.056ms | 0.030ms (FA2) | **54%** | 8.2x over v1 |
 | **Flash Attention** (seq=128) | 0.134ms | 0.048ms (FA2) | **36%** | 9.3x over v1 |
 | **Conv2D** (128→128, 28²) | 425 GFLOPS | 522 GFLOPS | **81%** | 3.9x over v1 |
 | **Conv2D** (256→256, 14²) | 556 GFLOPS | 243 GFLOPS | **229%** | 4.9x over v1 |
-| **LayerNorm** (128×768) | 199 GB/s eff. | 200 GB/s peak | **~100%** | 6.6x over v1 |
-| **Fused LN+residual** | 154 GB/s eff. | — | — | 2.01x speedup |
-| **elementwise_add** (in-place) | 160 GB/s | 192 GB/s peak | **83%** | 1.5x over PyTorch |
+| **LayerNorm** (128×768)¹ | 199 GB/s eff. | 200 GB/s peak | **~100%** | 6.6x over v1 |
+| **Fused LN+residual**¹ | 154 GB/s eff. | — | — | 2.01x speedup |
+| **elementwise_add** (in-place)¹ | 160 GB/s | 192 GB/s peak | **83%** | 1.5x over PyTorch |
+
+¹ Measured on GTX 1660 (SM 75, 192 GB/s). FA V3 % is vs estimated cuDNN FA2 on SM 75 (no tensor cores).
 
 **Training** (GPU matmul + autograd tape):
 

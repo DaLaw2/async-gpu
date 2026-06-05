@@ -631,6 +631,7 @@ pub fn custom(kernel_name: &'static str) -> CustomLaunchBuilder {
     CustomLaunchBuilder {
         kernel_name,
         ptx_src: None,
+        cubin_data: None,
         threads: 128,
         grid: (1, 1, 1),
         shared_mem: 0,
@@ -646,6 +647,7 @@ pub fn custom(kernel_name: &'static str) -> CustomLaunchBuilder {
 pub struct CustomLaunchBuilder {
     kernel_name: &'static str,
     ptx_src: Option<&'static str>,
+    cubin_data: Option<Vec<u8>>,
     threads: u32,
     grid: (u32, u32, u32),
     shared_mem: u32,
@@ -701,14 +703,55 @@ impl CustomLaunchBuilder {
         self
     }
 
+    /// Load a pre-compiled cubin for fast kernel loading.
+    ///
+    /// When set, `prepare()` loads the cubin directly via the CUDA driver
+    /// API (sub-second) instead of JIT-compiling the embedded PTX (10+ min).
+    /// Falls back to PTX JIT if the cubin fails to load.
+    pub fn cubin(mut self, data: Vec<u8>) -> Self {
+        self.cubin_data = Some(data);
+        self
+    }
+
+    /// Load a pre-compiled cubin from a file path.
+    ///
+    /// Convenience wrapper around [`Self::cubin`] that reads the file.
+    /// Silently ignores errors (missing file, read failure) — `prepare()`
+    /// will fall back to PTX JIT compilation.
+    pub fn cubin_file(self, path: &str) -> Self {
+        match std::fs::read(path) {
+            Ok(data) => self.cubin(data),
+            Err(_) => self,
+        }
+    }
+
     /// Prepare the launch context.
     ///
-    /// Initializes the CUDA device, loads PTX, and optionally starts a
-    /// hostcall session. Returns a [`GpuContext`] for uploading data and
-    /// launching the kernel.
+    /// Initializes the CUDA device, loads the kernel module, and optionally
+    /// starts a hostcall session. Returns a [`GpuContext`] for uploading
+    /// data and launching the kernel.
+    ///
+    /// If a cubin was provided via [`.cubin()`] or [`.cubin_file()`], loads it
+    /// directly (sub-second). Otherwise JIT-compiles the PTX source, which
+    /// can take 10+ minutes for large unified kernel PTX.
     pub fn prepare(self) -> Result<GpuContext> {
         let dev = CudaDevice::new(0).map_err(GpuHostError::CudaInit)?;
 
+        let cubin = self.cubin_data.as_deref().unwrap_or(&[]);
+
+        if !cubin.is_empty() {
+            // Fast path: load cubin via raw CUDA driver API
+            match self.prepare_from_cubin(&dev, cubin) {
+                Ok(ctx) => return Ok(ctx),
+                Err(_) => {
+                    eprintln!(
+                        "cubin load failed, falling back to PTX JIT (this may take several minutes)"
+                    );
+                }
+            }
+        }
+
+        // Slow path: JIT-compile PTX via cudarc
         let ptx_src = self.ptx_src.unwrap_or(crate::ptx::KERNEL);
         let module = fresh_module_name();
 
@@ -737,6 +780,64 @@ impl CustomLaunchBuilder {
 
         Ok(GpuContext {
             dev,
+            func,
+            config,
+            session,
+            kernel_name: self.kernel_name,
+        })
+    }
+
+    /// Prepare a GpuContext from a pre-compiled cubin file.
+    ///
+    /// Uses cudarc's `Ptx::from_file` which calls `cuModuleLoad` — this
+    /// function can load both `.ptx` and `.cubin` files from disk.
+    fn prepare_from_cubin(
+        &self,
+        dev: &std::sync::Arc<CudaDevice>,
+        cubin_data: &[u8],
+    ) -> Result<GpuContext> {
+        // Write cubin to a temp file, then load via cudarc's Ptx::from_file.
+        // cuModuleLoad can load cubin files directly from disk.
+        let tmp_path = std::env::temp_dir().join(format!(
+            "async_gpu_cubin_{}.cubin",
+            MODULE_SEQ.fetch_add(1, core::sync::atomic::Ordering::Relaxed)
+        ));
+        std::fs::write(&tmp_path, cubin_data).map_err(|e| GpuHostError::Verification {
+            test: "cubin_write",
+            detail: format!("failed to write temp cubin: {e}"),
+        })?;
+
+        let ptx = cudarc::nvrtc::Ptx::from_file(&tmp_path);
+        let module = fresh_module_name();
+
+        let load_result = dev.load_ptx(ptx, &module, &[self.kernel_name]);
+
+        // Clean up temp file regardless of result
+        let _ = std::fs::remove_file(&tmp_path);
+
+        load_result.map_err(|e| GpuHostError::Verification {
+            test: "cubin_load",
+            detail: format!("{e}"),
+        })?;
+
+        let func = dev
+            .get_func(&module, self.kernel_name)
+            .ok_or(GpuHostError::KernelNotFound(self.kernel_name))?;
+
+        let session = if self.hostcall {
+            Some(HostcallSession::start(self.hostcall_packets)?)
+        } else {
+            None
+        };
+
+        let config = LaunchConfig {
+            grid_dim: self.grid,
+            block_dim: (self.threads, 1, 1),
+            shared_mem_bytes: self.shared_mem,
+        };
+
+        Ok(GpuContext {
+            dev: dev.clone(),
             func,
             config,
             session,

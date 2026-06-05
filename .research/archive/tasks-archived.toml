@@ -3356,3 +3356,235 @@ title = "Experiment: NVRTC V4 kernel with float4 loads — achieved 63% cuBLAS"
 kind = "experiment"
 status = "done"
 depends = []
+
+# Archived at cycle 607
+
+# --- iter-design (gpu-iterator) ---
+
+[[tasks]]
+id = "iter-design.1"
+theme = "iter-design"
+title = "Investigation: Rust Iterator/Rayon traits — which semantics map to GPU, which don't"
+kind = "investigation"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "iter-design.2"
+theme = "iter-design"
+title = "Design: ParallelIterator trait API surface + closure capture rules"
+kind = "design"
+status = "done"
+depends = ["iter-design.1"]
+
+[[tasks]]
+id = "iter-design.3"
+theme = "iter-design"
+title = "Design: MIR pass strategy — iterator chain → single fused GPU kernel"
+kind = "design"
+status = "done"
+depends = ["iter-design.2"]
+
+# --- iter-compiler (gpu-iterator) ---
+
+[[tasks]]
+id = "iter-compiler.1"
+theme = "iter-compiler"
+title = "Experiment: implement GpuParallelIterator trait with map/for_each/collect_into"
+kind = "experiment"
+status = "done"
+depends = ["iter-design.3"]
+
+[[tasks]]
+id = "iter-compiler.2"
+theme = "iter-compiler"
+title = "Experiment: implement filter() with atomic compaction + fused filter_map()"
+kind = "experiment"
+status = "done"
+depends = ["iter-compiler.1"]
+
+[[tasks]]
+id = "iter-compiler.3"
+theme = "iter-compiler"
+title = "Experiment: collect_count() + filter demo kernels"
+kind = "experiment"
+status = "done"
+depends = ["iter-compiler.1"]
+
+# --- iter-runtime (gpu-iterator) ---
+
+[[tasks]]
+id = "iter-runtime.1"
+theme = "iter-runtime"
+title = "Experiment: warp-parallel input partitioning + output buffer management"
+kind = "experiment"
+status = "done"
+depends = ["iter-compiler.1"]
+
+# --- fusion-analysis (auto-fusion) ---
+
+[[tasks]]
+id = "fusion-analysis.1"
+theme = "fusion-analysis"
+title = "Investigation: fusable patterns in MIR — elementwise chains, broadcast, reductions"
+kind = "investigation"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "fusion-analysis.2"
+theme = "fusion-analysis"
+title = "Design: tape-level pattern matching rules for fusion candidates"
+kind = "design"
+status = "done"
+depends = ["fusion-analysis.1"]
+
+[[tasks]]
+id = "fusion-analysis.3"
+theme = "fusion-analysis"
+title = "Experiment: implement fusion candidate detection in tape optimizer"
+kind = "experiment"
+status = "done"
+depends = ["fusion-analysis.2"]
+
+# --- fusion-codegen (auto-fusion) ---
+
+[[tasks]]
+id = "fusion-codegen.1"
+theme = "fusion-codegen"
+title = "Investigation: code generation strategies — template PTX vs NVRTC vs dynamic"
+kind = "investigation"
+status = "done"
+depends = ["fusion-analysis.2"]
+
+# --- showcase-api (developer-showcase) ---
+
+[[tasks]]
+id = "showcase-api.1"
+theme = "showcase-api"
+title = "Investigation: audit async-gpu facade for all missing re-exports (SC, channels, executor)"
+kind = "investigation"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "showcase-api.2"
+theme = "showcase-api"
+title = "Experiment: add SC types + channels + executor to async-gpu facade re-exports"
+kind = "experiment"
+status = "done"
+depends = ["showcase-api.1"]
+
+[[tasks]]
+id = "showcase-api.3"
+theme = "showcase-api"
+title = "Experiment: verify cargo doc --no-deps with new exports, fix any doc issues"
+kind = "experiment"
+status = "done"
+depends = ["showcase-api.2"]
+
+# --- showcase-sc (developer-showcase) ---
+
+[[tasks]]
+id = "showcase-sc.1"
+theme = "showcase-sc"
+title = "Experiment: create examples/hostcall/structured-concurrency/ — BlockScope producer-consumer"
+kind = "experiment"
+status = "done"
+depends = ["showcase-api.2"]
+
+[[tasks]]
+id = "showcase-sc.2"
+theme = "showcase-sc"
+title = "Experiment: add GridScope multi-block reduce to SC example"
+kind = "experiment"
+status = "done"
+depends = ["showcase-sc.1"]
+
+# --- showcase-channels (developer-showcase) ---
+
+[[tasks]]
+id = "showcase-channels.1"
+theme = "showcase-channels"
+title = "Experiment: create GPU channels example — oneshot + MPSC producer-consumer pipeline"
+kind = "experiment"
+status = "done"
+depends = ["showcase-api.2"]
+
+[[tasks]]
+id = "showcase-channels.2"
+theme = "showcase-channels"
+title = "Experiment: create GPU executor example — spawn 4+ async tasks dynamically"
+kind = "experiment"
+status = "done"
+depends = ["showcase-api.2"]
+
+# --- showcase-examples (developer-showcase) ---
+
+[[tasks]]
+id = "showcase-examples.1"
+theme = "showcase-examples"
+title = "Investigation: scan all 42 completed epics — list features without clean public examples"
+kind = "investigation"
+status = "done"
+depends = []
+
+# --- showcase-readme (developer-showcase) ---
+
+[[tasks]]
+id = "showcase-examples.2"
+theme = "showcase-examples"
+title = "Experiment: clean up warp-cooperative as cooperative compute showcase"
+kind = "experiment"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "showcase-examples.3"
+theme = "showcase-examples"
+title = "Experiment: update benchmark example with latest perf numbers (SGEMM 90%, FA 47-60%)"
+kind = "experiment"
+status = "done"
+depends = []
+
+# --- showcase-readme (developer-showcase) ---
+
+[[tasks]]
+id = "showcase-readme.1"
+theme = "showcase-readme"
+title = "Experiment: write feature matrix — all GPU capabilities in one table"
+kind = "experiment"
+status = "done"
+depends = ["showcase-examples.1"]
+
+[[tasks]]
+id = "showcase-readme.2"
+theme = "showcase-readme"
+title = "Experiment: write performance comparison table — vs cuBLAS/cuDNN with actual numbers"
+kind = "experiment"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "showcase-readme.3"
+theme = "showcase-readme"
+title = "Experiment: North Star hero example in README — File::read → matmul → File::write"
+kind = "experiment"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "showcase-readme.4"
+theme = "showcase-readme"
+title = "Experiment: progressive code snippets — hello → cooperative → SC pipeline"
+kind = "experiment"
+status = "done"
+depends = ["showcase-sc.1"]
+
+[[tasks]]
+id = "showcase-readme.5"
+theme = "showcase-readme"
+title = "Experiment: update getting-started guide with SC, channels, executor sections"
+kind = "experiment"
+status = "done"
+depends = ["showcase-sc.1", "showcase-channels.1"]

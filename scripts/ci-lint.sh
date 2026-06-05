@@ -64,7 +64,7 @@ NIGHTLY=$(grep '^channel' rust-toolchain.toml | sed 's/.*= *"\(.*\)"/\1/')
 PTX_KERNELS="crates/test/async-hostcall-test crates/test/async-pipeline-test crates/test/embassy-test crates/test/multi-warp-test crates/test/gpu-std-test examples/hostcall/hello-gpu/kernel examples/hostcall/async-io/kernel examples/hostcall/vector-math/kernel examples/hostcall/parallel-search/kernel examples/hostcall/tcp-echo/kernel"
 # Note: crates/test/std-build-test and crates/kernel/gpu-kernel-std excluded — require patched std to build
 # Note: crates/kernel/gpu-kernel removed — merged into gpu-kernel-std (lib-cleanup.4)
-# Note: examples/hostcall/async-pipeline/kernel and examples/hostcall/warp-cooperative excluded — require patched rustc MIR pass (#[warp_cooperative])
+# Note: examples/hostcall/async-pipeline/kernel excluded — requires patched rustc MIR pass (#[warp_cooperative])
 for k in $PTX_KERNELS; do
     name=$(basename "$k")
     run "ptx $name" "(cd $k && cargo +$NIGHTLY build --release)"
@@ -80,6 +80,7 @@ run "check tcp-echo-host" "cargo +stable check --manifest-path examples/hostcall
 run "check tokio-offload" "cargo +stable check --manifest-path examples/hostcall/tokio-offload/Cargo.toml"
 run "check structured-concurrency" "cargo +stable check --manifest-path examples/hostcall/structured-concurrency/Cargo.toml"
 run "check gpu-channels" "cargo +stable check --manifest-path examples/hostcall/gpu-channels/Cargo.toml"
+run "check warp-cooperative" "cargo +stable check --manifest-path examples/hostcall/warp-cooperative/Cargo.toml"
 
 echo ""
 if [ "$FAIL" -eq 0 ]; then

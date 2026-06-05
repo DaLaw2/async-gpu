@@ -1201,3 +1201,66 @@ success_criteria = [
     "GFLOPS >= 2000 at M=N=K=4096",
     "GPT-2 shapes (128×768×768 etc.) >= 1500 GFLOPS",
 ]
+
+# Archived at cycle 607 — developer-showcase themes completed
+
+[[themes]]
+id = "showcase-api"
+epic = "developer-showcase"
+title = "Facade re-exports — make hidden features discoverable"
+status = "completed"
+goal = "async-gpu crate re-exports SC scopes, channels, and executor types"
+success_criteria = [
+    "BlockScope, GridScope, block_scope(), grid_scope() re-exported from async-gpu",
+    "OneshotSender/Receiver, MpscSender/Receiver re-exported from async-gpu",
+    "GpuExecutor re-exported from async-gpu",
+    "cargo doc --no-deps shows all new public types cleanly",
+]
+
+[[themes]]
+id = "showcase-sc"
+epic = "developer-showcase"
+title = "Structured Concurrency example — BlockScope producer-consumer"
+status = "completed"
+goal = "Standalone example demonstrating structured concurrency on GPU"
+success_criteria = [
+    "examples/hostcall/structured-concurrency/ with host + kernel",
+    "Shows BlockScope allocation, spawn, join, and auto-cleanup",
+    "GpuChannel used for producer-consumer communication",
+]
+
+[[themes]]
+id = "showcase-channels"
+epic = "developer-showcase"
+title = "GPU Channels + Executor example — async programming on GPU"
+status = "completed"
+goal = "Standalone examples demonstrating GPU async channels and executor"
+success_criteria = [
+    "Example using Oneshot and MPSC channels between GPU tasks",
+    "GPU executor example: spawn 4+ async tasks dynamically",
+]
+
+[[themes]]
+id = "showcase-examples"
+epic = "developer-showcase"
+title = "Example gap-fill — ensure all shipped features have examples"
+status = "completed"
+goal = "Every major feature has at least one clean, documented example"
+success_criteria = [
+    "Cooperative compute example cleaned up as showcase",
+    "Benchmark example updated with latest numbers",
+]
+
+[[themes]]
+id = "showcase-readme"
+epic = "developer-showcase"
+title = "README overhaul — feature matrix, perf table, hero examples"
+status = "completed"
+goal = "README serves as landing page that sells async-gpu in 5 minutes"
+success_criteria = [
+    "Feature matrix: all GPU capabilities in one table",
+    "Performance table: SGEMM 90% cuBLAS, FA 47-60%, GPT-2 39ms",
+    "North Star hero: File::read → matmul → File::write code in README",
+    "Progressive snippets: hello → cooperative → SC pipeline",
+    "Getting-started guide updated with SC and channels",
+]

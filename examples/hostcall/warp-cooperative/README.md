@@ -1,65 +1,74 @@
-# warp-cooperative — MIR Pass Verification
+# warp-cooperative — Cooperative Compute on GPU
 
-Tests the `#[warp_cooperative]` custom rustc MIR pass directly, verifying that async state machines work correctly with NVIDIA's SIMT execution model.
-
-**Requires patched rustc** — this example will not build on stock nightly.
+Demonstrates warp-parallel compute patterns using the cooperative APIs
+from `gpu_runtime::thread`. All warps execute in parallel, each handling
+its partition of the data.
 
 ## What It Demonstrates
 
-- `#[warp_cooperative]` attribute on `async fn`
-- `bar.warp.sync` barriers inserted at every `.await` yield point
-- `shfl.sync.idx` discriminant broadcast from lane 0 to all lanes
-- Simulated I/O pipeline with 6 `.await` points (no actual hostcall)
+- `cooperative()` — all warps run the same closure, data partitioned by warp ID
+- `cooperative_map()` — data-parallel transform with explicit (src, dst, len)
+- `cooperative_reduce()` — multi-warp reduction to a single value
+- `cooperative_map_with_params()` — parameterized map (scalar multiply, matmul)
 
-## Kernels
+## The Cooperative Model
 
-### test_simple_warp
+```
+gpu_main(|| {
+    // Sequential: only warp 0 runs
+    let data = prepare_data();
 
-`simple_add(x) -> x + 1` — no `.await`, single-state coroutine. Only `bar.warp.sync` is inserted (no shfl needed since there is only one state).
+    // Cooperative: ALL warps participate
+    cooperative(&|| {
+        let wid = thread::current_id();
+        let n = thread::available_parallelism() + 1;
+        // Each warp processes elements at stride n
+        for i in (wid..data.len()).step_by(n) {
+            output[i] = transform(data[i]);
+        }
+    });
 
-Expected: `output[tid] = tid + 1`
-
-### test_multi_await
-
-`multi_await(x)` — two `.await` points creating a 3-state coroutine. The MIR pass inserts `shfl.sync.idx` to broadcast the discriminant from lane 0 so all lanes resume at the same state.
-
-Expected: `output[tid] = 2 * tid + 12`
-
-### test_async_pipeline
-
-`async_pipeline(tid)` — 6 `.await` points simulating open/write/close/open/read/close. Each `.await` yields the warp. All lanes should converge at each yield point.
-
-Expected: `output[tid] = 29029` for all lanes
+    // Sequential: back to warp 0 only
+    verify_results(&output);
+});
+```
 
 ## Running
 
 ```bash
-# Build kernel (requires patched rustc)
-cd kernel && cargo +patched build --release
-
-# Run host tests
-cd host && cargo run --release
+cd examples/hostcall/warp-cooperative
+cargo run --release
 ```
 
 ## Expected Output
 
 ```
-=== Warp-Cooperative Async Kernel Test ===
+=== Cooperative Compute on GPU ===
 
---- Test 1: test_simple_warp ---
-  test_simple_warp: PASSED
+--- Demo 1: cooperative() — basic parallel execution ---
+  4 warps cooperatively filled 256 elements
+  output[i] = i * 2 + 1 (verified all 256)
+  Verification: PASSED
 
---- Test 2: test_multi_await ---
-  test_multi_await: PASSED
+--- Demo 2: cooperative_map() — data-parallel transform ---
+  4 warps cooperatively doubled 256 elements
+  cooperative_map: no global atomics, explicit (src, dst, len)
+  Verification: PASSED
 
---- Test 3: test_async_pipeline ---
-  test_async_pipeline: PASSED
+--- Demo 3: cooperative_reduce() — multi-warp reduction ---
+  4 warps reduced 256 elements to sum = 32640
+  Each warp computed partial sum of its partition
+  Verification: PASSED
 
-=== All tests complete ===
+--- Demo 4: cooperative_map_with_params() — scalar multiply ---
+  4 warps multiplied 256 elements by scalar 7
+  Scalar passed via params[0] — no closure captures needed
+  Verification: PASSED
+
+--- Demo 5: cooperative matmul — C = A x B ---
+  C[8x6] = A[8x4] x B[4x6] — 4 warps, row-parallel
+  Max error: 0.000000 (48 elements verified)
+  Verification: PASSED
+
+=== All demos passed! ===
 ```
-
-## Key PTX to Inspect
-
-- `bar.warp.sync` — warp barrier at every yield/return point
-- `shfl.sync.idx` — discriminant broadcast in multi-state coroutines (test_multi_await, test_async_pipeline)
-- State machine structure: `switchInt` on discriminant with branches for each `.await` point

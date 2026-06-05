@@ -37,15 +37,17 @@ RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE → loop
 2. **Brainstorm triggers** — if any fire, run brainstorm (`dev-brainstorm.md`) before proceeding:
    - `tasks_since_brainstorm >= 10`
    - No ready tasks remain but active epics have unmet criteria
+   - An active epic with priority `highest` has active themes but NO eligible tasks (even if lower-priority epics have tasks) — brainstorm targets that epic specifically
    - User requests brainstorm
 
 ### SELECT
 
 1. Filter tasks: `status == "pending"` AND deps met AND parent theme `"active"`
 2. Apply tier priority: only tasks belonging to the current eligible tier
-3. If no tasks pass → brainstorm to generate new work, then re-filter. Still empty → report to user, STOP.
-4. Batch: same-theme sequential, cross-theme may parallelize
-5. Set selected tasks → `status = "active"`, update `current_task_id`
+3. **Apply epic priority**: within the eligible tier, prefer tasks from higher-priority epics (`highest > high > medium > low`). If a `highest`-priority epic has eligible tasks, do NOT select tasks from lower-priority epics in the same tier.
+4. If no tasks pass → brainstorm to generate new work, then re-filter. Still empty → report to user, STOP.
+5. Batch: same-theme sequential, cross-theme may parallelize (cross-epic only if same priority)
+6. Set selected tasks → `status = "active"`, update `current_task_id`
 
 ### DISPATCH
 

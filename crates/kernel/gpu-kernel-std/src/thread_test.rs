@@ -17,7 +17,7 @@ use gpu_runtime::thread;
 ///         result[3] = main_thread_id (0)
 #[no_mangle]
 pub unsafe extern "gpu-kernel" fn thread_spawn_test(result: *mut u32) {
-    thread::gpu_main(|| {
+    thread::gpu_main_poll(|| {
         // Record main thread info
         let main_id = thread::current_id();
         let parallelism = thread::available_parallelism();
@@ -50,7 +50,7 @@ pub unsafe extern "gpu-kernel" fn thread_spawn_test(result: *mut u32) {
 /// Output: result[0..3] = sum of each spawned computation
 #[no_mangle]
 pub unsafe extern "gpu-kernel" fn thread_reuse_test(result: *mut u32) {
-    thread::gpu_main(|| {
+    thread::gpu_main_poll(|| {
         let mut total: u32 = 0;
 
         // Spawn 4 tasks sequentially (only 3 warps available, so one must be reused)
@@ -82,7 +82,7 @@ static COOP_RESULT: [core::sync::atomic::AtomicU32; 4] = {
 
 #[no_mangle]
 pub unsafe extern "gpu-kernel" fn cooperative_debug(result: *mut u32) {
-    thread::gpu_main(|| {
+    thread::gpu_main_poll(|| {
         // Zero-capture closure: all data accessed via statics
         unsafe {
             thread::cooperative(&|| {
@@ -119,7 +119,7 @@ static COOP_N: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::ne
 
 #[no_mangle]
 pub unsafe extern "gpu-kernel" fn cooperative_compute_test(result: *mut u32) {
-    thread::gpu_main(|| {
+    thread::gpu_main_poll(|| {
         // Pass data via global atomics (closure captures point to local memory)
         COOP_OUT_PTR.store(result as u64, core::sync::atomic::Ordering::Relaxed);
         COOP_N.store(256, core::sync::atomic::Ordering::Relaxed);
@@ -164,7 +164,7 @@ static CMAP_INPUT: [core::sync::atomic::AtomicU32; 256] = {
 
 #[no_mangle]
 pub unsafe extern "gpu-kernel" fn cooperative_map_test(result: *mut u32) {
-    thread::gpu_main(|| {
+    thread::gpu_main_poll(|| {
         // Initialize input in global static (visible to all warps)
         for i in 0..256u32 {
             CMAP_INPUT[i as usize].store(i, core::sync::atomic::Ordering::Relaxed);
@@ -205,7 +205,7 @@ static CREDUCE_INPUT: [core::sync::atomic::AtomicU64; 256] = {
 
 #[no_mangle]
 pub unsafe extern "gpu-kernel" fn cooperative_reduce_test(result: *mut u64) {
-    thread::gpu_main(|| {
+    thread::gpu_main_poll(|| {
         // Initialize input
         for i in 0..256u64 {
             CREDUCE_INPUT[i as usize].store(i, core::sync::atomic::Ordering::Relaxed);
@@ -250,7 +250,7 @@ static CEXT_INPUT: [core::sync::atomic::AtomicU32; 256] = {
 
 #[no_mangle]
 pub unsafe extern "gpu-kernel" fn cooperative_map_ext_test(result: *mut u32) {
-    thread::gpu_main(|| {
+    thread::gpu_main_poll(|| {
         // Initialize input
         for i in 0..256u32 {
             CEXT_INPUT[i as usize].store(i, core::sync::atomic::Ordering::Relaxed);
@@ -339,7 +339,7 @@ fn naive_matmul_kernel(args: &gpu_runtime::thread::CoopMapExtArgs) {
 
 #[no_mangle]
 pub unsafe extern "gpu-kernel" fn cooperative_matmul_test(result: *mut f32) {
-    thread::gpu_main(|| {
+    thread::gpu_main_poll(|| {
         const M: usize = 8;
         const K: usize = 4;
         const N: usize = 6;
@@ -380,7 +380,7 @@ pub unsafe extern "gpu-kernel" fn cooperative_matmul_test(result: *mut f32) {
 /// Output: result[0] = 42, result[1] = 99
 #[no_mangle]
 pub unsafe extern "gpu-kernel" fn gpu_kernel_demo(result: *mut u32) {
-    thread::gpu_main(|| {
+    thread::gpu_main_poll(|| {
         let h1 = thread::spawn(|| -> u32 { 42u32 });
         let h2 = thread::spawn(|| -> u32 { 99u32 });
         let r1 = h1.join();

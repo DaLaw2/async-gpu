@@ -1,8 +1,14 @@
 //! GPU Kernel Benchmarks — GFLOPS and GB/s vs cuBLAS.
 //!
 //! Measures the performance of async-gpu's custom kernels against NVIDIA's
-//! optimized libraries, quantifying both absolute throughput and the gap
-//! to close for competitive performance.
+//! optimized libraries. Sections:
+//!
+//! 1. **SGEMM** — `matmul()` API (auto-dispatches V4.1 for large, cuBLAS for small M)
+//! 2. **SGEMM V4.1** — NVRTC kernel directly (BK=16, float4, double-buffered smem)
+//! 3. **Memory-bound ops** — elementwise_add, GELU, LayerNorm (GB/s)
+//! 4. **Conv2D** — im2col + GEMM (GFLOPS)
+//! 5. **Flash Attention** — V3 cooperative tiled kernel (tokens/sec)
+//! 6. **GPT-2 per-layer** — end-to-end profiling (requires model.safetensors)
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -27,8 +33,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     // Get GPU info
     println!("GPU: CUDA device 0");
 
-    // --- SGEMM Benchmark ---
-    println!("\n--- SGEMM Benchmark (C = A × B, f32) ---");
+    // --- SGEMM Benchmark (matmul API — auto-dispatches best kernel) ---
+    println!("\n--- SGEMM Benchmark (C = A × B, f32, auto-dispatch) ---");
     println!(
         "{:>6} {:>6} {:>6} | {:>10} {:>10} | {:>10} {:>10} | {:>6}",
         "M", "N", "K", "ours(ms)", "ours(GFLOPS)", "cuBLAS(ms)", "cuBLAS(GFLOPS)", "ratio"
@@ -130,18 +136,22 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
-    // --- SGEMM V2 Benchmark (128×128 tile, 8×8 register blocking) ---
-    println!("\n--- SGEMM V2 Benchmark (128×128 tile, 8×8 register blocking) ---");
+    // --- SGEMM V4.1 Benchmark (NVRTC, BK=16, float4, double-buffered) ---
+    println!("\n--- SGEMM V4.1 Benchmark (NVRTC, BK=16, float4, double-buffered) ---");
     println!(
         "{:>6} {:>6} {:>6} | {:>10} {:>12} | {:>10} {:>12} | {:>6}",
-        "M", "N", "K", "v2(ms)", "v2(GFLOPS)", "cuBLAS(ms)", "cuBLAS(GFLOPS)", "ratio"
+        "M", "N", "K", "V4.1(ms)", "V4.1(GFLOPS)", "cuBLAS(ms)", "cuBLAS(GFLOPS)", "ratio"
     );
     println!("{}", "-".repeat(90));
 
-    for &(m, n, k) in &sizes {
-        if m < 128 {
-            continue; // Skip single-row for V2 (min tile = 128)
-        }
+    // V4.1 requires M>=512, N>=512, K>=256 — filter to eligible sizes
+    let v41_sizes: Vec<(usize, usize, usize)> = sizes
+        .iter()
+        .copied()
+        .filter(|&(m, n, k)| m >= 512 && n >= 512 && k >= 256)
+        .collect();
+
+    for &(m, n, k) in &v41_sizes {
         let flops = 2.0 * m as f64 * n as f64 * k as f64;
 
         let a_host: Vec<f32> = (0..m * k)
@@ -153,25 +163,23 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
         let a_dev = dev.htod_sync_copy(&a_host)?;
         let b_dev = dev.htod_sync_copy(&b_host)?;
-        let a_tensor =
-            gpu_host::nn::tensor::GpuTensor::from_data(a_dev, &[m, k], Arc::clone(&dev));
-        let b_tensor =
-            gpu_host::nn::tensor::GpuTensor::from_data(b_dev, &[k, n], Arc::clone(&dev));
+        let a_tensor = gpu_host::nn::tensor::GpuTensor::from_data(a_dev, &[m, k], Arc::clone(&dev));
+        let b_tensor = gpu_host::nn::tensor::GpuTensor::from_data(b_dev, &[k, n], Arc::clone(&dev));
 
         // Warmup
         for _ in 0..warmup_iters {
-            let _ = gpu_host::nn::ops::matmul_v2(&a_tensor, &b_tensor, &registry)?;
+            let _ = gpu_host::nn::ops::matmul_v4_1(&a_tensor, &b_tensor, m, k, n, &dev)?;
             dev.synchronize()?;
         }
 
-        // Benchmark V2
+        // Benchmark V4.1
         let t0 = Instant::now();
         for _ in 0..bench_iters {
-            let _ = gpu_host::nn::ops::matmul_v2(&a_tensor, &b_tensor, &registry)?;
+            let _ = gpu_host::nn::ops::matmul_v4_1(&a_tensor, &b_tensor, m, k, n, &dev)?;
             dev.synchronize()?;
         }
-        let v2_ms = t0.elapsed().as_secs_f64() * 1000.0 / bench_iters as f64;
-        let v2_gflops = flops / (v2_ms / 1000.0) / 1e9;
+        let v41_ms = t0.elapsed().as_secs_f64() * 1000.0 / bench_iters as f64;
+        let v41_gflops = flops / (v41_ms / 1000.0) / 1e9;
 
         // cuBLAS reference
         let a_cublas = dev.htod_sync_copy(&a_host)?;
@@ -190,22 +198,26 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             ldc: n as i32,
         };
         for _ in 0..warmup_iters {
-            unsafe { blas.gemm(cublas_cfg, &b_cublas, &a_cublas, &mut c_cublas)?; }
+            unsafe {
+                blas.gemm(cublas_cfg, &b_cublas, &a_cublas, &mut c_cublas)?;
+            }
             dev.synchronize()?;
         }
         let t1 = Instant::now();
         for _ in 0..bench_iters {
-            unsafe { blas.gemm(cublas_cfg, &b_cublas, &a_cublas, &mut c_cublas)?; }
+            unsafe {
+                blas.gemm(cublas_cfg, &b_cublas, &a_cublas, &mut c_cublas)?;
+            }
             dev.synchronize()?;
         }
         let cublas_ms = t1.elapsed().as_secs_f64() * 1000.0 / bench_iters as f64;
         let cublas_gflops = flops / (cublas_ms / 1000.0) / 1e9;
 
-        // Correctness check: compare V2 output vs cuBLAS
-        let v2_result = gpu_host::nn::ops::matmul_v2(&a_tensor, &b_tensor, &registry)?;
-        let v2_host = v2_result.to_host()?;
+        // Correctness check: compare V4.1 output vs cuBLAS
+        let v41_result = gpu_host::nn::ops::matmul_v4_1(&a_tensor, &b_tensor, m, k, n, &dev)?;
+        let v41_host = v41_result.to_host()?;
         let cublas_host: Vec<f32> = dev.dtoh_sync_copy(&c_cublas)?;
-        let max_err: f32 = v2_host
+        let max_err: f32 = v41_host
             .iter()
             .zip(cublas_host.iter())
             .map(|(a, b)| (a - b).abs())
@@ -216,9 +228,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             "MISMATCH"
         };
 
-        let ratio = v2_gflops / cublas_gflops;
+        let ratio = v41_gflops / cublas_gflops;
         println!(
-            "{m:>6} {n:>6} {k:>6} | {v2_ms:>9.3} {v2_gflops:>10.1} | {cublas_ms:>9.3} {cublas_gflops:>10.1} | {ratio:>5.1}%  [{status_str}, err={max_err:.2}]",
+            "{m:>6} {n:>6} {k:>6} | {v41_ms:>9.3} {v41_gflops:>10.1} | {cublas_ms:>9.3} {cublas_gflops:>10.1} | {ratio:>5.1}%  [{status_str}, err={max_err:.2}]",
             ratio = ratio * 100.0
         );
     }
@@ -513,8 +525,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     // Summary
     println!("\n=== Benchmark Complete ===");
-    println!("SGEMM: ~157 GFLOPS (5.6% of cuBLAS ~2780 GFLOPS)");
-    println!("Key optimization targets: GEMM tiling, LayerNorm fusion, vectorized loads");
+    println!("SGEMM V4.1: ~2691 GFLOPS at 4096³ (~90% cuBLAS) — BK=16, float4, double-buffered");
+    println!("Flash Attention V3: 47-60% theoretical — cooperative 4-thread tiled GEMM");
+    println!("Conv2D: 81-229% of equivalent cuBLAS GEMM — im2col fusion");
+    println!("LayerNorm: ~100% memory bandwidth — fused mean/variance");
 
     Ok(())
 }

@@ -1,14 +1,10 @@
 [workspace]
 
 [package]
-name = "test-warp-crate"
+name = "warp-cooperative"
 version = "0.1.0"
 edition = "2021"
+description = "Demo: cooperative compute on GPU — all warps work in parallel"
 
-[lib]
-crate-type = ["cdylib"]
-
-[profile.release]
-panic = "abort"
-opt-level = 3
-lto = "fat"
+[dependencies]
+async-gpu = { path = "../../../crates/async-gpu" }

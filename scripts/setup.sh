@@ -568,21 +568,23 @@ else
     fi
 fi
 
-# ── Step: Build kernel_std PTX + cubin ───────────────────────
+# ── Step: Build all kernel PTX + cubin ──────────────────────
 
-next_step "Building kernel_std (PTX + cubin, ~10-15 min)"
+next_step "Building all kernel crates (PTX + cubin, ~10-15 min)"
 
 HOST_DIR="$REPO_DIR/crates/core/gpu-host"
-if [ -f "$HOST_DIR/kernel_std.cubin" ] && [ -f "$HOST_DIR/kernel_std.ptx" ]; then
-    ok "kernel_std.ptx and kernel_std.cubin already present"
-    info "To force rebuild: rm crates/core/gpu-host/kernel_std.{ptx,cubin} && re-run"
+if [ -f "$HOST_DIR/kernel_std.cubin" ] && [ -f "$HOST_DIR/kernel_std.ptx" ] \
+   && [ -f "$HOST_DIR/kernel_core.cubin" ] && [ -f "$HOST_DIR/kernel_compute.cubin" ] \
+   && [ -f "$HOST_DIR/kernel_io.cubin" ]; then
+    ok "All kernel PTX and cubin files already present"
+    info "To force rebuild: rm crates/core/gpu-host/kernel_*.{ptx,cubin} && re-run"
 else
-    info "This may take 10-15 minutes (PTX build + ptxas compilation)..."
-    bash "$SCRIPT_DIR/build-kernel-test.sh"
+    info "This may take 10-15 minutes (PTX build + parallel ptxas compilation)..."
+    bash "$SCRIPT_DIR/build-kernels.sh"
     if [ -f "$HOST_DIR/kernel_std.cubin" ]; then
-        ok "kernel_std.ptx + cubin built successfully"
+        ok "All kernel PTX + cubin built successfully"
     else
-        die "build-kernel-test.sh completed but kernel_std.cubin not found."
+        die "build-kernels.sh completed but kernel_std.cubin not found."
     fi
 fi
 

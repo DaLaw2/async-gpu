@@ -4,8 +4,8 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 617
-completed_tasks = 771
+total_cycles = 618
+completed_tasks = 772
 status = "running"     # ready | running | blocked | completed
 
 # Project North Star — the ONE thing all epics serve:
@@ -15,11 +15,11 @@ status = "running"     # ready | running | blocked | completed
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
 current_step = "dispatch"
-current_task_id = "split-loader.1"
+current_task_id = "split-loader.2,split-loader.3"
 
 # Sequence counters
 brainstorm_seq = 119
-tasks_since_brainstorm = 1   # reset after brainstorm 119
+tasks_since_brainstorm = 3   # reset after brainstorm 119
 
 # ============================================================
 # Epics — Tiered (T0 → T3), sorted by tier then priority
@@ -966,7 +966,7 @@ id = "split-loader.2"
 theme = "split-loader"
 title = "Experiment: update host loader (gpu.rs, KernelRegistry) for multi-module"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["split-loader.1"]
 
 [[tasks]]
@@ -974,7 +974,7 @@ id = "split-loader.3"
 theme = "split-loader"
 title = "Experiment: build script — parallel per-crate PTX + cubin"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["split-loader.1"]
 
 [[tasks]]

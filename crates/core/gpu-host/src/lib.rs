@@ -164,6 +164,37 @@ pub mod ptx {
     /// test kernels. This alias keeps them working unchanged.
     pub const KERNEL_STD: &str = KERNEL_TEST;
 
+    // ── Auto-discovery catalog ─────────────────────────────────
+    /// A PTX module with a human-readable name, for auto-discovery APIs.
+    pub struct PtxModule {
+        /// Human-readable module name (e.g., "core", "compute").
+        pub name: &'static str,
+        /// PTX source string for this module.
+        pub ptx: &'static str,
+    }
+
+    /// All PTX modules, for APIs that search across modules.
+    ///
+    /// Iterate over this to try loading a kernel from every available module.
+    pub const ALL: &[PtxModule] = &[
+        PtxModule {
+            name: "core",
+            ptx: KERNEL_CORE,
+        },
+        PtxModule {
+            name: "compute",
+            ptx: KERNEL_COMPUTE,
+        },
+        PtxModule {
+            name: "io",
+            ptx: KERNEL_IO,
+        },
+        PtxModule {
+            name: "test",
+            ptx: KERNEL_TEST,
+        },
+    ];
+
     // ── Legacy test PTX constants (unchanged) ──────────────────
     /// Embassy async/await test PTX (from crates/embassy-test).
     pub const EMBASSY_TEST: &str = include_str!("../embassy_test.ptx");

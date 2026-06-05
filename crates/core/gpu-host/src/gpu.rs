@@ -720,6 +720,26 @@ impl CustomLaunchBuilder {
         self
     }
 
+    /// Select a PTX module from the `ptx::ALL` catalog.
+    ///
+    /// Convenience for `.ptx(module.ptx)` — sets the PTX source from a
+    /// [`PtxModule`](crate::ptx::PtxModule) entry.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use gpu_host::{gpu, ptx};
+    ///
+    /// let ctx = gpu::custom("my_io_kernel")
+    ///     .module(&ptx::ALL[2])  // ptx::KERNEL_IO
+    ///     .prepare()
+    ///     .unwrap();
+    /// ```
+    pub fn module(mut self, m: &crate::ptx::PtxModule) -> Self {
+        self.ptx_src = Some(m.ptx);
+        self
+    }
+
     /// Load a pre-compiled cubin for fast kernel loading.
     ///
     /// When set, `prepare()` loads the cubin directly via the CUDA driver

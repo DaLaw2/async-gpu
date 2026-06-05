@@ -23,7 +23,7 @@ pub use attention::MultiHeadAttention;
 pub use conv::Conv2d;
 pub use embedding::Embedding;
 pub use int4_linear::Int4Linear;
-pub use linear::Linear;
+pub use linear::{Activation, Linear};
 pub use lora::LoraLinear;
 pub use norm::{BatchNorm2d, LayerNorm};
 pub use pool::MaxPool2d;

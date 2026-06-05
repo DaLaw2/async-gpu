@@ -4,8 +4,8 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 610
-completed_tasks = 760
+total_cycles = 611
+completed_tasks = 761
 status = "running"     # ready | running | blocked | completed
 
 # Project North Star — the ONE thing all epics serve:
@@ -15,11 +15,11 @@ status = "running"     # ready | running | blocked | completed
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
 current_step = "dispatch"
-current_task_id = "test-integration.2,fusion-codegen.3"
+current_task_id = "split-design.1,fusion-integrate.1"
 
 # Sequence counters
-brainstorm_seq = 117
-tasks_since_brainstorm = 3   # reset after brainstorm 117
+brainstorm_seq = 118
+tasks_since_brainstorm = 2   # reset after brainstorm 118
 
 # ============================================================
 # Epics — Tiered (T0 → T3), sorted by tier then priority
@@ -450,6 +450,44 @@ success_criteria = [
     "At least 10 GPU features covered by #[gpu_test] tests",
 ]
 
+# --- T0: kernel-split themes ---
+
+[[themes]]
+id = "split-design"
+epic = "kernel-split"
+title = "Kernel split design — crate boundaries, shared infra, loader API"
+status = "active"
+goal = "Map every kernel to its target crate, design shared infrastructure and loader"
+success_criteria = [
+    "4-crate split verified with no circular dependencies",
+    "stdio infrastructure extraction plan for gpu-runtime",
+    "Multi-cubin host loader API designed with backward compat",
+]
+
+[[themes]]
+id = "split-execute"
+epic = "kernel-split"
+title = "Execute kernel crate split — create crates, move files, verify builds"
+status = "active"
+goal = "Create 4 kernel crates, move files, verify PTX builds"
+success_criteria = [
+    "gpu-kernel-core, gpu-kernel-compute, gpu-kernel-io, gpu-kernel-test all produce valid PTX",
+    "stdio infrastructure extracted to gpu-runtime",
+    "All existing tests and examples still work",
+]
+
+[[themes]]
+id = "split-loader"
+epic = "kernel-split"
+title = "Multi-cubin host loader + parallel build system"
+status = "active"
+goal = "Wire up multi-cubin loading, parallel build, dev-mode opt-level"
+success_criteria = [
+    "Per-crate PTX constants with backward-compat aliases",
+    "Parallel ptxas in build script",
+    "Single-crate rebuild ≤5 minutes at dev opt-level",
+]
+
 # --- T1: gpu-type-safety themes ---
 
 [[themes]]
@@ -743,7 +781,7 @@ success_criteria = [
 id = "fusion-integrate"
 epic = "auto-fusion"
 title = "Fusion integration — auto-fuse nn ops + benchmark"
-status = "pending"
+status = "active"
 goal = "nn API operations automatically fused, measurable GPT-2 speedup"
 success_criteria = [
     "nn::Linear forward auto-fuses matmul+bias+activation",
@@ -844,6 +882,116 @@ success_criteria = [
 # perf-gemm-v4.2-.3, perf-e2e.1-.2
 
 # (SC and kernel-perf task entries removed — see archive/tasks-archived.toml)
+
+# --- kernel-split: design ---
+
+[[tasks]]
+id = "split-design.1"
+theme = "split-design"
+title = "Investigation: map kernel→crate assignments and verify dependency graph"
+kind = "investigation"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "split-design.2"
+theme = "split-design"
+title = "Design: stdio infrastructure extraction to gpu-runtime"
+kind = "design"
+status = "pending"
+depends = ["split-design.1"]
+
+[[tasks]]
+id = "split-design.3"
+theme = "split-design"
+title = "Design: host loader multi-cubin API with backward compat"
+kind = "design"
+status = "pending"
+depends = ["split-design.1"]
+
+# --- kernel-split: execute ---
+
+[[tasks]]
+id = "split-execute.1"
+theme = "split-execute"
+title = "Experiment: extract stdio infrastructure from lib.rs to gpu-runtime"
+kind = "experiment"
+status = "pending"
+depends = ["split-design.2"]
+
+[[tasks]]
+id = "split-execute.2"
+theme = "split-execute"
+title = "Experiment: create gpu-kernel-core crate (helpers + basic + compute_math)"
+kind = "experiment"
+status = "pending"
+depends = ["split-execute.1"]
+
+[[tasks]]
+id = "split-execute.3"
+theme = "split-execute"
+title = "Experiment: create gpu-kernel-compute crate (ML/HPC kernels)"
+kind = "experiment"
+status = "pending"
+depends = ["split-execute.2"]
+
+[[tasks]]
+id = "split-execute.4"
+theme = "split-execute"
+title = "Experiment: create gpu-kernel-io crate (hostcall/pipeline/hybrid)"
+kind = "experiment"
+status = "pending"
+depends = ["split-execute.2"]
+
+[[tasks]]
+id = "split-execute.5"
+theme = "split-execute"
+title = "Experiment: refactor gpu-kernel-std → gpu-kernel-test (test/demo kernels)"
+kind = "experiment"
+status = "pending"
+depends = ["split-execute.2"]
+
+# --- kernel-split: loader ---
+
+[[tasks]]
+id = "split-loader.1"
+theme = "split-loader"
+title = "Experiment: per-crate PTX constants + backward-compat aliases"
+kind = "experiment"
+status = "pending"
+depends = ["split-execute.3", "split-execute.4", "split-execute.5"]
+
+[[tasks]]
+id = "split-loader.2"
+theme = "split-loader"
+title = "Experiment: update host loader (gpu.rs, KernelRegistry) for multi-module"
+kind = "experiment"
+status = "pending"
+depends = ["split-loader.1"]
+
+[[tasks]]
+id = "split-loader.3"
+theme = "split-loader"
+title = "Experiment: build script — parallel per-crate PTX + cubin"
+kind = "experiment"
+status = "pending"
+depends = ["split-loader.1"]
+
+[[tasks]]
+id = "split-loader.4"
+theme = "split-loader"
+title = "Experiment: dev-mode opt-level reduction (opt-level 1 for kernel crates)"
+kind = "experiment"
+status = "pending"
+depends = ["split-loader.3"]
+
+[[tasks]]
+id = "split-loader.5"
+theme = "split-loader"
+title = "Experiment: litmus test — single-crate rebuild under 5 minutes"
+kind = "experiment"
+status = "pending"
+depends = ["split-loader.4"]
 
 # --- gpu-test: framework ---
 
@@ -1254,7 +1402,7 @@ id = "fusion-integrate.1"
 theme = "fusion-integrate"
 title = "Experiment: auto-fuse nn::Linear matmul+bias+activation — integrate with nn API"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["fusion-codegen.2"]
 
 [[tasks]]
@@ -1457,3 +1605,15 @@ new_epics_spawned = []
 themes_parked = []
 themes_completed = ["iter-design", "iter-compiler", "fusion-analysis"]
 key_insight = "developer-showcase (T0) completed — 47th epic archived. gpu-test activated (T0 parallel with T1, priority slot). iter-design/iter-compiler/fusion-analysis themes completed. Remaining T1 work: iter-runtime.2, iter-demo.1-.2, fusion-codegen.2-.3, fusion-integrate.1-.2. No new tasks needed — existing structure sufficient."
+
+[[brainstorms]]
+seq = 118
+at_cycle = 611
+trigger = "fusion-codegen theme completed + kernel-split epic (T0, highest) has no themes/tasks"
+level = "standard"
+new_tasks_spawned = ["split-design.1", "split-design.2", "split-design.3", "split-execute.1", "split-execute.2", "split-execute.3", "split-execute.4", "split-execute.5", "split-loader.1", "split-loader.2", "split-loader.3", "split-loader.4", "split-loader.5"]
+new_themes_spawned = ["split-design", "split-execute", "split-loader"]
+new_epics_spawned = []
+themes_parked = []
+themes_completed = ["fusion-codegen"]
+key_insight = "kernel-split: 4-crate split (core/compute/io/test) targets 2-3min incremental rebuild vs current 30min. Highest-churn files (lib.rs 13 commits) isolated in gpu-kernel-test. stdio infra moves to gpu-runtime. Parallel ptxas + opt-level 1 for dev. 13 tasks across 3 themes."

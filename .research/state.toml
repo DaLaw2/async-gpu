@@ -4,8 +4,8 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 625
-completed_tasks = 785
+total_cycles = 626
+completed_tasks = 786
 status = "running"     # ready | running | blocked | completed
 
 # Project North Star — the ONE thing all epics serve:
@@ -18,8 +18,8 @@ current_step = "save"
 current_task_id = ""
 
 # Sequence counters
-brainstorm_seq = 121
-tasks_since_brainstorm = 4
+brainstorm_seq = 122
+tasks_since_brainstorm = 1
 
 # ============================================================
 # Epics — Tiered (T0 → T3), sorted by tier then priority
@@ -98,7 +98,7 @@ success_criteria = [
 id = "gpu-generics"
 title = "GPU Generics — full Rust trait system + generics on GPU kernels"
 tier = 1
-status = "pending"
+status = "active"
 priority = "medium"
 # North Star: GPU code is composable Rust code. Generic functions, trait bounds,
 #   and impl blocks work on GPU just like on CPU. No concrete-type-only limitation.
@@ -414,7 +414,7 @@ success_criteria = [
 id = "gen-mono"
 epic = "gpu-generics"
 title = "PTX monomorphization for generic kernel functions"
-status = "pending"
+status = "active"
 goal = "Generic Rust functions compile to concrete PTX per type"
 success_criteria = [
     "fn kernel<T: Copy + Add>(data: &[T]) compiles to PTX for f32, i32",
@@ -763,7 +763,7 @@ id = "gen-mono.1"
 theme = "gen-mono"
 title = "Investigation: how PTX monomorphization works — LLVM IR level vs Rust MIR level"
 kind = "investigation"
-status = "pending"
+status = "done"
 depends = []
 
 [[tasks]]
@@ -1227,3 +1227,16 @@ themes_parked = []
 themes_completed = ["test-integration", "iter-demo"]
 epics_completed = ["gpu-test", "gpu-iterator"]
 key_insight = "gpu-iterator's MIR pass criterion was aspirational — Rust monomorphization achieves identical fusion. Amend C2, close as 52nd epic. T1 focus shifts to gpu-type-safety (DisjointSlice + WarpIndex implementation)."
+
+[[brainstorms]]
+seq = 122
+at_cycle = 625
+trigger = "3 themes completed (safety-types, safety-tiers, safety-apply) → gpu-type-safety epic closed"
+level = "standard"
+new_tasks_spawned = []
+new_themes_spawned = []
+new_epics_spawned = []
+themes_parked = []
+themes_completed = ["safety-types", "safety-tiers", "safety-apply"]
+epics_completed = ["gpu-type-safety"]
+key_insight = "gpu-generics is likely fast since monomorphization already works for library types. unified-runtime queued as first T2 (IS the North Star). hardware-intrinsics blocked by sm_75 hardware."

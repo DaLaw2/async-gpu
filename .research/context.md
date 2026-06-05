@@ -1,11 +1,12 @@
 ## Current Focus
-**Cycle 625 — gpu-type-safety all themes COMPLETE** (2026-06-06). Three themes done: safety-types (types), safety-tiers (design), safety-apply (integration). Epic verification gate next.
+**Cycle 626 — gpu-generics epic in progress** (2026-06-06). gen-mono.1 complete: PTX monomorphization works identically to standard Rust. gpu-type-safety closed as 53rd epic.
 
 ## Recent Decisions
+- 2026-06-06: PTX monomorphization works via standard Rust monomorphization — no special GPU pass needed
+- 2026-06-06: Pattern for GPU generics: concrete `extern "gpu-kernel"` entry → inline generic body
+- 2026-06-06: dyn Trait works on GPU via indirect calls (vtable)
 - 2026-06-06: cooperative_indexed() uses HRTB `for<'coop>` to create fresh WarpIndex lifetime
 - 2026-06-06: DisjointSlice made Copy+Clone+Send+Sync (safety from WarpIndex gatekeeper, not type affinity)
-- 2026-06-06: get_mut() accepts WarpIndex<'_> (any lifetime) for cross-scope compatibility
-- 2026-06-06: GridScope doesn't need alloc_disjoint — warp-level primitives work within BlockScope inside GridScope
 
 ## Tried & Rejected
 - Round-robin DisjointSlice partitioning: can't return contiguous &mut [T]
@@ -16,11 +17,11 @@
 - Max 2 concurrent heavy subagents
 
 ## Key Metrics
-- Type safety: 3 witness types (WarpIndex, DisjointSlice, WarpHandle), 2 new entry points (spawn_all_indexed, cooperative_indexed), 1 convenience (alloc_disjoint)
-- Zero-unsafe demo: cooperative_map rewritten with 0 unsafe blocks (was 3)
-- 785 tasks completed, 52 epics
+- gen-mono.1: Generic add<T> verified for f32/u32/i64, correct type-specific PTX instructions
+- Type safety: 3 witness types (WarpIndex, DisjointSlice, WarpHandle), 2 new entry points
+- 786 tasks completed, 53 epics
 
 ## Next
-1. ROUTE: Epic Verification Gate for gpu-type-safety — all 4 criteria appear met
-2. If PASS: 53rd epic completed, T1 nearly clear (only gpu-generics pending)
-3. Consider T2 tier activation
+1. gen-mono.2: Experiment — compile generic fn<T: Copy + Add> to PTX for f32 and i32
+2. gen-traits.1: User-defined trait with where bounds in GPU kernel
+3. gen-demo.1: Generic parallel_reduce<T: Reducible>

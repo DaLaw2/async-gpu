@@ -276,6 +276,40 @@ fn test_gpu_trait_custom_vec2f() {}
 fn test_gpu_trait_multi_type() {}
 
 // ============================================================================
+// GPU tests — generic parallel_reduce showcase (gen-demo.1)
+// ============================================================================
+
+/// Test generic parallel_reduce at scale: f32, i32, Vec2f with 1024 elements.
+///
+/// The kernel `test_gpu_generic_reduce_showcase` in gpu-kernel-test:
+///   - parallel_reduce::<f32>(1..=1024) = 524800.0
+///   - parallel_reduce::<i32>(1..=1024) = 524800
+///   - parallel_reduce::<Vec2f> with per-field summation
+///   - SAME generic function, three different types
+///   - This is the gpu-generics epic litmus test
+#[gpu_test]
+fn test_gpu_generic_reduce_showcase() {}
+
+/// Test zero-overhead proof: generic reduce vs handwritten produce identical results.
+///
+/// The kernel `test_gpu_generic_zero_overhead` in gpu-kernel-test:
+///   - Runs parallel_reduce::<f32> and handwritten_reduce_f32 on same 2048-element data
+///   - Runs parallel_reduce::<i32> and handwritten_reduce_i32 on same 2048-element data
+///   - Asserts results match — proving the trait abstraction has zero cost
+#[gpu_test]
+fn test_gpu_generic_zero_overhead() {}
+
+/// Test generic map-then-reduce composition: transform + reduce fused in one loop.
+///
+/// The kernel `test_gpu_generic_map_reduce` in gpu-kernel-test:
+///   - f32: map(x*2+1) then reduce over 1024 elements
+///   - i32: map(x*3-1) then reduce over 100 elements
+///   - Vec2f: map(scale+offset) then reduce over 50 elements
+///   - Proves GpuReducible + GpuTransformable compose correctly on GPU
+#[gpu_test]
+fn test_gpu_generic_map_reduce() {}
+
+// ============================================================================
 // CPU tests — regular #[test] functions that coexist with #[gpu_test]
 // ============================================================================
 

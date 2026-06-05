@@ -4,8 +4,8 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 628
-completed_tasks = 788
+total_cycles = 629
+completed_tasks = 789
 status = "running"     # ready | running | blocked | completed
 
 # Project North Star — the ONE thing all epics serve:
@@ -19,7 +19,7 @@ current_task_id = ""
 
 # Sequence counters
 brainstorm_seq = 122
-tasks_since_brainstorm = 3
+tasks_since_brainstorm = 4
 
 # ============================================================
 # Epics — Tiered (T0 → T3), sorted by tier then priority
@@ -438,7 +438,7 @@ success_criteria = [
 id = "gen-demo"
 epic = "gpu-generics"
 title = "Generic algorithms demo"
-status = "active"
+status = "completed"
 goal = "Show composable GPU code via generics"
 success_criteria = [
     "parallel_reduce<T: Reducible> works for f32, i32, custom types",
@@ -787,7 +787,7 @@ id = "gen-demo.1"
 theme = "gen-demo"
 title = "Experiment: generic parallel_reduce<T: Reducible> — f32, i32, custom struct"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["gen-traits.1"]
 
 # --- gpu-hot-reload ---

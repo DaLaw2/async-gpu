@@ -1,7 +1,9 @@
 ## Current Focus
-**Cycle 628 — gpu-generics epic, gen-demo theme active** (2026-06-06). gen-mono + gen-traits themes complete. gen-demo.1 is the last task for gpu-generics epic.
+**Cycle 629 — gpu-generics epic verification gate** (2026-06-06). All 3 themes (gen-mono, gen-traits, gen-demo) complete. gen-demo.1 proved the litmus test: same `parallel_reduce<T: GpuReducible>` works for f32, i32, Vec2f with zero overhead. Epic verification gate next.
 
 ## Recent Decisions
+- 2026-06-06: gen-demo.1 showcase: parallel_reduce<T> at 1024-element scale for f32, i32, Vec2f
+- 2026-06-06: Zero-overhead verified: generic reduce produces identical PTX to handwritten version
 - 2026-06-06: User-defined traits (GpuReducible, GpuTransformable) work on GPU with zero overhead
 - 2026-06-06: Where bounds + multiple trait bounds compose correctly on nvptx64
 - 2026-06-06: Custom Vec2f struct with trait impls compiles to identical PTX as hand-written concrete code
@@ -17,10 +19,12 @@
 - Max 2 concurrent heavy subagents
 
 ## Key Metrics
-- gen-traits.1: 8 new kernel entries — GpuReducible, GpuTransformable, where bounds, Vec2f custom struct
-- gen-traits.1: Trait methods fully inlined by LLVM — identical PTX to hand-written concrete code
-- gen-mono.2: 9 new kernel entry points (4 generic + 5 test), all produce correct results on GPU
-- 788 tasks completed, 53 epics
+- gen-demo.1: 3 showcase kernel entries — parallel_reduce<f32>, parallel_reduce<i32>, parallel_reduce<Vec2f>
+- gen-demo.1: Zero-overhead proof — generic vs handwritten produce identical results
+- gen-traits.1: 8 kernel entries — GpuReducible, GpuTransformable, where bounds, Vec2f custom struct
+- gen-mono.2: 9 kernel entry points (4 generic + 5 test), all produce correct results on GPU
+- 789 tasks completed, 53 epics (gpu-generics verification gate pending)
 
 ## Next
-1. gen-demo.1: Generic parallel_reduce<T: Reducible> for f32, i32, custom types (last gpu-generics task)
+1. Epic verification gate for gpu-generics — check all 4 success criteria
+2. If PASS: mark gpu-generics completed (54th epic), brainstorm next

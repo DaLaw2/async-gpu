@@ -19,7 +19,15 @@ gpu-protocol = { path = "../../core/gpu-protocol" }
 gpu-runtime = { path = "../../core/gpu-runtime" }
 gpu-kernel-core = { path = "../gpu-kernel-core" }
 
+# Dev-mode release: fast PTX builds (opt-level 1, no LTO)
 [profile.release]
+panic = "abort"
+opt-level = 1
+lto = false
+
+# Production release: maximum optimization for benchmarks/shipping
+[profile.release-prod]
+inherits = "release"
 panic = "abort"
 opt-level = 3
 lto = "fat"

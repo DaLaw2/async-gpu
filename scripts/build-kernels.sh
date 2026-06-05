@@ -5,13 +5,19 @@
 # (so shared dependencies compile once), then runs ptxas in parallel to produce
 # cubins for all crates simultaneously.
 #
+# Two build modes:
+#   Default (dev):  opt-level 1, no LTO  — fast iteration (~2x faster)
+#   --prod:         opt-level 3, fat LTO — maximum optimization for benchmarks
+#
 # Prerequisites:
 #   - Patched std in sysroot (run apply-std-patches.sh first)
 #   - CUDA toolkit (ptxas)
 #
 # Usage:
-#   ./scripts/build-kernels.sh              # Build all 4 crates
-#   ./scripts/build-kernels.sh core test    # Build only specified crates
+#   ./scripts/build-kernels.sh              # Build all 4 crates (dev mode)
+#   ./scripts/build-kernels.sh --prod       # Build all 4 crates (production)
+#   ./scripts/build-kernels.sh core test    # Build only specified crates (dev)
+#   ./scripts/build-kernels.sh --prod core  # Build specified crates (production)
 #
 # For single-crate test iteration, see build-kernel-test.sh.
 
@@ -23,6 +29,20 @@ HOST_DIR="$REPO_DIR/crates/core/gpu-host"
 
 # ── All kernel crates ───────────────────────────────────────────
 ALL_CRATES=(core compute io test)
+
+# ── Parse --prod flag ─────────────────────────────────────────────
+CARGO_PROFILE="--release"
+BUILD_MODE="dev"
+ARGS=()
+for arg in "$@"; do
+    if [ "$arg" = "--prod" ]; then
+        CARGO_PROFILE="--profile release-prod"
+        BUILD_MODE="prod"
+    else
+        ARGS+=("$arg")
+    fi
+done
+set -- "${ARGS[@]+"${ARGS[@]}"}"
 
 # ── Parse arguments: optional crate filter ──────────────────────
 if [ $# -gt 0 ]; then
@@ -45,7 +65,7 @@ else
     CRATES=("${ALL_CRATES[@]}")
 fi
 
-echo "==> Building kernel crates: ${CRATES[*]}"
+echo "==> Building kernel crates: ${CRATES[*]} (mode: $BUILD_MODE)"
 
 # ── Read toolchain from rust-toolchain.toml ─────────────────────
 TOOLCHAIN_FILE="$REPO_DIR/rust-toolchain.toml"
@@ -83,6 +103,13 @@ if command -v nvidia-smi >/dev/null 2>&1; then
 fi
 echo "Target architecture: $SM"
 
+# ── Determine PTX output directory based on profile ────────────
+if [ "$BUILD_MODE" = "prod" ]; then
+    PTX_PROFILE_DIR="release-prod"
+else
+    PTX_PROFILE_DIR="release"
+fi
+
 # ── Step 1: Build PTX for each crate (sequential — shared deps compile once)
 echo ""
 echo "=== Step 1: Building PTX for ${#CRATES[@]} crate(s) ==="
@@ -94,9 +121,10 @@ for crate in "${CRATES[@]}"; do
         echo "ERROR: Crate directory not found: $crate_dir"
         exit 1
     fi
-    (cd "$crate_dir" && cargo "+$CHANNEL" build --release 2>&1 | grep -E "Compiling|Finished|error|warning.*gpu-kernel")
+    # shellcheck disable=SC2086
+    (cd "$crate_dir" && cargo "+$CHANNEL" build $CARGO_PROFILE 2>&1 | grep -E "Compiling|Finished|error|warning.*gpu-kernel")
 
-    ptx_src="$crate_dir/target/nvptx64-nvidia-cuda/release/gpu_kernel_${crate}.ptx"
+    ptx_src="$crate_dir/target/nvptx64-nvidia-cuda/$PTX_PROFILE_DIR/gpu_kernel_${crate}.ptx"
     if [ ! -f "$ptx_src" ]; then
         echo "ERROR: PTX not generated at $ptx_src"
         exit 1
@@ -108,7 +136,7 @@ done
 echo ""
 echo "=== Step 2: Copying PTX files to gpu-host ==="
 for crate in "${CRATES[@]}"; do
-    ptx_src="$REPO_DIR/crates/kernel/gpu-kernel-$crate/target/nvptx64-nvidia-cuda/release/gpu_kernel_${crate}.ptx"
+    ptx_src="$REPO_DIR/crates/kernel/gpu-kernel-$crate/target/nvptx64-nvidia-cuda/$PTX_PROFILE_DIR/gpu_kernel_${crate}.ptx"
     ptx_dst="$HOST_DIR/kernel_${crate}.ptx"
     cp "$ptx_src" "$ptx_dst"
     echo "  kernel_${crate}.ptx ($(du -h "$ptx_dst" | cut -f1))"

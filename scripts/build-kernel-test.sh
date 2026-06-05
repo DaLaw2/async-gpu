@@ -7,11 +7,17 @@
 # The kernel PTX is 5+ MB and takes 10+ minutes to JIT compile.
 # Pre-compiling to cubin with ptxas reduces load time to <1 second.
 #
+# Two build modes:
+#   Default (dev):  opt-level 1, no LTO  — fast iteration (~2x faster)
+#   --prod:         opt-level 3, fat LTO — maximum optimization for benchmarks
+#
 # Prerequisites:
 #   - Patched std in sysroot (run apply-std-patches.sh first)
 #   - CUDA toolkit (ptxas)
 #
-# Usage: ./scripts/build-kernel-test.sh
+# Usage:
+#   ./scripts/build-kernel-test.sh          # Dev mode (fast)
+#   ./scripts/build-kernel-test.sh --prod   # Production mode (optimized)
 
 set -euo pipefail
 
@@ -19,6 +25,19 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
 KERNEL_TEST_DIR="$REPO_DIR/crates/kernel/gpu-kernel-test"
 HOST_DIR="$REPO_DIR/crates/core/gpu-host"
+
+# ── Parse --prod flag ─────────────────────────────────────────────
+CARGO_PROFILE="--release"
+BUILD_MODE="dev"
+PTX_PROFILE_DIR="release"
+for arg in "$@"; do
+    if [ "$arg" = "--prod" ]; then
+        CARGO_PROFILE="--profile release-prod"
+        BUILD_MODE="prod"
+        PTX_PROFILE_DIR="release-prod"
+    fi
+done
+echo "Build mode: $BUILD_MODE"
 
 # Find toolchain
 TOOLCHAIN_FILE="$REPO_DIR/rust-toolchain.toml"
@@ -69,10 +88,11 @@ fi
 
 # Step 2: Build gpu-kernel-test (test/demo kernel crate)
 echo ""
-echo "=== Building gpu-kernel-test (test/demo kernel crate) ==="
+echo "=== Building gpu-kernel-test (test/demo kernel crate, mode: $BUILD_MODE) ==="
 cd "$KERNEL_TEST_DIR"
-cargo "+$CHANNEL" build --release 2>&1 | grep -E "Compiling|Finished|error|warning.*gpu-kernel"
-PTX_SRC="$KERNEL_TEST_DIR/target/nvptx64-nvidia-cuda/release/gpu_kernel_test.ptx"
+# shellcheck disable=SC2086
+cargo "+$CHANNEL" build $CARGO_PROFILE 2>&1 | grep -E "Compiling|Finished|error|warning.*gpu-kernel"
+PTX_SRC="$KERNEL_TEST_DIR/target/nvptx64-nvidia-cuda/$PTX_PROFILE_DIR/gpu_kernel_test.ptx"
 if [ ! -f "$PTX_SRC" ]; then
     echo "ERROR: PTX not generated at $PTX_SRC"
     exit 1

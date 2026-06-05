@@ -5,26 +5,24 @@
 
 ## Status
 
-Tasks split-loader.1 and split-loader.2 complete. Per-crate PTX
-constants, backward aliases, `PtxModule` catalog, and `.module()`
-builder are all in place. Zero call-site breakage.
+Tasks split-loader.1 through split-loader.4 complete. Multi-PTX loading,
+per-crate cubin support, and dev-mode build profiles all in place.
 
 ## What shipped
 
-- 4 canonical constants: `KERNEL_{CORE,COMPUTE,IO,TEST}`
-- 2 aliases: `KERNEL -> KERNEL_COMPUTE`, `KERNEL_STD -> KERNEL_TEST`
+- 4 canonical constants: `KERNEL_{CORE,COMPUTE,IO,TEST}` + aliases
 - `PtxModule` struct + `ALL` catalog for auto-discovery
 - `.module(&PtxModule)` on `CustomLaunchBuilder`
-- KernelRegistry, GpuStdModule, gpu-test-macro all verified unchanged
-- build.rs builds all 4 kernel crates and copies PTX
+- Per-crate cubin builds (ptxas for each crate independently)
+- Cubin embedding via `include_bytes!` + `PtxModule.cubin` field
+- Dev-mode profiles: opt-level 1 default, `--prod` for full opt
+- build-kernels.sh and build-kernel-test.sh support `--prod` flag
 
 ## What remains
 
-- Per-crate cubin builds (ptxas for each crate independently)
-- Cubin embedding via `include_bytes!` + `PtxModule.cubin` field
 - Deprecation warnings on aliases + call-site migration (Phase 3)
 - `gpu::run_any()` cross-module kernel search (Phase 3)
 
-## PTX size breakdown
+## PTX size breakdown (dev / prod)
 
-core: 1.0 MB | compute: 1.4 MB | io: 1.8 MB | test: 7.2 MB
+core: 1.3/1.0 MB | compute: 1.9/1.4 MB | io: 2.3/1.8 MB | test: 5.9/6.9 MB

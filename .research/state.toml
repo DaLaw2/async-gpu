@@ -4,8 +4,8 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 618
-completed_tasks = 772
+total_cycles = 619
+completed_tasks = 774
 status = "running"     # ready | running | blocked | completed
 
 # Project North Star — the ONE thing all epics serve:
@@ -15,11 +15,11 @@ status = "running"     # ready | running | blocked | completed
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
 current_step = "dispatch"
-current_task_id = "split-loader.2,split-loader.3"
+current_task_id = "split-loader.4"
 
 # Sequence counters
 brainstorm_seq = 119
-tasks_since_brainstorm = 3   # reset after brainstorm 119
+tasks_since_brainstorm = 4   # reset after brainstorm 119
 
 # ============================================================
 # Epics — Tiered (T0 → T3), sorted by tier then priority
@@ -982,7 +982,7 @@ id = "split-loader.4"
 theme = "split-loader"
 title = "Experiment: dev-mode opt-level reduction (opt-level 1 for kernel crates)"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["split-loader.3"]
 
 [[tasks]]

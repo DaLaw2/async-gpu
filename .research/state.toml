@@ -34,7 +34,7 @@ tasks_since_brainstorm = 4
 # refactor-v2, gpu-dynamic, graph-algorithms, int4-gpt2, monte-carlo, benchmark,
 # native-rust-dx, std-thread-gpu, cooperative-compute, structured-concurrency,
 # library-api, kernel-perf, developer-showcase, kernel-split, auto-fusion,
-# gpu-test, gpu-iterator
+# gpu-test, gpu-iterator, gpu-type-safety
 
 # --- T0: Foundation (do first, everything depends on this) ---
 
@@ -62,7 +62,7 @@ success_criteria = [
 id = "gpu-type-safety"
 title = "Type-Level Safety — compile-time race-freedom for GPU code"
 tier = 1
-status = "active"
+status = "completed"
 priority = "high"
 # North Star: The Rust compiler proves your GPU code has no data races — at compile time.
 #   DisjointSlice<T> + ThreadIndex pattern (inspired by cuda-oxide), adapted to async-gpu.

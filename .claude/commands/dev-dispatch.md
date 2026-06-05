@@ -27,6 +27,12 @@ Relevant crates: {paths found by orchestrator via ls/find}
 Relevant scripts: {paths found by orchestrator via ls/find}
 Entry point: {specific file, script, or function to start from}
 
+## Build Policy
+- PTX/cubin: Do NOT run scripts/build-kernel-std.sh or ptxas unless your task specifically
+  requires GPU kernel execution to verify results. If you do build, limit to ONE build.
+- Host crates: cargo build/check/test for host crates is always OK.
+- Lint: cargo +stable fmt --check && cargo +stable clippy -- -D warnings
+
 ## Constraints
 - {relevant active constraints from context.md}
 - Experiment code goes in crates/ or examples/
@@ -48,14 +54,14 @@ Entry point: {specific file, script, or function to start from}
 - Smart bailout by failure type (count distinct approaches, not retries):
     Syntax/typo: 5 attempts | Missing API/feature: 2 | Linker/ABI/backend: 2
     Wrong output: 3 | Crash/segfault: 2
-- If max exceeded: git reset to pre-experiment commit, return STATUS=blocked
+- If max exceeded: revert your changes (git checkout on files you changed), return STATUS=blocked
 - Lint before reporting done: cargo +stable fmt --check && cargo +stable clippy -- -D warnings
 - Redirect long output to .research/run.log, grep key results, delete log after use
 ```
 
 ## Verify Pipeline
 
-After a task subagent reports STATUS=done, the orchestrator runs a verify → retry pipeline.
+After ALL task subagents in a batch return, the orchestrator runs verify for each task with STATUS=done.
 All stages use separate subagents. The orchestrator does NOT read code — only subagent returns.
 
 ### Stage 1: Verify

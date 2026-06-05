@@ -1,22 +1,21 @@
 # iter-demo — Iterator demos synthesis
 
 ## Status
-Active. iter-demo.1 (1M+ map/collect demo) done.
+Active. iter-demo.1 (1M+ correctness) done. iter-demo.2 (Rayon benchmark) done.
 
 ## Key results
 - par_iter().map().collect_into() correct at 1M+ f32 elements
-- Chained .map().map() fusion verified at scale: zero intermediate buffers
-- Triple-map + sum (deep fusion + reduction) works at 1M elements
-- f32 reduction precision: ~1e-4 relative error vs f64 reference
-- Single-block architecture (4 warps) handles large N via warp stripes
+- Chained .map().map() fusion verified: zero intermediate buffers at scale
+- GPU par_iter NEVER beats CPU Rayon at any size (1K-16M) with current arch
+- GPU is 5-1178x slower than Rayon (worst at 1M: single-block bottleneck)
+- Root cause: 1 block / 4 warps = 4.5% SM utilization + volatile loads bypass cache
+- Shared memory bug found: launch_config needs shared_mem_bytes > 0
 
-## Architecture insight
-Current par_iter uses 1 block / 4 warps. For large N this means only
-1 of 22 SMs is utilized on GTX 1660. Multi-block dispatch would
-improve throughput but requires cross-block reduction coordination.
-The iterator API is correct regardless of parallelism level.
+## Crossover estimate (with multi-block)
+With 22-block launch + cached loads, expect GPU crossover at ~100K-1M elements.
+Rayon achieves ~10 GB/s at 16M; GTX 1660 peak is 192 GB/s (19x headroom).
 
 ## What's next
-- Rayon comparison benchmark (par_iter vs rayon::par_iter on CPU)
-- Multi-block par_iter for higher GPU utilization
-- Filter + collect at 1M scale (atomic compaction stress test)
+- Fix shared_mem_bytes bug in existing par_iter tests
+- Multi-block par_iter dispatch for higher GPU utilization
+- Re-benchmark after multi-block to find real crossover point

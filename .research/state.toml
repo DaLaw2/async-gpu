@@ -4,7 +4,7 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 609
+total_cycles = 610
 completed_tasks = 760
 status = "running"     # ready | running | blocked | completed
 
@@ -14,8 +14,8 @@ status = "running"     # ready | running | blocked | completed
 # No GPU concepts leak. VectorWare's I/O strength + async-gpu's compute strength, unified.
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
-current_step = "save"
-current_task_id = "test-framework.2,iter-demo.1"
+current_step = "route"
+current_task_id = ""
 
 # Sequence counters
 brainstorm_seq = 117
@@ -844,7 +844,7 @@ id = "test-integration.1"
 theme = "test-integration"
 title = "Experiment: cargo test integration — discover and run #[gpu_test] alongside #[test]"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["test-framework.2"]
 
 [[tasks]]
@@ -1211,7 +1211,7 @@ id = "iter-demo.2"
 theme = "iter-demo"
 title = "Experiment: benchmark GPU par_iter vs CPU Rayon — find crossover point"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["iter-demo.1"]
 
 # Done tasks archived (cycle 607): fusion-analysis.1-.3, fusion-codegen.1

@@ -8,6 +8,7 @@
 //! (GpuMap<GpuMap<...>>) into a single inlined expression per element.
 
 use std::sync::Arc;
+use std::time::Instant;
 
 use cudarc::driver::{CudaDevice, LaunchAsync, LaunchConfig};
 
@@ -704,6 +705,291 @@ pub(crate) fn run_par_iter_1m_test(dev: Arc<CudaDevice>) -> Result<()> {
         );
     }
     println!("  All correctness checks: PASSED");
+    println!("====================================================");
+
+    Ok(())
+}
+
+// ============================================================
+// GPU par_iter vs CPU Rayon benchmark (iter-demo.2)
+// ============================================================
+
+/// Benchmark kernels — only the ones we need for the benchmark.
+const BENCH_KERNELS: &[&str] = &["par_iter_map_collect"];
+
+/// Load par_iter benchmark kernels via PTX (CUDA driver caches JIT result).
+///
+/// First load is slow (~10-30 min); subsequent loads are fast from cache.
+fn load_par_iter_module_fast(dev: &Arc<CudaDevice>) -> Result<()> {
+    println!("  Loading PTX module (uses CUDA JIT cache if available)...");
+    let start = Instant::now();
+    let ptx = cudarc::nvrtc::Ptx::from_src(crate::KERNEL_STD_PTX);
+    dev.load_ptx(ptx, "par_iter_fusion", BENCH_KERNELS)
+        .map_err(|e| GpuHostError::Verification {
+            test: "par_iter_module_load",
+            detail: format!("ptx_load: {e}"),
+        })?;
+    let elapsed = start.elapsed();
+    println!("  PTX module loaded in {elapsed:.1?}");
+    Ok(())
+}
+
+/// Launch config for benchmark: 1 block x 128 threads (4 warps) + dynamic shared memory.
+///
+/// The par_iter kernels call `init_shared_mem_allocator(512)` which requires
+/// dynamic shared memory. Without it, the kernel faults on shared-memory access.
+fn bench_launch_config() -> LaunchConfig {
+    LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (128, 1, 1),
+        shared_mem_bytes: 1024, // ample for init_shared_mem_allocator(512)
+    }
+}
+
+/// Measure GPU par_iter kernel time for N f32 elements.
+///
+/// Uses `par_iter_map_collect` kernel: f(x) = x * 2.0 + 1.0
+/// Excludes data transfer time — measures kernel execution only.
+/// Returns (kernel_ms, total_ms_including_transfer).
+fn bench_gpu_par_iter(dev: &Arc<CudaDevice>, n: usize) -> Result<(f64, f64)> {
+    let input: Vec<f32> = (0..n).map(|i| (i as f32) * 0.001).collect();
+    let func = get_func(dev, "par_iter_map_collect")?;
+    let cfg = bench_launch_config();
+
+    let input_dev = dev.htod_sync_copy(&input).map_err(GpuHostError::Cudarc)?;
+    let mut output_dev = dev.alloc_zeros::<f32>(n).map_err(GpuHostError::Cudarc)?;
+    let n_u32 = n as u32;
+
+    // Warmup (3 launches)
+    for _ in 0..3 {
+        let mut st = dev.alloc_zeros::<u32>(1).map_err(GpuHostError::Cudarc)?;
+        unsafe {
+            func.clone()
+                .launch(cfg, (&input_dev, &mut output_dev, n_u32, &mut st))
+                .map_err(|e| GpuHostError::Verification {
+                    test: "bench_gpu_warmup",
+                    detail: format!("{e}"),
+                })?;
+        }
+        dev.synchronize().map_err(GpuHostError::Cudarc)?;
+    }
+
+    // Timed kernel-only runs
+    let iters = 10;
+    let start = Instant::now();
+    for _ in 0..iters {
+        let mut st = dev.alloc_zeros::<u32>(1).map_err(GpuHostError::Cudarc)?;
+        unsafe {
+            func.clone()
+                .launch(cfg, (&input_dev, &mut output_dev, n_u32, &mut st))
+                .map_err(|e| GpuHostError::Verification {
+                    test: "bench_gpu_timed",
+                    detail: format!("{e}"),
+                })?;
+        }
+        dev.synchronize().map_err(GpuHostError::Cudarc)?;
+    }
+    let kernel_ms = start.elapsed().as_secs_f64() * 1000.0 / iters as f64;
+
+    // Timed end-to-end (htod + kernel + dtoh)
+    let start_e2e = Instant::now();
+    for _ in 0..iters {
+        let in_dev = dev.htod_sync_copy(&input).map_err(GpuHostError::Cudarc)?;
+        let mut out_dev = dev.alloc_zeros::<f32>(n).map_err(GpuHostError::Cudarc)?;
+        let mut st = dev.alloc_zeros::<u32>(1).map_err(GpuHostError::Cudarc)?;
+        unsafe {
+            func.clone()
+                .launch(cfg, (&in_dev, &mut out_dev, n_u32, &mut st))
+                .map_err(|e| GpuHostError::Verification {
+                    test: "bench_gpu_e2e",
+                    detail: format!("{e}"),
+                })?;
+        }
+        dev.synchronize().map_err(GpuHostError::Cudarc)?;
+        let _: Vec<f32> = dev.dtoh_sync_copy(&out_dev).map_err(GpuHostError::Cudarc)?;
+    }
+    let e2e_ms = start_e2e.elapsed().as_secs_f64() * 1000.0 / iters as f64;
+
+    Ok((kernel_ms, e2e_ms))
+}
+
+/// Measure CPU Rayon par_iter time for N f32 elements.
+///
+/// Operation: data.par_iter().map(|x| x * 2.0 + 1.0).collect()
+/// Returns time in milliseconds.
+fn bench_rayon_par_iter(n: usize) -> f64 {
+    use rayon::prelude::*;
+
+    let input: Vec<f32> = (0..n).map(|i| (i as f32) * 0.001).collect();
+
+    // Warmup (3 iterations)
+    for _ in 0..3 {
+        let _: Vec<f32> = input.par_iter().map(|x| x * 2.0 + 1.0).collect();
+    }
+
+    // Timed
+    let iters = 10;
+    let start = Instant::now();
+    for _ in 0..iters {
+        let _: Vec<f32> = input.par_iter().map(|x| x * 2.0 + 1.0).collect();
+    }
+    start.elapsed().as_secs_f64() * 1000.0 / iters as f64
+}
+
+/// Measure single-threaded CPU time for N f32 elements (sequential baseline).
+fn bench_cpu_sequential(n: usize) -> f64 {
+    let input: Vec<f32> = (0..n).map(|i| (i as f32) * 0.001).collect();
+
+    // Warmup
+    for _ in 0..3 {
+        let _: Vec<f32> = input.iter().map(|x| x * 2.0 + 1.0).collect();
+    }
+
+    let iters = 10;
+    let start = Instant::now();
+    for _ in 0..iters {
+        let _: Vec<f32> = input.iter().map(|x| x * 2.0 + 1.0).collect();
+    }
+    start.elapsed().as_secs_f64() * 1000.0 / iters as f64
+}
+
+/// GPU par_iter vs CPU Rayon benchmark across multiple data sizes.
+///
+/// Finds the crossover point where GPU becomes faster than CPU Rayon.
+/// Uses `par_iter_map_collect` kernel: f(x) = x * 2.0 + 1.0
+pub(crate) fn run_par_iter_rayon_benchmark(dev: Arc<CudaDevice>) -> Result<()> {
+    println!("\n====================================================");
+    println!("  GPU par_iter vs CPU Rayon Benchmark (iter-demo.2)");
+    println!("  Operation: data.par_iter().map(|x| x * 2.0 + 1.0).collect()");
+    println!("====================================================");
+
+    // Load kernels via cubin (fast) or PTX (slow fallback)
+    load_par_iter_module_fast(&dev)?;
+
+    // Verify correctness at small scale first
+    {
+        let n = 1024;
+        let input: Vec<f32> = (0..n).map(|i| (i as f32) * 0.001).collect();
+        let func = get_func(&dev, "par_iter_map_collect")?;
+        let input_dev = dev.htod_sync_copy(&input).map_err(GpuHostError::Cudarc)?;
+        let mut output_dev = dev.alloc_zeros::<f32>(n).map_err(GpuHostError::Cudarc)?;
+        let mut status_dev = dev.alloc_zeros::<u32>(1).map_err(GpuHostError::Cudarc)?;
+        unsafe {
+            func.launch(
+                bench_launch_config(),
+                (&input_dev, &mut output_dev, n as u32, &mut status_dev),
+            )
+            .map_err(|e| GpuHostError::Verification {
+                test: "bench_correctness",
+                detail: format!("{e}"),
+            })?;
+        }
+        dev.synchronize().map_err(GpuHostError::Cudarc)?;
+        let output: Vec<f32> = dev
+            .dtoh_sync_copy(&output_dev)
+            .map_err(GpuHostError::Cudarc)?;
+        let status: Vec<u32> = dev
+            .dtoh_sync_copy(&status_dev)
+            .map_err(GpuHostError::Cudarc)?;
+        assert_eq!(status[0], 1, "kernel did not complete");
+        for i in 0..n {
+            let expected = input[i] * 2.0 + 1.0;
+            assert!(
+                (output[i] - expected).abs() < 1e-5,
+                "mismatch at {i}: got {}, expected {expected}",
+                output[i]
+            );
+        }
+        println!("  Correctness verified at N=1024");
+    }
+
+    // Benchmark sizes
+    let sizes: &[usize] = &[
+        1_000,      // 1K
+        10_000,     // 10K
+        100_000,    // 100K
+        1_000_000,  // 1M
+        4_000_000,  // 4M
+        16_000_000, // 16M
+    ];
+
+    println!(
+        "\n  {:>10} | {:>10} {:>10} {:>10} | {:>8} {:>8}",
+        "N", "CPU seq", "Rayon", "GPU e2e", "GPU/Rayon", "GPU/seq"
+    );
+    println!(
+        "  {:->10}-+-{:->10}-{:->10}-{:->10}-+-{:->8}-{:->8}",
+        "", "", "", "", "", ""
+    );
+
+    let mut crossover_n: Option<usize> = None;
+    let mut results: Vec<(usize, f64, f64, f64, f64, f64)> = Vec::new();
+
+    for &n in sizes {
+        let size_label = match n {
+            1_000 => "1K",
+            10_000 => "10K",
+            100_000 => "100K",
+            1_000_000 => "1M",
+            4_000_000 => "4M",
+            16_000_000 => "16M",
+            _ => "?",
+        };
+
+        // CPU sequential
+        let seq_ms = bench_cpu_sequential(n);
+
+        // CPU Rayon
+        let rayon_ms = bench_rayon_par_iter(n);
+
+        // GPU (kernel-only and end-to-end)
+        let (gpu_kernel_ms, gpu_e2e_ms) = bench_gpu_par_iter(&dev, n)?;
+
+        let gpu_vs_rayon = gpu_e2e_ms / rayon_ms;
+        let gpu_vs_seq = gpu_e2e_ms / seq_ms;
+
+        // Detect crossover: first size where GPU e2e < Rayon
+        if crossover_n.is_none() && gpu_e2e_ms < rayon_ms {
+            crossover_n = Some(n);
+        }
+
+        println!(
+            "  {:>8}{} | {:>9.3} {:>9.3} {:>9.3} | {:>7.2}x {:>7.2}x  (kernel: {:.3} ms)",
+            "", size_label, seq_ms, rayon_ms, gpu_e2e_ms, gpu_vs_rayon, gpu_vs_seq, gpu_kernel_ms
+        );
+
+        results.push((n, seq_ms, rayon_ms, gpu_kernel_ms, gpu_e2e_ms, gpu_vs_rayon));
+    }
+
+    // Summary
+    println!("\n====================================================");
+    println!("  BENCHMARK SUMMARY");
+    println!("====================================================");
+    println!("  GPU: GTX 1660 (sm_75), 1 block x 128 threads (4 warps)");
+    println!("  CPU: Rayon (all cores), same operation f(x) = x * 2.0 + 1.0");
+    println!("  GPU timing includes htod + kernel + dtoh (end-to-end)");
+
+    if let Some(cn) = crossover_n {
+        let label = match cn {
+            1_000 => "1K",
+            10_000 => "10K",
+            100_000 => "100K",
+            1_000_000 => "1M",
+            4_000_000 => "4M",
+            16_000_000 => "16M",
+            _ => "?",
+        };
+        println!("  Crossover point: GPU faster at N >= {} ({})", cn, label);
+    } else {
+        println!("  Crossover point: GPU did NOT beat Rayon at any tested size");
+        println!("  (Expected: single-block GPU with 1/22 SM utilization)");
+    }
+
+    // Architecture analysis
+    println!("\n  Architecture note:");
+    println!("  Current GPU par_iter uses 1 block (128 threads = 4 warps).");
+    println!("  GTX 1660 has 22 SMs — only ~5% GPU utilization.");
+    println!("  Multi-block dispatch would improve GPU times significantly.");
     println!("====================================================");
 
     Ok(())

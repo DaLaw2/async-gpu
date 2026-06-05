@@ -28,12 +28,14 @@ You MAY do lightweight file discovery (`ls`, `find`, `grep -l`) to assemble navi
 ## Core Loop
 
 ```
-RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE → loop
+RECOVER → GATE → SELECT → DISPATCH → VERIFY → SAVE → ROUTE → loop
 ```
 
 ### GATE
 
-1. **Tier Gate** (`dev-gates.md`): determine which tier is eligible. T(N) must clear before T(N+1) runs.
+1. **Tier Gate** (`dev-gates.md`): determine which tier is eligible.
+   - T(N) must have ALL epics satisfied before T(N+1) tasks become eligible.
+   - **Exception**: infrastructure epics (e.g., gpu-test, developer-showcase) at T0 may run in parallel with T1 core epics. T0 infrastructure does not block T1 work — both tiers are eligible simultaneously.
 2. **Brainstorm triggers** — if any fire, run brainstorm (`dev-brainstorm.md`) before proceeding:
    - `tasks_since_brainstorm >= 10`
    - No ready tasks remain but active epics have unmet criteria
@@ -43,30 +45,44 @@ RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE → loop
 ### SELECT
 
 1. Filter tasks: `status == "pending"` AND deps met AND parent theme `"active"`
-2. Apply tier priority: only tasks belonging to the current eligible tier
-3. **Apply epic priority**: within the eligible tier, prefer tasks from higher-priority epics (`highest > high > medium > low`). If a `highest`-priority epic has eligible tasks, do NOT select tasks from lower-priority epics in the same tier.
+2. Apply tier priority: only tasks belonging to eligible tiers (see GATE)
+3. **Apply epic priority**: within the same tier, prefer tasks from higher-priority epics (`highest > high > medium > low`). If a `highest`-priority epic has eligible tasks, do NOT select tasks from lower-priority epics in the same tier.
 4. If no tasks pass → brainstorm to generate new work, then re-filter. Still empty → report to user, STOP.
-5. Batch: same-theme sequential, cross-theme may parallelize (cross-epic only if same priority)
-6. Set selected tasks → `status = "active"`, update `current_task_id`
+5. **Form one batch**: same-theme sequential, cross-theme may parallelize (cross-epic only if same priority). This batch is a fixed set — do NOT add tasks mid-cycle.
+6. **Classify slots** for each task in the batch:
+   - **Heavy** — experiment tasks under epics that involve GPU kernel code (kernel-side crates, PTX build). Max 2 concurrent.
+   - **Light** — investigation, design, or tasks under host-only / documentation epics. No concurrency limit.
+   - Classify by epic and task kind, not by predicting which files will change.
+7. Set selected tasks → `status = "active"`, update `current_task_id`
 
 ### DISPATCH
 
-See `dev-dispatch.md` for brief templates. For each selected task:
+See `dev-dispatch.md` for brief templates. Send out the entire batch and wait for all results.
 
-1. **Prep** — `ls`, `find`, `grep -l` to locate relevant crates, scripts, entry points. Read dependency task findings. Read context.md Tried & Rejected. Do NOT read source code.
-2. **Execute** — assemble brief, launch task subagent.
+1. **Prep** — for each task: `ls`, `find`, `grep -l` to locate relevant crates, scripts, entry points. Read dependency task findings. Read context.md Tried & Rejected. Do NOT read source code.
+2. **Execute** — assemble briefs, launch subagents respecting slot limits (max 2 heavy, light unlimited). Wait for ALL subagents in the batch to return.
    - Subagent returns: STATUS (done|blocked), SUMMARY, FILES_CHANGED.
    - You read SUMMARY only — not source code or compiler output.
-3. **Blocked** — if STATUS = blocked, mark task blocked and continue to next.
-4. **Verify** — if STATUS = done, dispatch verify subagent.
+3. Update `current_step = "verify"`
+
+### VERIFY
+
+For each task in the batch:
+
+1. **Blocked** → mark blocked, skip.
+2. **Done** → dispatch verify subagent (see `dev-dispatch.md` verify pipeline).
    - PASS → mark task done, increment `tasks_since_brainstorm`, update counters.
-   - FAIL → enter retry: dispatch investigate subagent (diagnosis only), then fix subagent (targeted repair), then re-verify. Second PASS → mark done. Second FAIL → mark blocked.
+   - FAIL → retry cycle:
+     1. Dispatch investigate subagent (diagnosis only, returns DIAGNOSIS + FIX_HINT)
+     2. Dispatch fix subagent (targeted repair, returns STATUS + FILES_CHANGED)
+     3. Re-verify. Second PASS → done. Second FAIL → mark blocked.
+3. Proceed to SAVE only after ALL tasks in the batch are resolved (done or blocked).
 
 ### SAVE
 
 1. Dispatch `/maintain` subagent for relevant sub-commands (including archive)
-2. Run `bash scripts/pre-push.sh` — fix failures via subagent if needed
-3. Commit + push
+2. Run `bash scripts/ci-lint.sh` — fix failures via subagent if needed
+3. Commit + push (only push when ci-lint passes)
 4. Rewrite `.research/context.md`:
    Sections: Current Focus, Recent Decisions, Tried & Rejected, Active Constraints, Key Metrics, Next
 

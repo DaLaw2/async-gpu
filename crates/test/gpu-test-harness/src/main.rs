@@ -426,6 +426,10 @@ fn main() -> Result<()> {
                 tests_par_iter::run_par_iter_1m_test(Arc::clone(&dev))?;
                 return Ok(());
             }
+            "par_iter_bench" | "par_iter_rayon" => {
+                tests_par_iter::run_par_iter_rayon_benchmark(Arc::clone(&dev))?;
+                return Ok(());
+            }
             "kernel_std_smoke" => {
                 run_kernel_std_smoke(Arc::clone(&dev))?;
                 return Ok(());

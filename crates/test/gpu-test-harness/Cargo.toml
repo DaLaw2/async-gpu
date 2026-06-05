@@ -12,6 +12,7 @@ required-features = ["gpt2"]
 [features]
 default = ["gpt2", "demo"]
 demo = ["gpu-host/demo"]
+test-failure-propagation = []
 gpt2 = ["gpu-host/gpt2"]
 nn = ["gpu-host/nn"]
 cublas = ["gpu-host/cublas"]
@@ -20,6 +21,7 @@ async = ["gpu-host/async", "dep:tokio"]
 [dependencies]
 gpu-host = { path = "../../core/gpu-host" }
 cudarc = { version = "0.12", features = ["cuda-12060"] }
+rayon = "1"
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "sync", "macros", "time"], optional = true }
 
 [dev-dependencies]

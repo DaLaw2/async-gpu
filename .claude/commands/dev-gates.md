@@ -9,8 +9,9 @@ Binary pass/fail. No exceptions. No judgment calls.
 - Are ALL success_criteria met for ALL epics at T(N)?
 - If NO → only T(N) tasks are eligible. Skip all T(N+1)+ tasks.
 - If YES → advance to next tier.
-**Exception**: A T(N) epic explicitly blocked on external factors (noted in context.md) may be skipped.
-**Fail action**: Filter task selection to current tier only. Log which criteria are unmet.
+**Infrastructure exception**: T0 infrastructure epics (gpu-test, developer-showcase, etc.) may run in parallel with T1 core epics. T0 infrastructure does not block T1 work — both tiers are eligible simultaneously. T1 must still clear before T2 runs.
+**Blocked exception**: A T(N) epic explicitly blocked on external factors (noted in context.md) may be skipped.
+**Fail action**: Filter task selection to eligible tiers only. Log which criteria are unmet.
 
 ## Gate 2: North Star Gate
 

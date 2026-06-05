@@ -4,8 +4,8 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 621
-completed_tasks = 776
+total_cycles = 622
+completed_tasks = 777
 status = "running"     # ready | running | blocked | completed
 
 # Project North Star — the ONE thing all epics serve:
@@ -14,8 +14,8 @@ status = "running"     # ready | running | blocked | completed
 # No GPU concepts leak. VectorWare's I/O strength + async-gpu's compute strength, unified.
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
-current_step = "dispatch"
-current_task_id = "split-devpath.1"
+current_step = "route"
+current_task_id = ""
 
 # Sequence counters
 brainstorm_seq = 119
@@ -61,7 +61,7 @@ success_criteria = [
 id = "kernel-split"
 title = "Kernel Crate Split — break gpu-kernel-std into per-feature crates"
 tier = 0
-status = "active"
+status = "completed"
 priority = "highest"
 # North Star: Changing one kernel doesn't recompile the world.
 #   Each feature area (compute, hostcall, test, SC, etc.) is its own kernel crate

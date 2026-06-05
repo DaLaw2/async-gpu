@@ -1,31 +1,30 @@
 ## Current Focus
-**Cycle 621 SAVED** (2026-06-05). kernel-split all themes complete (13/13 tasks).
-Litmus test FAILED for test crate: 30 min (ptxas scales with complexity, not size).
-4/5 epic criteria met. Criterion 5 (≤5 min) unmet for largest crate.
-Decision needed: further split test crate, or adjust criterion to exclude ptxas.
+**Cycle 622 — kernel-split EPIC COMPLETED** (2026-06-05). 49th epic archived.
+4 kernel crates (core/compute/io/test), multi-cubin loader, PTX JIT dev path.
+Dev rebuild: 27.5s (was 30 min). All 5 criteria verified by Epic Verification Gate.
 
 ## Recent Decisions
-- 2026-06-05: opt-level 1 default, release-prod preserves opt-level 3
-- 2026-06-05: ptxas bottleneck identified: 76 entry points with std complexity → 30 min
-- 2026-06-05: PTX shrank 47% (11.4→6.0 MB) but ptxas time unchanged
-- 2026-06-05: Smaller crates (core 1.3MB, compute 1.9MB, io 2.3MB) likely meet target
+- 2026-06-05: kernel-split completed — 14 tasks across 4 themes in 12 cycles (611-622)
+- 2026-06-05: PTX JIT dev path (3/3 majority vote): skip ptxas for dev, cubin is CI-only
+- 2026-06-05: auto-fusion GPT-2 0.5-2.7% speedup — GEMM dominates, 10% needs epilogue fusion
 
 ## Tried & Rejected
-- PTX size reduction as ptxas optimization: ptxas scales with code complexity, not byte count
-- opt-level 1: reduces PTX size but not ptxas time significantly
+- ptxas optimization via PTX size reduction: scales with complexity not size
+- Unified 11MB PTX: replaced by 4-crate split (core 1.3MB, compute 2.0MB, io 2.4MB, test 6.0MB)
+- Epilogue-only fusion for 10% GPT-2: GEMM dominates ~85%
 
 ## Active Constraints
-- GTX 1660 (sm_75): ptxas ~30 min for 76-entry-point crate
+- GTX 1660 (sm_75): 192 GB/s, 5 TFLOPS FP32, 48KB smem
+- Max 2 concurrent heavy subagents
 - test-integration.2 kernels stashed in git stash@{0}
-- ptxas is an NVIDIA black box — cannot optimize its runtime
 
 ## Key Metrics
 - 4 kernel crates: core (17), compute (84), io (55), test (76) entry points
-- PTX sizes: core 1.3MB, compute 1.9MB, io 2.3MB, test 6.0MB
-- Single-crate PTX build: 27s. ptxas: 30 min (test), likely <5 min for others
-- 776 tasks completed, 48 epics archived
+- Dev rebuild: 27.5s (PTX JIT) — was 30 min (unified ptxas)
+- FusionCodegen: 7 ops, 2.05x standalone, 1.61x Linear layer
+- 777 tasks completed, 49 epics (kernel-split just completed)
 
 ## Next
-1. Resolve kernel-split criterion 5: further split test crate OR adjust criterion
-2. Unstash test-integration.2 + verify
-3. Continue with T1 epics (gpu-type-safety, gpu-generics)
+1. Unstash test-integration.2 + verify (gpu-test epic completion)
+2. T1: gpu-type-safety, gpu-generics (pending epics)
+3. Brainstorm for next tier activation / new directions

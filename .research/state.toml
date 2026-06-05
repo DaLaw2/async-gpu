@@ -4,8 +4,8 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 629
-completed_tasks = 789
+total_cycles = 630
+completed_tasks = 791
 status = "running"     # ready | running | blocked | completed
 
 # Project North Star — the ONE thing all epics serve:
@@ -18,8 +18,8 @@ current_step = "save"
 current_task_id = ""
 
 # Sequence counters
-brainstorm_seq = 122
-tasks_since_brainstorm = 4
+brainstorm_seq = 123
+tasks_since_brainstorm = 2
 
 # ============================================================
 # Epics — Tiered (T0 → T3), sorted by tier then priority
@@ -142,7 +142,7 @@ success_criteria = [
 id = "unified-runtime"
 title = "Unified Runtime — one async fn spans CPU and GPU transparently"
 tier = 2
-status = "pending"
+status = "active"
 priority = "medium"
 success_criteria = [
     "Scheduler types (CpuScheduler, GpuScheduler, AutoScheduler) route work by affinity",
@@ -443,6 +443,43 @@ goal = "Show composable GPU code via generics"
 success_criteria = [
     "parallel_reduce<T: Reducible> works for f32, i32, custom types",
     "Performance matches concrete-type implementation",
+]
+
+# --- T2: unified-runtime themes ---
+
+[[themes]]
+id = "unified-scheduler"
+epic = "unified-runtime"
+title = "Scheduler type system — CpuScheduler, GpuScheduler, AutoScheduler"
+status = "active"
+goal = "Route work to CPU or GPU based on explicit affinity or automatic heuristics"
+success_criteria = [
+    "CpuScheduler routes work to tokio/std async runtime",
+    "GpuScheduler routes work to gpu::run / gpu::launch kernel dispatch",
+    "AutoScheduler uses work type heuristics (I/O → CPU, bulk compute → GPU)",
+]
+
+[[themes]]
+id = "unified-transfer"
+epic = "unified-runtime"
+title = "Automatic data transfer — zero-copy where possible, transparent memcpy elsewhere"
+status = "active"
+goal = "Data moves between host and device transparently — no manual cudaMemcpy"
+success_criteria = [
+    "Vec<f32> on host automatically available to GPU kernel code",
+    "Results from GPU kernel automatically readable on host",
+    "No explicit MappedBuffer/cudaMemcpy in user code",
+]
+
+[[themes]]
+id = "unified-demo"
+epic = "unified-runtime"
+title = "End-to-end pipeline demo — read → compute → write, zero GPU concepts"
+status = "pending"
+goal = "Demonstrate full North Star: read → compute → write with zero GPU concepts visible"
+success_criteria = [
+    "Demo: read → compute → write pipeline, zero explicit memory management",
+    "Performance within 2x of hand-optimized MappedBuffer + gpu::launch path",
 ]
 
 # --- T2: gpu-hot-reload themes ---
@@ -789,6 +826,76 @@ title = "Experiment: generic parallel_reduce<T: Reducible> — f32, i32, custom 
 kind = "experiment"
 status = "done"
 depends = ["gen-traits.1"]
+
+# --- unified-runtime: scheduler ---
+
+[[tasks]]
+id = "unified-scheduler.1"
+theme = "unified-scheduler"
+title = "Investigation: scheduler architecture — CpuScheduler/GpuScheduler/AutoScheduler design"
+kind = "investigation"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "unified-scheduler.2"
+theme = "unified-scheduler"
+title = "Experiment: implement CpuScheduler + GpuScheduler with explicit affinity routing"
+kind = "experiment"
+status = "pending"
+depends = ["unified-scheduler.1"]
+
+[[tasks]]
+id = "unified-scheduler.3"
+theme = "unified-scheduler"
+title = "Experiment: AutoScheduler with work type heuristics (I/O → CPU, compute → GPU)"
+kind = "experiment"
+status = "pending"
+depends = ["unified-scheduler.2"]
+
+# --- unified-runtime: transfer ---
+
+[[tasks]]
+id = "unified-transfer.1"
+theme = "unified-transfer"
+title = "Investigation: automatic data transfer architecture — GpuBuffer<T> with location tracking"
+kind = "investigation"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "unified-transfer.2"
+theme = "unified-transfer"
+title = "Experiment: transparent host ↔ device transfer — From<Vec<T>> / Into<Vec<T>>"
+kind = "experiment"
+status = "pending"
+depends = ["unified-transfer.1"]
+
+[[tasks]]
+id = "unified-transfer.3"
+theme = "unified-transfer"
+title = "Experiment: lazy transfer + redundancy elimination — skip unnecessary copies"
+kind = "experiment"
+status = "pending"
+depends = ["unified-transfer.2"]
+
+# --- unified-runtime: demo ---
+
+[[tasks]]
+id = "unified-demo.1"
+theme = "unified-demo"
+title = "Experiment: read → compute → write pipeline with zero GPU concepts in user code"
+kind = "experiment"
+status = "pending"
+depends = ["unified-scheduler.2", "unified-transfer.2"]
+
+[[tasks]]
+id = "unified-demo.2"
+theme = "unified-demo"
+title = "Experiment: performance benchmark + AutoScheduler choosing GPU for compute, CPU for I/O"
+kind = "experiment"
+status = "pending"
+depends = ["unified-scheduler.3", "unified-demo.1"]
 
 # --- gpu-hot-reload ---
 
@@ -1188,32 +1295,7 @@ depends = ["om-demo.1"]
 # Brainstorms (last 2 — older → archive/)
 # ============================================================
 
-# Brainstorms 109-118 archived (cycles 535-611)
-
-[[brainstorms]]
-seq = 119
-at_cycle = 617
-trigger = "tasks_since_brainstorm=10 + split-execute theme completed"
-level = "standard"
-new_tasks_spawned = []
-new_themes_spawned = []
-new_epics_spawned = []
-themes_parked = []
-themes_completed = ["split-design", "split-execute"]
-key_insight = "split-execute complete: 4 kernel crates (core/compute/io/test) all produce valid PTX. No new tasks needed — split-loader has 5 ready tasks. auto-fusion epic has all themes done but GPT-2 10% unmet (GEMM dominates); parking for now, needs GEMM epilogue fusion which is a different engineering effort."
-
-[[brainstorms]]
-seq = 120
-at_cycle = 622
-trigger = "kernel-split epic completed + gpu-iterator highest no eligible tasks + auto-fusion assessment"
-level = "standard"
-new_tasks_spawned = ["iter-demo.3", "iter-demo.4", "iter-demo.5"]
-new_themes_spawned = ["split-devpath"]
-new_epics_spawned = []
-themes_parked = []
-themes_completed = ["split-loader", "split-devpath", "iter-demo"]
-epics_completed = ["kernel-split", "auto-fusion"]
-key_insight = "kernel-split + auto-fusion epics closed (49th+50th). gpu-iterator needs multi-block dispatch (single-block 5-1178x slower than Rayon). gpu-type-safety activated (DisjointSlice + ThreadIndex). 3 new iter-demo tasks for multi-block performance."
+# Brainstorms 109-120 archived (cycles 535-622)
 
 [[brainstorms]]
 seq = 121
@@ -1240,3 +1322,16 @@ themes_parked = []
 themes_completed = ["safety-types", "safety-tiers", "safety-apply"]
 epics_completed = ["gpu-type-safety"]
 key_insight = "gpu-generics is likely fast since monomorphization already works for library types. unified-runtime queued as first T2 (IS the North Star). hardware-intrinsics blocked by sm_75 hardware."
+
+[[brainstorms]]
+seq = 123
+at_cycle = 629
+trigger = "T1 fully cleared (4 epics: SC, type-safety, iterator, generics). T2 tier activation."
+level = "standard"
+new_tasks_spawned = ["unified-scheduler.1", "unified-scheduler.2", "unified-scheduler.3", "unified-transfer.1", "unified-transfer.2", "unified-transfer.3", "unified-demo.1", "unified-demo.2"]
+new_themes_spawned = ["unified-scheduler", "unified-transfer", "unified-demo"]
+new_epics_spawned = []
+themes_parked = []
+themes_completed = ["gen-mono", "gen-traits", "gen-demo"]
+epics_completed = ["gpu-generics"]
+key_insight = "T1 fully cleared (54 epics). unified-runtime is THE synthesis epic — it wires BlockScope, par_iter, hostcall, DisjointSlice, and generics into one async fn that spans CPU+GPU with zero GPU concepts. First dispatch: two parallel investigations (scheduler + transfer)."

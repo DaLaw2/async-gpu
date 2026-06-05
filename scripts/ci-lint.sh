@@ -27,13 +27,13 @@ for f in $PTX_STUBS; do
 done
 
 # --- fmt checks ---
-CRATES_FMT="async-gpu core/gpu-host core/gpu-protocol core/gpu-atomics core/gpu-runtime core/gpu-libc test/gpu-test-harness"
+CRATES_FMT="async-gpu core/gpu-host core/gpu-protocol core/gpu-atomics core/gpu-runtime core/gpu-libc test/gpu-test-harness test/gpu-test-macro"
 for c in $CRATES_FMT; do
     run "fmt $(basename $c)" "cargo +stable fmt --manifest-path crates/$c/Cargo.toml -- --check"
 done
 
 # --- clippy checks (stable-compatible crates only) ---
-CRATES_CLIPPY="async-gpu core/gpu-host core/gpu-protocol core/gpu-atomics core/gpu-runtime"
+CRATES_CLIPPY="async-gpu core/gpu-host core/gpu-protocol core/gpu-atomics core/gpu-runtime test/gpu-test-macro"
 for c in $CRATES_CLIPPY; do
     run "clippy $(basename $c)" "cargo +stable clippy --manifest-path crates/$c/Cargo.toml -- -D warnings"
 done
@@ -56,6 +56,7 @@ run "check async-gpu" "cargo +stable check --manifest-path crates/async-gpu/Carg
 run "check async-gpu+nn" "cargo +stable check --manifest-path crates/async-gpu/Cargo.toml --features nn"
 run "check gpu-host" "cargo +stable check --manifest-path crates/core/gpu-host/Cargo.toml"
 run "check gpu-test-harness" "cargo +stable check --manifest-path crates/test/gpu-test-harness/Cargo.toml --features gpt2"
+run "check gpu-test-macro" "cargo +stable check --manifest-path crates/test/gpu-test-macro/Cargo.toml"
 
 # --- PTX kernel builds (nightly + nvptx64) ---
 # Must cd into each dir so .cargo/config.toml (target, build-std) is picked up.

@@ -254,13 +254,30 @@ pub fn run_zero_param_with_config(
     threads_per_block: u32,
     grid_dim: (u32, u32, u32),
 ) -> Result<()> {
+    run_zero_param_with_cubin(ptx_src, &[], kernel_name, threads_per_block, grid_dim)
+}
+
+/// Launch a zero-parameter kernel with a pre-compiled cubin for fast loading.
+///
+/// If `cubin` is non-empty, loads the cubin directly (sub-second) instead of
+/// JIT-compiling the PTX (10+ minutes for large kernel PTX). Falls back to
+/// PTX JIT if the cubin load fails (e.g., architecture mismatch).
+///
+/// See [`run_zero_param`] for details on the zero-param launch protocol.
+pub fn run_zero_param_with_cubin(
+    ptx_src: &str,
+    cubin: &[u8],
+    kernel_name: &'static str,
+    threads_per_block: u32,
+    grid_dim: (u32, u32, u32),
+) -> Result<()> {
     use cudarc::driver::sys::{self, lib as cuda_lib};
     use std::ffi::CString;
 
     // Initialize CUDA context via cudarc (this handles cuInit, context creation, etc.)
     let dev = CudaDevice::new(0).map_err(GpuHostError::CudaInit)?;
 
-    let effective_cubin: &[u8] = &[];
+    let effective_cubin: &[u8] = cubin;
 
     let cu_module: sys::CUmodule = unsafe { load_module_cubin_or_ptx(ptx_src, effective_cubin)? };
 

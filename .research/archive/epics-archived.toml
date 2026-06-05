@@ -597,3 +597,24 @@ success_criteria = [
     "Benchmark harness in examples/std/benchmark/ with reproducible results",
     "Results documented with improvement targets (which kernels have most headroom)",
 ]
+
+# Archived at cycle 607 — developer-showcase epic completed
+
+[[epics]]
+id = "developer-showcase"
+title = "Developer Showcase — examples, API surface, and README for all shipped features"
+tier = 0
+status = "completed"
+priority = "highest"
+# North Star: Every shipped feature has a clean example and is discoverable in README.
+#   A new developer sees what async-gpu can do in 5 minutes of reading.
+#   Hidden features (SC, channels, executor) become first-class user-facing APIs.
+# Litmus Test: A Rust dev reads the README, picks any feature, finds a working example,
+#   and uses the API from the async-gpu facade without reading internal crates.
+success_criteria = [
+    "Structured Concurrency (BlockScope/GridScope/GpuChannel) has standalone example + facade re-exports",
+    "README has feature matrix, performance table, and progressive code snippets",
+    "GPU channels and executor have clean examples demonstrating async GPU programming",
+    "Every major feature category has at least one clean, documented example",
+    "Two-facade architecture: async-gpu re-exports host API (gpu::run/launch/custom), gpu-runtime provides kernel-side types (scopes, channels, executor) via prelude",
+]

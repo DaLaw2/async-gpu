@@ -4,6 +4,7 @@ members = [
     "crates/core/gpu-host",
     "crates/core/gpu-protocol",
     "crates/test/gpu-test-harness",
+    "crates/test/gpu-test-macro",
 ]
 resolver = "2"
 exclude = ["patched-rustc", "rustc-src"]

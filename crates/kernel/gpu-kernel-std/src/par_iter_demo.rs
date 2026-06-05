@@ -322,8 +322,188 @@ pub unsafe extern "gpu-kernel" fn par_iter_filter_map_sum(
         // loop body per warp — no intermediate buffers.
         let total: f32 = src
             .par_iter()
-            .filter(|x: &f32| *x > threshold)
+            .filter(move |x: &f32| *x > threshold)
             .map(|x: f32| x * x)
+            .sum();
+
+        if gpu_runtime::index::thread_idx_x() == 0 {
+            let bits = total.to_bits();
+            unsafe {
+                core::ptr::write_volatile(result, bits);
+                core::ptr::write_volatile(result.add(1), 1); // done flag
+            }
+        }
+    });
+}
+
+// ============================================================
+// Demo 7: chained map + collect_into (two separate .map() calls)
+// ============================================================
+//
+// Applies f(x) = (x * 2.0) then g(x) = (x + 1.0) via TWO separate
+// .map() calls chained at the type level. The Rust compiler fuses
+// GpuMap<GpuMap<GpuParIter<f32>, C1>, C2> into a single inline
+// get_unchecked() call: g(f(read_volatile(ptr)))
+//
+// This is the core zero-intermediate-buffer proof: two explicit .map()
+// adapters produce ZERO intermediate buffers at runtime because Rust
+// monomorphization + LLVM inlining composes them into a single expression.
+//
+// Expected: output[i] = input[i] * 2.0 + 1.0
+//
+// # Arguments
+// * `input`  - N f32 input values
+// * `output` - N f32 output values (pre-allocated)
+// * `n`      - number of elements
+// * `status` - 1 u32 done flag
+//
+// # Launch config
+// * Grid: (1, 1, 1)
+// * Block: (128, 1, 1) — 4 warps
+// * Shared memory: 512 bytes
+
+/// Chained iterator fusion: map(|x| x * 2.0).map(|x| x + 1.0).collect_into()
+#[no_mangle]
+pub unsafe extern "gpu-kernel" fn par_iter_chained_map_collect(
+    input: *const f32,
+    output: *mut f32,
+    n: u32,
+    status: *mut u32,
+) {
+    thread::gpu_main(|| {
+        unsafe {
+            init_shared_mem_allocator(512);
+        }
+
+        let len = n as usize;
+        let src = unsafe { GpuSlice::from_raw_parts(input, len) };
+        let dst = unsafe { GpuSliceMut::from_raw_parts(output, len) };
+
+        // KEY: Two separate .map() calls, NOT a single closure.
+        // At compile time this creates GpuMap<GpuMap<GpuParIter<f32>, C1>, C2>.
+        // LLVM inlines the nested get_unchecked() chain into:
+        //   let x = read_volatile(ptr.add(i));
+        //   write_volatile(out.add(i), (x * 2.0) + 1.0);
+        // Zero intermediate buffers, zero heap allocation.
+        src.par_iter()
+            .map(|x: f32| x * 2.0)
+            .map(|x: f32| x + 1.0)
+            .collect_into(dst);
+
+        if gpu_runtime::index::thread_idx_x() == 0 {
+            unsafe {
+                core::ptr::write_volatile(status, 1);
+            }
+        }
+    });
+}
+
+// ============================================================
+// Demo 8: map + filter + count (chained map-into-filter)
+// ============================================================
+//
+// Squares each element, then counts how many exceed a threshold.
+// Demonstrates: GpuFilter<GpuMap<GpuParIter<f32>, C1>, C2>.count()
+//
+// The .map() fuses with the filter predicate: each warp computes
+// x*x and checks > threshold in a single pass, no intermediate buffer.
+//
+// Expected: result[0] = count of elements where input[i]^2 > threshold
+//           result[1] = done flag
+//
+// # Arguments
+// * `input`          - N f32 input values
+// * `n`              - number of elements
+// * `threshold_bits` - f32 threshold as u32 bits
+// * `result`         - output: [count, done_flag]
+//
+// # Launch config
+// * Grid: (1, 1, 1)
+// * Block: (128, 1, 1) — 4 warps
+// * Shared memory: 512 bytes
+
+/// Chained fusion: map(|x| x * x).filter(|x| *x > threshold).count()
+#[no_mangle]
+pub unsafe extern "gpu-kernel" fn par_iter_map_filter_count(
+    input: *const f32,
+    n: u32,
+    threshold_bits: u32,
+    result: *mut u32,
+) {
+    thread::gpu_main(|| {
+        unsafe {
+            init_shared_mem_allocator(512);
+        }
+
+        let len = n as usize;
+        let threshold = f32::from_bits(threshold_bits);
+        let src = unsafe { GpuSlice::from_raw_parts(input, len) };
+
+        // Chain: map(square) → filter(> threshold) → count.
+        // The map is fused into the filter's iteration — get_unchecked(i)
+        // returns x*x, then the filter predicate checks > threshold.
+        // Zero intermediate buffers.
+        let count = src
+            .par_iter()
+            .map(|x: f32| x * x)
+            .filter(move |x: &f32| *x > threshold)
+            .count();
+
+        if gpu_runtime::index::thread_idx_x() == 0 {
+            unsafe {
+                core::ptr::write_volatile(result, count as u32);
+                core::ptr::write_volatile(result.add(1), 1); // done flag
+            }
+        }
+    });
+}
+
+// ============================================================
+// Demo 9: triple map + sum (deep fusion chain)
+// ============================================================
+//
+// Three separate .map() calls chained then reduced via .sum().
+// Demonstrates deeper fusion: GpuMap<GpuMap<GpuMap<GpuParIter>>>.
+//
+// Pipeline: x → x + 1.0 → x * 3.0 → x - 0.5 → sum
+// Equivalent to: sum( (input[i] + 1.0) * 3.0 - 0.5 )
+//
+// Expected: result[0] = sum_bits (f32 as u32)
+//           result[1] = done flag
+//
+// # Arguments
+// * `input`  - N f32 input values
+// * `n`      - number of elements
+// * `result` - output: [sum_bits, done_flag]
+//
+// # Launch config
+// * Grid: (1, 1, 1)
+// * Block: (128, 1, 1) — 4 warps
+// * Shared memory: 512 bytes
+
+/// Deep fusion: map().map().map().sum() — three chained maps
+#[no_mangle]
+pub unsafe extern "gpu-kernel" fn par_iter_triple_map_sum(
+    input: *const f32,
+    n: u32,
+    result: *mut u32,
+) {
+    thread::gpu_main(|| {
+        unsafe {
+            init_shared_mem_allocator(512);
+        }
+
+        let len = n as usize;
+        let src = unsafe { GpuSlice::from_raw_parts(input, len) };
+
+        // Three chained maps: all fused into a single expression per element.
+        // GpuMap<GpuMap<GpuMap<GpuParIter<f32>, C1>, C2>, C3>
+        // → get_unchecked(i) = ((read_volatile(ptr.add(i)) + 1.0) * 3.0) - 0.5
+        let total: f32 = src
+            .par_iter()
+            .map(|x: f32| x + 1.0)
+            .map(|x: f32| x * 3.0)
+            .map(|x: f32| x - 0.5)
             .sum();
 
         if gpu_runtime::index::thread_idx_x() == 0 {

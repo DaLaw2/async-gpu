@@ -1264,3 +1264,54 @@ success_criteria = [
     "Progressive snippets: hello → cooperative → SC pipeline",
     "Getting-started guide updated with SC and channels",
 ]
+
+# Archived at cycle 607 — gpu-iterator + auto-fusion themes completed
+
+[[themes]]
+id = "iter-design"
+epic = "gpu-iterator"
+title = "Iterator API design — ParallelIterator trait for GPU"
+status = "completed"
+goal = "Design gpu::par_iter() that maps Rust iterator semantics to GPU execution"
+success_criteria = [
+    "ParallelIterator trait with map, filter, fold, collect methods",
+    "Closure capture semantics defined (what can be captured, how it's transferred to GPU)",
+    "MIR pass transformation strategy designed (iterator chain → fused GPU kernel)",
+]
+
+[[themes]]
+id = "iter-compiler"
+epic = "gpu-iterator"
+title = "MIR pass — iterator chain to GPU kernel compilation"
+status = "completed"
+goal = "Compile iterator chains into warp-parallel GPU kernels via MIR transformation"
+success_criteria = [
+    "map() body transformed into per-lane computation",
+    "filter() compiled to warp ballot + compaction",
+    "fold()/reduce() compiled to warp shuffle reduction",
+    "collect() handles dynamic output sizing via atomic counter",
+]
+
+[[themes]]
+id = "iter-runtime"
+epic = "gpu-iterator"
+title = "Iterator runtime — GPU execution of compiled iterator chains"
+status = "completed"
+goal = "Warp-parallel execution of iterator bodies with correct memory management"
+success_criteria = [
+    "Input data partitioned across warps/blocks automatically",
+    "Output buffer allocated and managed for collect()",
+    "Chained operations execute in single kernel (no intermediate buffers)",
+]
+
+[[themes]]
+id = "fusion-analysis"
+epic = "auto-fusion"
+title = "Fusion analysis — MIR pattern matching for fusable op chains"
+status = "completed"
+goal = "Identify elementwise operation chains that can be fused into single kernels"
+success_criteria = [
+    "Pattern matcher identifies consecutive elementwise ops in MIR",
+    "Handles cross-function boundaries (inlined closures, trait method calls)",
+    "Fusion graph built with data flow dependencies",
+]

@@ -6,6 +6,7 @@ mod tests_cnn;
 mod tests_gemm;
 mod tests_hostcall;
 mod tests_inference;
+mod tests_par_iter;
 mod tests_pipeline;
 mod tests_scaling;
 mod tests_search;
@@ -415,6 +416,14 @@ fn main() -> Result<()> {
             }
             "std_thread_minimal" => {
                 run_std_thread_spawn_minimal(Arc::clone(&dev))?;
+                return Ok(());
+            }
+            "par_iter" | "par_iter_fusion" => {
+                tests_par_iter::run_all_par_iter_tests(Arc::clone(&dev))?;
+                return Ok(());
+            }
+            "par_iter_1m" => {
+                tests_par_iter::run_par_iter_1m_test(Arc::clone(&dev))?;
                 return Ok(());
             }
             "kernel_std_smoke" => {

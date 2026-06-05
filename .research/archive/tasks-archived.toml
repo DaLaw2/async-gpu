@@ -3588,3 +3588,29 @@ title = "Experiment: update getting-started guide with SC, channels, executor se
 kind = "experiment"
 status = "done"
 depends = ["showcase-sc.1", "showcase-channels.1"]
+
+# Archived at cycle 607 — done tasks (iter, fusion, test-framework)
+
+[[tasks]]
+id = "test-framework.1"
+theme = "test-framework"
+title = "Investigation: design #[gpu_test] proc macro — kernel generation + host runner pattern"
+kind = "investigation"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "iter-runtime.2"
+theme = "iter-runtime"
+title = "Experiment: chained iterator fusion — zero intermediate buffers in pipeline"
+kind = "experiment"
+status = "done"
+depends = ["iter-runtime.1", "iter-compiler.2"]
+
+[[tasks]]
+id = "fusion-codegen.2"
+theme = "fusion-codegen"
+title = "Experiment: generate fused PTX from fusion graph — multiply+add+activation chain"
+kind = "experiment"
+status = "done"
+depends = ["fusion-codegen.1", "fusion-analysis.3"]

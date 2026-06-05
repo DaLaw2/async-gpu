@@ -21,3 +21,6 @@ async = ["gpu-host/async", "dep:tokio"]
 gpu-host = { path = "../../core/gpu-host" }
 cudarc = { version = "0.12", features = ["cuda-12060"] }
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "sync", "macros", "time"], optional = true }
+
+[dev-dependencies]
+gpu-test-macro = { path = "../gpu-test-macro" }

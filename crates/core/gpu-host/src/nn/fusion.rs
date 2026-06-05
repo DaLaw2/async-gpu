@@ -80,6 +80,8 @@ pub enum FusedOpKind {
     ElemAddLayerNorm,
     /// Matmul + BiasAdd — GEMM epilogue fusion.
     MatmulBias,
+    /// Generic fused elementwise chain (2-5 ops) — NVRTC codegen.
+    ElementwiseChain(Vec<OpKind>),
 }
 
 impl fmt::Display for FusedOpKind {
@@ -88,6 +90,9 @@ impl fmt::Display for FusedOpKind {
             Self::MatmulBiasGelu => write!(f, "MatmulBiasGelu"),
             Self::ElemAddLayerNorm => write!(f, "ElemAddLayerNorm"),
             Self::MatmulBias => write!(f, "MatmulBias"),
+            Self::ElementwiseChain(ops) => {
+                write!(f, "ElementwiseChain({ops:?})")
+            }
         }
     }
 }
@@ -147,7 +152,7 @@ fn pattern_catalog() -> Vec<FusionPattern> {
 fn single_consumer(producer: &TapeEntry, ref_counts: &HashMap<TensorId, usize>) -> bool {
     ref_counts
         .get(&producer.output)
-        .map_or(true, |&count| count == 1)
+        .is_none_or(|&count| count == 1)
 }
 
 /// Check whether the consumer reads the producer's output as one of its inputs,
@@ -260,6 +265,8 @@ impl FusionOptimizer {
     /// Try to match any pattern starting at position `start`.
     ///
     /// Returns the best (highest priority, longest) matching group, or `None`.
+    /// Fixed patterns (P1/P3/P4) are tried first, then a generic elementwise
+    /// chain match (P10) as fallback.
     fn try_match(
         &self,
         tape: &[TapeEntry],
@@ -310,11 +317,346 @@ impl FusionOptimizer {
             }
         }
 
+        // Fallback: generic elementwise chain (P10).
+        // Greedily extend from `start` as long as consecutive elementwise ops
+        // are connected by data-flow and have no fan-out.
+        if classify(tape[start].op) == OpClass::Elementwise {
+            let mut end = start + 1;
+            while end < tape.len()
+                && end - start < 5
+                && classify(tape[end].op) == OpClass::Elementwise
+                && data_flows(&tape[end - 1], &tape[end])
+                && single_consumer(&tape[end - 1], ref_counts)
+            {
+                end += 1;
+            }
+            if end - start >= 2 {
+                let ops: Vec<OpKind> = tape[start..end].iter().map(|e| e.op).collect();
+                return Some(FusionGroup {
+                    start,
+                    end,
+                    fused_op: FusedOpKind::ElementwiseChain(ops),
+                    inputs: tape[start].inputs.clone(),
+                    output: tape[end - 1].output,
+                });
+            }
+        }
+
         None
     }
 }
 
 impl Default for FusionOptimizer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Fusion codegen — NVRTC-based fused elementwise kernel generation
+// ---------------------------------------------------------------------------
+
+/// A compiled fused kernel's module and function names for device lookup.
+#[derive(Clone, Debug)]
+struct CompiledFusedKernel {
+    module_name: String,
+    func_name: String,
+}
+
+/// Extra parameter descriptor for ops that need additional device buffers
+/// (e.g., bias vectors for BiasAdd, addend vectors for ElemAdd).
+#[derive(Clone, Debug)]
+pub struct ExtraParam {
+    /// Index into the extra-params slice passed at launch time.
+    pub idx: usize,
+    /// Whether this param also carries a `n_cols` size argument.
+    pub has_n_cols: bool,
+}
+
+/// Thread-safe cache and codegen engine for fused elementwise kernels.
+///
+/// Generates CUDA C source from a chain of elementwise ops, compiles via
+/// NVRTC, caches by hash, and provides a launch helper.
+pub struct FusionCodegen {
+    cache: std::sync::Mutex<HashMap<u64, CompiledFusedKernel>>,
+}
+
+impl FusionCodegen {
+    /// Create a new codegen engine with an empty cache.
+    pub fn new() -> Self {
+        Self {
+            cache: std::sync::Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Compute a cache key from the op chain and any shape-affecting params.
+    fn cache_key(ops: &[OpKind], n_cols_params: &[usize]) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        ops.hash(&mut hasher);
+        n_cols_params.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    /// Fixed function name used for all fused kernels.
+    ///
+    /// cudarc's `load_ptx` requires `&'static str` for function names, so we
+    /// use a single static name and differentiate kernels by module name
+    /// (which accepts dynamic `&str`).
+    const FUNC_NAME: &'static str = "fused_kernel";
+
+    /// Generate CUDA C source for a fused elementwise chain.
+    ///
+    /// Returns `(cuda_source, func_name, extra_param_descriptors)`.
+    ///
+    /// The generated kernel signature is:
+    /// ```text
+    /// __global__ void fused_kernel(
+    ///     const float* input, float* output,
+    ///     [const float* bias_0, unsigned int n_cols_0,]  // if BiasAdd
+    ///     [const float* addend_0,]                       // if ElemAdd
+    ///     ...
+    ///     unsigned int n
+    /// )
+    /// ```
+    pub fn codegen(
+        ops: &[OpKind],
+        n_cols_params: &[usize],
+        _key: u64,
+    ) -> (String, String, Vec<ExtraParam>) {
+        let func_name = Self::FUNC_NAME.to_string();
+        let mut extra_params_decl = Vec::new();
+        let mut extra_params_desc = Vec::new();
+        let mut float4_body = String::new();
+        let mut scalar_body = String::new();
+        let mut param_idx = 0usize;
+        let mut n_cols_idx = 0usize;
+
+        for &op in ops {
+            match op {
+                OpKind::BiasAdd => {
+                    let p = param_idx;
+                    let nc = n_cols_params[n_cols_idx];
+                    n_cols_idx += 1;
+                    extra_params_decl.push(format!(
+                        "    const float* __restrict__ bias_{p},\n    unsigned int n_cols_{p}"
+                    ));
+                    extra_params_desc.push(ExtraParam {
+                        idx: p,
+                        has_n_cols: true,
+                    });
+                    // Float4 path: need per-element column index
+                    float4_body.push_str(&format!(
+                        r#"
+        // BiasAdd (param {p}, n_cols={nc})
+        {{
+            v.x += bias_{p}[(idx    ) % n_cols_{p}];
+            v.y += bias_{p}[(idx + 1) % n_cols_{p}];
+            v.z += bias_{p}[(idx + 2) % n_cols_{p}];
+            v.w += bias_{p}[(idx + 3) % n_cols_{p}];
+        }}
+"#
+                    ));
+                    scalar_body.push_str(&format!(
+                        r#"
+            // BiasAdd (param {p})
+            val += bias_{p}[i % n_cols_{p}];
+"#
+                    ));
+                    param_idx += 1;
+                }
+                OpKind::ElemAdd => {
+                    let p = param_idx;
+                    extra_params_decl.push(format!("    const float* __restrict__ addend_{p}"));
+                    extra_params_desc.push(ExtraParam {
+                        idx: p,
+                        has_n_cols: false,
+                    });
+                    float4_body.push_str(&format!(
+                        r#"
+        // ElemAdd (param {p})
+        {{
+            float4 av = *reinterpret_cast<const float4*>(&addend_{p}[idx]);
+            v.x += av.x;
+            v.y += av.y;
+            v.z += av.z;
+            v.w += av.w;
+        }}
+"#
+                    ));
+                    scalar_body.push_str(&format!(
+                        r#"
+            // ElemAdd (param {p})
+            val += addend_{p}[i];
+"#
+                    ));
+                    param_idx += 1;
+                }
+                OpKind::Gelu => {
+                    float4_body.push_str(
+                        r#"
+        // GELU approximation
+        {
+            const float SQRT_2_OVER_PI = 0.7978845608f;
+            const float COEFF = 0.044715f;
+            float4 tmp;
+            tmp.x = SQRT_2_OVER_PI * (v.x + COEFF * v.x * v.x * v.x);
+            tmp.y = SQRT_2_OVER_PI * (v.y + COEFF * v.y * v.y * v.y);
+            tmp.z = SQRT_2_OVER_PI * (v.z + COEFF * v.z * v.z * v.z);
+            tmp.w = SQRT_2_OVER_PI * (v.w + COEFF * v.w * v.w * v.w);
+            v.x = 0.5f * v.x * (1.0f + tanhf(tmp.x));
+            v.y = 0.5f * v.y * (1.0f + tanhf(tmp.y));
+            v.z = 0.5f * v.z * (1.0f + tanhf(tmp.z));
+            v.w = 0.5f * v.w * (1.0f + tanhf(tmp.w));
+        }
+"#,
+                    );
+                    scalar_body.push_str(
+                        r#"
+            // GELU approximation
+            {
+                const float SQRT_2_OVER_PI = 0.7978845608f;
+                const float COEFF = 0.044715f;
+                float tmp = SQRT_2_OVER_PI * (val + COEFF * val * val * val);
+                val = 0.5f * val * (1.0f + tanhf(tmp));
+            }
+"#,
+                    );
+                }
+                OpKind::Relu => {
+                    float4_body.push_str(
+                        r#"
+        // ReLU
+        v.x = fmaxf(v.x, 0.0f);
+        v.y = fmaxf(v.y, 0.0f);
+        v.z = fmaxf(v.z, 0.0f);
+        v.w = fmaxf(v.w, 0.0f);
+"#,
+                    );
+                    scalar_body.push_str(
+                        r#"
+            val = fmaxf(val, 0.0f);
+"#,
+                    );
+                }
+                OpKind::Silu => {
+                    float4_body.push_str(
+                        r#"
+        // SiLU (x * sigmoid(x))
+        v.x = v.x / (1.0f + expf(-v.x));
+        v.y = v.y / (1.0f + expf(-v.y));
+        v.z = v.z / (1.0f + expf(-v.z));
+        v.w = v.w / (1.0f + expf(-v.w));
+"#,
+                    );
+                    scalar_body.push_str(
+                        r#"
+            val = val / (1.0f + expf(-val));
+"#,
+                    );
+                }
+                OpKind::Sigmoid => {
+                    float4_body.push_str(
+                        r#"
+        // Sigmoid
+        v.x = 1.0f / (1.0f + expf(-v.x));
+        v.y = 1.0f / (1.0f + expf(-v.y));
+        v.z = 1.0f / (1.0f + expf(-v.z));
+        v.w = 1.0f / (1.0f + expf(-v.w));
+"#,
+                    );
+                    scalar_body.push_str(
+                        r#"
+            val = 1.0f / (1.0f + expf(-val));
+"#,
+                    );
+                }
+                _ => {
+                    // Non-elementwise ops should never reach codegen.
+                    panic!("codegen called on non-elementwise op: {op:?}");
+                }
+            }
+        }
+
+        // Build the extra params string for the function signature.
+        let extra_sig = if extra_params_decl.is_empty() {
+            String::new()
+        } else {
+            format!(",\n{}", extra_params_decl.join(",\n"))
+        };
+
+        let cuda_src = format!(
+            r#"
+extern "C" __global__ void {func_name}(
+    const float* __restrict__ input,
+    float* __restrict__ output{extra_sig},
+    unsigned int n
+) {{
+    unsigned int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int idx = tid * 4;
+
+    if (idx + 3 < n) {{
+        float4 v = *reinterpret_cast<const float4*>(&input[idx]);
+{float4_body}
+        *reinterpret_cast<float4*>(&output[idx]) = v;
+    }} else {{
+        for (unsigned int i = idx; i < n && i < idx + 4; i++) {{
+            float val = input[i];
+{scalar_body}
+            output[i] = val;
+        }}
+    }}
+}}
+"#
+        );
+
+        (cuda_src, func_name, extra_params_desc)
+    }
+
+    /// Get (or compile) a fused kernel for the given op chain.
+    ///
+    /// Returns `(module_name, func_name)` that can be looked up via
+    /// `dev.get_func(module, func)`.
+    pub fn get_or_compile(
+        &self,
+        ops: &[OpKind],
+        n_cols_params: &[usize],
+        dev: &std::sync::Arc<cudarc::driver::CudaDevice>,
+    ) -> crate::nn::Result<(String, String)> {
+        let key = Self::cache_key(ops, n_cols_params);
+
+        // Fast path: check cache.
+        {
+            let cache = self.cache.lock().unwrap();
+            if let Some(compiled) = cache.get(&key) {
+                return Ok((compiled.module_name.clone(), compiled.func_name.clone()));
+            }
+        }
+
+        // Slow path: generate CUDA C, compile via NVRTC.
+        let (cuda_src, _func_name, _extra) = Self::codegen(ops, n_cols_params, key);
+        let module_name = format!("fused_{key:016x}");
+
+        let ptx = cudarc::nvrtc::compile_ptx(&cuda_src).map_err(|e| {
+            crate::nn::NnError::ShapeMismatch {
+                expected: "valid CUDA C source".into(),
+                actual: format!("NVRTC compile error: {e}"),
+            }
+        })?;
+
+        dev.load_ptx(ptx, &module_name, &[Self::FUNC_NAME])?;
+
+        let compiled = CompiledFusedKernel {
+            module_name: module_name.clone(),
+            func_name: Self::FUNC_NAME.to_string(),
+        };
+        self.cache.lock().unwrap().insert(key, compiled);
+
+        Ok((module_name, Self::FUNC_NAME.to_string()))
+    }
+}
+
+impl Default for FusionCodegen {
     fn default() -> Self {
         Self::new()
     }
@@ -469,9 +811,15 @@ mod tests {
             entry(OpKind::Gelu, &[3], 4),
         ];
         let plan = opt.analyze(&tape);
-        // Matmul→BiasAdd fails data flow check.
-        // BiasAdd→Gelu is elementwise chain but not in our pattern catalog.
-        assert!(plan.is_empty());
+        // Matmul→BiasAdd fails data flow check (tensor 99 != 2).
+        // BiasAdd→Gelu IS detected as an elementwise chain (P10 fallback).
+        assert_eq!(plan.len(), 1);
+        assert!(matches!(
+            plan.groups[0].fused_op,
+            FusedOpKind::ElementwiseChain(_)
+        ));
+        assert_eq!(plan.groups[0].start, 1);
+        assert_eq!(plan.groups[0].end, 3);
     }
 
     #[test]
@@ -603,5 +951,345 @@ mod tests {
         // 14 ops → 14 - launches_saved = effective kernel count
         // Saved: 1 + 1 + 1 + 2 + 1 = 6
         assert_eq!(plan.launches_saved(), 6);
+    }
+
+    #[test]
+    fn test_elementwise_chain_detection() {
+        // BiasAdd → Gelu should be detected as ElementwiseChain.
+        let opt = FusionOptimizer::new();
+        let tape = vec![
+            entry(OpKind::BiasAdd, &[0], 1),
+            entry(OpKind::Gelu, &[1], 2),
+        ];
+        let plan = opt.analyze(&tape);
+        assert_eq!(plan.len(), 1);
+        assert!(matches!(
+            &plan.groups[0].fused_op,
+            FusedOpKind::ElementwiseChain(ops) if *ops == vec![OpKind::BiasAdd, OpKind::Gelu]
+        ));
+    }
+
+    #[test]
+    fn test_elementwise_chain_max_5() {
+        // 6 consecutive elementwise ops: should cap at 5.
+        let opt = FusionOptimizer::new();
+        let tape = vec![
+            entry(OpKind::Relu, &[0], 1),
+            entry(OpKind::Sigmoid, &[1], 2),
+            entry(OpKind::Relu, &[2], 3),
+            entry(OpKind::Sigmoid, &[3], 4),
+            entry(OpKind::Relu, &[4], 5),
+            entry(OpKind::Sigmoid, &[5], 6),
+        ];
+        let plan = opt.analyze(&tape);
+        // First 5 ops fuse, 6th standalone.
+        assert_eq!(plan.len(), 1);
+        let g = &plan.groups[0];
+        assert_eq!(g.end - g.start, 5); // capped at 5
+    }
+
+    // -----------------------------------------------------------------------
+    // GPU codegen tests — require CUDA device
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_codegen_source_bias_gelu() {
+        // Verify codegen produces valid CUDA C source for BiasAdd → Gelu.
+        let ops = vec![OpKind::BiasAdd, OpKind::Gelu];
+        let n_cols = vec![768usize];
+        let key = FusionCodegen::cache_key(&ops, &n_cols);
+        let (src, func_name, extras) = FusionCodegen::codegen(&ops, &n_cols, key);
+
+        assert_eq!(func_name, "fused_kernel");
+        assert_eq!(extras.len(), 1);
+        assert!(extras[0].has_n_cols);
+        assert!(src.contains("fused_kernel"));
+        assert!(src.contains("bias_0"));
+        assert!(src.contains("n_cols_0"));
+        assert!(src.contains("tanhf")); // GELU uses tanh
+        assert!(src.contains("float4"));
+    }
+
+    #[test]
+    fn test_codegen_source_relu_only() {
+        // Pure activation chain: Relu → Sigmoid (no extra params).
+        let ops = vec![OpKind::Relu, OpKind::Sigmoid];
+        let key = FusionCodegen::cache_key(&ops, &[]);
+        let (src, _, extras) = FusionCodegen::codegen(&ops, &[], key);
+
+        assert!(extras.is_empty());
+        assert!(src.contains("fmaxf")); // ReLU
+        assert!(src.contains("expf")); // Sigmoid
+    }
+
+    /// Run the fused kernel on GPU and compare against a CPU reference.
+    ///
+    /// This helper allocates device memory, launches the fused kernel,
+    /// downloads the result, and asserts max absolute error < tolerance.
+    #[cfg(feature = "cublas")]
+    fn run_fused_vs_cpu(
+        ops: &[OpKind],
+        n_cols_params: &[usize],
+        input: &[f32],
+        extra_bufs: &[&[f32]], // bias/addend buffers
+        cpu_ref: impl Fn(&[f32]) -> Vec<f32>,
+        tol: f32,
+    ) {
+        use cudarc::driver::LaunchAsync;
+
+        let dev = cudarc::driver::CudaDevice::new(0).expect("CUDA device");
+        let codegen = FusionCodegen::new();
+
+        let (module, func) = codegen
+            .get_or_compile(ops, n_cols_params, &dev)
+            .expect("compile fused kernel");
+
+        let cuda_func = dev.get_func(&module, &func).expect("get compiled function");
+
+        let n = input.len() as u32;
+        let d_input = dev.htod_sync_copy(input).expect("upload input");
+        let mut d_output = dev.alloc_zeros::<f32>(input.len()).expect("alloc output");
+
+        // Upload extra buffers.
+        let d_extras: Vec<cudarc::driver::CudaSlice<f32>> = extra_bufs
+            .iter()
+            .map(|buf| dev.htod_sync_copy(buf).expect("upload extra"))
+            .collect();
+
+        let threads = 256u32;
+        let total_threads = (n + 3) / 4;
+        let grid = ((total_threads + threads - 1) / threads, 1, 1);
+        let config = cudarc::driver::LaunchConfig {
+            grid_dim: grid,
+            block_dim: (threads, 1, 1),
+            shared_mem_bytes: 0,
+        };
+
+        // Build launch args dynamically based on ops.
+        // The kernel signature is: (input, output, [bias_0, n_cols_0,]... n)
+        // We must match the exact parameter order from codegen.
+        let mut extra_idx = 0usize;
+        let mut ncols_idx = 0usize;
+
+        // We need to launch with the right parameter tuple. Since Rust
+        // requires static tuple types, we handle common cases.
+        match (ops, extra_bufs.len()) {
+            // Case: no extra params (pure activations)
+            (_, 0) => unsafe {
+                cuda_func
+                    .launch(config, (&d_input, &mut d_output, n))
+                    .expect("launch fused kernel");
+            },
+            // Case: 1 extra param with n_cols (BiasAdd + activations)
+            _ if extra_bufs.len() == 1 && !n_cols_params.is_empty() => {
+                let ncols = n_cols_params[0] as u32;
+                unsafe {
+                    cuda_func
+                        .launch(config, (&d_input, &mut d_output, &d_extras[0], ncols, n))
+                        .expect("launch fused kernel");
+                }
+            }
+            // Case: 1 extra param without n_cols (ElemAdd)
+            _ if extra_bufs.len() == 1 && n_cols_params.is_empty() => unsafe {
+                cuda_func
+                    .launch(config, (&d_input, &mut d_output, &d_extras[0], n))
+                    .expect("launch fused kernel");
+            },
+            _ => panic!(
+                "unsupported launch config: {} extras, {} n_cols",
+                extra_bufs.len(),
+                n_cols_params.len()
+            ),
+        }
+
+        let result = dev.dtoh_sync_copy(&d_output).expect("download result");
+        let expected = cpu_ref(input);
+
+        let max_err = result
+            .iter()
+            .zip(&expected)
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0f32, f32::max);
+
+        assert!(
+            max_err < tol,
+            "max error {max_err} exceeds tolerance {tol}\nfirst 8 result: {:?}\nfirst 8 expected: {:?}",
+            &result[..8.min(result.len())],
+            &expected[..8.min(expected.len())],
+        );
+    }
+
+    /// CPU reference: GELU approximation (tanh-based).
+    fn cpu_gelu(x: f32) -> f32 {
+        let sqrt_2_over_pi = 0.7978845608_f32;
+        let coeff = 0.044715_f32;
+        let inner = sqrt_2_over_pi * (x + coeff * x * x * x);
+        0.5 * x * (1.0 + inner.tanh())
+    }
+
+    /// CPU reference: ReLU.
+    fn cpu_relu(x: f32) -> f32 {
+        x.max(0.0)
+    }
+
+    /// CPU reference: Sigmoid.
+    fn cpu_sigmoid(x: f32) -> f32 {
+        1.0 / (1.0 + (-x).exp())
+    }
+
+    /// CPU reference: SiLU.
+    fn cpu_silu(x: f32) -> f32 {
+        x * cpu_sigmoid(x)
+    }
+
+    #[test]
+    #[cfg(feature = "cublas")]
+    fn test_gpu_fused_bias_gelu() {
+        // BiasAdd → Gelu on [128, 768] shape.
+        let n_cols = 768;
+        let n = 128 * n_cols;
+        let input: Vec<f32> = (0..n).map(|i| (i as f32 * 0.001) - 0.5).collect();
+        let bias: Vec<f32> = (0..n_cols).map(|i| (i as f32 * 0.01) - 3.84).collect();
+
+        run_fused_vs_cpu(
+            &[OpKind::BiasAdd, OpKind::Gelu],
+            &[n_cols],
+            &input,
+            &[&bias],
+            |inp| {
+                inp.iter()
+                    .enumerate()
+                    .map(|(i, &x)| {
+                        let biased = x + bias[i % n_cols];
+                        cpu_gelu(biased)
+                    })
+                    .collect()
+            },
+            1e-4, // f32 GELU tolerance
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "cublas")]
+    fn test_gpu_fused_bias_relu() {
+        // BiasAdd → ReLU on [64, 256] shape.
+        let n_cols = 256;
+        let n = 64 * n_cols;
+        let input: Vec<f32> = (0..n).map(|i| (i as f32 * 0.002) - 1.0).collect();
+        let bias: Vec<f32> = (0..n_cols).map(|i| (i as f32 * 0.005) - 0.64).collect();
+
+        run_fused_vs_cpu(
+            &[OpKind::BiasAdd, OpKind::Relu],
+            &[n_cols],
+            &input,
+            &[&bias],
+            |inp| {
+                inp.iter()
+                    .enumerate()
+                    .map(|(i, &x)| cpu_relu(x + bias[i % n_cols]))
+                    .collect()
+            },
+            1e-6,
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "cublas")]
+    fn test_gpu_fused_relu_sigmoid() {
+        // Pure activation chain: ReLU → Sigmoid (no extra params).
+        let n = 1024;
+        let input: Vec<f32> = (0..n).map(|i| (i as f32 * 0.01) - 5.12).collect();
+
+        run_fused_vs_cpu(
+            &[OpKind::Relu, OpKind::Sigmoid],
+            &[],
+            &input,
+            &[],
+            |inp| inp.iter().map(|&x| cpu_sigmoid(cpu_relu(x))).collect(),
+            1e-6,
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "cublas")]
+    fn test_gpu_fused_bias_silu() {
+        // BiasAdd → SiLU on [32, 128] shape.
+        let n_cols = 128;
+        let n = 32 * n_cols;
+        let input: Vec<f32> = (0..n).map(|i| (i as f32 * 0.003) - 0.6).collect();
+        let bias: Vec<f32> = (0..n_cols).map(|i| (i as f32 * 0.02) - 1.28).collect();
+
+        run_fused_vs_cpu(
+            &[OpKind::BiasAdd, OpKind::Silu],
+            &[n_cols],
+            &input,
+            &[&bias],
+            |inp| {
+                inp.iter()
+                    .enumerate()
+                    .map(|(i, &x)| cpu_silu(x + bias[i % n_cols]))
+                    .collect()
+            },
+            1e-5,
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "cublas")]
+    fn test_gpu_fused_elemadd_gelu() {
+        // ElemAdd → Gelu chain.
+        let n = 2048;
+        let input: Vec<f32> = (0..n).map(|i| (i as f32 * 0.002) - 2.048).collect();
+        let addend: Vec<f32> = (0..n).map(|i| (i as f32 * 0.001) - 1.024).collect();
+
+        run_fused_vs_cpu(
+            &[OpKind::ElemAdd, OpKind::Gelu],
+            &[],
+            &input,
+            &[&addend],
+            |inp| {
+                inp.iter()
+                    .enumerate()
+                    .map(|(i, &x)| cpu_gelu(x + addend[i]))
+                    .collect()
+            },
+            1e-4,
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "cublas")]
+    fn test_gpu_fused_scalar_tail() {
+        // n = 13 (not divisible by 4) — tests scalar tail path.
+        let n = 13;
+        let input: Vec<f32> = (0..n).map(|i| (i as f32 * 0.1) - 0.6).collect();
+
+        run_fused_vs_cpu(
+            &[OpKind::Relu, OpKind::Sigmoid],
+            &[],
+            &input,
+            &[],
+            |inp| inp.iter().map(|&x| cpu_sigmoid(cpu_relu(x))).collect(),
+            1e-6,
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "cublas")]
+    fn test_gpu_fused_cache_hit() {
+        // Compile the same chain twice — second call should be a cache hit.
+        let dev = cudarc::driver::CudaDevice::new(0).expect("CUDA device");
+        let codegen = FusionCodegen::new();
+        let ops = vec![OpKind::Relu, OpKind::Gelu];
+        let n_cols: Vec<usize> = vec![];
+
+        let (m1, f1) = codegen.get_or_compile(&ops, &n_cols, &dev).unwrap();
+        let (m2, f2) = codegen.get_or_compile(&ops, &n_cols, &dev).unwrap();
+
+        assert_eq!(m1, m2);
+        assert_eq!(f1, f2);
+
+        // Verify the kernel is actually usable.
+        assert!(dev.get_func(&m1, &f1).is_some());
     }
 }

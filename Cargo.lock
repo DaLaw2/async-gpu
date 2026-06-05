@@ -141,7 +141,17 @@ version = "0.1.0"
 dependencies = [
  "cudarc",
  "gpu-host",
+ "gpu-test-macro",
  "tokio",
+]
+
+[[package]]
+name = "gpu-test-macro"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

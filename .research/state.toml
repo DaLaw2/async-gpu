@@ -4,8 +4,8 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 607
-completed_tasks = 757
+total_cycles = 608
+completed_tasks = 760
 status = "running"     # ready | running | blocked | completed
 
 # Project North Star — the ONE thing all epics serve:
@@ -14,12 +14,12 @@ status = "running"     # ready | running | blocked | completed
 # No GPU concepts leak. VectorWare's I/O strength + async-gpu's compute strength, unified.
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
-current_step = "gate"
-current_task_id = ""
+current_step = "save"
+current_task_id = "test-framework.2,iter-demo.1"
 
 # Sequence counters
 brainstorm_seq = 117
-tasks_since_brainstorm = 0   # reset after brainstorm 117
+tasks_since_brainstorm = 2   # reset after brainstorm 117
 
 # ============================================================
 # Epics — Tiered (T0 → T3), sorted by tier then priority
@@ -37,24 +37,7 @@ tasks_since_brainstorm = 0   # reset after brainstorm 117
 
 # --- T0: Foundation (do first, everything depends on this) ---
 
-[[epics]]
-id = "developer-showcase"
-title = "Developer Showcase — examples, API surface, and README for all shipped features"
-tier = 0
-status = "completed"
-priority = "highest"
-# North Star: Every shipped feature has a clean example and is discoverable in README.
-#   A new developer sees what async-gpu can do in 5 minutes of reading.
-#   Hidden features (SC, channels, executor) become first-class user-facing APIs.
-# Litmus Test: A Rust dev reads the README, picks any feature, finds a working example,
-#   and uses the API from the async-gpu facade without reading internal crates.
-success_criteria = [
-    "Structured Concurrency (BlockScope/GridScope/GpuChannel) has standalone example + facade re-exports",
-    "README has feature matrix, performance table, and progressive code snippets",
-    "GPU channels and executor have clean examples demonstrating async GPU programming",
-    "Every major feature category has at least one clean, documented example",
-    "Two-facade architecture: async-gpu re-exports host API (gpu::run/launch/custom), gpu-runtime provides kernel-side types (scopes, channels, executor) via prelude",
-]
+# developer-showcase epic archived at cycle 607
 
 [[epics]]
 id = "gpu-test"
@@ -703,45 +686,12 @@ success_criteria = [
 
 # developer-showcase themes archived (cycle 607): showcase-api, showcase-sc,
 # showcase-channels, showcase-examples, showcase-readme
+# gpu-iterator/auto-fusion themes archived (cycle 607): iter-design, iter-compiler,
+# iter-runtime, fusion-analysis
 
 # --- T2: gpu-iterator themes ---
 
-[[themes]]
-id = "iter-design"
-epic = "gpu-iterator"
-title = "Iterator API design — ParallelIterator trait for GPU"
-status = "completed"
-goal = "Design gpu::par_iter() that maps Rust iterator semantics to GPU execution"
-success_criteria = [
-    "ParallelIterator trait with map, filter, fold, collect methods",
-    "Closure capture semantics defined (what can be captured, how it's transferred to GPU)",
-    "MIR pass transformation strategy designed (iterator chain → fused GPU kernel)",
-]
-
-[[themes]]
-id = "iter-compiler"
-epic = "gpu-iterator"
-title = "MIR pass — iterator chain to GPU kernel compilation"
-status = "completed"
-goal = "Compile iterator chains into warp-parallel GPU kernels via MIR transformation"
-success_criteria = [
-    "map() body transformed into per-lane computation",
-    "filter() compiled to warp ballot + compaction",
-    "fold()/reduce() compiled to warp shuffle reduction",
-    "collect() handles dynamic output sizing via atomic counter",
-]
-
-[[themes]]
-id = "iter-runtime"
-epic = "gpu-iterator"
-title = "Iterator runtime — GPU execution of compiled iterator chains"
-status = "active"
-goal = "Warp-parallel execution of iterator bodies with correct memory management"
-success_criteria = [
-    "Input data partitioned across warps/blocks automatically",
-    "Output buffer allocated and managed for collect()",
-    "Chained operations execute in single kernel (no intermediate buffers)",
-]
+# iter-design, iter-compiler, iter-runtime themes archived at cycle 607
 
 [[themes]]
 id = "iter-demo"
@@ -757,17 +707,7 @@ success_criteria = [
 
 # --- T2: auto-fusion themes ---
 
-[[themes]]
-id = "fusion-analysis"
-epic = "auto-fusion"
-title = "Fusion analysis — MIR pattern matching for fusable op chains"
-status = "completed"
-goal = "Identify elementwise operation chains that can be fused into single kernels"
-success_criteria = [
-    "Pattern matcher identifies consecutive elementwise ops in MIR",
-    "Handles cross-function boundaries (inlined closures, trait method calls)",
-    "Fusion graph built with data flow dependencies",
-]
+# fusion-analysis theme archived at cycle 607
 
 [[themes]]
 id = "fusion-codegen"
@@ -889,13 +829,7 @@ success_criteria = [
 
 # --- gpu-test: framework ---
 
-[[tasks]]
-id = "test-framework.1"
-theme = "test-framework"
-title = "Investigation: design #[gpu_test] proc macro — kernel generation + host runner pattern"
-kind = "investigation"
-status = "pending"
-depends = []
+# test-framework.1 archived at cycle 607
 
 [[tasks]]
 id = "test-framework.2"
@@ -1255,17 +1189,12 @@ kind = "experiment"
 status = "pending"
 depends = ["conv-e2e.1"]
 
-# Done tasks archived (cycle 607): iter-design.1-.3, iter-compiler.1-.3, iter-runtime.1
+# Done tasks archived (cycle 607): iter-design.1-.3, iter-compiler.1-.3, iter-runtime.1-.2,
+# test-framework.1, fusion-codegen.2
 
 # --- gpu-iterator: runtime ---
 
-[[tasks]]
-id = "iter-runtime.2"
-theme = "iter-runtime"
-title = "Experiment: chained iterator fusion — zero intermediate buffers in pipeline"
-kind = "experiment"
-status = "pending"
-depends = ["iter-runtime.1", "iter-compiler.2"]
+# iter-runtime.2 archived at cycle 607
 
 # --- gpu-iterator: demo ---
 
@@ -1289,13 +1218,7 @@ depends = ["iter-demo.1"]
 
 # --- auto-fusion: codegen ---
 
-[[tasks]]
-id = "fusion-codegen.2"
-theme = "fusion-codegen"
-title = "Experiment: generate fused PTX from fusion graph — multiply+add+activation chain"
-kind = "experiment"
-status = "pending"
-depends = ["fusion-codegen.1", "fusion-analysis.3"]
+# fusion-codegen.2 archived at cycle 607
 
 [[tasks]]
 id = "fusion-codegen.3"

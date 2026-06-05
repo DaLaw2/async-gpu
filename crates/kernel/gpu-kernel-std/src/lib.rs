@@ -1107,3 +1107,99 @@ pub unsafe extern "gpu-kernel" fn zero_param_hello() {
         println!("Vec on GPU: {:?}, sum = {}", v, v.iter().sum::<i32>());
     });
 }
+
+// ============================================================
+// GPU test kernels — for #[gpu_test] proc macro integration
+// ============================================================
+
+/// GPU test: basic arithmetic assertions.
+///
+/// Zero-param entry. Tests that assert! and assert_eq! work on GPU.
+/// If any assertion fails, the panic handler sends the failure message
+/// via hostcall with thread/block coordinates, then traps.
+///
+/// Launch with: block_dim=(128,1,1), 1 block, NO kernel args.
+#[unsafe(no_mangle)]
+pub unsafe extern "gpu-kernel" fn test_gpu_assert_basic() {
+    let buf = stdio_auto_init();
+    if buf.is_null() {
+        return;
+    }
+
+    gpu_runtime::thread::gpu_main_poll(|| {
+        // Basic arithmetic
+        let a = 2u32 + 3;
+        assert_eq!(a, 5, "2 + 3 should equal 5");
+
+        let b = 10u32 * 4;
+        assert_eq!(b, 40, "10 * 4 should equal 40");
+
+        // assert! (boolean)
+        assert!(a < b, "5 should be less than 40");
+
+        // assert_ne!
+        assert_ne!(a, b, "5 should not equal 40");
+
+        println!("[gpu_test] test_gpu_assert_basic PASSED");
+    });
+}
+
+/// GPU test: Vec operations with assertions.
+///
+/// Zero-param entry. Allocates a Vec, pushes elements, and asserts
+/// on length, sum, and individual elements.
+///
+/// Launch with: block_dim=(128,1,1), 1 block, NO kernel args.
+#[unsafe(no_mangle)]
+pub unsafe extern "gpu-kernel" fn test_gpu_vec_operations() {
+    let buf = stdio_auto_init();
+    if buf.is_null() {
+        return;
+    }
+
+    gpu_runtime::thread::gpu_main_poll(|| {
+        let mut v: Vec<u32> = Vec::new();
+        for i in 0..10u32 {
+            v.push(i * i);
+        }
+
+        assert_eq!(v.len(), 10, "Vec should have 10 elements");
+        assert_eq!(v[0], 0, "v[0] should be 0");
+        assert_eq!(v[1], 1, "v[1] should be 1");
+        assert_eq!(v[4], 16, "v[4] should be 16");
+        assert_eq!(v[9], 81, "v[9] should be 81");
+
+        let sum: u32 = v.iter().sum();
+        assert_eq!(sum, 285, "sum of squares 0..10 should be 285");
+
+        println!("[gpu_test] test_gpu_vec_operations PASSED");
+    });
+}
+
+/// GPU test: thread spawn and join with assertions.
+///
+/// Zero-param entry. Spawns threads, joins results, and asserts
+/// correctness — the same pattern users write with std::thread on CPU.
+///
+/// Launch with: block_dim=(128,1,1), 1 block, NO kernel args.
+#[unsafe(no_mangle)]
+pub unsafe extern "gpu-kernel" fn test_gpu_thread_spawn() {
+    let buf = stdio_auto_init();
+    if buf.is_null() {
+        return;
+    }
+
+    gpu_runtime::thread::gpu_main_poll(|| {
+        let h1 = gpu_runtime::thread::spawn(|| -> u32 { 42 });
+        let h2 = gpu_runtime::thread::spawn(|| -> u32 { 99 });
+
+        let r1 = h1.join();
+        let r2 = h2.join();
+
+        assert_eq!(r1, 42, "thread 1 should return 42");
+        assert_eq!(r2, 99, "thread 2 should return 99");
+        assert_eq!(r1 + r2, 141, "sum should be 141");
+
+        println!("[gpu_test] test_gpu_thread_spawn PASSED");
+    });
+}

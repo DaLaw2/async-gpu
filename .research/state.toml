@@ -15,7 +15,7 @@ status = "running"     # ready | running | blocked | completed
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
 current_step = "dispatch"
-current_task_id = "showcase-sc.2,showcase-channels.1"
+current_task_id = "showcase-examples.2,showcase-readme.1"
 
 # Sequence counters
 brainstorm_seq = 116
@@ -1698,7 +1698,7 @@ id = "showcase-examples.2"
 theme = "showcase-examples"
 title = "Experiment: clean up warp-cooperative as cooperative compute showcase"
 kind = "experiment"
-status = "pending"
+status = "active"
 depends = []
 
 [[tasks]]
@@ -1716,7 +1716,7 @@ id = "showcase-readme.1"
 theme = "showcase-readme"
 title = "Experiment: write feature matrix — all GPU capabilities in one table"
 kind = "experiment"
-status = "pending"
+status = "active"
 depends = ["showcase-examples.1"]
 
 [[tasks]]

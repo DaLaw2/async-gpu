@@ -15,7 +15,7 @@ status = "running"     # ready | running | blocked | completed
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
 current_step = "dispatch"
-current_task_id = "iter-compiler.3,showcase-sc.1"
+current_task_id = "showcase-sc.2,showcase-channels.1"
 
 # Sequence counters
 brainstorm_seq = 116
@@ -1662,7 +1662,7 @@ id = "showcase-sc.2"
 theme = "showcase-sc"
 title = "Experiment: add GridScope multi-block reduce to SC example"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["showcase-sc.1"]
 
 # --- developer-showcase: channels + executor ---
@@ -1672,7 +1672,7 @@ id = "showcase-channels.1"
 theme = "showcase-channels"
 title = "Experiment: create GPU channels example — oneshot + MPSC producer-consumer pipeline"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["showcase-api.2"]
 
 [[tasks]]
@@ -1680,7 +1680,7 @@ id = "showcase-channels.2"
 theme = "showcase-channels"
 title = "Experiment: create GPU executor example — spawn 4+ async tasks dynamically"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["showcase-api.2"]
 
 # --- developer-showcase: example gap-fill ---
@@ -1690,7 +1690,7 @@ id = "showcase-examples.1"
 theme = "showcase-examples"
 title = "Investigation: scan all 42 completed epics — list features without clean public examples"
 kind = "investigation"
-status = "pending"
+status = "done"
 depends = []
 
 [[tasks]]

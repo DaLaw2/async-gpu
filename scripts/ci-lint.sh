@@ -79,6 +79,7 @@ run "check parallel-search-host" "cargo +stable check --manifest-path examples/h
 run "check tcp-echo-host" "cargo +stable check --manifest-path examples/hostcall/tcp-echo/host/Cargo.toml"
 run "check tokio-offload" "cargo +stable check --manifest-path examples/hostcall/tokio-offload/Cargo.toml"
 run "check structured-concurrency" "cargo +stable check --manifest-path examples/hostcall/structured-concurrency/Cargo.toml"
+run "check gpu-channels" "cargo +stable check --manifest-path examples/hostcall/gpu-channels/Cargo.toml"
 
 echo ""
 if [ "$FAIL" -eq 0 ]; then

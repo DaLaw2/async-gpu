@@ -1,0 +1,10 @@
+[workspace]
+
+[package]
+name = "gpu-channels"
+version = "0.1.0"
+edition = "2021"
+description = "Demo: GPU async channels — oneshot, MPSC, and executor-driven task scheduling"
+
+[dependencies]
+async-gpu = { path = "../../../crates/async-gpu" }

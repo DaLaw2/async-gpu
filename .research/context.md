@@ -1,13 +1,13 @@
 ## Current Focus
-**Cycle 614 SAVED** (2026-06-05). split-execute.1 done — stdio extracted to gpu-runtime.
-kernel-split execution in progress: stdio done, next is gpu-kernel-core crate creation.
-split-design theme complete (3/3), split-execute 1/5 done.
+**Cycle 617 SAVED** (2026-06-05). split-execute theme COMPLETE (5/5).
+4 kernel crates established: core, compute, io, test. All produce valid PTX.
+split-loader phase next: multi-cubin host loader + parallel build + dev opt-level.
 
 ## Recent Decisions
-- 2026-06-05: stdio → gpu-runtime::stdio (5 functions + 3 atomics), stdio_auto_init stays per-crate
-- 2026-06-05: #[used] force-link statics prevent LTO stripping of PAL callbacks
-- 2026-06-05: gpu-runtime prelude re-exports: stdio_init, stdio_print_buffer_init, gpu_print_buffer_flush
-- 2026-06-05: GPT-2 auto-fusion: 0.5-2.7% speedup (GEMM dominates), 10% needs epilogue fusion
+- 2026-06-05: gpu-kernel-std renamed to gpu-kernel-test (full rename, all refs updated)
+- 2026-06-05: compute crate removed stdio/gpu-libc deps (pure compute, no hostcall)
+- 2026-06-05: PTX/cubin output filenames kept as kernel_std.* for backward compat during transition
+- 2026-06-05: Each kernel crate has own stdio_auto_init + #[used] force-link + dynamic_smem
 
 ## Tried & Rejected
 - bar.sync for scope join: deadlocks
@@ -18,15 +18,17 @@ split-design theme complete (3/3), split-execute 1/5 done.
 ## Active Constraints
 - GTX 1660 (sm_75): 192 GB/s, 5 TFLOPS FP32, 48KB smem
 - Max 2 concurrent heavy subagents
-- test-integration.2 kernels stashed in git stash@{0}
-- dynamic_smem global_asm must be duplicated in each kernel crate using shared memory
+- test-integration.2 kernels stashed in git stash@{0} (need unstash after loader done)
+- PTX still uses old kernel_std.ptx filename — split-loader.1 will add per-crate constants
 
 ## Key Metrics
-- SGEMM V4.1: 2691 GFLOPS (90% cuBLAS)
+- 4 kernel crates: core (17 entries), compute (84), io (55), test (~60)
 - FusionCodegen: 7 ops, 2.05x standalone, 1.61x Linear layer
-- 767 tasks completed, 48 epics archived
+- 771 tasks completed, 48 epics archived
 
 ## Next
-1. split-execute.2: create gpu-kernel-core (helpers + basic + compute_math)
-2. split-execute.3-.5: create compute, io, test crates (can parallel after .2)
-3. split-loader.1-.5: multi-cubin loader + build system
+1. split-loader.1: per-crate PTX constants + backward-compat aliases
+2. split-loader.2: update host loader for multi-module
+3. split-loader.3: parallel build script
+4. split-loader.4: dev-mode opt-level reduction
+5. split-loader.5: litmus test — single-crate rebuild under 5 minutes

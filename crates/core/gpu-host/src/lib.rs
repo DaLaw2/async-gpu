@@ -130,16 +130,41 @@ pub use onnx_rt::fusion as onnx_fusion;
 ///
 /// These are compiled from the various kernel crates and embedded at build time.
 ///
-/// `KERNEL` and `KERNEL_STD` point to the same PTX built from gpu-kernel-test
-/// (formerly gpu-kernel-std). This crate contains test/demo kernels.
+/// Per-crate PTX constants:
+/// - `KERNEL_CORE`    — core kernels (basic ops, math helpers, infrastructure)
+/// - `KERNEL_COMPUTE` — ML/compute kernels (GEMM, transformer, CNN, physics)
+/// - `KERNEL_IO`      — I/O kernels (hostcall, pipeline, hybrid warp print)
+/// - `KERNEL_TEST`    — test/demo kernels (std demos, warp tests, par_iter)
+///
+/// Backward-compatible aliases:
+/// - `KERNEL`     → `KERNEL_COMPUTE` (the most-used module)
+/// - `KERNEL_STD` → `KERNEL_TEST`    (test/demo kernels, formerly gpu-kernel-std)
 #[doc(hidden)]
 pub mod ptx {
-    /// GPU test/demo kernel PTX (from crates/kernel/gpu-kernel-test).
+    // ── Per-crate PTX (canonical) ──────────────────────────────
+    /// Core kernels: basic ops, math helpers, infrastructure.
+    pub const KERNEL_CORE: &str = include_str!("../kernel_core.ptx");
+    /// ML/compute kernels: GEMM, transformer, CNN, physics, search, fused ops.
+    pub const KERNEL_COMPUTE: &str = include_str!("../kernel_compute.ptx");
+    /// I/O kernels: hostcall, pipeline, hybrid warp print.
+    pub const KERNEL_IO: &str = include_str!("../kernel_io.ptx");
+    /// Test/demo kernels: std demos, warp tests, thread tests, par_iter, SC demos.
+    pub const KERNEL_TEST: &str = include_str!("../kernel_test.ptx");
+
+    // ── Backward-compatible aliases ────────────────────────────
+    /// Alias: `KERNEL` → `KERNEL_COMPUTE` (the largest, most-used module).
     ///
-    /// Contains test kernel entry points: warp intrinsics, async futures,
-    /// std-based kernels (println!, Vec, File I/O, HashMap, thread::spawn),
-    /// structured concurrency demos, and par_iter demos.
-    pub const KERNEL: &str = include_str!("../kernel.ptx");
+    /// All existing call sites that use `ptx::KERNEL` (KernelRegistry, gpu.rs,
+    /// integration tests) reference ML/compute kernels, so this alias preserves
+    /// behavior with zero code changes.
+    pub const KERNEL: &str = KERNEL_COMPUTE;
+    /// Alias: `KERNEL_STD` → `KERNEL_TEST` (test/demo kernels).
+    ///
+    /// The `#[gpu_test]` macro and gpu-test-harness use `KERNEL_STD` to launch
+    /// test kernels. This alias keeps them working unchanged.
+    pub const KERNEL_STD: &str = KERNEL_TEST;
+
+    // ── Legacy test PTX constants (unchanged) ──────────────────
     /// Embassy async/await test PTX (from crates/embassy-test).
     pub const EMBASSY_TEST: &str = include_str!("../embassy_test.ptx");
     /// Async hostcall test PTX (from crates/async-hostcall-test).
@@ -150,10 +175,6 @@ pub mod ptx {
     pub const ASYNC_PIPELINE_TEST: &str = include_str!("../async_pipeline_test.ptx");
     /// Multi-warp scaling test PTX (from crates/multi-warp-test).
     pub const MULTI_WARP_TEST: &str = include_str!("../multi_warp_test.ptx");
-    /// Alias for `KERNEL` — kept for backward compatibility.
-    ///
-    /// After the kernel crate merge, this is the same PTX as `KERNEL`.
-    pub const KERNEL_STD: &str = include_str!("../kernel_std.ptx");
 }
 
 // Convenience re-exports for common types.

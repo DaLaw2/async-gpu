@@ -4,8 +4,8 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 616
-completed_tasks = 770
+total_cycles = 617
+completed_tasks = 771
 status = "running"     # ready | running | blocked | completed
 
 # Project North Star — the ONE thing all epics serve:
@@ -15,11 +15,11 @@ status = "running"     # ready | running | blocked | completed
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
 current_step = "dispatch"
-current_task_id = "split-execute.5"
+current_task_id = "split-loader.1"
 
 # Sequence counters
-brainstorm_seq = 118
-tasks_since_brainstorm = 10   # reset after brainstorm 118
+brainstorm_seq = 119
+tasks_since_brainstorm = 1   # reset after brainstorm 119
 
 # ============================================================
 # Epics — Tiered (T0 → T3), sorted by tier then priority
@@ -958,7 +958,7 @@ id = "split-loader.1"
 theme = "split-loader"
 title = "Experiment: per-crate PTX constants + backward-compat aliases"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["split-execute.3", "split-execute.4", "split-execute.5"]
 
 [[tasks]]
@@ -1617,3 +1617,15 @@ new_epics_spawned = []
 themes_parked = []
 themes_completed = ["fusion-codegen"]
 key_insight = "kernel-split: 4-crate split (core/compute/io/test) targets 2-3min incremental rebuild vs current 30min. Highest-churn files (lib.rs 13 commits) isolated in gpu-kernel-test. stdio infra moves to gpu-runtime. Parallel ptxas + opt-level 1 for dev. 13 tasks across 3 themes."
+
+[[brainstorms]]
+seq = 119
+at_cycle = 617
+trigger = "tasks_since_brainstorm=10 + split-execute theme completed"
+level = "standard"
+new_tasks_spawned = []
+new_themes_spawned = []
+new_epics_spawned = []
+themes_parked = []
+themes_completed = ["split-design", "split-execute"]
+key_insight = "split-execute complete: 4 kernel crates (core/compute/io/test) all produce valid PTX. No new tasks needed — split-loader has 5 ready tasks. auto-fusion epic has all themes done but GPT-2 10% unmet (GEMM dominates); parking for now, needs GEMM epilogue fusion which is a different engineering effort."

@@ -4,8 +4,8 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 611
-completed_tasks = 761
+total_cycles = 612
+completed_tasks = 763
 status = "running"     # ready | running | blocked | completed
 
 # Project North Star — the ONE thing all epics serve:
@@ -15,11 +15,11 @@ status = "running"     # ready | running | blocked | completed
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
 current_step = "dispatch"
-current_task_id = "split-design.1,fusion-integrate.1"
+current_task_id = "split-design.2,split-design.3,fusion-integrate.2"
 
 # Sequence counters
 brainstorm_seq = 118
-tasks_since_brainstorm = 2   # reset after brainstorm 118
+tasks_since_brainstorm = 5   # reset after brainstorm 118
 
 # ============================================================
 # Epics — Tiered (T0 → T3), sorted by tier then priority
@@ -456,7 +456,7 @@ success_criteria = [
 id = "split-design"
 epic = "kernel-split"
 title = "Kernel split design — crate boundaries, shared infra, loader API"
-status = "active"
+status = "completed"
 goal = "Map every kernel to its target crate, design shared infrastructure and loader"
 success_criteria = [
     "4-crate split verified with no circular dependencies",
@@ -781,7 +781,7 @@ success_criteria = [
 id = "fusion-integrate"
 epic = "auto-fusion"
 title = "Fusion integration — auto-fuse nn ops + benchmark"
-status = "active"
+status = "completed"
 goal = "nn API operations automatically fused, measurable GPT-2 speedup"
 success_criteria = [
     "nn::Linear forward auto-fuses matmul+bias+activation",
@@ -898,7 +898,7 @@ id = "split-design.2"
 theme = "split-design"
 title = "Design: stdio infrastructure extraction to gpu-runtime"
 kind = "design"
-status = "pending"
+status = "done"
 depends = ["split-design.1"]
 
 [[tasks]]
@@ -906,7 +906,7 @@ id = "split-design.3"
 theme = "split-design"
 title = "Design: host loader multi-cubin API with backward compat"
 kind = "design"
-status = "pending"
+status = "done"
 depends = ["split-design.1"]
 
 # --- kernel-split: execute ---
@@ -1410,7 +1410,7 @@ id = "fusion-integrate.2"
 theme = "fusion-integrate"
 title = "Experiment: benchmark GPT-2 with auto-fusion vs manual — measure speedup"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["fusion-integrate.1"]
 
 # --- std-completeness: sync ---

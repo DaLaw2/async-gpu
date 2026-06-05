@@ -1,19 +1,23 @@
 # split-design — Theme Synthesis
 
 **Epic**: kernel-split (break gpu-kernel-std into per-feature crates)
-**Status**: active | **Tasks completed**: 1/? | **Updated**: 2026-06-05
+**Status**: active | **Tasks completed**: 2/? | **Updated**: 2026-06-05
 
-## Key Finding
-The proposed 4-crate split (core / compute / io / test) has **zero circular dependencies**. All 18 source files map cleanly to exactly one crate. Cross-file imports flow strictly downward: 10 files import from helpers.rs (→ core), 1 file imports from hybrid.rs (→ same io crate). No file straddles boundaries.
+## Key Findings
+- 4-crate split is dependency-safe with zero circular deps (task .1)
+- Host loader multi-cubin API designed with full backward compat (task .3)
+- Alias strategy: `KERNEL->KERNEL_COMPUTE`, `KERNEL_STD->KERNEL_TEST` -- zero call-site changes in phase 2
+- Per-crate `PtxModule` struct + `ALL` array enables auto-discovery fallback
 
-## Entry Point Distribution
-core: 18 kernels + 4 infra | compute: 81 kernels | io: 38 kernels | test: 61 kernels
+## Architecture Summary
+ptx module gets 4 per-crate constants + cubin pairs + deprecated aliases. gpu.rs needs only `.module()` builder addition. KernelRegistry needs zero changes (all ML kernels are in compute). gpu-test-macro migrates from disk cubin to embedded cubin.
 
-## Critical Path Items
-1. `dynamic_smem` global_asm must be duplicated in each crate using shared memory
-2. lib.rs stdio infrastructure (~174 lines, 3 statics) must be extracted to core as public API
-3. Crate type decision: core as `rlib` (linkable) vs `cdylib` (separate PTX) drives the entire architecture
-4. Host loader must support multi-cubin loading (investigate in next task)
+## Critical Path Remaining
+1. Crate-type decision for gpu-kernel-core (rlib vs cdylib) -- drives linkage model
+2. Binary size strategy for embedded cubins (features vs disk vs include_bytes)
+3. Build script rewrite (parallel per-crate ptxas)
+4. Actual crate split implementation + host loader code changes
+5. LTO force-link: `#[no_mangle]` in rlib may need `#[used]` array to survive LTO
 
 ## Risk Summary
-Medium: global_asm duplication + stdio infra extraction. Low: all else. No blockers found.
+Medium: cubin binary size (~190 MB embedded). Low: all API changes backward-compat. No blockers.

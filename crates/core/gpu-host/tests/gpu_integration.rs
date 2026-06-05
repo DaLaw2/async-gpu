@@ -264,3 +264,167 @@ fn test_cuda_stream_launch() {
 
     unsafe { free_mapped_mem(result_ptr).expect("free mapped mem") };
 }
+
+/// Minimal PTX for a map kernel: f(x) = x * 2.0 + 1.0
+///
+/// Grid-stride loop, same semantics as `par_iter_map_collect_multiblock`.
+/// Only ~20 instructions — JIT compiles in milliseconds (vs 10+ min for full kernel PTX).
+///
+/// Kernel signature: `fn(input: *const f32, output: *mut f32, n: u32)`
+/// Minimal PTX for a map kernel: f(x) = x * 2.0 + 1.0
+///
+/// Grid-stride loop, same semantics as `par_iter_map_collect_multiblock`.
+/// Only ~20 instructions — JIT compiles in milliseconds (vs 10+ min for full kernel PTX).
+///
+/// Kernel signature: `fn(input: *const f32, output: *mut f32, n: u32)`
+const MAP_KERNEL_PTX: &str = "\
+.version 7.8\n\
+.target sm_75\n\
+.address_size 64\n\
+\n\
+.visible .entry gpuvec_map_f32(\n\
+    .param .u64 input,\n\
+    .param .u64 output,\n\
+    .param .u32 n\n\
+)\n\
+{\n\
+    .reg .u32  %r<10>;\n\
+    .reg .u64  %rd<6>;\n\
+    .reg .f32  %f<3>;\n\
+    .reg .pred %p;\n\
+\n\
+    ld.param.u64    %rd0, [input];\n\
+    ld.param.u64    %rd1, [output];\n\
+    ld.param.u32    %r0,  [n];\n\
+\n\
+    mov.u32         %r1,  %tid.x;\n\
+    mov.u32         %r2,  %ntid.x;\n\
+    mov.u32         %r3,  %ctaid.x;\n\
+    mov.u32         %r4,  %nctaid.x;\n\
+\n\
+    mad.lo.u32      %r5,  %r3, %r2, %r1;\n\
+    mul.lo.u32      %r6,  %r4, %r2;\n\
+\n\
+LOOP:\n\
+    setp.ge.u32     %p, %r5, %r0;\n\
+    @%p bra         DONE;\n\
+\n\
+    mul.wide.u32    %rd2, %r5, 4;\n\
+    add.u64         %rd3, %rd0, %rd2;\n\
+    ld.global.f32   %f0,  [%rd3];\n\
+\n\
+    fma.rn.f32      %f1,  %f0, 0f40000000, 0f3F800000;\n\
+\n\
+    add.u64         %rd4, %rd1, %rd2;\n\
+    st.global.f32   [%rd4], %f1;\n\
+\n\
+    add.u32         %r5, %r5, %r6;\n\
+    bra             LOOP;\n\
+\n\
+DONE:\n\
+    ret;\n\
+}\n\
+";
+
+/// GpuVec zero-copy test: `launch_with_gpuvec` passes GpuVec device pointers directly.
+///
+/// Tests the "no cudaMemcpy" pattern: GpuVec uses pinned device-mapped memory,
+/// so the GPU reads/writes directly without explicit host-to-device or
+/// device-to-host transfers.
+#[test]
+fn test_gpuvec_launch_zero_copy() {
+    use gpu_host::gpu;
+    use gpu_host::memory::GpuVec;
+
+    // Ensure CUDA context is alive for the duration of the test
+    let _dev = shared_device();
+
+    let n = 1024;
+    let input_data: Vec<f32> = (0..n).map(|i| i as f32 * 0.5).collect();
+    let input = GpuVec::from_vec(input_data.clone()).unwrap();
+    let mut output = GpuVec::<f32>::zeroed(n).unwrap();
+
+    // Launch the map kernel: f(x) = x * 2.0 + 1.0
+    // Uses inline PTX (JIT compiles in milliseconds)
+    gpu::launch_with_gpuvec(MAP_KERNEL_PTX, "gpuvec_map_f32", &input, &mut output, 256)
+        .expect("launch_with_gpuvec should succeed");
+
+    // Results are immediately readable — zero-copy
+    let results = output.as_slice();
+    for i in 0..n {
+        let expected = input_data[i] * 2.0 + 1.0;
+        assert!(
+            (results[i] - expected).abs() < 1e-5,
+            "mismatch at index {i}: got {}, expected {expected}",
+            results[i]
+        );
+    }
+}
+
+/// GpuVec::map_gpu convenience test: one-liner transform returning a new GpuVec.
+///
+/// Tests that `map_gpu` creates an output buffer, launches the kernel, and returns
+/// results in a new GpuVec — all with zero explicit memory transfers.
+#[test]
+fn test_gpuvec_map_gpu() {
+    use gpu_host::memory::GpuVec;
+
+    let _dev = shared_device();
+
+    let n = 2048;
+    let input_data: Vec<f32> = (0..n).map(|i| (i as f32) * 0.1).collect();
+    let input = GpuVec::from_vec(input_data.clone()).unwrap();
+
+    // One-liner: input → kernel → output GpuVec
+    let output = input
+        .map_gpu(MAP_KERNEL_PTX, "gpuvec_map_f32", 256)
+        .expect("map_gpu should succeed");
+
+    assert_eq!(output.len(), n);
+
+    // Verify correctness
+    let results = output.as_slice();
+    for i in 0..n {
+        let expected = input_data[i] * 2.0 + 1.0;
+        assert!(
+            (results[i] - expected).abs() < 1e-5,
+            "mismatch at index {i}: got {}, expected {expected}",
+            results[i]
+        );
+    }
+
+    // Verify into_vec also works
+    let result_vec = output.into_vec();
+    assert_eq!(result_vec.len(), n);
+    assert!((result_vec[0] - (0.0 * 2.0 + 1.0)).abs() < 1e-5);
+    assert!((result_vec[n - 1] - ((n - 1) as f32 * 0.1 * 2.0 + 1.0)).abs() < 1e-5);
+}
+
+/// GpuVec zero-copy with large data: verify multi-block dispatch works at scale.
+///
+/// Uses 1M elements to stress-test the grid-stride loop and zero-copy path.
+#[test]
+fn test_gpuvec_large_data() {
+    use gpu_host::memory::GpuVec;
+
+    let _dev = shared_device();
+
+    let n = 1_048_576; // 1M elements
+    let input_data: Vec<f32> = (0..n).map(|i| (i as f32) * 0.001).collect();
+    let input = GpuVec::from_vec(input_data.clone()).unwrap();
+
+    let output = input
+        .map_gpu(MAP_KERNEL_PTX, "gpuvec_map_f32", 256)
+        .expect("map_gpu with 1M elements should succeed");
+
+    // Spot-check values (full check would be slow)
+    let results = output.as_slice();
+    for &i in &[0, 1, 100, 1000, 10_000, 100_000, n - 1] {
+        let expected = input_data[i] * 2.0 + 1.0;
+        assert!(
+            (results[i] - expected).abs() < 1e-3,
+            "mismatch at index {i}: got {}, expected {expected}",
+            results[i]
+        );
+    }
+}

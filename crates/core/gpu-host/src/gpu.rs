@@ -17,7 +17,7 @@ use crate::hostcall::HostcallSession;
 /// Unique module counter to avoid shared globals across launches.
 static MODULE_SEQ: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
 
-fn fresh_module_name() -> String {
+pub(crate) fn fresh_module_name() -> String {
     let seq = MODULE_SEQ.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
     format!("gpu_{seq}")
 }
@@ -999,4 +999,172 @@ impl GpuResult {
     pub fn finish(self) {
         // session dropped → HostcallSession::drop() handles shutdown
     }
+}
+
+// ============================================================================
+// Zero-copy GpuVec kernel launch
+// ============================================================================
+
+use crate::memory::GpuVec;
+
+/// Launch a kernel that reads from an input `GpuVec` and writes to an output `GpuVec`.
+///
+/// No explicit `cudaMemcpy` (host-to-device or device-to-host) is needed — both
+/// `GpuVec` buffers use pinned device-mapped memory, so the GPU reads/writes
+/// them directly over PCIe.
+///
+/// The kernel must have the signature:
+/// ```text
+/// fn(input: *const T, output: *mut T, n: u32)
+/// ```
+///
+/// After this call returns, results are immediately readable on the host via
+/// `output.as_slice()` — zero-copy.
+///
+/// # Arguments
+///
+/// * `ptx_src` — PTX source containing the kernel (fallback if cubin unavailable)
+/// * `kernel_name` — Name of the kernel function
+/// * `input` — Input data (device pointer passed as first kernel arg)
+/// * `output` — Output buffer (device pointer passed as second kernel arg)
+/// * `threads_per_block` — Threads per block for launch config
+///
+/// # Example
+///
+/// ```no_run
+/// use gpu_host::gpu;
+/// use gpu_host::memory::GpuVec;
+/// use gpu_host::ptx;
+///
+/// let input = GpuVec::from_vec(vec![1.0f32, 2.0, 3.0, 4.0]).unwrap();
+/// let mut output = GpuVec::<f32>::zeroed(4).unwrap();
+///
+/// gpu::launch_with_gpuvec(
+///     ptx::KERNEL_TEST,
+///     "par_iter_map_collect_multiblock",
+///     &input,
+///     &mut output,
+///     256,
+/// ).unwrap();
+///
+/// // Results are immediately readable — no cudaMemcpy needed
+/// assert_eq!(output.as_slice()[0], 1.0 * 2.0 + 1.0);
+/// ```
+pub fn launch_with_gpuvec<T: Copy>(
+    ptx_src: &str,
+    kernel_name: &'static str,
+    input: &GpuVec<T>,
+    output: &mut GpuVec<T>,
+    threads_per_block: u32,
+) -> Result<()> {
+    launch_with_gpuvec_cubin(ptx_src, &[], kernel_name, input, output, threads_per_block)
+}
+
+/// Launch a kernel with `GpuVec` I/O, loading from cubin for fast startup.
+///
+/// Same as [`launch_with_gpuvec`] but accepts pre-compiled cubin data.
+/// If `cubin` is non-empty, loads it directly (sub-second). Otherwise
+/// falls back to JIT-compiling the PTX source.
+///
+/// # Arguments
+///
+/// * `ptx_src` — PTX source (fallback if cubin is empty or fails to load)
+/// * `cubin` — Pre-compiled cubin data (empty slice to skip)
+/// * `kernel_name` — Name of the kernel function
+/// * `input` — Input GpuVec (zero-copy, no cudaMemcpy)
+/// * `output` — Output GpuVec (zero-copy, no cudaMemcpy)
+/// * `threads_per_block` — Threads per block for launch config
+pub fn launch_with_gpuvec_cubin<T: Copy>(
+    ptx_src: &str,
+    cubin: &[u8],
+    kernel_name: &'static str,
+    input: &GpuVec<T>,
+    output: &mut GpuVec<T>,
+    threads_per_block: u32,
+) -> Result<()> {
+    use cudarc::driver::sys::{self, lib as cuda_lib};
+    use std::ffi::CString;
+
+    assert_eq!(
+        input.len(),
+        output.len(),
+        "input and output GpuVec must have the same length"
+    );
+
+    // Initialize CUDA context (cudarc handles cuInit + context creation)
+    let dev = CudaDevice::new(0).map_err(GpuHostError::CudaInit)?;
+
+    // Load cubin (fast) or PTX (slow JIT fallback)
+    let cu_module: sys::CUmodule = unsafe { load_module_cubin_or_ptx(ptx_src, cubin)? };
+
+    // Get kernel function handle
+    let func_name = CString::new(kernel_name).map_err(|_| GpuHostError::Verification {
+        test: kernel_name,
+        detail: "kernel name contains null byte".to_string(),
+    })?;
+
+    let cu_func: sys::CUfunction;
+    unsafe {
+        let cu = cuda_lib();
+        let mut func: sys::CUfunction = std::ptr::null_mut();
+        let result = cu.cuModuleGetFunction(&mut func, cu_module, func_name.as_ptr());
+        if result != sys::CUresult::CUDA_SUCCESS {
+            cu.cuModuleUnload(cu_module);
+            return Err(GpuHostError::KernelNotFound(kernel_name));
+        }
+        cu_func = func;
+    }
+
+    // Prepare kernel arguments: (input_ptr, output_ptr, n)
+    let mut input_ptr: u64 = input.dev_ptr();
+    let mut output_ptr: u64 = output.dev_ptr();
+    let mut n: u32 = input.len() as u32;
+
+    let params: [*mut std::ffi::c_void; 3] = [
+        &mut input_ptr as *mut u64 as *mut std::ffi::c_void,
+        &mut output_ptr as *mut u64 as *mut std::ffi::c_void,
+        &mut n as *mut u32 as *mut std::ffi::c_void,
+    ];
+
+    // Calculate grid dimensions
+    let grid_x = n.div_ceil(threads_per_block);
+
+    // Launch kernel
+    unsafe {
+        let cu = cuda_lib();
+        let result = cu.cuLaunchKernel(
+            cu_func,
+            grid_x,
+            1,
+            1, // grid
+            threads_per_block,
+            1,
+            1,                    // block
+            0,                    // shared mem
+            std::ptr::null_mut(), // stream (default)
+            params.as_ptr() as *mut *mut std::ffi::c_void,
+            std::ptr::null_mut(), // extra
+        );
+        if result != sys::CUresult::CUDA_SUCCESS {
+            cu.cuModuleUnload(cu_module);
+            return Err(GpuHostError::Verification {
+                test: kernel_name,
+                detail: format!("cuLaunchKernel failed: {result:?}"),
+            });
+        }
+    }
+
+    // Synchronize — after this, results are visible in output via host pointer
+    dev.synchronize().map_err(|e| GpuHostError::Verification {
+        test: kernel_name,
+        detail: format!("sync: {e}"),
+    })?;
+
+    // Clean up module
+    unsafe {
+        let cu = cuda_lib();
+        cu.cuModuleUnload(cu_module);
+    }
+
+    Ok(())
 }

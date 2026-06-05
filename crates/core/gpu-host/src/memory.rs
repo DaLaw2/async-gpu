@@ -3,9 +3,61 @@
 //! Provides `MappedBuffer<T>` — a typed, automatically-freed handle for
 //! GPU-CPU shared memory allocated via `cuMemHostAlloc(DEVICEMAP|PORTABLE)`.
 
+use std::sync::Once;
+
 use cudarc::driver::sys::{self, lib as cuda_lib};
 
 use crate::error::{GpuHostError, Result};
+
+/// Ensure a CUDA context is available on device 0.
+///
+/// This is needed for `cuMemHostAlloc` with `DEVICEMAP` flag, which requires
+/// an active CUDA context to map host memory into the GPU's address space.
+/// The primary context is retained (ref-counted) so it persists until process exit.
+///
+/// This function is idempotent — calling it multiple times is a no-op after
+/// the first successful initialization.
+fn ensure_cuda_context() -> Result<()> {
+    static INIT: Once = Once::new();
+    static mut INIT_ERROR: Option<sys::CUresult> = None;
+
+    INIT.call_once(|| {
+        // SAFETY: cuda_lib() returns the CUDA driver function table.
+        let cu = unsafe { cuda_lib() };
+
+        // cuInit is required before any other CUDA driver API call.
+        let result = unsafe { cu.cuInit(0) };
+        if result != sys::CUresult::CUDA_SUCCESS {
+            // SAFETY: We are inside call_once, so no concurrent access.
+            unsafe { INIT_ERROR = Some(result) };
+            return;
+        }
+
+        // Retain the primary context on device 0. This creates a context if none
+        // exists, or increments the ref count if one already exists (e.g., from
+        // CudaDevice::new). The context stays alive until cuDevicePrimaryCtxRelease.
+        let mut ctx: sys::CUcontext = std::ptr::null_mut();
+        let result = unsafe { cu.cuDevicePrimaryCtxRetain(&mut ctx, 0) };
+        if result != sys::CUresult::CUDA_SUCCESS {
+            // SAFETY: We are inside call_once, so no concurrent access.
+            unsafe { INIT_ERROR = Some(result) };
+            return;
+        }
+
+        // Make this context current on the calling thread.
+        let result = unsafe { cu.cuCtxSetCurrent(ctx) };
+        if result != sys::CUresult::CUDA_SUCCESS {
+            // SAFETY: We are inside call_once, so no concurrent access.
+            unsafe { INIT_ERROR = Some(result) };
+        }
+    });
+
+    // SAFETY: After call_once completes, INIT_ERROR is immutable.
+    if let Some(err) = unsafe { INIT_ERROR } {
+        return Err(GpuHostError::CudaAlloc(err));
+    }
+    Ok(())
+}
 
 /// RAII handle for pinned, device-mapped host memory.
 ///
@@ -38,6 +90,12 @@ impl<T> MappedBuffer<T> {
     pub fn new_zeroed(len: usize) -> Result<Self> {
         let size = len * std::mem::size_of::<T>();
         assert!(size > 0, "cannot allocate zero-sized mapped buffer");
+
+        // Ensure a CUDA context exists. cuMemHostAlloc with DEVICEMAP requires an
+        // active context for cuMemHostGetDevicePointer_v2 to succeed. This call is
+        // idempotent — if a context already exists (e.g., from CudaDevice::new), the
+        // existing context is reused via the primary context retain mechanism.
+        ensure_cuda_context()?;
 
         // SAFETY: cuda_lib() returns a lazily-loaded CUDA driver function table.
         let cu = unsafe { cuda_lib() };
@@ -240,6 +298,66 @@ impl<T: Copy> GpuVec<T> {
     /// Returns true if the buffer has zero length (never true for valid buffers).
     pub fn is_empty(&self) -> bool {
         self.inner.is_empty()
+    }
+
+    /// Launch a GPU kernel with this buffer as input, returning output in a new `GpuVec`.
+    ///
+    /// This is the "no cudaMemcpy" pattern: both input and output use pinned
+    /// device-mapped memory, so the GPU reads/writes directly over PCIe.
+    /// After the kernel completes, results are immediately readable on the host.
+    ///
+    /// The kernel must have the signature:
+    /// ```text
+    /// fn(input: *const T, output: *mut T, n: u32)
+    /// ```
+    ///
+    /// # Arguments
+    ///
+    /// * `ptx_src` — PTX source containing the kernel (fallback if no cubin)
+    /// * `kernel_name` — Name of the kernel function
+    /// * `threads_per_block` — Threads per block for launch config
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use gpu_host::memory::GpuVec;
+    /// use gpu_host::ptx;
+    ///
+    /// let data = GpuVec::from_vec(vec![1.0f32, 2.0, 3.0]).unwrap();
+    /// let result = data.map_gpu(ptx::KERNEL_TEST, "par_iter_map_collect_multiblock", 256).unwrap();
+    /// // result.as_slice() has the transformed values — zero-copy readable
+    /// ```
+    pub fn map_gpu(
+        &self,
+        ptx_src: &str,
+        kernel_name: &'static str,
+        threads_per_block: u32,
+    ) -> crate::error::Result<GpuVec<T>> {
+        self.map_gpu_cubin(ptx_src, &[], kernel_name, threads_per_block)
+    }
+
+    /// Launch a GPU kernel with cubin for fast loading, returning output in a new `GpuVec`.
+    ///
+    /// Same as [`map_gpu`](Self::map_gpu) but accepts pre-compiled cubin data.
+    /// If `cubin` is non-empty, loads it directly (sub-second). Otherwise
+    /// falls back to JIT-compiling the PTX source.
+    pub fn map_gpu_cubin(
+        &self,
+        ptx_src: &str,
+        cubin: &[u8],
+        kernel_name: &'static str,
+        threads_per_block: u32,
+    ) -> crate::error::Result<GpuVec<T>> {
+        let mut output = GpuVec::zeroed(self.len())?;
+        crate::gpu::launch_with_gpuvec_cubin(
+            ptx_src,
+            cubin,
+            kernel_name,
+            self,
+            &mut output,
+            threads_per_block,
+        )?;
+        Ok(output)
     }
 
     /// Convert back to a `Vec<T>`, copying from pinned memory to an owned Vec.

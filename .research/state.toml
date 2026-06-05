@@ -4,8 +4,8 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 631
-completed_tasks = 793
+total_cycles = 632
+completed_tasks = 795
 status = "running"     # ready | running | blocked | completed
 
 # Project North Star — the ONE thing all epics serve:
@@ -19,7 +19,7 @@ current_task_id = ""
 
 # Sequence counters
 brainstorm_seq = 123
-tasks_since_brainstorm = 4
+tasks_since_brainstorm = 6
 
 # ============================================================
 # Epics — Tiered (T0 → T3), sorted by tier then priority
@@ -451,7 +451,7 @@ success_criteria = [
 id = "unified-scheduler"
 epic = "unified-runtime"
 title = "Scheduler type system — CpuScheduler, GpuScheduler, AutoScheduler"
-status = "active"
+status = "completed"
 goal = "Route work to CPU or GPU based on explicit affinity or automatic heuristics"
 success_criteria = [
     "CpuScheduler routes work to tokio/std async runtime",
@@ -463,7 +463,7 @@ success_criteria = [
 id = "unified-transfer"
 epic = "unified-runtime"
 title = "Automatic data transfer — zero-copy where possible, transparent memcpy elsewhere"
-status = "active"
+status = "completed"
 goal = "Data moves between host and device transparently — no manual cudaMemcpy"
 success_criteria = [
     "Vec<f32> on host automatically available to GPU kernel code",
@@ -475,7 +475,7 @@ success_criteria = [
 id = "unified-demo"
 epic = "unified-runtime"
 title = "End-to-end pipeline demo — read → compute → write, zero GPU concepts"
-status = "pending"
+status = "active"
 goal = "Demonstrate full North Star: read → compute → write with zero GPU concepts visible"
 success_criteria = [
     "Demo: read → compute → write pipeline, zero explicit memory management",
@@ -850,7 +850,7 @@ id = "unified-scheduler.3"
 theme = "unified-scheduler"
 title = "Experiment: AutoScheduler with work type heuristics (I/O → CPU, compute → GPU)"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["unified-scheduler.2"]
 
 # --- unified-runtime: transfer ---
@@ -876,7 +876,7 @@ id = "unified-transfer.3"
 theme = "unified-transfer"
 title = "Experiment: lazy transfer + redundancy elimination — skip unnecessary copies"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["unified-transfer.2"]
 
 # --- unified-runtime: demo ---

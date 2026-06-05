@@ -159,6 +159,32 @@ pub mod block;
 /// ```
 pub mod scope;
 
+/// Type-level safety primitives for race-free GPU programming.
+///
+/// Provides [`WarpIndex`], [`DisjointSlice`], and [`WarpHandle`] — compile-time
+/// witnesses that prevent data races by construction. Inspired by cuda-oxide's
+/// 3-tier safety model, adapted for async-gpu's warp-cooperative execution.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use gpu_runtime::scope::block_scope;
+/// use gpu_runtime::safety::{WarpIndex, DisjointSlice, WarpHandle};
+///
+/// block_scope(|scope| {
+///     let buf = scope.alloc::<f32>(256);
+///     let disjoint = scope.disjoint_slice(buf);
+///
+///     scope.spawn_all_indexed(|widx, warp| {
+///         let my_part = disjoint.get_mut(&widx);
+///         for slot in my_part.iter_mut() {
+///             *slot = 1.0;
+///         }
+///     });
+/// });
+/// ```
+pub mod safety;
+
 /// Cross-block work coordination for GridScope.
 ///
 /// Provides work-dispatch primitives that let a coordinator block distribute

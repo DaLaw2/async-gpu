@@ -66,6 +66,9 @@ pub use crate::par_iter::{
 // --- Stdio ---
 pub use crate::stdio::{gpu_print_buffer_flush, stdio_init, stdio_print_buffer_init};
 
+// --- Safety types ---
+pub use crate::safety::{DisjointSlice, WarpHandle, WarpIndex};
+
 // --- Unified channels ---
 pub use crate::unified_channel::{
     ScopedMpscReceiver, ScopedMpscSendError, ScopedMpscSender, ScopedOneshotClosed,

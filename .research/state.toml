@@ -4,8 +4,8 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 623
-completed_tasks = 780
+total_cycles = 624
+completed_tasks = 783
 status = "running"     # ready | running | blocked | completed
 
 # Project North Star — the ONE thing all epics serve:
@@ -14,12 +14,12 @@ status = "running"     # ready | running | blocked | completed
 # No GPU concepts leak. VectorWare's I/O strength + async-gpu's compute strength, unified.
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
-current_step = "route"
-current_task_id = ""
+current_step = "save"
+current_task_id = "safety-types.2,safety-tiers.1"
 
 # Sequence counters
-brainstorm_seq = 120
-tasks_since_brainstorm = 4   # reset after brainstorm 120
+brainstorm_seq = 121
+tasks_since_brainstorm = 2
 
 # ============================================================
 # Epics — Tiered (T0 → T3), sorted by tier then priority
@@ -34,7 +34,7 @@ tasks_since_brainstorm = 4   # reset after brainstorm 120
 # refactor-v2, gpu-dynamic, graph-algorithms, int4-gpt2, monte-carlo, benchmark,
 # native-rust-dx, std-thread-gpu, cooperative-compute, structured-concurrency,
 # library-api, kernel-perf, developer-showcase, kernel-split, auto-fusion,
-# gpu-test
+# gpu-test, gpu-iterator
 
 # --- T0: Foundation (do first, everything depends on this) ---
 
@@ -79,7 +79,7 @@ success_criteria = [
 id = "gpu-iterator"
 title = "GPU Iterator — par_iter() compiles to warp-parallel GPU kernels"
 tier = 1
-status = "active"
+status = "completed"
 priority = "highest"
 depends_on = "structured-concurrency"
 # North Star: Iterator chains are Rust's native way to express data-parallel compute.
@@ -89,7 +89,7 @@ depends_on = "structured-concurrency"
 #   correct results on GPU, user doesn't know it's GPU code.
 success_criteria = [
     "gpu::par_iter() maps Rust iterator chains to GPU warp-parallel execution",
-    "MIR pass transforms iterator chain bodies into warp-parallel kernel code",
+    "Compile-time fusion of iterator chain bodies into warp-parallel kernel code (via Rust monomorphization + LLVM optimization)",
     "At least map, filter, fold, collect operations supported",
     "Demo: iterator chain that outperforms CPU Rayon on large data (>1M elements)",
 ]
@@ -374,7 +374,7 @@ success_criteria = [
 id = "safety-tiers"
 epic = "gpu-type-safety"
 title = "3-tier safety model for GPU operations"
-status = "pending"
+status = "active"
 goal = "Clear safety tiers: safe / scoped unsafe / raw intrinsics"
 success_criteria = [
     "Tier 1: safe API (DisjointSlice, ThreadIndex)",
@@ -400,7 +400,7 @@ success_criteria = [
 id = "iter-demo"
 epic = "gpu-iterator"
 title = "Iterator demos — par_iter vs Rayon benchmarks"
-status = "active"
+status = "completed"
 goal = "Demonstrate GPU iterator superiority over CPU for large datasets"
 success_criteria = [
     "par_iter().map().collect() demo on 1M+ elements",
@@ -711,7 +711,7 @@ id = "safety-types.2"
 theme = "safety-types"
 title = "Experiment: implement DisjointSlice<T> + ThreadIndex<'kernel> types"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["safety-types.1"]
 
 [[tasks]]
@@ -719,7 +719,7 @@ id = "safety-tiers.1"
 theme = "safety-tiers"
 title = "Design: 3-tier safety model — categorize all GPU operations into tiers"
 kind = "design"
-status = "pending"
+status = "done"
 depends = ["safety-types.1"]
 
 [[tasks]]
@@ -745,7 +745,7 @@ id = "iter-demo.4"
 theme = "iter-demo"
 title = "Experiment: re-benchmark multi-block par_iter vs Rayon — find crossover point"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["iter-demo.3"]
 
 [[tasks]]
@@ -753,7 +753,7 @@ id = "iter-demo.5"
 theme = "iter-demo"
 title = "Experiment: multi-block fold/sum via two-pass reduction"
 kind = "experiment"
-status = "pending"
+status = "parked"
 depends = ["iter-demo.3"]
 
 # --- gpu-generics ---
@@ -1214,3 +1214,16 @@ themes_parked = []
 themes_completed = ["split-loader", "split-devpath", "iter-demo"]
 epics_completed = ["kernel-split", "auto-fusion"]
 key_insight = "kernel-split + auto-fusion epics closed (49th+50th). gpu-iterator needs multi-block dispatch (single-block 5-1178x slower than Rayon). gpu-type-safety activated (DisjointSlice + ThreadIndex). 3 new iter-demo tasks for multi-block performance."
+
+[[brainstorms]]
+seq = 121
+at_cycle = 623
+trigger = "Theme completed: test-integration (gpu-test cascade close) + gpu-iterator C2 assessment"
+level = "standard"
+new_tasks_spawned = []
+new_themes_spawned = []
+new_epics_spawned = []
+themes_parked = []
+themes_completed = ["test-integration", "iter-demo"]
+epics_completed = ["gpu-test", "gpu-iterator"]
+key_insight = "gpu-iterator's MIR pass criterion was aspirational — Rust monomorphization achieves identical fusion. Amend C2, close as 52nd epic. T1 focus shifts to gpu-type-safety (DisjointSlice + WarpIndex implementation)."

@@ -96,6 +96,7 @@ use core::cell::UnsafeCell;
 use core::marker::PhantomData;
 use core::sync::atomic::Ordering;
 
+use crate::safety::{DisjointSlice, WarpHandle, WarpIndex};
 use crate::thread::{
     lane_id, nanosleep_short, warp_id, NUM_WARPS, SCRATCH, SCRATCH_SIZE, STATUS_ASSIGNED,
     STATUS_COOPERATIVE, STATUS_DONE, STATUS_IDLE, STATUS_TRAPPED, WARP_DATA, WARP_FN, WARP_RESULT,
@@ -576,6 +577,82 @@ impl<'scope> BlockScope<'scope> {
                 nanosleep_short();
             }
         }
+    }
+
+    /// Spawn a closure cooperatively across all warps with type-safe indexing.
+    ///
+    /// Like [`spawn_all`](Self::spawn_all), but the closure receives a
+    /// [`WarpIndex`] and [`WarpHandle`] instead of raw `(u32, u32)`.
+    /// This enables compile-time race prevention via [`DisjointSlice`].
+    ///
+    /// - `WarpIndex<'scope>` — opaque proof of warp identity; required to
+    ///   access [`DisjointSlice`] partitions.
+    /// - `WarpHandle<'scope>` — proof that all 32 lanes are converged;
+    ///   enables safe warp-level reductions, shuffles, and votes.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// block_scope(|scope| {
+    ///     let buf = scope.alloc::<f32>(1024);
+    ///     let output = scope.disjoint_slice(buf);
+    ///
+    ///     scope.spawn_all_indexed(|widx, warp| {
+    ///         let partition = output.get_mut(&widx);
+    ///         for slot in partition.iter_mut() {
+    ///             *slot = 1.0;
+    ///         }
+    ///         let count = warp.reduce_sum_u32(partition.len() as u32);
+    ///     });
+    /// });
+    /// ```
+    pub fn spawn_all_indexed<F>(&mut self, f: F)
+    where
+        F: Fn(WarpIndex<'scope>, WarpHandle<'scope>) + Send + Sync + 'scope,
+    {
+        // Wrap the indexed closure into a (u32, u32) closure for spawn_all.
+        // WarpIndex and WarpHandle are constructed here — the only place
+        // they can be created (pub(crate) constructors).
+        self.spawn_all(move |wid: u32, nw: u32| {
+            let widx = WarpIndex::new(wid, nw);
+            let warp = WarpHandle::new();
+            f(widx, warp);
+        });
+    }
+
+    /// Create a [`DisjointSlice`] from a scope-allocated mutable slice.
+    ///
+    /// The returned `DisjointSlice` partitions the buffer so each warp gets
+    /// an exclusive contiguous sub-slice when accessed via
+    /// [`get_mut`](DisjointSlice::get_mut) with a [`WarpIndex`].
+    ///
+    /// # Ownership
+    ///
+    /// The `DisjointSlice` borrows the entire buffer — the caller must not
+    /// use the original `&mut [T]` while the `DisjointSlice` exists. The
+    /// `'scope` lifetime ensures the `DisjointSlice` cannot outlive the scope.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// block_scope(|scope| {
+    ///     let buf = scope.alloc::<f32>(256);
+    ///     let disjoint = scope.disjoint_slice(buf);
+    ///
+    ///     scope.spawn_all_indexed(|widx, _warp| {
+    ///         let my_part = disjoint.get_mut(&widx);
+    ///         for slot in my_part.iter_mut() {
+    ///             *slot = 42.0;
+    ///         }
+    ///     });
+    /// });
+    /// ```
+    pub fn disjoint_slice<T: Copy>(&self, buf: &'scope mut [T]) -> DisjointSlice<'scope, T> {
+        let len = buf.len();
+        let ptr = buf.as_mut_ptr();
+        // SAFETY: The buffer is scope-allocated and valid for 'scope.
+        // The DisjointSlice takes exclusive ownership via the mutable borrow.
+        unsafe { DisjointSlice::new(ptr, len) }
     }
 
     /// Request cooperative cancellation of all tasks in this scope.

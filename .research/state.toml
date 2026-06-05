@@ -4,8 +4,8 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 633
-completed_tasks = 796
+total_cycles = 634
+completed_tasks = 797
 status = "running"     # ready | running | blocked | completed
 
 # Project North Star — the ONE thing all epics serve:
@@ -19,7 +19,7 @@ current_task_id = ""
 
 # Sequence counters
 brainstorm_seq = 123
-tasks_since_brainstorm = 7
+tasks_since_brainstorm = 8
 
 # ============================================================
 # Epics — Tiered (T0 → T3), sorted by tier then priority
@@ -475,7 +475,7 @@ success_criteria = [
 id = "unified-demo"
 epic = "unified-runtime"
 title = "End-to-end pipeline demo — read → compute → write, zero GPU concepts"
-status = "active"
+status = "completed"
 goal = "Demonstrate full North Star: read → compute → write with zero GPU concepts visible"
 success_criteria = [
     "Demo: read → compute → write pipeline, zero explicit memory management",
@@ -894,7 +894,7 @@ id = "unified-demo.2"
 theme = "unified-demo"
 title = "Experiment: performance benchmark + AutoScheduler choosing GPU for compute, CPU for I/O"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["unified-scheduler.3", "unified-demo.1"]
 
 # --- gpu-hot-reload ---

@@ -117,6 +117,25 @@ fn test_gpu_cooperative_map() {}
 #[gpu_test]
 fn test_gpu_cooperative_reduce() {}
 
+/// Test type-safe cooperative execution with DisjointSlice + WarpIndex.
+///
+/// The kernel `test_gpu_type_safe_cooperative` in gpu-kernel-test:
+///   - alloc_disjoint() + spawn_all_indexed(): safe parallel fill + verify
+///   - alloc_disjoint() + cooperative_indexed(): safe cooperative() variant
+///   - DisjointSlice::get() immutable reads + bounds checking
+#[gpu_test]
+fn test_gpu_type_safe_cooperative() {}
+
+/// Test safe cooperative map — zero-unsafe rewrite of test_gpu_cooperative_map.
+///
+/// The kernel `test_gpu_cooperative_map_safe` in gpu-kernel-test:
+///   - Uses cooperative_indexed() + DisjointSlice (zero unsafe in body)
+///   - Each warp doubles its partition of a 64-element array
+///   - WarpHandle::reduce_sum_u32 for safe warp-level reduction
+///   - DisjointSlice::get() for bounds-checked verification
+#[gpu_test]
+fn test_gpu_cooperative_map_safe() {}
+
 // ============================================================================
 // GPU tests — math, atomics, iterators
 // ============================================================================

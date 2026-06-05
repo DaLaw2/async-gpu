@@ -4,8 +4,8 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 624
-completed_tasks = 783
+total_cycles = 625
+completed_tasks = 785
 status = "running"     # ready | running | blocked | completed
 
 # Project North Star — the ONE thing all epics serve:
@@ -15,11 +15,11 @@ status = "running"     # ready | running | blocked | completed
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
 current_step = "save"
-current_task_id = "safety-types.2,safety-tiers.1"
+current_task_id = ""
 
 # Sequence counters
 brainstorm_seq = 121
-tasks_since_brainstorm = 2
+tasks_since_brainstorm = 4
 
 # ============================================================
 # Epics — Tiered (T0 → T3), sorted by tier then priority
@@ -362,7 +362,7 @@ success_criteria = [
 id = "safety-types"
 epic = "gpu-type-safety"
 title = "DisjointSlice + ThreadIndex — race-freedom by construction"
-status = "active"
+status = "completed"
 goal = "Type system proves no data races in GPU code at compile time"
 success_criteria = [
     "DisjointSlice<T> type with compile-time exclusive access guarantee",
@@ -374,7 +374,7 @@ success_criteria = [
 id = "safety-tiers"
 epic = "gpu-type-safety"
 title = "3-tier safety model for GPU operations"
-status = "active"
+status = "completed"
 goal = "Clear safety tiers: safe / scoped unsafe / raw intrinsics"
 success_criteria = [
     "Tier 1: safe API (DisjointSlice, ThreadIndex)",
@@ -386,7 +386,7 @@ success_criteria = [
 id = "safety-apply"
 epic = "gpu-type-safety"
 title = "Apply type safety to existing SC and cooperative APIs"
-status = "pending"
+status = "completed"
 goal = "BlockScope/GridScope gain type-level safety guarantees"
 success_criteria = [
     "BlockScope alloc returns DisjointSlice for parallel access",
@@ -727,7 +727,7 @@ id = "safety-apply.1"
 theme = "safety-apply"
 title = "Experiment: enhance BlockScope/GridScope with DisjointSlice + ThreadIndex"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["safety-types.2", "safety-tiers.1"]
 
 [[tasks]]
@@ -735,7 +735,7 @@ id = "safety-apply.2"
 theme = "safety-apply"
 title = "Experiment: rewrite existing example with zero unsafe using type-safe APIs"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["safety-apply.1"]
 
 # --- gpu-iterator: demo ---

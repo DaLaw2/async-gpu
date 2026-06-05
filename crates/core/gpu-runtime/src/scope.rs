@@ -620,6 +620,38 @@ impl<'scope> BlockScope<'scope> {
         });
     }
 
+    /// Allocate shared memory and return it as a [`DisjointSlice`] for
+    /// race-free parallel access.
+    ///
+    /// This is a convenience that combines [`alloc`](Self::alloc) +
+    /// [`disjoint_slice`](Self::disjoint_slice) in a single call. The
+    /// returned `DisjointSlice` gives each warp an exclusive contiguous
+    /// partition when accessed via [`get_mut`](DisjointSlice::get_mut)
+    /// with a [`WarpIndex`].
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// block_scope(|scope| {
+    ///     let output = scope.alloc_disjoint::<f32>(256);
+    ///
+    ///     scope.spawn_all_indexed(|widx, _warp| {
+    ///         let my_part = output.get_mut(&widx);
+    ///         for slot in my_part.iter_mut() {
+    ///             *slot = 42.0;
+    ///         }
+    ///     });
+    /// });
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics if the allocation would exceed shared memory capacity.
+    pub fn alloc_disjoint<T: Copy>(&self, count: usize) -> DisjointSlice<'scope, T> {
+        let buf = self.alloc::<T>(count);
+        self.disjoint_slice(buf)
+    }
+
     /// Create a [`DisjointSlice`] from a scope-allocated mutable slice.
     ///
     /// The returned `DisjointSlice` partitions the buffer so each warp gets

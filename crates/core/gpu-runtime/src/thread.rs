@@ -428,6 +428,63 @@ pub unsafe fn cooperative<F: Fn()>(f: &F) {
     }
 }
 
+/// Execute a closure cooperatively across all warps with type-safe indexing.
+///
+/// Like [`cooperative()`], but **safe**: the closure receives a
+/// [`WarpIndex`] and [`WarpHandle`] instead of requiring manual
+/// `current_id()` / `available_parallelism()`. Used with
+/// [`DisjointSlice`] to get compile-time race prevention.
+///
+/// The `for<'coop>` higher-ranked trait bound creates a fresh lifetime
+/// for the `WarpIndex` and `WarpHandle`, preventing them from escaping
+/// the cooperative call.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use gpu_runtime::thread;
+/// use gpu_runtime::safety::DisjointSlice;
+///
+/// thread::gpu_main(|| {
+///     // With a DisjointSlice from a BlockScope:
+///     block_scope(|scope| {
+///         let data = scope.alloc_disjoint::<u32>(128);
+///         thread::cooperative_indexed(&|widx, _warp| {
+///             let my_part = data.get_mut(&widx);
+///             for (i, slot) in my_part.iter_mut().enumerate() {
+///                 *slot = widx.global_index(i) as u32;
+///             }
+///         });
+///     });
+/// });
+/// ```
+///
+/// # Differences from `cooperative()`
+///
+/// | `cooperative()` | `cooperative_indexed()` |
+/// |-----------------|------------------------|
+/// | `unsafe` — caller ensures no races | **Safe** — races prevented by type system |
+/// | Closure receives nothing | Closure receives `WarpIndex` + `WarpHandle` |
+/// | Manual `current_id()` + `available_parallelism()` | Warp identity encoded in `WarpIndex` |
+pub fn cooperative_indexed<F>(f: &F)
+where
+    F: for<'coop> Fn(crate::safety::WarpIndex<'coop>, crate::safety::WarpHandle<'coop>) + Sync,
+{
+    // SAFETY: cooperative_indexed provides WarpIndex and WarpHandle to each
+    // warp. These witness types are the safety mechanism — WarpIndex + DisjointSlice
+    // prevent data races at the type level. The underlying cooperative() machinery
+    // (wake all warps, execute in parallel, join) is unchanged.
+    unsafe {
+        cooperative(&|| {
+            let wid = current_id();
+            let n = available_parallelism() as u32 + 1;
+            let widx = crate::safety::WarpIndex::new(wid, n);
+            let warp = crate::safety::WarpHandle::new();
+            f(widx, warp);
+        });
+    }
+}
+
 // ============================================================
 // Cooperative Map — data-parallel transform without global atomics
 // ============================================================

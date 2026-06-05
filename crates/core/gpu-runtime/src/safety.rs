@@ -7,8 +7,9 @@
 //! # Key Types
 //!
 //! - [`WarpIndex`] — opaque witness proving this code runs on a specific warp.
-//!   Cannot be constructed, copied, sent, or stored. Obtained only from
-//!   [`BlockScope::spawn_all_indexed`](crate::scope::BlockScope::spawn_all_indexed).
+//!   Cannot be constructed, copied, sent, or stored. Obtained from
+//!   [`BlockScope::spawn_all_indexed`](crate::scope::BlockScope::spawn_all_indexed)
+//!   or [`cooperative_indexed`](crate::thread::cooperative_indexed).
 //!
 //! - [`DisjointSlice`] — a slice where each warp gets exclusive access to its
 //!   own partition. Access requires a `WarpIndex` witness, providing compile-time
@@ -54,8 +55,9 @@ use core::marker::PhantomData;
 
 /// Opaque witness proving this code runs on a specific warp within a scope.
 ///
-/// Cannot be constructed, copied, sent, or stored. Obtained only from
-/// [`BlockScope::spawn_all_indexed`](crate::scope::BlockScope::spawn_all_indexed).
+/// Cannot be constructed, copied, sent, or stored. Obtained from
+/// [`BlockScope::spawn_all_indexed`](crate::scope::BlockScope::spawn_all_indexed)
+/// or [`cooperative_indexed`](crate::thread::cooperative_indexed).
 ///
 /// The `'scope` lifetime ties the witness to the enclosing scope, preventing
 /// it from escaping to a different scope or being stored in shared memory.
@@ -151,9 +153,11 @@ impl<'scope> WarpIndex<'scope> {
 ///
 /// # Safety Properties
 ///
-/// - `!Send + !Sync` — cannot escape the scope
-/// - Access requires `&WarpIndex<'scope>` — compile-time proof of warp identity
-/// - Round-robin guarantees disjoint partitions — no aliasing possible
+/// - `Send + Sync` — can be shared across warps (safety enforced by `WarpIndex`)
+/// - `Copy + Clone` — thin wrapper around `(*mut T, usize)`, no owned resources
+/// - `'scope`-bounded — cannot outlive the enclosing scope
+/// - Access requires `&WarpIndex` — compile-time proof of warp identity
+/// - Contiguous partitioning guarantees disjoint access — no aliasing possible
 /// - Zero runtime overhead: partition bounds computed from warp_id/n_warps
 ///
 /// # Example
@@ -172,6 +176,15 @@ impl<'scope> WarpIndex<'scope> {
 ///     });
 /// });
 /// ```
+/// NOTE: `DisjointSlice` implements `Copy + Clone`. This is sound because:
+/// - It is a thin wrapper around `(*mut T, usize)` — no owned resources.
+/// - Mutable access (`get_mut`) requires a `WarpIndex` witness, which is
+///   the gatekeeper that prevents data races. Uniqueness of `DisjointSlice`
+///   is irrelevant; uniqueness of `WarpIndex` is what matters.
+/// - Making it `Copy` enables the ergonomic pattern of `move`-capturing
+///   into `spawn_all_indexed` / `cooperative_indexed` closures while still
+///   using it afterward on warp 0 for verification.
+#[derive(Copy, Clone)]
 pub struct DisjointSlice<'scope, T: Copy> {
     ptr: *mut T,
     len: usize,
@@ -179,9 +192,21 @@ pub struct DisjointSlice<'scope, T: Copy> {
     _scope: PhantomData<&'scope mut [T]>,
 }
 
-// DisjointSlice is !Send + !Sync because it contains a raw pointer (*mut T)
-// and we do NOT implement Send/Sync for it. The PhantomData<&'scope mut [T]>
-// also prevents it from being covariant over 'scope.
+// DisjointSlice is Send + Sync:
+//
+// SAFETY (Sync): sharing &DisjointSlice across warps is safe because
+// get_mut() requires a WarpIndex witness — each warp can only access its own
+// disjoint partition, so no two warps can produce overlapping &mut [T] slices.
+//
+// SAFETY (Send): moving a DisjointSlice to another warp is safe because
+// the DisjointSlice does not own the data — it is a borrowed view. The
+// scope lifetime ensures the underlying buffer remains valid. Mutable access
+// is gated by WarpIndex, not by which warp holds the DisjointSlice.
+// Send is needed so that `move` closures in spawn_all_indexed and
+// cooperative_indexed can capture DisjointSlice by value.
+unsafe impl<'scope, T: Copy> Send for DisjointSlice<'scope, T> {}
+unsafe impl<'scope, T: Copy> Sync for DisjointSlice<'scope, T> {}
+// PhantomData<&'scope mut [T]> prevents covariance over 'scope.
 
 impl<'scope, T: Copy> DisjointSlice<'scope, T> {
     /// Create a new DisjointSlice. This is `pub(crate)` — only scope machinery
@@ -224,8 +249,9 @@ impl<'scope, T: Copy> DisjointSlice<'scope, T> {
     /// # Safety Argument
     ///
     /// This method takes `&self` but returns `&mut [T]`. This is sound because:
-    /// 1. The `WarpIndex<'scope>` witness guarantees the caller is a specific warp.
-    /// 2. Each warp produces a different `WarpIndex` (constructed by `spawn_all_indexed`).
+    /// 1. The `WarpIndex` witness guarantees the caller is a specific warp.
+    /// 2. Each warp produces a different `WarpIndex` (constructed by
+    ///    `spawn_all_indexed` or `cooperative_indexed`).
     /// 3. The contiguous partitioning is deterministic and non-overlapping.
     /// 4. Therefore, no two callers can receive overlapping `&mut [T]` slices.
     ///
@@ -233,13 +259,20 @@ impl<'scope, T: Copy> DisjointSlice<'scope, T> {
     /// mutability where safety is enforced by external invariants (here, the
     /// warp identity witness).
     ///
+    /// The `WarpIndex` lifetime is independent of `'scope` — what matters
+    /// is that the index is a valid warp-identity witness (enforced by its
+    /// `pub(crate)` constructor), not that it shares the scope's lifetime.
+    /// This allows `DisjointSlice` from a `BlockScope` to be used with a
+    /// `WarpIndex` from `cooperative_indexed()` (which has its own `'coop`
+    /// lifetime).
+    ///
     /// # Returns
     ///
     /// A mutable slice of this warp's contiguous partition. The slice may be
     /// empty if `len < n_warps` and this warp has no elements.
     #[inline(always)]
     #[allow(clippy::mut_from_ref)]
-    pub fn get_mut(&self, idx: &WarpIndex<'scope>) -> &mut [T] {
+    pub fn get_mut(&self, idx: &WarpIndex<'_>) -> &mut [T] {
         if self.len == 0 {
             return &mut [];
         }
@@ -305,7 +338,8 @@ impl<'scope, T: Copy> DisjointSlice<'scope, T> {
 /// Witness that all 32 lanes of this warp are active and converged.
 ///
 /// Constructed only by trusted entry points
-/// ([`BlockScope::spawn_all_indexed`](crate::scope::BlockScope::spawn_all_indexed)),
+/// ([`BlockScope::spawn_all_indexed`](crate::scope::BlockScope::spawn_all_indexed)
+/// and [`cooperative_indexed`](crate::thread::cooperative_indexed)),
 /// this type lifts warp-level operations from `unsafe` to safe.
 ///
 /// The safety contract: when you hold a `WarpHandle`, all 32 lanes are

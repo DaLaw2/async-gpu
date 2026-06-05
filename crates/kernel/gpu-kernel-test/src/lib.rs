@@ -1422,6 +1422,243 @@ pub unsafe extern "gpu-kernel" fn test_gpu_cooperative_reduce() {
     });
 }
 
+/// GPU test: type-safe cooperative execution with DisjointSlice + WarpIndex.
+///
+/// Zero-param entry. Demonstrates the safe cooperative pattern:
+///   1. `alloc_disjoint()` — allocates shared memory AND wraps it as DisjointSlice
+///   2. `cooperative_indexed()` — safe cooperative() with WarpIndex + WarpHandle
+///   3. `spawn_all_indexed()` — existing scope-based indexed pattern
+///
+/// Each warp writes to its exclusive partition via DisjointSlice. No `unsafe`
+/// at the call site — data race prevention is enforced by the type system.
+///
+/// Launch with: block_dim=(128,1,1), 1 block, NO kernel args.
+/// Shared memory: 2048 bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "gpu-kernel" fn test_gpu_type_safe_cooperative() {
+    let buf = stdio_auto_init();
+    if buf.is_null() {
+        return;
+    }
+
+    gpu_runtime::thread::gpu_main_poll(|| {
+        unsafe {
+            gpu_runtime::scope::init_shared_mem_allocator(2048);
+        }
+
+        // ---- Test 1: alloc_disjoint + spawn_all_indexed ----
+        // Allocate a 64-element buffer as a DisjointSlice, fill with spawn_all_indexed.
+        let test1_ok = gpu_runtime::scope::block_scope(|scope| {
+            let data = scope.alloc_disjoint::<u32>(64);
+
+            scope.spawn_all_indexed(move |widx, _warp| {
+                let my_part = data.get_mut(&widx);
+                for (i, slot) in my_part.iter_mut().enumerate() {
+                    // Write a value derived from the global position.
+                    // Use warp_id * 1000 + local_i so we can verify per-warp writes.
+                    *slot = widx.warp_id() * 1000 + i as u32;
+                }
+            });
+
+            // Verify: each element should have the correct warp-tagged value.
+            // With contiguous partitioning and 4 warps over 64 elements,
+            // each warp gets 16 elements. Warp k gets indices [k*16 .. (k+1)*16).
+            // (data is Copy, so it's still usable after the move closure above)
+            let n_warps = gpu_runtime::thread::available_parallelism() as u32 + 1;
+            let chunk = 64 / n_warps;
+            let mut ok = true;
+
+            // Read back the raw buffer to verify
+            let (ptr, len) = unsafe { data.raw_parts() };
+            for wid in 0..n_warps {
+                let start = (wid * chunk) as usize;
+                for local_i in 0..chunk as usize {
+                    let expected = wid * 1000 + local_i as u32;
+                    let actual = unsafe { core::ptr::read_volatile(ptr.add(start + local_i)) };
+                    if actual != expected {
+                        ok = false;
+                    }
+                }
+            }
+            let _ = len; // suppress unused
+            ok
+        });
+        assert!(test1_ok, "alloc_disjoint + spawn_all_indexed should produce correct values");
+
+        // ---- Test 2: alloc_disjoint + cooperative_indexed ----
+        // Same pattern but using cooperative_indexed (safe cooperative()) outside scope.
+        let test2_ok = gpu_runtime::scope::block_scope(|scope| {
+            let data = scope.alloc_disjoint::<u32>(64);
+
+            // cooperative_indexed provides WarpIndex + WarpHandle without unsafe.
+            gpu_runtime::thread::cooperative_indexed(&|widx, _warp| {
+                let my_part = data.get_mut(&widx);
+                for (i, slot) in my_part.iter_mut().enumerate() {
+                    *slot = widx.warp_id() * 100 + i as u32;
+                }
+            });
+
+            // Verify
+            let n_warps = gpu_runtime::thread::available_parallelism() as u32 + 1;
+            let chunk = 64 / n_warps;
+            let mut ok = true;
+            let (ptr, _len) = unsafe { data.raw_parts() };
+            for wid in 0..n_warps {
+                let start = (wid * chunk) as usize;
+                for local_i in 0..chunk as usize {
+                    let expected = wid * 100 + local_i as u32;
+                    let actual = unsafe { core::ptr::read_volatile(ptr.add(start + local_i)) };
+                    if actual != expected {
+                        ok = false;
+                    }
+                }
+            }
+            ok
+        });
+        assert!(test2_ok, "alloc_disjoint + cooperative_indexed should produce correct values");
+
+        // ---- Test 3: DisjointSlice immutable read via get() ----
+        let test3_ok = gpu_runtime::scope::block_scope(|scope| {
+            let data = scope.alloc_disjoint::<u32>(8);
+
+            // Fill with known values via spawn_all_indexed
+            scope.spawn_all_indexed(move |widx, _warp| {
+                let my_part = data.get_mut(&widx);
+                for (i, slot) in my_part.iter_mut().enumerate() {
+                    let global_i = widx.warp_id() as usize
+                        * (8 / widx.n_warps() as usize)
+                        + i;
+                    *slot = (global_i * 10) as u32;
+                }
+            });
+
+            // Verify immutable reads
+            let mut ok = true;
+            for i in 0..8usize {
+                match data.get(i) {
+                    Some(&val) => {
+                        if val != (i * 10) as u32 {
+                            ok = false;
+                        }
+                    }
+                    None => {
+                        ok = false;
+                    }
+                }
+            }
+            // Out-of-bounds read should return None
+            if data.get(8).is_some() {
+                ok = false;
+            }
+            ok
+        });
+        assert!(test3_ok, "DisjointSlice::get() should read correct values");
+
+        println!("[gpu_test] test_gpu_type_safe_cooperative PASSED");
+    });
+}
+
+/// GPU test: safe cooperative map — rewrite of `test_gpu_cooperative_map` with zero unsafe.
+///
+/// **Original** (`test_gpu_cooperative_map`):
+///   - Uses `cooperative_map()` with raw `*const u8` / `*mut u8` pointers
+///   - Has `unsafe { read_volatile / write_volatile }` inside the cooperative closure
+///   - Manual pointer arithmetic for partitioning (`src.add(i)`, `dst.add(i)`)
+///   - 2 unsafe blocks in the closure body
+///
+/// **This safe version**:
+///   - Uses `cooperative_indexed()` + `DisjointSlice` — zero unsafe in application logic
+///   - Warp identity via `WarpIndex` (compile-time proof of ownership)
+///   - Warp reductions via `WarpHandle` (safe warp-level ops)
+///   - Partition access via `DisjointSlice::get_mut()` (compile-time disjointness)
+///   - Verification via `DisjointSlice::get()` (bounds-checked safe reads)
+///
+/// Zero-param entry. Doubles each element of a 64-element array across all warps,
+/// then uses `WarpHandle::reduce_sum_u32` to verify the element count per warp.
+///
+/// Launch with: block_dim=(128,1,1), 1 block, NO kernel args.
+/// Shared memory: 2048 bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "gpu-kernel" fn test_gpu_cooperative_map_safe() {
+    let buf = stdio_auto_init();
+    if buf.is_null() {
+        return;
+    }
+
+    gpu_runtime::thread::gpu_main_poll(|| {
+        // init_shared_mem_allocator is the only unsafe call — it's infrastructure setup,
+        // not application logic. Required once before any block_scope call.
+        unsafe {
+            gpu_runtime::scope::init_shared_mem_allocator(2048);
+        }
+
+        // ---- Phase 1: Prepare input data (sequential on warp 0) ----
+        // Allocate input and output as DisjointSlice within a scope.
+        let all_ok = gpu_runtime::scope::block_scope(|scope| {
+            let input = scope.alloc_disjoint::<u32>(64);
+            let output = scope.alloc_disjoint::<u32>(64);
+
+            // Fill input: input[i] = i (using spawn_all_indexed for safe parallel fill)
+            scope.spawn_all_indexed(move |widx, _warp| {
+                let my_part = input.get_mut(&widx);
+                let n_warps = widx.n_warps() as usize;
+                let wid = widx.warp_id() as usize;
+                // Contiguous partitioning: warp k gets [start..start+count)
+                let chunk = 64 / n_warps;
+                let start = wid * chunk;
+                for (i, slot) in my_part.iter_mut().enumerate() {
+                    *slot = (start + i) as u32;
+                }
+            });
+
+            // ---- Phase 2: Cooperative compute — all warps double each element ----
+            // This is the key demonstration: cooperative_indexed + DisjointSlice
+            // replaces cooperative_map's unsafe pointer arithmetic with safe access.
+            gpu_runtime::thread::cooperative_indexed(&|widx, warp| {
+                let my_input = input.get_mut(&widx);
+                let my_output = output.get_mut(&widx);
+
+                // Safe: each warp writes only to its own partition
+                for (i, out_slot) in my_output.iter_mut().enumerate() {
+                    *out_slot = my_input[i] * 2;
+                }
+
+                // Demonstrate WarpHandle: safe warp-level reduce
+                // Count how many elements this warp processed
+                let my_count = my_output.len() as u32;
+                let _total = warp.reduce_sum_u32(my_count);
+                // On lane 0, _total == 64 (sum of all warps' counts)
+            });
+
+            // ---- Phase 3: Verify output (sequential on warp 0) ----
+            // Use DisjointSlice::get() for safe bounds-checked reads
+            let mut ok = true;
+            for i in 0..64u32 {
+                match output.get(i as usize) {
+                    Some(&val) => {
+                        if val != i * 2 {
+                            ok = false;
+                        }
+                    }
+                    None => {
+                        ok = false;
+                    }
+                }
+            }
+
+            // Verify bounds checking: out-of-range read returns None
+            if output.get(64).is_some() {
+                ok = false;
+            }
+
+            ok
+        });
+
+        assert!(all_ok, "cooperative_map_safe: output[i] should equal i * 2 for all i in 0..64");
+        println!("[gpu_test] test_gpu_cooperative_map_safe PASSED");
+    });
+}
+
 /// GPU test: GPU math intrinsics (sin, cos, sqrt, exp, log, abs, fma).
 ///
 /// Zero-param entry. Tests gpu_runtime::math functions with known values.

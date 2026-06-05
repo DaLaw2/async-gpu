@@ -1,31 +1,26 @@
 ## Current Focus
-**Cycle 624 — type-safety primitives landed** (2026-06-06). WarpIndex + DisjointSlice + WarpHandle implemented. 3-tier safety model designed. gpu-test (51st) + gpu-iterator (52nd) epics closed.
+**Cycle 625 — gpu-type-safety all themes COMPLETE** (2026-06-06). Three themes done: safety-types (types), safety-tiers (design), safety-apply (integration). Epic verification gate next.
 
 ## Recent Decisions
-- 2026-06-06: Contiguous partitioning for DisjointSlice (not round-robin) — enables zero-cost &mut [T] return
-- 2026-06-06: WarpHandle lifts warp intrinsics from unsafe to safe via convergence witness
-- 2026-06-06: gpu-iterator C2 amended — Rust monomorphization achieves identical fusion to MIR pass
-- 2026-06-06: gpu-test + gpu-iterator epics completed (51st + 52nd)
+- 2026-06-06: cooperative_indexed() uses HRTB `for<'coop>` to create fresh WarpIndex lifetime
+- 2026-06-06: DisjointSlice made Copy+Clone+Send+Sync (safety from WarpIndex gatekeeper, not type affinity)
+- 2026-06-06: get_mut() accepts WarpIndex<'_> (any lifetime) for cross-scope compatibility
+- 2026-06-06: GridScope doesn't need alloc_disjoint — warp-level primitives work within BlockScope inside GridScope
 
 ## Tried & Rejected
-- Round-robin partitioning for DisjointSlice: scattered elements can't return contiguous &mut [T]
-- Single-block par_iter benchmark via plain cudarc: gpu_main kernel requires hostcall buffer setup
-- MIR pass for iterator fusion: Rust monomorphization already achieves same result, no benefit
+- Round-robin DisjointSlice partitioning: can't return contiguous &mut [T]
+- Lifetime-locked get_mut (WarpIndex<'scope> only): blocked cooperative_indexed cross-scope usage
 
 ## Active Constraints
 - GTX 1660 (sm_75): 192 GB/s, 5 TFLOPS FP32, 48KB smem
 - Max 2 concurrent heavy subagents
-- PTX JIT ~15-20 min for 6.7MB PTX; CUDA cache eliminates repeat cost
 
 ## Key Metrics
-- 4 kernel crates: core (17), compute (84), io (55), test (90) entry points
-- Dev rebuild: 27.5s (PTX JIT)
-- Multi-block par_iter: 0.27-0.41x Rayon (≤4M), 1.43x at 16M
-- GPU tests: 16/16 pass
-- Type safety: WarpIndex + DisjointSlice + WarpHandle = 3 new zero-cost safety types
-- 783 tasks completed, 52 epics
+- Type safety: 3 witness types (WarpIndex, DisjointSlice, WarpHandle), 2 new entry points (spawn_all_indexed, cooperative_indexed), 1 convenience (alloc_disjoint)
+- Zero-unsafe demo: cooperative_map rewritten with 0 unsafe blocks (was 3)
+- 785 tasks completed, 52 epics
 
 ## Next
-1. safety-apply.1: enhance BlockScope/GridScope with DisjointSlice + ThreadIndex (deps met)
-2. safety-apply.2: rewrite existing example with zero unsafe
-3. Then gpu-type-safety epic verification
+1. ROUTE: Epic Verification Gate for gpu-type-safety — all 4 criteria appear met
+2. If PASS: 53rd epic completed, T1 nearly clear (only gpu-generics pending)
+3. Consider T2 tier activation

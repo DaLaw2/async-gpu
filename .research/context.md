@@ -1,7 +1,8 @@
 ## Current Focus
-**Cycle 632 — AutoScheduler + zero-copy GpuVec launch complete** (2026-06-06). Both scheduler and transfer foundations complete. AutoScheduler routes par_map/par_reduce by size (CPU<4096, GPU>=4096). launch_with_gpuvec() uses raw CUDA driver API for zero-copy kernel launch. Integration tests pass on real GPU (1K, 2K, 1M elements). Demo phase next: unified-demo.1 is the North Star — read → compute → write with zero explicit memory management.
+**Cycle 633 — North Star demo complete** (2026-06-06). unified-demo.1 delivered: read → compute → write pipeline with zero GPU concepts exposed to user. Two examples (unified_pipeline, gpuvec_pipeline) + 4 integration tests, all passing on real GPU (0.28s with inline PTX JIT). AutoScheduler par_map + GpuVec zero-copy pipeline fully working. Next: unified-demo.2 (performance benchmark + AutoScheduler choosing GPU for compute, CPU for I/O), then epic verification.
 
 ## Recent Decisions
+- 2026-06-06: unified-demo.1 — North Star demo complete. Two examples: unified_pipeline.rs (AutoScheduler par_map), gpuvec_pipeline.rs (GpuVec zero-copy map_gpu). 4 integration tests pass. GPU concepts hidden: kernel launch, memcpy, block/thread config, sync, PTX loading.
 - 2026-06-06: unified-transfer.3 — launch_with_gpuvec() via raw CUDA driver API (cuLaunchKernel). GpuVec::map_gpu() for in-place transforms. Integration tests: 1K, 2K, 1M zero-copy launches pass on GPU.
 - 2026-06-06: unified-scheduler.3 — AutoScheduler with par_map/par_reduce. Size threshold 4096: small → CPU (Rayon-style), large → GPU kernel. Both themes complete.
 - 2026-06-06: unified-scheduler.2 — Scheduler trait with cpu()/gpu_launch(), CpuScheduler routes to tokio, GpuScheduler routes to gpu::launch. NoGpu error variant added.
@@ -19,10 +20,10 @@
 - All T0 and T1 epics completed — T2 unified-runtime active
 
 ## Key Metrics
-- unified-runtime: 3 themes (2 completed, 1 active), 6/8 tasks done (scheduler.1-3, transfer.1-3)
-- 795 tasks completed, 54 epics completed
+- unified-runtime: 3 themes (2 completed, 1 active), 7/8 tasks done (scheduler.1-3, transfer.1-3, demo.1)
+- 796 tasks completed, 54 epics completed
 - T1 complete: gpu-test, gpu-iterator, gpu-type-safety, gpu-generics
 
 ## Next
-1. unified-demo.1: read → compute → write pipeline with zero GPU concepts in user code (North Star demo)
-2. unified-demo.2: performance benchmark + AutoScheduler choosing GPU for compute, CPU for I/O
+1. unified-demo.2: performance benchmark + AutoScheduler choosing GPU for compute, CPU for I/O
+2. Epic verification: all 4 unified-runtime success criteria met

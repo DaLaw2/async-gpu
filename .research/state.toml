@@ -4,8 +4,8 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 632
-completed_tasks = 795
+total_cycles = 633
+completed_tasks = 796
 status = "running"     # ready | running | blocked | completed
 
 # Project North Star — the ONE thing all epics serve:
@@ -19,7 +19,7 @@ current_task_id = ""
 
 # Sequence counters
 brainstorm_seq = 123
-tasks_since_brainstorm = 6
+tasks_since_brainstorm = 7
 
 # ============================================================
 # Epics — Tiered (T0 → T3), sorted by tier then priority
@@ -886,7 +886,7 @@ id = "unified-demo.1"
 theme = "unified-demo"
 title = "Experiment: read → compute → write pipeline with zero GPU concepts in user code"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["unified-scheduler.2", "unified-transfer.2"]
 
 [[tasks]]

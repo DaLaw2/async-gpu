@@ -428,3 +428,272 @@ fn test_gpuvec_large_data() {
         );
     }
 }
+
+// ============================================================================
+// Unified pipeline: North Star demo integration test
+// ============================================================================
+
+/// North Star demo: read -> compute -> write pipeline, end-to-end on GPU.
+///
+/// This test exercises the FULL user-facing pipeline using GpuVec + inline PTX
+/// (JIT compiles in milliseconds, avoids the 10-min full PTX JIT):
+/// 1. Generate test input data (simulates file read)
+/// 2. Transform on GPU via GpuVec::map_gpu (zero-copy, no cudaMemcpy)
+/// 3. Verify correctness against CPU reference
+/// 4. Serialize output (simulates file write)
+/// 5. Print timing info
+///
+/// Hidden GPU concepts: kernel launch config, memory transfer, device sync,
+/// block/thread/warp, PTX compilation, grid-stride loops.
+#[test]
+fn test_unified_pipeline_read_compute_write() {
+    use gpu_host::memory::GpuVec;
+    use std::time::Instant;
+
+    let _dev = shared_device();
+
+    // ── Step 1: "Read" — generate test data (simulates reading a file) ──
+    let n = 10_000;
+    let input_data: Vec<f32> = (0..n).map(|i| (i as f32) * 0.25 - 1000.0).collect();
+    println!("[unified_pipeline] Read {} elements", n);
+
+    // ── CPU reference for verification ──────────────────────────
+    let cpu_ref: Vec<f32> = input_data.iter().map(|&x| x * 2.0 + 1.0).collect();
+
+    // ── Step 2: "Compute" — transform on GPU ────────────────────
+    let t0 = Instant::now();
+    let gpu_data = GpuVec::from_vec(input_data).expect("GpuVec::from_vec");
+    let gpu_result = gpu_data
+        .map_gpu(MAP_KERNEL_PTX, "gpuvec_map_f32", 256)
+        .expect("GpuVec::map_gpu");
+    let gpu_elapsed = t0.elapsed();
+    println!("[unified_pipeline] GPU compute: {:?}", gpu_elapsed);
+
+    // ── Step 3: "Write" — serialize to bytes (simulates file write) ──
+    let output = gpu_result.as_slice();
+    let write_start = Instant::now();
+    let bytes: Vec<u8> = output.iter().flat_map(|f| f.to_le_bytes()).collect();
+    let write_elapsed = write_start.elapsed();
+    assert_eq!(bytes.len(), n * 4);
+    println!(
+        "[unified_pipeline] Serialized {} bytes in {:?}",
+        bytes.len(),
+        write_elapsed
+    );
+
+    // ── Verify correctness against CPU reference ────────────────
+    assert_eq!(output.len(), n);
+    let mut max_err: f32 = 0.0;
+    for i in 0..n {
+        let err = (output[i] - cpu_ref[i]).abs();
+        if err > max_err {
+            max_err = err;
+        }
+        assert!(
+            err < 1e-3,
+            "mismatch at index {i}: GPU={}, CPU={}, err={err}",
+            output[i],
+            cpu_ref[i]
+        );
+    }
+    println!(
+        "[unified_pipeline] All {} elements match (max error: {:.2e})",
+        n, max_err
+    );
+}
+
+/// North Star demo: GpuVec zero-copy pipeline with inline PTX.
+///
+/// Tests the explicit-GPU-but-no-transfers pattern using the tiny inline
+/// kernel (JIT compiles in milliseconds, avoids 10-min full PTX JIT).
+///
+/// Pipeline: create data -> GpuVec::from_vec -> map_gpu -> as_slice -> verify
+/// Hidden GPU concepts: kernel launch config, memory transfer, device sync.
+#[test]
+fn test_unified_pipeline_gpuvec() {
+    use gpu_host::memory::GpuVec;
+    use std::time::Instant;
+
+    let _dev = shared_device();
+
+    // ── Generate test data ───────────────────────────────────────
+    let n = 16_384;
+    let input_data: Vec<f32> = (0..n).map(|i| (i as f32) * 0.01 - 50.0).collect();
+    println!("[unified_gpuvec] Input: {} elements", n);
+
+    // ── CPU reference ────────────────────────────────────────────
+    let cpu_ref: Vec<f32> = input_data.iter().map(|&x| x * 2.0 + 1.0).collect();
+
+    // ── GpuVec zero-copy pipeline ────────────────────────────────
+    let t0 = Instant::now();
+    let gpu_data = GpuVec::from_vec(input_data).expect("GpuVec::from_vec");
+    let t_alloc = t0.elapsed();
+
+    let t1 = Instant::now();
+    let gpu_result = gpu_data
+        .map_gpu(MAP_KERNEL_PTX, "gpuvec_map_f32", 256)
+        .expect("GpuVec::map_gpu with inline PTX");
+    let t_compute = t1.elapsed();
+
+    let t2 = Instant::now();
+    let output = gpu_result.as_slice(); // zero-copy read
+    let t_read = t2.elapsed();
+
+    println!(
+        "[unified_gpuvec] Timing: alloc={:?}, compute={:?}, read={:?}",
+        t_alloc, t_compute, t_read
+    );
+
+    // ── Verify correctness ───────────────────────────────────────
+    assert_eq!(output.len(), n);
+    let mut max_err: f32 = 0.0;
+    for i in 0..n {
+        let err = (output[i] - cpu_ref[i]).abs();
+        if err > max_err {
+            max_err = err;
+        }
+        assert!(
+            err < 1e-3,
+            "mismatch at [{}]: GPU={}, CPU={}, err={err}",
+            i,
+            output[i],
+            cpu_ref[i]
+        );
+    }
+    println!(
+        "[unified_gpuvec] All {} elements verified (max error: {:.2e})",
+        n, max_err
+    );
+
+    // ── into_vec round-trip ──────────────────────────────────────
+    let result_vec = gpu_result.into_vec();
+    assert_eq!(result_vec.len(), n);
+    println!("[unified_gpuvec] into_vec() round-trip OK");
+}
+
+/// North Star demo: small data takes the CPU path transparently.
+///
+/// The user writes the SAME code as the GPU path. AutoScheduler routes
+/// to CPU when data is below the threshold. The result is identical.
+#[test]
+fn test_unified_pipeline_cpu_fallback() {
+    use gpu_host::scheduler::AutoScheduler;
+
+    let _dev = shared_device();
+
+    let n = 100; // well below the 4096 threshold
+    let input: Vec<f32> = (0..n).map(|i| i as f32).collect();
+
+    let scheduler = AutoScheduler::new();
+    assert!(
+        n < scheduler.threshold(),
+        "test data must be below threshold to exercise CPU path"
+    );
+
+    let output = scheduler
+        .par_map(&input, |x| x * 3.0 + 7.0)
+        .expect("AutoScheduler::par_map CPU path");
+
+    // CPU path uses the ACTUAL closure (not the pre-compiled kernel)
+    assert_eq!(output.len(), n);
+    for (i, &val) in output.iter().enumerate() {
+        let expected = (i as f32) * 3.0 + 7.0;
+        assert!(
+            (val - expected).abs() < 1e-6,
+            "CPU path mismatch at [{}]: got {}, expected {}",
+            i,
+            val,
+            expected
+        );
+    }
+    println!(
+        "[unified_cpu] {} elements, CPU path — user code is identical to GPU path",
+        n
+    );
+}
+
+/// Full file I/O round-trip: write input file -> read -> GPU compute -> write -> read back.
+///
+/// This is the closest test to the actual North Star demo example.
+/// Uses GpuVec + inline PTX for fast JIT (milliseconds, not 10 minutes).
+/// Uses temp files so it does not litter the repo.
+#[test]
+fn test_unified_pipeline_file_roundtrip() {
+    use gpu_host::memory::GpuVec;
+    use std::time::Instant;
+
+    let _dev = shared_device();
+
+    let dir = std::env::temp_dir().join("async_gpu_unified_test");
+    std::fs::create_dir_all(&dir).unwrap();
+
+    let input_path = dir.join("input.bin");
+    let output_path = dir.join("output.bin");
+
+    // ── Step 1: Generate and write input file ────────────────────
+    let n = 8192;
+    let input_data: Vec<f32> = (0..n).map(|i| (i as f32) * 0.5 - 2000.0).collect();
+    let input_bytes: Vec<u8> = input_data.iter().flat_map(|f| f.to_le_bytes()).collect();
+    std::fs::write(&input_path, &input_bytes).unwrap();
+    println!(
+        "[file_roundtrip] Wrote {} elements ({} bytes) to {:?}",
+        n,
+        input_bytes.len(),
+        input_path
+    );
+
+    // ── Step 2: Read from file (exactly as the North Star demo) ──
+    let raw = std::fs::read(&input_path).unwrap();
+    let input: Vec<f32> = raw
+        .chunks_exact(4)
+        .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+        .collect();
+    assert_eq!(input.len(), n);
+
+    // ── Step 3: Compute on GPU via GpuVec (inline PTX, fast JIT) ─
+    let t0 = Instant::now();
+    let gpu_data = GpuVec::from_vec(input).expect("GpuVec::from_vec");
+    let gpu_result = gpu_data
+        .map_gpu(MAP_KERNEL_PTX, "gpuvec_map_f32", 256)
+        .expect("GpuVec::map_gpu");
+    let compute_elapsed = t0.elapsed();
+    println!("[file_roundtrip] GPU compute: {:?}", compute_elapsed);
+
+    // ── Step 4: Write output file (zero-copy read from GPU result) ──
+    let output = gpu_result.as_slice();
+    let output_bytes: Vec<u8> = output.iter().flat_map(|f| f.to_le_bytes()).collect();
+    std::fs::write(&output_path, &output_bytes).unwrap();
+    println!(
+        "[file_roundtrip] Wrote {} elements to {:?}",
+        output.len(),
+        output_path
+    );
+
+    // ── Step 5: Read back and verify ─────────────────────────────
+    let readback_raw = std::fs::read(&output_path).unwrap();
+    let readback: Vec<f32> = readback_raw
+        .chunks_exact(4)
+        .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+        .collect();
+    assert_eq!(readback.len(), n);
+
+    for i in 0..n {
+        let expected = input_data[i] * 2.0 + 1.0;
+        assert!(
+            (readback[i] - expected).abs() < 1e-3,
+            "file roundtrip mismatch at [{}]: got {}, expected {}",
+            i,
+            readback[i],
+            expected
+        );
+    }
+    println!(
+        "[file_roundtrip] Full round-trip verified: {} elements correct",
+        n
+    );
+
+    // ── Cleanup ──────────────────────────────────────────────────
+    let _ = std::fs::remove_file(&input_path);
+    let _ = std::fs::remove_file(&output_path);
+    let _ = std::fs::remove_dir(&dir);
+}

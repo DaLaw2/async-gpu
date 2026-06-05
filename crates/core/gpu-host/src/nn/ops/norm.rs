@@ -28,7 +28,7 @@ pub fn layer_norm(
     let status_dev = dev.htod_sync_copy(&[0u32])?;
 
     // Use v3 (float4 vectorized) when d_model is divisible by 4, else fall back to v2
-    let kernel_name = if d_model % 4 == 0 {
+    let kernel_name = if d_model.is_multiple_of(4) {
         "layer_norm_v3"
     } else {
         "layer_norm_v2"

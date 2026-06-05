@@ -15,11 +15,6 @@ use super::Module;
 /// Stores pre-transposed+padded weight for fast matmul (skip per-forward transpose).
 pub struct Linear {
     weight_t: GpuTensor, // [in_features, out_features] — pre-transposed for matmul
-    /// Pre-computed column-major padded weight for direct GEMM launch.
-    /// Layout: [N_pad, K_pad] row-major = [K_pad, N_pad] col-major.
-    weight_prepadded: Option<cudarc::driver::CudaSlice<f32>>,
-    k_pad: usize,
-    n_pad: usize,
     bias: Option<GpuTensor>,
     registry: Arc<KernelRegistry>,
 }
@@ -47,51 +42,6 @@ impl Linear {
         }
         let weight_t = GpuTensor::from_host(&wt, &[in_features, out_features], dev)?;
 
-        // Pre-compute column-major padded weight for fast GEMM
-        let k = in_features;
-        let n = out_features;
-        let k_pad = k.div_ceil(16) * 16;
-        let n_pad = n.div_ceil(16) * 16;
-
-        // Transpose: weight_t [K, N] row-major → [N, K] row-major = col-major [K, N]
-        // Then pad to [N_pad, K_pad]
-        let weight_prepadded = {
-            let status = dev.htod_sync_copy(&[0u32])?;
-            let mut b_t = dev.alloc_zeros::<f32>(n * k)?;
-            let f_transpose = registry.get("matrix_transpose")?;
-            let cfg = crate::nn::registry::KernelRegistry::config_1d((k * n) as u32);
-            unsafe {
-                cudarc::driver::LaunchAsync::launch(
-                    f_transpose,
-                    cfg,
-                    (weight_t.data(), &mut b_t, k as u32, n as u32, &status),
-                )?;
-            }
-            if n == n_pad && k == k_pad {
-                Some(b_t)
-            } else {
-                let mut buf = dev.alloc_zeros::<f32>(n_pad * k_pad)?;
-                let f_pad = registry.get("matrix_pad")?;
-                let cfg_p = crate::nn::registry::KernelRegistry::config_1d((n_pad * k_pad) as u32);
-                unsafe {
-                    cudarc::driver::LaunchAsync::launch(
-                        f_pad,
-                        cfg_p,
-                        (
-                            &b_t,
-                            &mut buf,
-                            n as u32,
-                            k as u32,
-                            n_pad as u32,
-                            k_pad as u32,
-                            &status,
-                        ),
-                    )?;
-                }
-                Some(buf)
-            }
-        };
-
         let bias = if let Some(b) = bias {
             Some(GpuTensor::from_host(b, &[out_features], dev)?)
         } else {
@@ -100,9 +50,6 @@ impl Linear {
 
         Ok(Self {
             weight_t,
-            weight_prepadded,
-            k_pad,
-            n_pad,
             bias,
             registry: Arc::clone(registry),
         })

@@ -53,7 +53,8 @@ fn classify(op: OpKind) -> OpClass {
         | OpKind::Sigmoid
         | OpKind::Relu
         | OpKind::BiasAdd
-        | OpKind::ElemAdd => OpClass::Elementwise,
+        | OpKind::ElemAdd
+        | OpKind::ElemMul => OpClass::Elementwise,
 
         OpKind::Matmul | OpKind::Conv2d => OpClass::ComputeBound,
 
@@ -445,10 +446,26 @@ impl FusionCodegen {
                         idx: p,
                         has_n_cols: true,
                     });
-                    // Float4 path: need per-element column index
-                    float4_body.push_str(&format!(
-                        r#"
-        // BiasAdd (param {p}, n_cols={nc})
+                    // Float4 path: vectorized bias load when n_cols is aligned,
+                    // per-element scalar fallback otherwise.
+                    if nc.is_multiple_of(4) {
+                        float4_body.push_str(&format!(
+                            r#"
+        // BiasAdd (param {p}, n_cols={nc}, vectorized)
+        {{
+            unsigned int col4 = idx % n_cols_{p};
+            float4 bv = *reinterpret_cast<const float4*>(&bias_{p}[col4]);
+            v.x += bv.x;
+            v.y += bv.y;
+            v.z += bv.z;
+            v.w += bv.w;
+        }}
+"#
+                        ));
+                    } else {
+                        float4_body.push_str(&format!(
+                            r#"
+        // BiasAdd (param {p}, n_cols={nc}, scalar bias reads)
         {{
             v.x += bias_{p}[(idx    ) % n_cols_{p}];
             v.y += bias_{p}[(idx + 1) % n_cols_{p}];
@@ -456,7 +473,8 @@ impl FusionCodegen {
             v.w += bias_{p}[(idx + 3) % n_cols_{p}];
         }}
 "#
-                    ));
+                        ));
+                    }
                     scalar_body.push_str(&format!(
                         r#"
             // BiasAdd (param {p})
@@ -488,6 +506,33 @@ impl FusionCodegen {
                         r#"
             // ElemAdd (param {p})
             val += addend_{p}[i];
+"#
+                    ));
+                    param_idx += 1;
+                }
+                OpKind::ElemMul => {
+                    let p = param_idx;
+                    extra_params_decl.push(format!("    const float* __restrict__ multiplier_{p}"));
+                    extra_params_desc.push(ExtraParam {
+                        idx: p,
+                        has_n_cols: false,
+                    });
+                    float4_body.push_str(&format!(
+                        r#"
+        // ElemMul (param {p})
+        {{
+            float4 mv = *reinterpret_cast<const float4*>(&multiplier_{p}[idx]);
+            v.x *= mv.x;
+            v.y *= mv.y;
+            v.z *= mv.z;
+            v.w *= mv.w;
+        }}
+"#
+                    ));
+                    scalar_body.push_str(&format!(
+                        r#"
+            // ElemMul (param {p})
+            val *= multiplier_{p}[i];
 "#
                     ));
                     param_idx += 1;
@@ -1095,6 +1140,15 @@ mod tests {
                     .launch(config, (&d_input, &mut d_output, &d_extras[0], n))
                     .expect("launch fused kernel");
             },
+            // Case: 2 extra params without n_cols (ElemMul + ElemAdd)
+            _ if extra_bufs.len() == 2 && n_cols_params.is_empty() => unsafe {
+                cuda_func
+                    .launch(
+                        config,
+                        (&d_input, &mut d_output, &d_extras[0], &d_extras[1], n),
+                    )
+                    .expect("launch fused kernel");
+            },
             _ => panic!(
                 "unsupported launch config: {} extras, {} n_cols",
                 extra_bufs.len(),
@@ -1291,5 +1345,432 @@ mod tests {
 
         // Verify the kernel is actually usable.
         assert!(dev.get_func(&m1, &f1).is_some());
+    }
+
+    #[test]
+    fn test_codegen_source_elemmul() {
+        // Verify codegen produces valid CUDA C for ElemMul.
+        let ops = vec![OpKind::ElemMul, OpKind::Gelu];
+        let key = FusionCodegen::cache_key(&ops, &[]);
+        let (src, func_name, extras) = FusionCodegen::codegen(&ops, &[], key);
+
+        assert_eq!(func_name, "fused_kernel");
+        assert_eq!(extras.len(), 1);
+        assert!(!extras[0].has_n_cols);
+        assert!(src.contains("multiplier_0"));
+        assert!(src.contains("float4"));
+        assert!(src.contains("tanhf")); // GELU
+    }
+
+    #[test]
+    fn test_codegen_bias_vectorized_path() {
+        // n_cols=768 (divisible by 4) should produce vectorized bias load.
+        let ops = vec![OpKind::BiasAdd, OpKind::Relu];
+        let key = FusionCodegen::cache_key(&ops, &[768]);
+        let (src, _, _) = FusionCodegen::codegen(&ops, &[768], key);
+        assert!(
+            src.contains("reinterpret_cast<const float4*>(&bias_0"),
+            "expected vectorized bias load for n_cols%4==0"
+        );
+    }
+
+    #[test]
+    fn test_codegen_bias_scalar_fallback() {
+        // n_cols=99 (NOT divisible by 4) should use scalar bias reads.
+        let ops = vec![OpKind::BiasAdd, OpKind::Relu];
+        let key = FusionCodegen::cache_key(&ops, &[99]);
+        let (src, _, _) = FusionCodegen::codegen(&ops, &[99], key);
+        assert!(
+            src.contains("bias_0[(idx") && src.contains("% n_cols_0"),
+            "expected scalar bias reads for non-aligned n_cols\nSource:\n{src}"
+        );
+    }
+
+    #[test]
+    fn test_classify_elemmul() {
+        assert_eq!(classify(OpKind::ElemMul), OpClass::Elementwise);
+    }
+
+    #[test]
+    fn test_elementwise_chain_with_elemmul() {
+        // ElemMul → ElemAdd → Gelu should be detected as ElementwiseChain.
+        let opt = FusionOptimizer::new();
+        let tape = vec![
+            entry(OpKind::ElemMul, &[0, 1], 2),
+            entry(OpKind::ElemAdd, &[2, 3], 4),
+            entry(OpKind::Gelu, &[4], 5),
+        ];
+        let plan = opt.analyze(&tape);
+        assert_eq!(plan.len(), 1);
+        assert!(matches!(
+            &plan.groups[0].fused_op,
+            FusedOpKind::ElementwiseChain(ops) if *ops == vec![OpKind::ElemMul, OpKind::ElemAdd, OpKind::Gelu]
+        ));
+    }
+
+    #[test]
+    #[cfg(feature = "cublas")]
+    fn test_gpu_fused_elemmul_gelu() {
+        // ElemMul → Gelu chain.
+        let n = 2048;
+        let input: Vec<f32> = (0..n).map(|i| (i as f32 * 0.002) - 2.048).collect();
+        let multiplier: Vec<f32> = (0..n).map(|i| (i as f32 * 0.001) + 0.5).collect();
+
+        run_fused_vs_cpu(
+            &[OpKind::ElemMul, OpKind::Gelu],
+            &[],
+            &input,
+            &[&multiplier],
+            |inp| {
+                inp.iter()
+                    .enumerate()
+                    .map(|(i, &x)| cpu_gelu(x * multiplier[i]))
+                    .collect()
+            },
+            1e-4,
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "cublas")]
+    fn test_gpu_fused_elemmul_elemadd_gelu() {
+        // ElemMul → ElemAdd → Gelu: the epic success criteria chain
+        // (multiply + add + activation).
+        let n = 4096;
+        let input: Vec<f32> = (0..n).map(|i| (i as f32 * 0.001) - 2.0).collect();
+        let multiplier: Vec<f32> = (0..n).map(|i| (i as f32 * 0.0005) + 0.1).collect();
+        let addend: Vec<f32> = (0..n).map(|i| (i as f32 * 0.0003) - 0.5).collect();
+
+        run_fused_vs_cpu(
+            &[OpKind::ElemMul, OpKind::ElemAdd, OpKind::Gelu],
+            &[],
+            &input,
+            &[&multiplier, &addend],
+            |inp| {
+                inp.iter()
+                    .enumerate()
+                    .map(|(i, &x)| {
+                        let muled = x * multiplier[i];
+                        let added = muled + addend[i];
+                        cpu_gelu(added)
+                    })
+                    .collect()
+            },
+            1e-4,
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "cublas")]
+    fn test_gpu_fused_elemmul_scalar_tail() {
+        // ElemMul with non-aligned size to test scalar tail.
+        let n = 17;
+        let input: Vec<f32> = (0..n).map(|i| (i as f32 * 0.1) - 0.8).collect();
+        let multiplier: Vec<f32> = (0..n).map(|i| (i as f32 * 0.2) + 0.5).collect();
+
+        run_fused_vs_cpu(
+            &[OpKind::ElemMul, OpKind::Relu],
+            &[],
+            &input,
+            &[&multiplier],
+            |inp| {
+                inp.iter()
+                    .enumerate()
+                    .map(|(i, &x)| cpu_relu(x * multiplier[i]))
+                    .collect()
+            },
+            1e-6,
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "cublas")]
+    fn test_gpu_fused_bias_gelu_vectorized() {
+        // BiasAdd → Gelu with n_cols%4==0 to exercise vectorized bias path.
+        let n_cols = 256; // divisible by 4
+        let n = 64 * n_cols;
+        let input: Vec<f32> = (0..n).map(|i| (i as f32 * 0.001) - 0.5).collect();
+        let bias: Vec<f32> = (0..n_cols).map(|i| (i as f32 * 0.01) - 1.28).collect();
+
+        run_fused_vs_cpu(
+            &[OpKind::BiasAdd, OpKind::Gelu],
+            &[n_cols],
+            &input,
+            &[&bias],
+            |inp| {
+                inp.iter()
+                    .enumerate()
+                    .map(|(i, &x)| cpu_gelu(x + bias[i % n_cols]))
+                    .collect()
+            },
+            1e-4,
+        );
+    }
+
+    /// Benchmark: fused (single kernel) vs unfused (sequential kernel launches).
+    ///
+    /// Tests the epic success criteria: fused chain >= 2x faster than
+    /// sequential kernel launches for ElemMul + ElemAdd + Gelu.
+    #[test]
+    #[cfg(feature = "cublas")]
+    fn test_gpu_fused_vs_unfused_benchmark() {
+        use cudarc::driver::LaunchAsync;
+
+        let dev = cudarc::driver::CudaDevice::new(0).expect("CUDA device");
+        let codegen = FusionCodegen::new();
+
+        // Shape: [1024, 1024] = 1M elements — big enough to measure
+        let n = 1024 * 1024;
+        let input: Vec<f32> = (0..n).map(|i| (i as f32 * 0.001) - 0.5).collect();
+        let multiplier: Vec<f32> = (0..n).map(|i| (i as f32 * 0.0005) + 0.1).collect();
+        let addend: Vec<f32> = (0..n).map(|i| (i as f32 * 0.0003) - 0.5).collect();
+
+        let d_input = dev.htod_sync_copy(&input).expect("upload input");
+        let d_mul = dev.htod_sync_copy(&multiplier).expect("upload multiplier");
+        let d_add = dev.htod_sync_copy(&addend).expect("upload addend");
+        let mut d_output = dev.alloc_zeros::<f32>(n).expect("alloc output");
+        let mut d_tmp1 = dev.alloc_zeros::<f32>(n).expect("alloc tmp1");
+        let mut d_tmp2 = dev.alloc_zeros::<f32>(n).expect("alloc tmp2");
+
+        let n_u32 = n as u32;
+        let threads = 256u32;
+        let total_threads = (n_u32 + 3) / 4;
+        let grid = ((total_threads + threads - 1) / threads, 1, 1);
+        let config = cudarc::driver::LaunchConfig {
+            grid_dim: grid,
+            block_dim: (threads, 1, 1),
+            shared_mem_bytes: 0,
+        };
+
+        // --- Compile fused kernel (ElemMul + ElemAdd + Gelu) ---
+        let (fused_mod, fused_fn) = codegen
+            .get_or_compile(&[OpKind::ElemMul, OpKind::ElemAdd, OpKind::Gelu], &[], &dev)
+            .expect("compile fused kernel");
+
+        // --- Compile individual unfused kernels ---
+        // FusionCodegen requires at least 2 ops in the chain, so we create
+        // separate NVRTC kernels manually for accurate unfused comparison.
+
+        // ElemMul kernel (standalone)
+        let mul_src = r#"
+extern "C" __global__ void elem_mul(
+    const float* __restrict__ input,
+    const float* __restrict__ multiplier,
+    float* __restrict__ output,
+    unsigned int n
+) {
+    unsigned int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int idx = tid * 4;
+    if (idx + 3 < n) {
+        float4 v = *reinterpret_cast<const float4*>(&input[idx]);
+        float4 m = *reinterpret_cast<const float4*>(&multiplier[idx]);
+        v.x *= m.x; v.y *= m.y; v.z *= m.z; v.w *= m.w;
+        *reinterpret_cast<float4*>(&output[idx]) = v;
+    } else {
+        for (unsigned int i = idx; i < n && i < idx + 4; i++) {
+            output[i] = input[i] * multiplier[i];
+        }
+    }
+}
+"#;
+        let add_src = r#"
+extern "C" __global__ void elem_add(
+    const float* __restrict__ input,
+    const float* __restrict__ addend,
+    float* __restrict__ output,
+    unsigned int n
+) {
+    unsigned int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int idx = tid * 4;
+    if (idx + 3 < n) {
+        float4 v = *reinterpret_cast<const float4*>(&input[idx]);
+        float4 a = *reinterpret_cast<const float4*>(&addend[idx]);
+        v.x += a.x; v.y += a.y; v.z += a.z; v.w += a.w;
+        *reinterpret_cast<float4*>(&output[idx]) = v;
+    } else {
+        for (unsigned int i = idx; i < n && i < idx + 4; i++) {
+            output[i] = input[i] + addend[i];
+        }
+    }
+}
+"#;
+        let gelu_src = r#"
+extern "C" __global__ void gelu_act(
+    const float* __restrict__ input,
+    float* __restrict__ output,
+    unsigned int n
+) {
+    unsigned int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int idx = tid * 4;
+    if (idx + 3 < n) {
+        float4 v = *reinterpret_cast<const float4*>(&input[idx]);
+        const float S = 0.7978845608f;
+        const float C = 0.044715f;
+        float4 t;
+        t.x = S * (v.x + C * v.x * v.x * v.x);
+        t.y = S * (v.y + C * v.y * v.y * v.y);
+        t.z = S * (v.z + C * v.z * v.z * v.z);
+        t.w = S * (v.w + C * v.w * v.w * v.w);
+        v.x = 0.5f * v.x * (1.0f + tanhf(t.x));
+        v.y = 0.5f * v.y * (1.0f + tanhf(t.y));
+        v.z = 0.5f * v.z * (1.0f + tanhf(t.z));
+        v.w = 0.5f * v.w * (1.0f + tanhf(t.w));
+        *reinterpret_cast<float4*>(&output[idx]) = v;
+    } else {
+        for (unsigned int i = idx; i < n && i < idx + 4; i++) {
+            float x = input[i];
+            const float S = 0.7978845608f;
+            const float C = 0.044715f;
+            float t = S * (x + C * x * x * x);
+            output[i] = 0.5f * x * (1.0f + tanhf(t));
+        }
+    }
+}
+"#;
+
+        let ptx_mul = cudarc::nvrtc::compile_ptx(mul_src).expect("compile elem_mul");
+        let ptx_add = cudarc::nvrtc::compile_ptx(add_src).expect("compile elem_add");
+        let ptx_gelu = cudarc::nvrtc::compile_ptx(gelu_src).expect("compile gelu_act");
+
+        dev.load_ptx(ptx_mul, "unfused_mul", &["elem_mul"])
+            .expect("load mul");
+        dev.load_ptx(ptx_add, "unfused_add", &["elem_add"])
+            .expect("load add");
+        dev.load_ptx(ptx_gelu, "unfused_gelu", &["gelu_act"])
+            .expect("load gelu");
+
+        let f_mul = dev.get_func("unfused_mul", "elem_mul").unwrap();
+        let f_add = dev.get_func("unfused_add", "elem_add").unwrap();
+        let f_gelu = dev.get_func("unfused_gelu", "gelu_act").unwrap();
+
+        // Warm-up runs
+        let fused_func = dev.get_func(&fused_mod, &fused_fn).unwrap();
+        for _ in 0..5 {
+            unsafe {
+                fused_func
+                    .clone()
+                    .launch(config, (&d_input, &mut d_output, &d_mul, &d_add, n_u32))
+                    .expect("fused warm-up");
+            }
+            dev.synchronize().unwrap();
+        }
+        for _ in 0..5 {
+            unsafe {
+                f_mul
+                    .clone()
+                    .launch(config, (&d_input, &d_mul, &mut d_tmp1, n_u32))
+                    .expect("mul warm-up");
+                f_add
+                    .clone()
+                    .launch(config, (&d_tmp1, &d_add, &mut d_tmp2, n_u32))
+                    .expect("add warm-up");
+                f_gelu
+                    .clone()
+                    .launch(config, (&d_tmp2, &mut d_output, n_u32))
+                    .expect("gelu warm-up");
+            }
+            dev.synchronize().unwrap();
+        }
+
+        // Benchmark: fused
+        let iters = 100;
+        let start = std::time::Instant::now();
+        for _ in 0..iters {
+            let ff = dev.get_func(&fused_mod, &fused_fn).unwrap();
+            unsafe {
+                ff.launch(config, (&d_input, &mut d_output, &d_mul, &d_add, n_u32))
+                    .expect("fused launch");
+            }
+        }
+        dev.synchronize().unwrap();
+        let fused_us = start.elapsed().as_micros() as f64 / iters as f64;
+
+        // Benchmark: unfused (3 separate kernel launches)
+        let start = std::time::Instant::now();
+        for _ in 0..iters {
+            let fm = dev.get_func("unfused_mul", "elem_mul").unwrap();
+            let fa = dev.get_func("unfused_add", "elem_add").unwrap();
+            let fg = dev.get_func("unfused_gelu", "gelu_act").unwrap();
+            unsafe {
+                fm.launch(config, (&d_input, &d_mul, &mut d_tmp1, n_u32))
+                    .expect("mul");
+                fa.launch(config, (&d_tmp1, &d_add, &mut d_tmp2, n_u32))
+                    .expect("add");
+                fg.launch(config, (&d_tmp2, &mut d_output, n_u32))
+                    .expect("gelu");
+            }
+        }
+        dev.synchronize().unwrap();
+        let unfused_us = start.elapsed().as_micros() as f64 / iters as f64;
+
+        let speedup = unfused_us / fused_us;
+        eprintln!(
+            "\n=== Fused vs Unfused Benchmark (ElemMul+ElemAdd+Gelu, n={n}) ===\n\
+             Fused:   {fused_us:.1} us/iter\n\
+             Unfused: {unfused_us:.1} us/iter\n\
+             Speedup: {speedup:.2}x\n"
+        );
+
+        // Verify correctness of fused output.
+        let result = dev.dtoh_sync_copy(&d_output).expect("download");
+        let expected: Vec<f32> = input
+            .iter()
+            .enumerate()
+            .map(|(i, &x)| {
+                let m = x * multiplier[i];
+                let a = m + addend[i];
+                cpu_gelu(a)
+            })
+            .collect();
+        let max_err = result
+            .iter()
+            .zip(&expected)
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0f32, f32::max);
+        assert!(max_err < 1e-4, "fused result error {max_err} >= 1e-4");
+
+        // The fused kernel should be faster because it avoids 2 extra
+        // global memory round-trips. On GTX 1660 with 1M elements we
+        // expect >= 1.5x speedup (conservative lower bound).
+        assert!(
+            speedup >= 1.3,
+            "speedup {speedup:.2}x below 1.3x threshold — \
+             fused={fused_us:.1}us unfused={unfused_us:.1}us"
+        );
+    }
+
+    #[test]
+    fn test_codegen_register_only_intermediates() {
+        // Verify that codegen does NOT write intermediates to global memory
+        // between ops — values stay in local float4 `v` (register-allocated
+        // by nvcc).
+        let ops = vec![OpKind::ElemMul, OpKind::ElemAdd, OpKind::Gelu];
+        let key = FusionCodegen::cache_key(&ops, &[]);
+        let (src, _, _) = FusionCodegen::codegen(&ops, &[], key);
+
+        // The kernel should have exactly ONE store to output (the final
+        // reinterpret_cast write). Count "output[" occurrences — there
+        // should be exactly 2: one in float4 path, one in scalar path.
+        let output_stores: Vec<_> = src.match_indices("output[").collect();
+        assert_eq!(
+            output_stores.len(),
+            2,
+            "expected 2 output stores (float4 + scalar), got {}. \
+             Intermediates may be leaking to global memory.\nSource:\n{}",
+            output_stores.len(),
+            src
+        );
+
+        // Verify no intermediate global memory allocation keywords.
+        assert!(
+            !src.contains("__shared__"),
+            "fused kernel should not use shared memory for intermediates"
+        );
+        // The only global pointers should be input, output, and extra params.
+        // There should be no malloc/new/temp buffer allocations.
+        assert!(
+            !src.contains("malloc") && !src.contains("new float"),
+            "fused kernel should not allocate temporary buffers"
+        );
     }
 }

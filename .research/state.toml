@@ -14,12 +14,12 @@ status = "running"     # ready | running | blocked | completed
 # No GPU concepts leak. VectorWare's I/O strength + async-gpu's compute strength, unified.
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
-current_step = "route"
-current_task_id = ""
+current_step = "dispatch"
+current_task_id = "test-integration.2,fusion-codegen.3"
 
 # Sequence counters
 brainstorm_seq = 117
-tasks_since_brainstorm = 2   # reset after brainstorm 117
+tasks_since_brainstorm = 3   # reset after brainstorm 117
 
 # ============================================================
 # Epics — Tiered (T0 → T3), sorted by tier then priority
@@ -55,6 +55,24 @@ success_criteria = [
     "GPU-native assert! with warp/thread ID in failure messages",
     "cargo test integration — GPU tests discovered and run alongside CPU tests",
     "At least 10 existing GPU features covered by #[gpu_test] tests",
+]
+
+[[epics]]
+id = "kernel-split"
+title = "Kernel Crate Split — break gpu-kernel-std into per-feature crates"
+tier = 0
+status = "active"
+priority = "highest"
+# North Star: Changing one kernel doesn't recompile the world.
+#   Each feature area (compute, hostcall, test, SC, etc.) is its own kernel crate
+#   with its own PTX/cubin. Incremental builds take minutes, not 30+.
+# Litmus Test: After editing a test kernel, PTX+cubin rebuild completes in under 5 minutes.
+success_criteria = [
+    "gpu-kernel-std split into ≥3 independent kernel crates by feature domain",
+    "Each crate produces its own PTX and cubin — no unified 11MB PTX",
+    "Host-side loader discovers and loads multiple cubins transparently",
+    "Kernel build with reduced opt-level (opt-level 1 or 2) for dev builds",
+    "Incremental rebuild (single crate change) completes in ≤5 minutes total (PTX+cubin)",
 ]
 
 # --- T1: Core capability expansion ---
@@ -413,7 +431,7 @@ success_criteria = [
 id = "test-framework"
 epic = "gpu-test"
 title = "#[gpu_test] attribute + GPU test runner"
-status = "active"
+status = "completed"
 goal = "GPU tests compile and run via cargo test"
 success_criteria = [
     "#[gpu_test] proc macro generates GPU kernel + host runner",
@@ -425,7 +443,7 @@ success_criteria = [
 id = "test-integration"
 epic = "gpu-test"
 title = "cargo test integration + coverage"
-status = "pending"
+status = "active"
 goal = "GPU tests are first-class in the Rust test ecosystem"
 success_criteria = [
     "cargo test discovers and runs #[gpu_test] alongside #[test]",
@@ -713,7 +731,7 @@ success_criteria = [
 id = "fusion-codegen"
 epic = "auto-fusion"
 title = "Fused kernel codegen — compile-time PTX generation from fusion graph"
-status = "active"
+status = "completed"
 goal = "Generate single fused GPU kernel from multiple elementwise operations"
 success_criteria = [
     "Template-based PTX generation from fusion graph nodes",
@@ -854,6 +872,7 @@ title = "Experiment: write 10+ #[gpu_test] tests covering SC, channels, executor
 kind = "experiment"
 status = "pending"
 depends = ["test-integration.1"]
+# Code written (11 new kernels + tests), needs cubin rebuild + verify after kernel-split
 
 # --- gpu-type-safety: types ---
 
@@ -1225,7 +1244,7 @@ id = "fusion-codegen.3"
 theme = "fusion-codegen"
 title = "Experiment: register-only intermediates + float4 vectorization in generated kernels"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["fusion-codegen.2"]
 
 # --- auto-fusion: integration ---

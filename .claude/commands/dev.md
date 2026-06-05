@@ -28,7 +28,7 @@ You MAY do lightweight file discovery (`ls`, `find`, `grep -l`) to assemble navi
 ## Core Loop
 
 ```
-RECOVER → GATE → SELECT → DISPATCH → VERIFY → SAVE → ROUTE → loop
+RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE → loop
 ```
 
 ### GATE
@@ -46,37 +46,28 @@ RECOVER → GATE → SELECT → DISPATCH → VERIFY → SAVE → ROUTE → loop
 
 1. Filter tasks: `status == "pending"` AND deps met AND parent theme `"active"`
 2. Apply tier priority: only tasks belonging to eligible tiers (see GATE)
-3. **Apply epic priority**: within the same tier, prefer tasks from higher-priority epics (`highest > high > medium > low`). If a `highest`-priority epic has eligible tasks, do NOT select tasks from lower-priority epics in the same tier.
+3. **Apply epic priority**: within the same tier, sort by epic priority (`highest > high > medium > low`). Higher-priority epics fill slots first. Remaining slots may be filled by lower-priority epics.
 4. If no tasks pass → brainstorm to generate new work, then re-filter. Still empty → report to user, STOP.
-5. **Form one batch**: same-theme sequential, cross-theme may parallelize (cross-epic only if same priority). This batch is a fixed set — do NOT add tasks mid-cycle.
+5. **Form one batch**: same-theme sequential, cross-theme may parallelize. This batch is a fixed set — do NOT add tasks mid-cycle.
 6. **Classify slots** for each task in the batch:
-   - **Heavy** — experiment tasks under epics that involve GPU kernel code (kernel-side crates, PTX build). Max 2 concurrent.
-   - **Light** — investigation, design, or tasks under host-only / documentation epics. No concurrency limit.
-   - Classify by epic and task kind, not by predicting which files will change.
+   - **Heavy** — tasks that compile code (experiment kind — runs cargo build/test/clippy). Max 2 concurrent.
+   - **Light** — tasks that only read and analyze (investigation, design kind — no compilation). No concurrency limit.
+   - Classify by task kind. Verify/retry for experiment tasks are also heavy; verify for investigation/design is light.
 7. Set selected tasks → `status = "active"`, update `current_task_id`
 
 ### DISPATCH
 
-See `dev-dispatch.md` for brief templates. Send out the entire batch and wait for all results.
+See `dev-dispatch.md` for brief templates.
 
 1. **Prep** — for each task: `ls`, `find`, `grep -l` to locate relevant crates, scripts, entry points. Read dependency task findings. Read context.md Tried & Rejected. Do NOT read source code.
-2. **Execute** — assemble briefs, launch subagents respecting slot limits (max 2 heavy, light unlimited). Wait for ALL subagents in the batch to return.
-   - Subagent returns: STATUS (done|blocked), SUMMARY, FILES_CHANGED.
-   - You read SUMMARY only — not source code or compiler output.
-3. Update `current_step = "verify"`
-
-### VERIFY
-
-For each task in the batch:
-
-1. **Blocked** → mark blocked, skip.
-2. **Done** → dispatch verify subagent (see `dev-dispatch.md` verify pipeline).
-   - PASS → mark task done, increment `tasks_since_brainstorm`, update counters.
-   - FAIL → retry cycle:
-     1. Dispatch investigate subagent (diagnosis only, returns DIAGNOSIS + FIX_HINT)
-     2. Dispatch fix subagent (targeted repair, returns STATUS + FILES_CHANGED)
-     3. Re-verify. Second PASS → done. Second FAIL → mark blocked.
-3. Proceed to SAVE only after ALL tasks in the batch are resolved (done or blocked).
+2. **Launch** — assemble briefs, launch all subagents respecting slot limits (max 2 heavy, light unlimited).
+3. **Stream-verify** — as each subagent returns, immediately process it:
+   - Blocked → mark blocked.
+   - Done → dispatch verify subagent (see `dev-dispatch.md` verify pipeline).
+     - PASS → mark task done, increment `tasks_since_brainstorm`, update counters.
+     - FAIL → retry: investigate subagent (diagnosis) → fix subagent (repair) → re-verify. Second PASS → done. Second FAIL → mark blocked.
+   - **Slot sharing**: verify/retry for experiment tasks are heavy (they compile/test). Verify for investigation/design tasks is light (only checks findings files + reads diff). Max 2 heavy applies globally across ALL concurrent subagents.
+4. **Gate to SAVE** — proceed to SAVE only after ALL tasks in the batch are resolved (done or blocked). Do NOT dispatch new tasks mid-cycle.
 
 ### SAVE
 

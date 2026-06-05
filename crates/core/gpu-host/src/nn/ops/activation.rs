@@ -42,7 +42,7 @@ pub fn relu(input: &GpuTensor, registry: &Arc<KernelRegistry>) -> Result<GpuTens
     let func = registry.get("relu_forward")?;
     // V2-style: 4 elements per thread, 256 threads per block
     let config = cudarc::driver::LaunchConfig {
-        grid_dim: ((n as u32 + 1023) / 1024, 1, 1),
+        grid_dim: ((n as u32).div_ceil(1024), 1, 1),
         block_dim: (256, 1, 1),
         shared_mem_bytes: 0,
     };
@@ -92,7 +92,7 @@ fn elementwise_activation(
     let is_v2 = kernel_name.ends_with("_v2");
     let config = if is_v2 {
         cudarc::driver::LaunchConfig {
-            grid_dim: ((n as u32 + 1023) / 1024, 1, 1),
+            grid_dim: ((n as u32).div_ceil(1024), 1, 1),
             block_dim: (256, 1, 1),
             shared_mem_bytes: 0,
         }

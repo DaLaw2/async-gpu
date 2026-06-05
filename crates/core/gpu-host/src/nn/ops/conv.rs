@@ -1121,7 +1121,7 @@ fn conv2d_batched_direct(
     registry: &Arc<KernelRegistry>,
     is_1x1: bool,
 ) -> Result<GpuTensor> {
-    let batch = input.shape()[0];
+    let _batch = input.shape()[0];
     let c_in = input.shape()[1];
     let h = input.shape()[2];
     let w = input.shape()[3];
@@ -1129,14 +1129,14 @@ fn conv2d_batched_direct(
     let kh = weight.shape()[2];
     let kw = weight.shape()[3];
 
-    let dev = registry.device();
+    let _dev = registry.device();
 
     let mut output = if is_1x1 {
         conv2d_1x1_batched(input, weight, bias, stride, padding, registry)?
     } else {
         #[cfg(feature = "cublas")]
         {
-            conv2d_direct_impl(input, weight, bias, stride, padding, dev, batch)?
+            conv2d_direct_impl(input, weight, bias, stride, padding, _dev, _batch)?
         }
         #[cfg(not(feature = "cublas"))]
         {

@@ -174,7 +174,7 @@ pub fn elementwise_add(
 
     // V3: explicit PTX float4 loads for maximum bandwidth
     let func = registry.get("elementwise_add_v3")?;
-    let grid = ((n as u32 + 1023) / 1024, 1, 1);
+    let grid = ((n as u32).div_ceil(1024), 1, 1);
     let config = cudarc::driver::LaunchConfig {
         grid_dim: grid,
         block_dim: (256, 1, 1),

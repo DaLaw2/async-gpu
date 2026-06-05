@@ -360,6 +360,10 @@ pub fn backward(
             OpKind::Embedding => {
                 // TODO
             }
+            OpKind::ElemMul => {
+                // d_a = d_out * b, d_b = d_out * a  (product rule)
+                // TODO: implement when element-wise mul backward kernels exist
+            }
         }
     }
 

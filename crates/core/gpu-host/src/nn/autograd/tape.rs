@@ -23,6 +23,8 @@ pub enum OpKind {
     Relu,
     /// Element-wise addition: C = A + B
     ElemAdd,
+    /// Element-wise multiplication: C = A * B
+    ElemMul,
     /// Embedding lookup
     Embedding,
     /// Cross-entropy loss (log_softmax + NLL)

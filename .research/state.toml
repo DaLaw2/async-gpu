@@ -18,7 +18,7 @@ current_step = "dispatch"
 current_task_id = ""
 
 # Sequence counters
-brainstorm_seq = 133
+brainstorm_seq = 134
 tasks_since_brainstorm = 0
 
 # ---
@@ -188,7 +188,7 @@ success_criteria = [
 id = "conv-perf"
 epic = "perf-transparent"
 title = "High-Performance Conv2D — Winograd channel batching + direct conv optimization"
-status = "pending"
+status = "active"
 priority = "medium"
 # success_criteria archived — will be refined when story activates
 
@@ -446,8 +446,45 @@ success_criteria = [
 ]
 
 # --- conv-perf features ---
-# Archived at cycle 639 (pending story — features/tasks will be re-brainstormed):
-#   conv-perf: perf-conv-batch, perf-conv-wino, conv-e2e (8 tasks)
+# Archived at cycle 639 (previous features re-brainstormed as bs134):
+
+[[features]]
+id = "conv-baseline"
+story = "conv-perf"
+title = "Conv2D performance baseline — measure current vs cuDNN reference"
+status = "active"
+goal = "Quantify the performance gap between current conv2d and cuDNN for all routing paths"
+success_criteria = [
+    "Benchmark current Winograd F(2x2) on all 9 conv2d_bench shapes with GFLOPS + % of cuDNN",
+    "Benchmark direct conv on 5x5, 7x7, and 3x3 stride=2 shapes with GFLOPS + % of cuDNN",
+    "Profile bottleneck: memory bandwidth vs compute vs launch overhead per shape",
+    "Baseline document with per-shape numbers and identified bottleneck for each",
+]
+
+[[features]]
+id = "conv-wino-gemm"
+story = "conv-perf"
+title = "Winograd as batched GEMM — restructure element-wise multiply as cuBLAS GEMM"
+status = "pending"
+goal = "Transform Winograd from per-tile serial C_in loop into 16 batched GEMMs via cuBLAS"
+success_criteria = [
+    "Winograd pipeline: input transform → 16x batched GEMM (C_out x C_in @ C_in x n_tiles) → output transform",
+    "F(4x4,3x3) vs F(2x2,3x3) comparison — select whichever achieves higher GFLOPS",
+    "Conv2D >= 50% of cuDNN for ResNet/YOLO 3x3 stride=1 shapes",
+    "YOLOv8-nano end-to-end inference >= 2x faster than current baseline",
+]
+
+[[features]]
+id = "conv-direct-opt"
+story = "conv-perf"
+title = "Optimize direct conv kernel for non-3x3 sizes"
+status = "pending"
+goal = "Improve direct conv for 3x3 stride>1, 5x5, 7x7 with input channel parallelism"
+success_criteria = [
+    "Warp-level reduction across C_in channels (not serial per-thread accumulation)",
+    "Shared memory input tile reuse across output channels in same block",
+    "Direct conv achieves >= 30% of cuDNN for 5x5 and 3x3 stride=2 shapes",
+]
 
 # --- auto-parallel, std-completeness features ---
 # Archived at cycle 639 (low-priority pending stories — features/tasks will be
@@ -690,6 +727,48 @@ kind = "experiment"
 status = "done"
 depends = ["om-register-promo.1"]
 
+# --- conv-perf ---
+
+[[tasks]]
+id = "conv-baseline.1"
+feature = "conv-baseline"
+title = "Investigation: benchmark all conv2d paths vs cuDNN reference and profile bottlenecks"
+kind = "investigation"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "conv-wino-gemm.1"
+feature = "conv-wino-gemm"
+title = "Investigation: design batched-GEMM Winograd pipeline and evaluate F(4x4) vs F(2x2)"
+kind = "investigation"
+status = "pending"
+depends = ["conv-baseline.1"]
+
+[[tasks]]
+id = "conv-wino-gemm.2"
+feature = "conv-wino-gemm"
+title = "Experiment: implement Winograd with 16x batched cuBLAS GEMM for transform-domain multiply"
+kind = "experiment"
+status = "pending"
+depends = ["conv-wino-gemm.1"]
+
+[[tasks]]
+id = "conv-wino-gemm.3"
+feature = "conv-wino-gemm"
+title = "Experiment: verify >= 50% cuDNN on ResNet/YOLO shapes and >= 2x YOLO e2e improvement"
+kind = "experiment"
+status = "pending"
+depends = ["conv-wino-gemm.2"]
+
+[[tasks]]
+id = "conv-direct-opt.1"
+feature = "conv-direct-opt"
+title = "Experiment: add warp-level C_in reduction and shared-memory tiling to direct conv kernel"
+kind = "experiment"
+status = "pending"
+depends = ["conv-baseline.1"]
+
 # --- docs-overhaul ---
 
 [[tasks]]
@@ -824,3 +903,16 @@ features_parked = []
 features_completed = []
 stories_completed = []
 key_insight = "The foundation exists: BlockScope/GridScope already return lifetime-bounded refs from distinct address spaces, but both are plain &'scope mut [T]. The type system can't distinguish them. Introducing SharedRef<'block, T>/GlobalRef<'grid, T> phantom-typed wrappers makes the borrow checker enforce memory hierarchy rules at zero runtime cost — and guides LLVM to emit address-space-specific loads/stores."
+
+[[brainstorms]]
+seq = 134
+at_cycle = 642
+trigger = "conv-perf story activated by 3/3 vote. Previous features archived at cycle 639."
+level = "standard"
+new_tasks_spawned = ["conv-baseline.1", "conv-wino-gemm.1", "conv-wino-gemm.2", "conv-wino-gemm.3", "conv-direct-opt.1"]
+new_features_spawned = ["conv-baseline", "conv-wino-gemm", "conv-direct-opt"]
+new_stories_spawned = []
+features_parked = []
+features_completed = []
+stories_completed = []
+key_insight = "Current Winograd achieves 1.5-5.5% of peak because each thread serializes C_in with zero data reuse. The fix is NOT a bigger tile (F(4x4)) — it's restructuring the element-wise multiply as 16 batched GEMMs via cuBLAS. For each Winograd position, compute C_out x n_tiles = (C_out x C_in) @ (C_in x n_tiles). This converts per-tile serial work into GPU-wide parallel GEMM, which is exactly what cuBLAS excels at. F(4x4) is secondary — investigate during design, but the architectural change to batched GEMM is the primary lever."

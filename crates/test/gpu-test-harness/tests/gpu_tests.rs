@@ -583,6 +583,22 @@ fn test_gpu_dyn_fn_and_drop() {
 }
 
 // ============================================================================
+// GPU tests — third-party no_std crate with dyn Trait (dyn-compat.1)
+// ============================================================================
+
+/// Test hashbrown (third-party no_std crate) on GPU with internal dyn dispatch.
+///
+/// The kernel `test_gpu_dyn_compat_hashbrown` in gpu-kernel-test:
+///   - Creates hashbrown::HashMap with a custom hasher, inserts/gets entries
+///     (internally triggers `&dyn FnMut(usize) -> bool` in find_inner)
+///   - Creates hashbrown::HashSet, inserts + contains checks
+///   - Inserts 50 entries to force resize (triggers `&dyn Fn(...)` in resize_inner)
+///   - Verifies remove, iteration, and value summation
+///   - hashbrown is used UNMODIFIED — just `hashbrown = { default-features = false }`
+#[gpu_test]
+fn test_gpu_dyn_compat_hashbrown() {}
+
+// ============================================================================
 // CPU tests — regular #[test] functions that coexist with #[gpu_test]
 // ============================================================================
 

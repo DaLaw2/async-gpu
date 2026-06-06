@@ -366,6 +366,17 @@ success_criteria = [
     "PTX diff analysis: what extra instructions does dyn dispatch emit?",
 ]
 
+[[features]]
+id = "dyn-compat"
+story = "gpu-dyn-dispatch"
+title = "Third-party no_std crate with dyn Trait on GPU"
+status = "active"
+goal = "Compile and run at least one third-party no_std crate using dyn Trait on GPU unmodified"
+success_criteria = [
+    "Survey: identify no_std crates that use dyn Trait internally",
+    "At least one crate compiles to PTX and runs on GPU unmodified",
+]
+
 # --- conv-perf features ---
 # Archived at cycle 639 (pending story — features/tasks will be re-brainstormed):
 #   conv-perf: perf-conv-batch, perf-conv-wino, conv-e2e (8 tasks)
@@ -431,6 +442,14 @@ title = "Experiment: benchmark dyn dispatch vs monomorphized dispatch on GPU"
 kind = "experiment"
 status = "done"
 depends = ["dyn-box.1"]
+
+[[tasks]]
+id = "dyn-compat.1"
+feature = "dyn-compat"
+title = "Experiment: compile and run a no_std crate with dyn Trait on GPU unmodified"
+kind = "experiment"
+status = "done"
+depends = ["dyn-probe.2"]
 
 # ---
 # Brainstorms (last 3 — older → archive/)

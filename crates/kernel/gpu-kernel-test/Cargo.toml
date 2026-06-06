@@ -19,6 +19,7 @@ gpu-kernel-core = { path = "../gpu-kernel-core" }
 gpu-libc = { path = "../../core/gpu-libc" }
 gpu-protocol = { path = "../../core/gpu-protocol" }
 gpu-runtime = { path = "../../core/gpu-runtime" }
+hashbrown = { version = "0.15", default-features = false }
 
 # Dev-mode release: fast PTX builds (opt-level 1, no LTO)
 [profile.release]

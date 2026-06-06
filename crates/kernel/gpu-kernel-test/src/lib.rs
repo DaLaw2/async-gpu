@@ -3886,3 +3886,152 @@ pub unsafe extern "gpu-kernel" fn test_gpu_dyn_perf_benchmark(result: *mut u32) 
         println!("[gpu_test] test_gpu_dyn_perf_benchmark PASSED");
     });
 }
+
+// ============================================================
+// dyn-compat.1: Third-party no_std crate with dyn Trait on GPU
+// ============================================================
+
+/// GPU test: hashbrown (third-party no_std crate) with internal dyn Trait dispatch.
+///
+/// hashbrown is a `#![no_std]` crate that uses `&dyn FnMut(usize) -> bool`
+/// internally in its raw hash table implementation (find_inner, resize_inner).
+/// Every insert/get/contains call triggers dyn dispatch inside the crate.
+///
+/// This test verifies that a real third-party no_std crate compiles and runs
+/// on GPU completely unmodified — just `hashbrown = { default-features = false }`.
+///
+/// Test scenarios:
+///   a) Simple: create hashbrown::HashMap, insert + get (triggers internal dyn dispatch)
+///   b) Medium: use hashbrown::HashSet with custom hasher
+///   c) Complex: heterogeneous operations triggering resize (more dyn dispatch paths)
+///
+/// Zero-param entry. Launch with: block_dim=(128,1,1), 1 block, NO kernel args.
+#[unsafe(no_mangle)]
+pub unsafe extern "gpu-kernel" fn test_gpu_dyn_compat_hashbrown() {
+    let buf = stdio_auto_init();
+    if buf.is_null() {
+        return;
+    }
+
+    gpu_runtime::thread::gpu_main_poll(|| {
+        // --- Scenario A: Simple insert + get ---
+        // hashbrown::HashMap without default-hasher needs an explicit BuildHasher.
+        // We use a trivial FNV-like hasher to avoid pulling in external hasher crates.
+        use core::hash::{BuildHasher, Hasher};
+
+        /// Trivial hasher for testing — FNV-1a inspired, no_std compatible.
+        struct TrivialHasher(u64);
+
+        impl Hasher for TrivialHasher {
+            fn finish(&self) -> u64 {
+                self.0
+            }
+            fn write(&mut self, bytes: &[u8]) {
+                for &b in bytes {
+                    self.0 ^= b as u64;
+                    self.0 = self.0.wrapping_mul(0x100000001b3);
+                }
+            }
+        }
+
+        /// BuildHasher that creates TrivialHasher instances.
+        #[derive(Clone)]
+        struct TrivialBuildHasher;
+
+        impl BuildHasher for TrivialBuildHasher {
+            type Hasher = TrivialHasher;
+            fn build_hasher(&self) -> TrivialHasher {
+                TrivialHasher(0xcbf29ce484222325) // FNV offset basis
+            }
+        }
+
+        // Create a hashbrown::HashMap with our custom hasher.
+        // Internally, every insert/get call goes through find_inner() which uses
+        // `&mut dyn FnMut(usize) -> bool` — real dyn dispatch inside the crate.
+        let mut map: hashbrown::HashMap<u32, u32, TrivialBuildHasher> =
+            hashbrown::HashMap::with_hasher(TrivialBuildHasher);
+
+        map.insert(10, 100);
+        map.insert(20, 200);
+        map.insert(30, 300);
+
+        assert_eq!(map.len(), 3, "hashbrown map should have 3 entries");
+        assert_eq!(
+            *map.get(&10).unwrap(),
+            100,
+            "hashbrown map[10] should be 100"
+        );
+        assert_eq!(
+            *map.get(&20).unwrap(),
+            200,
+            "hashbrown map[20] should be 200"
+        );
+        assert_eq!(
+            *map.get(&30).unwrap(),
+            300,
+            "hashbrown map[30] should be 300"
+        );
+
+        assert!(map.contains_key(&10), "should contain key 10");
+        assert!(!map.contains_key(&99), "should not contain key 99");
+
+        println!("[dyn-compat] Scenario A: hashbrown HashMap insert+get PASSED");
+
+        // --- Scenario B: HashSet with iteration ---
+        let mut set: hashbrown::HashSet<u32, TrivialBuildHasher> =
+            hashbrown::HashSet::with_hasher(TrivialBuildHasher);
+
+        for i in 0..10u32 {
+            set.insert(i * 5);
+        }
+
+        assert_eq!(set.len(), 10, "hashbrown set should have 10 entries");
+        assert!(set.contains(&0), "set should contain 0");
+        assert!(set.contains(&45), "set should contain 45");
+        assert!(!set.contains(&1), "set should not contain 1");
+
+        println!("[dyn-compat] Scenario B: hashbrown HashSet PASSED");
+
+        // --- Scenario C: Resize path (triggers more dyn dispatch) ---
+        // Insert enough entries to force at least one resize, which internally
+        // uses `&dyn Fn(&mut Self, usize) -> u64` for rehashing.
+        let mut big_map: hashbrown::HashMap<u32, u32, TrivialBuildHasher> =
+            hashbrown::HashMap::with_hasher(TrivialBuildHasher);
+
+        for i in 0..50u32 {
+            big_map.insert(i, i * i);
+        }
+
+        assert_eq!(big_map.len(), 50, "big map should have 50 entries");
+
+        // Verify a sample of values
+        for i in [0u32, 7, 15, 25, 42, 49] {
+            let expected = i * i;
+            let actual = *big_map.get(&i).unwrap();
+            assert_eq!(
+                actual, expected,
+                "big_map[{}] should be {} (got {})",
+                i, expected, actual
+            );
+        }
+
+        // Remove and verify
+        big_map.remove(&25);
+        assert_eq!(big_map.len(), 49, "after remove, len should be 49");
+        assert!(!big_map.contains_key(&25), "key 25 should be gone");
+
+        // Sum all values to verify integrity
+        let sum: u64 = big_map.values().map(|v| *v as u64).sum();
+        // Sum of i^2 for i=0..50 minus 25^2 = 40425 - 625 = 39800
+        let expected_sum: u64 = (0..50u64).map(|i| i * i).sum::<u64>() - 625;
+        assert_eq!(
+            sum, expected_sum,
+            "sum of values should be {} (got {})",
+            expected_sum, sum
+        );
+
+        println!("[dyn-compat] Scenario C: hashbrown resize + remove PASSED");
+
+        println!("[gpu_test] test_gpu_dyn_compat_hashbrown PASSED");
+    });
+}

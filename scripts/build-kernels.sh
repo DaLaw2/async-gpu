@@ -18,7 +18,8 @@
 #
 # Usage:
 #   ./scripts/build-kernels.sh              # Build all 4 crates (dev, PTX only)
-#   ./scripts/build-kernels.sh --prod       # Build all 4 crates (prod, PTX+cubin)
+#   ./scripts/build-kernels.sh --prod       # Build all 4 crates (prod, PTX+cubin+report)
+#   ./scripts/build-kernels.sh --report     # Build dev + run resource analysis report
 #   ./scripts/build-kernels.sh core test    # Build only specified crates (dev)
 #   ./scripts/build-kernels.sh --prod core  # Build specified crates (production)
 #
@@ -33,14 +34,17 @@ HOST_DIR="$REPO_DIR/crates/core/gpu-host"
 # ── All kernel crates ───────────────────────────────────────────
 ALL_CRATES=(core compute io test)
 
-# ── Parse --prod flag ─────────────────────────────────────────────
+# ── Parse --prod and --report flags ──────────────────────────────
 CARGO_PROFILE="--release"
 BUILD_MODE="dev"
+REPORT_MODE=0
 ARGS=()
 for arg in "$@"; do
     if [ "$arg" = "--prod" ]; then
         CARGO_PROFILE="--profile release-prod"
         BUILD_MODE="prod"
+    elif [ "$arg" = "--report" ]; then
+        REPORT_MODE=1
     else
         ARGS+=("$arg")
     fi
@@ -222,4 +226,19 @@ if [ "$BUILD_MODE" = "prod" ]; then
     for crate in "${CRATES[@]}"; do
         printf "  %-24s %s\n" "kernel_${crate}.cubin" "$(du -h "$HOST_DIR/kernel_${crate}.cubin" | cut -f1)"
     done
+fi
+
+# ── Step 4: Resource analysis report (--report or --prod) ──────
+if [ "$REPORT_MODE" -eq 1 ] || [ "$BUILD_MODE" = "prod" ]; then
+    echo ""
+    echo "=== Step 4: Kernel Resource Analysis ==="
+    PTX_ARGS=()
+    for crate in "${CRATES[@]}"; do
+        PTX_ARGS+=("$HOST_DIR/kernel_${crate}.ptx")
+    done
+    if [ -x "$SCRIPT_DIR/kernel-resources.sh" ]; then
+        "$SCRIPT_DIR/kernel-resources.sh" "${PTX_ARGS[@]}" || true
+    else
+        echo "  WARNING: kernel-resources.sh not found, skipping resource analysis"
+    fi
 fi

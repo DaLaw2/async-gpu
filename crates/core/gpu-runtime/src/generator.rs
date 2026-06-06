@@ -398,6 +398,82 @@ unsafe impl GpuGenerator for CounterGenerator {
 }
 
 // ============================================================
+// FibGenerator — Fibonacci sequence generator for streaming demos
+// ============================================================
+
+/// A Fibonacci generator that yields successive Fibonacci numbers
+/// and returns the total number of values yielded.
+///
+/// This serves as the producer in the streaming pipeline demo:
+/// the producer yields Fibonacci values one at a time, the consumer
+/// processes each value with zero buffering.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// let mut gen = FibGenerator::new(8);
+/// // Yields: 0, 1, 1, 2, 3, 5, 8, 13
+/// // Returns: 8 (count of values yielded)
+/// ```
+pub struct FibGenerator {
+    a: u32,
+    b: u32,
+    count: u32,
+    max: u32,
+}
+
+impl FibGenerator {
+    /// Create a new Fibonacci generator that yields `max` values.
+    pub fn new(max: u32) -> Self {
+        Self {
+            a: 0,
+            b: 1,
+            count: 0,
+            max,
+        }
+    }
+}
+
+// SAFETY: FibGenerator maintains warp convergence — all lanes
+// observe the same state transitions via WarpBroadcast.
+unsafe impl GpuGenerator for FibGenerator {
+    type Yield = u32;
+    type Return = u32;
+
+    #[inline(always)]
+    fn resume_warp(&mut self, _arg: (), wcx: &mut WarpContext) -> WarpCoroutineState<u32, u32> {
+        // Lane 0 computes the state transition
+        let mut discrim: u32 = 0; // 0 = Yielded, 1 = Complete
+        let mut payload: u32 = 0;
+
+        if wcx.is_leader() {
+            if self.count < self.max {
+                let val = self.a;
+                let next = self.a.wrapping_add(self.b);
+                self.a = self.b;
+                self.b = next;
+                self.count += 1;
+                discrim = 0;
+                payload = val;
+            } else {
+                discrim = 1;
+                payload = self.count;
+            }
+        }
+
+        // Broadcast discriminant and payload to all lanes
+        let discrim = unsafe { shfl_sync_idx_u32(wcx.active_mask, discrim, 0) };
+        let payload = u32::broadcast(payload, wcx.active_mask);
+
+        if discrim == 0 {
+            WarpCoroutineState::Yielded(payload)
+        } else {
+            WarpCoroutineState::Complete(payload)
+        }
+    }
+}
+
+// ============================================================
 // Shared memory broadcast helper (for types > 128 bits)
 // ============================================================
 

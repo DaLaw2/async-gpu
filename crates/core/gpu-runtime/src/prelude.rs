@@ -71,7 +71,7 @@ pub use crate::safety::{DisjointSlice, WarpHandle, WarpIndex};
 
 // --- Generator / coroutine ---
 pub use crate::generator::{
-    for_each_yield, CounterGenerator, GeneratorTask, GpuGenerator, WarpBroadcast,
+    for_each_yield, CounterGenerator, FibGenerator, GeneratorTask, GpuGenerator, WarpBroadcast,
     WarpCoroutineState,
 };
 

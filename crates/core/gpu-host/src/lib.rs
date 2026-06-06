@@ -81,6 +81,7 @@ pub mod hostcall;
 #[doc(hidden)]
 pub mod mapped_mem;
 pub mod memory;
+pub mod resource_report;
 pub mod runtime;
 pub mod scheduler;
 pub mod streams;

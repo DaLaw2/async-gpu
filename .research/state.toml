@@ -19,7 +19,7 @@ current_task_id = ""
 
 # Sequence counters
 brainstorm_seq = 124
-tasks_since_brainstorm = 4
+tasks_since_brainstorm = 6
 
 # ============================================================
 # Epics — Tiered (T0 → T3), sorted by tier then priority
@@ -279,7 +279,7 @@ success_criteria = [
 id = "coro-impl"
 epic = "gpu-coroutines"
 title = "Generator implementation + streaming pipeline"
-status = "active"
+status = "completed"
 goal = "Working generators on GPU warps"
 success_criteria = [
     "Generator compiles to PTX via extended MIR pass",
@@ -292,7 +292,7 @@ success_criteria = [
 id = "cost-analysis"
 epic = "compile-time-cost"
 title = "MIR-level GPU resource estimation"
-status = "active"
+status = "completed"
 goal = "Estimate register usage, shared memory, occupancy at compile time"
 success_criteria = [
     "Register usage estimated from MIR live value analysis",
@@ -304,7 +304,7 @@ success_criteria = [
 id = "cost-warnings"
 epic = "compile-time-cost"
 title = "Compile-time GPU performance lints"
-status = "pending"
+status = "active"
 goal = "Warn about common GPU performance issues during compilation"
 success_criteria = [
     "Warning: low occupancy due to register pressure",
@@ -550,7 +550,7 @@ id = "coro-impl.2"
 theme = "coro-impl"
 title = "Experiment: streaming pipeline demo — producer yields, consumer processes"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["coro-impl.1"]
 
 # --- compile-time-cost ---
@@ -568,7 +568,7 @@ id = "cost-analysis.2"
 theme = "cost-analysis"
 title = "Experiment: implement per-kernel resource estimation pass"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["cost-analysis.1"]
 
 [[tasks]]

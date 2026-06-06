@@ -2947,3 +2947,255 @@ pub unsafe extern "gpu-kernel" fn test_gpu_generic_map_reduce() {
             vec2f_result.x, vec2f_result.y);
     });
 }
+
+// ============================================================
+// coro-impl.2: GPU Coroutine Streaming Pipeline Demo
+// ============================================================
+//
+// Demonstrates:
+// 1. FibGenerator — Fibonacci sequence producer
+// 2. for_each_yield — zero-buffered streaming pipeline (producer yields, consumer processes)
+// 3. Multiple generators — CounterGenerator + FibGenerator running independently
+// 4. Correctness verification via assertions
+
+/// GPU test: Fibonacci generator streaming pipeline.
+///
+/// Producer: FibGenerator yields 10 Fibonacci numbers (0, 1, 1, 2, 3, 5, 8, 13, 21, 34).
+/// Consumer: accumulates sum and squares each value.
+/// Verifies: correct Fibonacci sequence, correct sum, zero buffering.
+///
+/// Zero-param entry. Launch with: block_dim=(128,1,1), 1 block, NO kernel args.
+#[unsafe(no_mangle)]
+pub unsafe extern "gpu-kernel" fn test_gpu_generator_fibonacci() {
+    let buf = stdio_auto_init();
+    if buf.is_null() {
+        return;
+    }
+
+    gpu_runtime::thread::gpu_main(|| {
+        use gpu_runtime::generator::{for_each_yield, FibGenerator};
+        use gpu_runtime::warp_future::WarpContext;
+
+        // Expected Fibonacci sequence for 10 values: 0, 1, 1, 2, 3, 5, 8, 13, 21, 34
+        let expected_fibs: [u32; 10] = [0, 1, 1, 2, 3, 5, 8, 13, 21, 34];
+        let expected_sum: u32 = expected_fibs.iter().sum(); // 88
+
+        let mut gen = FibGenerator::new(10);
+        let mut wcx = unsafe { WarpContext::new() };
+
+        let mut idx = 0u32;
+        let mut sum = 0u32;
+        let mut all_correct = true;
+
+        let count = unsafe {
+            for_each_yield(
+                &mut gen,
+                |value, _wcx| {
+                    // Consumer: verify each yielded value matches expected Fibonacci number
+                    if idx < 10 {
+                        if value != expected_fibs[idx as usize] {
+                            all_correct = false;
+                        }
+                    }
+                    sum += value;
+                    idx += 1;
+                },
+                &mut wcx,
+            )
+        };
+
+        // Verify: generator returned the count of values yielded
+        assert_eq!(count, 10, "FibGenerator should return count=10, got {}", count);
+
+        // Verify: consumer saw all 10 values
+        assert_eq!(idx, 10, "Consumer should process 10 values, got {}", idx);
+
+        // Verify: sum matches expected
+        assert_eq!(
+            sum, expected_sum,
+            "Fibonacci sum should be {}, got {}",
+            expected_sum, sum
+        );
+
+        // Verify: all values matched expected sequence
+        assert!(all_correct, "Fibonacci sequence mismatch detected");
+
+        println!("[gpu_test] test_gpu_generator_fibonacci PASSED");
+        println!("  Fibonacci(10): sum={} (expected {}), count={}", sum, expected_sum, count);
+    });
+}
+
+/// GPU test: streaming pipeline — producer yields, consumer transforms.
+///
+/// Demonstrates the zero-buffered streaming pipeline pattern:
+/// - Producer: CounterGenerator yields 0..16
+/// - Consumer: squares each value and accumulates
+/// - At most ONE yielded value exists at any time
+///
+/// This is the core demo for epic success criteria 4.
+///
+/// Zero-param entry. Launch with: block_dim=(128,1,1), 1 block, NO kernel args.
+#[unsafe(no_mangle)]
+pub unsafe extern "gpu-kernel" fn test_gpu_streaming_pipeline() {
+    let buf = stdio_auto_init();
+    if buf.is_null() {
+        return;
+    }
+
+    gpu_runtime::thread::gpu_main(|| {
+        use gpu_runtime::generator::{for_each_yield, CounterGenerator};
+        use gpu_runtime::warp_future::WarpContext;
+
+        let mut gen = CounterGenerator::new(16);
+        let mut wcx = unsafe { WarpContext::new() };
+
+        // Consumer: square each yielded value and accumulate
+        let mut sum_of_squares = 0u32;
+        let mut values_seen = 0u32;
+
+        let counter_sum = unsafe {
+            for_each_yield(
+                &mut gen,
+                |value, _wcx| {
+                    sum_of_squares += value * value;
+                    values_seen += 1;
+                },
+                &mut wcx,
+            )
+        };
+
+        // CounterGenerator returns sum of yielded values: 0+1+...+15 = 120
+        assert_eq!(
+            counter_sum, 120,
+            "CounterGenerator sum should be 120, got {}",
+            counter_sum
+        );
+
+        // Consumer saw 16 values
+        assert_eq!(values_seen, 16, "Should see 16 values, got {}", values_seen);
+
+        // sum of squares: 0^2 + 1^2 + ... + 15^2 = 1240
+        let expected_sos: u32 = (0..16u32).map(|i| i * i).sum();
+        assert_eq!(
+            sum_of_squares, expected_sos,
+            "Sum of squares should be {}, got {}",
+            expected_sos, sum_of_squares
+        );
+
+        println!("[gpu_test] test_gpu_streaming_pipeline PASSED");
+        println!(
+            "  Counter(16): sum={}, sum_of_squares={} (expected {}, {})",
+            counter_sum, sum_of_squares, 120, expected_sos
+        );
+    });
+}
+
+/// GPU test: multiple generators — independent CounterGenerator + FibGenerator.
+///
+/// Demonstrates epic success criteria 3: multiple generators run independently.
+/// Each generator is driven to completion via for_each_yield with its own consumer.
+/// Results are verified independently.
+///
+/// Zero-param entry. Launch with: block_dim=(128,1,1), 1 block, NO kernel args.
+#[unsafe(no_mangle)]
+pub unsafe extern "gpu-kernel" fn test_gpu_multi_generator() {
+    let buf = stdio_auto_init();
+    if buf.is_null() {
+        return;
+    }
+
+    gpu_runtime::thread::gpu_main(|| {
+        use gpu_runtime::generator::{for_each_yield, CounterGenerator, FibGenerator};
+        use gpu_runtime::warp_future::WarpContext;
+
+        let mut wcx = unsafe { WarpContext::new() };
+
+        // === Generator 1: CounterGenerator(8) — yields 0..8 ===
+        let mut counter_gen = CounterGenerator::new(8);
+        let mut counter_sum = 0u32;
+        let mut counter_count = 0u32;
+
+        let counter_ret = unsafe {
+            for_each_yield(
+                &mut counter_gen,
+                |value, _wcx| {
+                    counter_sum += value;
+                    counter_count += 1;
+                },
+                &mut wcx,
+            )
+        };
+
+        // Counter yields 0+1+...+7 = 28, returns 28
+        assert_eq!(counter_ret, 28, "Counter return should be 28, got {}", counter_ret);
+        assert_eq!(counter_sum, 28, "Counter sum should be 28, got {}", counter_sum);
+        assert_eq!(counter_count, 8, "Counter should yield 8 values, got {}", counter_count);
+
+        // === Generator 2: FibGenerator(8) — yields first 8 Fibonacci numbers ===
+        let mut fib_gen = FibGenerator::new(8);
+        let mut fib_sum = 0u32;
+        let mut fib_count = 0u32;
+
+        let fib_ret = unsafe {
+            for_each_yield(
+                &mut fib_gen,
+                |value, _wcx| {
+                    fib_sum += value;
+                    fib_count += 1;
+                },
+                &mut wcx,
+            )
+        };
+
+        // Fib(8): 0, 1, 1, 2, 3, 5, 8, 13 → sum = 33, returns count = 8
+        assert_eq!(fib_ret, 8, "Fib return should be 8, got {}", fib_ret);
+        assert_eq!(fib_sum, 33, "Fib sum should be 33, got {}", fib_sum);
+        assert_eq!(fib_count, 8, "Fib should yield 8 values, got {}", fib_count);
+
+        // === Generator 3: FibGenerator(1) — edge case: single yield ===
+        let mut fib1 = FibGenerator::new(1);
+        let mut single_val = 0u32;
+
+        let fib1_ret = unsafe {
+            for_each_yield(
+                &mut fib1,
+                |value, _wcx| {
+                    single_val = value;
+                },
+                &mut wcx,
+            )
+        };
+
+        assert_eq!(fib1_ret, 1, "Fib(1) return should be 1, got {}", fib1_ret);
+        assert_eq!(single_val, 0, "Fib(1) single yield should be 0, got {}", single_val);
+
+        // === Generator 4: CounterGenerator(0) — edge case: zero yields ===
+        let mut counter0 = CounterGenerator::new(0);
+        let mut zero_count = 0u32;
+
+        let counter0_ret = unsafe {
+            for_each_yield(
+                &mut counter0,
+                |_value, _wcx| {
+                    zero_count += 1;
+                },
+                &mut wcx,
+            )
+        };
+
+        assert_eq!(counter0_ret, 0, "Counter(0) return should be 0, got {}", counter0_ret);
+        assert_eq!(zero_count, 0, "Counter(0) should yield 0 values, got {}", zero_count);
+
+        println!("[gpu_test] test_gpu_multi_generator PASSED");
+        println!(
+            "  Counter(8): sum={}, count={}",
+            counter_sum, counter_count
+        );
+        println!(
+            "  Fib(8): sum={}, count={}",
+            fib_sum, fib_count
+        );
+        println!("  Fib(1): single_val={}", single_val);
+        println!("  Counter(0): zero yields — edge case OK");
+    });
+}

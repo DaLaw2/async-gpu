@@ -1,29 +1,29 @@
 # Theme Synthesis: cost-analysis — MIR-level GPU Resource Estimation
 
 ## Status
-1/N tasks complete. Foundation investigation done.
+2/N tasks complete. ptxas -v parsing pipeline implemented and validated.
 
 ## Key Decisions
-- **Hybrid approach**: ptxas -v for registers/occupancy, MIR for bank conflicts
-- MIR local count cannot predict physical registers (>3x error margin)
-- PTX virtual regs also unreliable (2-5x overcount vs physical)
-- ptxas -v is the ONLY source of truth for register allocation
+- **ptxas -v is the only source of truth** for physical registers; MIR/PTX virtual counts are unreliable
+- Analysis pipeline: bash script (kernel-resources.sh) + Rust library (resource_report.rs)
+- Integrated into build-kernels.sh (auto in --prod, opt-in --report in dev)
+- kernel_test.ptx (8MB) takes 22+ min for ptxas -v; analysis is --prod only
 
 ## Architecture
-Two integration points:
-1. ptxas -v parsing in build scripts (register/occupancy/spill reporting)
-2. MIR pass in rustc (bank conflict stride analysis, following warp_cooperative.rs pattern)
+1. `scripts/kernel-resources.sh` — standalone ptxas -v parser with occupancy report + JSON mode
+2. `gpu-host/src/resource_report.rs` — Rust parser: SmConfig, KernelResources, occupancy calculator
+3. `build-kernels.sh --report` — integrated resource analysis step after PTX compilation
+
+## Validated Results
+- 173+ kernels analyzed across 7 PTX files (all except kernel_test.ptx)
+- Real perf issues found: showcase_kernel (129 regs, 25% occ), plus known std_pipeline_test/matmul_io_compute
+- Device function register inflation: 34 kernels at 112 regs due to shared std device functions
+- sm_75 occupancy formula verified correct against all known data points
 
 ## Risks
-- Device function register inflation: kernels inherit worst-case regs from shared device fns (112-reg floor)
-- All shared memory is dynamic — host-side analysis needed for smem size
-- ptxas adds 10-30s to build; may limit to --prod builds only
-
-## Evidence
-Real kernels with occupancy issues:
-- std_pipeline_test: 255 regs → 25% occupancy (immediate test case)
-- matmul_io_compute: 216 regs → 25% occupancy; gemm_f32_v3: 111 regs → 50%
+- ptxas analysis time prohibitive for large PTX (22+ min for 8MB); limit to --prod mode
+- Device function inflation causes misleading 50% occupancy for simple kernels
 
 ## Next Steps
-- Implement ptxas -v parsing + occupancy calculator with sm_75 warning thresholds
-- Design MIR pass for shared memory stride analysis
+- MIR pass for bank conflict stride analysis (cost-warnings theme)
+- Consider per-file caching of ptxas -v results to avoid re-analysis

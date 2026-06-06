@@ -476,6 +476,10 @@ fn main() -> Result<()> {
                 run_zero_param_test()?;
                 return Ok(());
             }
+            "generator" | "coroutine" => {
+                run_generator_tests()?;
+                return Ok(());
+            }
             _ => println!("Unknown ONLY_TEST={only}, running all tests"),
         }
     }
@@ -1691,6 +1695,45 @@ fn run_matmul_io_compute(_dev: Arc<CudaDevice>) -> Result<()> {
     println!("  ========================================");
     println!("  NORTH STAR LITMUS TEST — PASSED");
     println!("  File::read → matmul → File::write in ONE kernel");
+    println!("  ========================================");
+    Ok(())
+}
+
+// ============================================================
+// GPU Coroutine Generator Tests (coro-impl.2)
+// ============================================================
+
+/// Run all GPU coroutine generator tests.
+///
+/// Tests:
+/// 1. test_gpu_generator_fibonacci — FibGenerator streaming pipeline
+/// 2. test_gpu_streaming_pipeline — CounterGenerator with square-and-accumulate consumer
+/// 3. test_gpu_multi_generator — Multiple independent generators + edge cases
+fn run_generator_tests() -> Result<()> {
+    use gpu_host::gpu;
+
+    println!("\n--- GPU Coroutine Generator Tests (coro-impl.2) ---");
+
+    // Test 1: Fibonacci generator streaming pipeline
+    println!("\n  Test 1: Fibonacci generator streaming pipeline...");
+    gpu::run_zero_param(KERNEL_STD_PTX, "test_gpu_generator_fibonacci")?;
+    println!("  test_gpu_generator_fibonacci — PASSED");
+
+    // Test 2: Streaming pipeline with CounterGenerator
+    println!("\n  Test 2: Streaming pipeline (counter → square → accumulate)...");
+    gpu::run_zero_param(KERNEL_STD_PTX, "test_gpu_streaming_pipeline")?;
+    println!("  test_gpu_streaming_pipeline — PASSED");
+
+    // Test 3: Multiple generators (Counter + Fib + edge cases)
+    println!("\n  Test 3: Multiple independent generators...");
+    gpu::run_zero_param(KERNEL_STD_PTX, "test_gpu_multi_generator")?;
+    println!("  test_gpu_multi_generator — PASSED");
+
+    println!("\n  ========================================");
+    println!("  GPU Coroutine Generator Tests — ALL PASSED");
+    println!("  - Fibonacci streaming pipeline: zero-buffered producer→consumer");
+    println!("  - Counter pipeline: yield → transform → accumulate");
+    println!("  - Multiple generators: independent instances + edge cases");
     println!("  ========================================");
     Ok(())
 }

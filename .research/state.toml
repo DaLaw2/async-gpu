@@ -479,7 +479,7 @@ id = "td-runtime.1"
 feature = "td-runtime"
 title = "Experiment: implement lazy host↔device transfer on kernel access"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["td-design.2"]
 
 [[tasks]]

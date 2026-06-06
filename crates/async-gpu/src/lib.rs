@@ -66,12 +66,15 @@ pub use gpu_host::error::GpuKernelErrorInfo;
 pub use gpu_host::Result;
 
 // Runtime & session types — for users who need full control
+pub use gpu_host::AsDevicePtr;
+pub use gpu_host::GpuArray;
 pub use gpu_host::GpuRuntime;
 pub use gpu_host::GpuVec;
 pub use gpu_host::HostcallBuffer;
 pub use gpu_host::HostcallSession;
 pub use gpu_host::MappedBuffer;
 pub use gpu_host::Pipeline;
+pub use gpu_host::Residency;
 
 // Scheduler types — unified CPU/GPU work routing
 pub use gpu_host::scheduler::AutoScheduler;

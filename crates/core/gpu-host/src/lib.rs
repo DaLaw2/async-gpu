@@ -72,6 +72,7 @@
 
 pub mod auto_tune;
 pub mod error;
+pub mod gpu_array;
 pub mod hostcall;
 /// Low-level CUDA mapped memory allocation helpers.
 ///
@@ -217,6 +218,7 @@ pub mod ptx {
 /// One-liner GPU launch API — `gpu::run()`, `gpu::launch()`, `gpu::custom()`.
 pub mod gpu;
 pub use error::{GpuHostError, Result};
+pub use gpu_array::{AsDevicePtr, GpuArray, Residency};
 pub use hostcall::{HostcallBuffer, HostcallSession, Pipeline};
 pub use memory::{GpuVec, MappedBuffer};
 pub use runtime::GpuRuntime;

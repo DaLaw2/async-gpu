@@ -3,9 +3,9 @@
 [![CI](https://github.com/DaLaw2/async-gpu/actions/workflows/build.yml/badge.svg)](https://github.com/DaLaw2/async-gpu/actions/workflows/build.yml)
 [![License: MIT/Apache-2.0](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](LICENSE-MIT)
 
-**What if the GPU could drive its own computation?** Open files, read data, branch on results, loop until convergence, write output — all from GPU code, with zero CPU orchestration between steps.
+**Write plain Rust. The compiler handles GPU.** Transparent data (`GpuArray<T>` with automatic host-device sync), auto-fused kernels, `Box<dyn Trait>` on GPU, runtime auto-tuning, `par_iter` — all powered by a custom rustc MIR pass that turns standard `async fn` into warp-cooperative state machines.
 
-async_gpu makes this real: **Rust async/await running natively on NVIDIA GPUs**, with a custom rustc MIR pass that turns standard `async fn` into warp-cooperative state machines — and GPU compute kernels powerful enough to run **GPT-2 inference in 25ms** (8.8x optimized), **YOLOv8-nano object detection**, **graph algorithms** (BFS, PageRank), and **Monte Carlo simulations** (129x throughput). Custom SGEMM at **90% of cuBLAS**, Flash Attention V3 at **47-60% of cuDNN FA2**.
+async_gpu makes GPU programming feel like normal Rust: **async/await runs natively on NVIDIA GPUs**, `Vec`, `HashMap`, `File`, and `thread::spawn` work out of the box, and 245+ compute kernels deliver **GPT-2 inference in 25ms** (8.8x optimized), **YOLOv8-nano object detection**, **Conv2D at 54.8% peak** (Winograd batched GEMM), SGEMM at **90% of cuBLAS**, and **Monte Carlo simulations** (129x throughput).
 
 ```rust
 // GPU kernel — looks like normal Rust, runs on GPU
@@ -120,27 +120,40 @@ Most examples work with stock nightly. The `async-pipeline` and `warp-cooperativ
 
 | Category | Feature | Description |
 |----------|---------|-------------|
-| Runtime | `gpu::run` / `launch` / `custom` | One-liner, pure-compute, and builder kernel launch APIs |
-| Runtime | `extern "gpu-kernel"` | Native GPU entry — no proc macros needed |
-| Runtime | Real `std` on GPU | `Vec`, `String`, `HashMap`, `Mutex`, `println!`, `File`, `stdin` |
-| Runtime | `std::thread::spawn` | Warp-as-thread with `JoinHandle::join()` and warp reuse |
-| Runtime | GPU async/await | `async fn` with warp-cooperative state machines (MIR pass) |
-| Runtime | Structured concurrency | `BlockScope`, `GridScope`, oneshot/MPSC channels |
-| Safety | GPU panic transparency | `panic!`/`unwrap`/`assert!` with block/warp/lane metadata |
-| Safety | GPU generics | `fn kernel<T: Add + Copy>` — full trait system on GPU |
-| Safety | Type-level safety | `DisjointSlice<T>` race-freedom, `ThreadIndex<'kernel>` |
-| Safety | GPU coroutines | `GpuGenerator` with `yield_value()` / `resume()` on warps |
-| Safety | Compile-time cost model | ptxas-based resource analysis with occupancy warnings |
-| I/O | File I/O + TCP | `std::fs::File`, GPU-initiated TCP networking via hostcall |
-| I/O | Hostcall protocol | ROCm-inspired lock-free GPU-host RPC (TLA+ verified, 367M states) |
-| Compute | Monte Carlo / Graph / Physics | Black-Scholes 129x, PageRank 4.3x, N-body 47.1x over CPU |
-| ML | GPT-2 + YOLOv8 + ResNet-18 | Full inference, KV cache, DFL decode, NMS — pure Rust PTX |
-| ML | Autograd + ONNX + INT4 | Tape-based AD, 43 ONNX ops, W4A16 quantized inference |
+| **Data** | [`GpuArray<T>`](crates/core/gpu-host/src/gpu_array.rs) | Transparent host-device data — 4-state residency, auto sync, zero-copy below 64 KiB |
+| **Data** | [`SharedRef` / `GlobalRef`](crates/core/gpu-runtime/src/tiered_mem.rs) | Tiered GPU memory — address-space-aware pointers emitting `ld.shared`/`ld.global` |
+| **Data** | [`GpuHashMap`](crates/core/gpu-runtime/src/collections.rs) | Fixed-capacity lock-free GPU hash map (CAS-based concurrent insert/get) |
+| **Runtime** | `gpu::run` / `launch` / `custom` | One-liner, pure-compute, and builder kernel launch APIs |
+| **Runtime** | `extern "gpu-kernel"` | Native GPU entry — no proc macros needed |
+| **Runtime** | Real `std` on GPU | `Vec`, `String`, `HashMap`, `Mutex`, `println!`, `File`, `stdin` |
+| **Runtime** | `std::thread::spawn` | Warp-as-thread with `JoinHandle::join()` and warp reuse |
+| **Runtime** | GPU async/await | `async fn` with warp-cooperative state machines (MIR pass) |
+| **Runtime** | [Structured concurrency](examples/hostcall/structured-concurrency/) | `BlockScope`, `GridScope`, [unified channels](crates/core/gpu-runtime/src/unified_channel.rs) (auto shared/global transport) |
+| **Runtime** | [`AutoScheduler`](crates/core/gpu-host/src/scheduler.rs) | Unified CPU/GPU work routing — `par_map` auto-selects by data size |
+| **Runtime** | [`par_iter`](crates/core/gpu-host/src/memory.rs) | GPU parallel iterators — `map`, `filter`, `fold`, `collect`, `zip` on GPU slices |
+| **Runtime** | [Cross-block work dispatch](crates/core/gpu-runtime/src/grid_work.rs) | `GridScope` coordinator/worker pattern without cooperative launch |
+| **Safety** | GPU panic transparency | `panic!`/`unwrap`/`assert!` with `GpuKernelResult` block/warp/lane metadata |
+| **Safety** | GPU generics | `fn kernel<T: Add + Copy>` — full trait system + `GpuReducible`/`GpuTransformable` on GPU |
+| **Safety** | Dynamic dispatch | [`&dyn Trait`](crates/kernel/gpu-kernel-test/src/lib.rs), `Box<dyn Trait>`, `Box<dyn Fn>`, vtable + Drop — all on GPU |
+| **Safety** | Type-level safety | `DisjointSlice<T>` race-freedom, `WarpIndex<'scope>` — [safety.rs](crates/core/gpu-runtime/src/safety.rs) |
+| **Safety** | GPU coroutines | [`GpuGenerator`](crates/core/gpu-runtime/src/generator.rs) with `yield_value()` / `resume_warp()` — warp-cooperative |
+| **Safety** | Compile-time cost model | ptxas-based `KernelResources` / `SmConfig` / `OccupancyLevel` with [`KernelWarning`](crates/core/gpu-host/src/resource_report.rs) diagnostics |
+| **Perf** | [`AutoTuner`](crates/core/gpu-host/src/auto_tune.rs) | Warmup-based block-size search + `TuningCache` — 1.4x on compute-bound kernels |
+| **Perf** | [Tape-level fusion](crates/core/gpu-host/src/nn/fusion.rs) | Autograd `FusionPlan` — greedy longest-match (MatmulBiasGelu, ElemAddLayerNorm) |
+| **Perf** | [Gradient checkpointing](crates/core/gpu-host/src/nn/autograd/checkpoint.rs) | Trade compute for memory — re-executes forward during backward |
+| **Debug** | [`FlightRecorder`](crates/core/gpu-runtime/src/flight_recorder.rs) | Mapped-memory ring buffer — fire-and-forget GPU trace events for post-mortem |
+| **Debug** | [`#[gpu_test]`](crates/test/gpu-test-macro/) | GPU test macro — `#[gpu_test]` with custom thread/grid config |
+| **I/O** | File I/O + TCP | `std::fs::File`, GPU-initiated TCP networking via hostcall |
+| **I/O** | Hostcall protocol | ROCm-inspired lock-free GPU-host RPC (TLA+ verified, 367M states) |
+| **Compute** | Monte Carlo / Graph / Physics | Black-Scholes 129x, PageRank 4.3x, N-body 47.1x over CPU |
+| **ML** | GPT-2 + YOLOv8 + ResNet-18 | Full inference, KV cache, DFL decode, NMS — pure Rust PTX |
+| **ML** | Autograd + ONNX + INT4 | Tape-based AD, 43 ONNX ops, W4A16 quantized inference |
+| **ML** | [hashbrown on GPU](crates/kernel/gpu-kernel-test/src/lib.rs) | Third-party `#![no_std]` crates with internal `&dyn FnMut` work unmodified on GPU |
 
 <details>
 <summary>Additional feature details</summary>
 
-**GPU Compute Kernels (pure Rust inline PTX):** SGEMM (f32 FMA + f16 Tensor Core + INT8 dp4a), FlashAttention (tiled online softmax, causal, KV cache), Conv2D (im2col + GEMM), BatchNorm+SiLU (fused), LayerNorm, GELU, Softmax, MaxPool2D, Upsample, Embedding — 130+ kernels total.
+**GPU Compute Kernels (pure Rust inline PTX):** SGEMM (f32 FMA + f16 Tensor Core + INT8 dp4a), FlashAttention (tiled online softmax, causal, KV cache), Conv2D (im2col + GEMM + Winograd F(4x4)), BatchNorm+SiLU (fused), LayerNorm, GELU, Softmax, MaxPool2D, Upsample, Embedding — 245+ kernels total.
 
 **Additional ML features:**
 - ResNet-18 inference: Pretrained CIFAR-10 (91.3%), full conv training — [resnet-cifar](examples/std/resnet-cifar/)
@@ -156,7 +169,9 @@ Most examples work with stock nightly. The `async-pipeline` and `warp-cooperativ
 
 **Additional runtime features:**
 - GPU async executor: `GpuExecutor` — multi-task scheduling on GPU — [gpu-channels](examples/hostcall/gpu-channels/)
-- Parallel iterator: `GpuParallelIterator` — `map`, `filter`, `fold`, `collect`, `zip` on GPU
+- Parallel iterator: `par_iter` — `map`, `filter`, `fold`, `collect`, `zip` on GPU slices
+- Unified channels: auto-selects shared (block scope) vs global (grid scope) transport
+- AutoScheduler: `par_map` auto-routes to CPU or GPU based on data size
 - Tokio integration: `AsyncGpuRuntime`, `GpuTask`, non-blocking kernel launch — [tokio-offload](examples/hostcall/tokio-offload/)
 
 </details>
@@ -167,7 +182,10 @@ Most examples work with stock nightly. The `async-pipeline` and `warp-cooperativ
 |--------|-------|
 | GPT-2 forward (seq=128, optimized) | **25.1ms** (8.8x over baseline) |
 | SGEMM 4096^3 | **2,691 GFLOPS** (90% of cuBLAS) |
+| Conv2D 3x3 (Winograd batched GEMM) | **2,753 GFLOPS** (54.8% peak, YOLO P4 shape) |
 | Flash Attention V3 (seq=512, causal) | **559 GFLOPS** (47-60% of cuDNN FA2) |
+| Auto-tuning (compute-bound kernel) | **1.4x** best-vs-worst, 16% free speedup vs default |
+| Dyn dispatch (`&dyn Trait` on GPU) | **<1.15x** overhead vs monomorphized (near-zero per-call) |
 | Monte Carlo Black-Scholes | **129x** throughput over CPU |
 | N-body gravity (4096 particles) | **47.1x** GPU vs CPU |
 | MNIST MLP training (5 epochs) | **5.6x** GPU speedup |
@@ -204,6 +222,8 @@ Most examples work with stock nightly. The `async-pipeline` and `warp-cooperativ
 | **Flash Attention** (seq=128) | 0.134ms | 0.048ms (FA2) | **36%** | 9.3x over v1 |
 | **Conv2D** (128->128, 28^2) | 425 GFLOPS | 522 GFLOPS | **81%** | 3.9x over v1 |
 | **Conv2D** (256->256, 14^2) | 556 GFLOPS | 243 GFLOPS | **229%** | 4.9x over v1 |
+| **Conv2D Winograd** (YOLO P4, 128->128 @ 40^2) | 2,753 GFLOPS | 5,027 peak | **54.8%** | Winograd batched GEMM |
+| **Conv2D Winograd** (YOLO P3, 64->64 @ 80^2) | 2,273 GFLOPS | 5,027 peak | **45.2%** | F(4x4) dispatch |
 | **LayerNorm** (128x768)^1 | 199 GB/s eff. | 200 GB/s peak | **~100%** | 6.6x over v1 |
 | **Fused LN+residual**^1 | 154 GB/s eff. | — | — | 2.01x speedup |
 | **elementwise_add** (in-place)^1 | 160 GB/s | 192 GB/s peak | **83%** | 1.5x over PyTorch |
@@ -233,7 +253,7 @@ MNIST MLP shows clear GPU advantage for matmul-heavy workloads (batch=64, 784x12
 <details>
 <summary>Progressive examples</summary>
 
-Three snippets, increasing complexity. Each is extracted from a runnable example.
+Six snippets, increasing complexity. Each is extracted from a runnable example or working API.
 
 **1. Hello GPU** -- spawn threads on GPU, join results. Looks like normal Rust. ([hello-gpu](examples/hostcall/hello-gpu/), [thread-demo](examples/std/thread-demo/))
 
@@ -253,7 +273,77 @@ let result: Vec<u32> = gpu::launch("thread_spawn_test", 4, 128)?;
 assert_eq!(result[0], 42);
 ```
 
-**2. Cooperative Compute** -- all warps process data in parallel, then return to sequential. ([warp-cooperative](examples/hostcall/warp-cooperative/))
+**2. Transparent Data** -- `GpuArray<T>` with automatic host-device sync. No manual uploads. ([gpu_array.rs](crates/core/gpu-host/src/gpu_array.rs))
+
+```rust
+use async_gpu::GpuArray;
+
+// Create from a Vec — data lives on host only
+let mut data = GpuArray::from_vec(vec![1.0f32, 2.0, 3.0, 4.0]);
+
+// Deref transparently reads host data — no API ceremony
+assert_eq!(data[0], 1.0);
+
+// DerefMut marks host as dirty — next kernel launch auto-uploads
+data[0] = 42.0;
+
+// Pass to kernel — runtime ensures device residency automatically
+// Below 64 KiB: zero-copy over PCIe. Above: explicit VRAM copy.
+let result = data.map_gpu(ptx::KERNEL, "vector_add", 256)?;
+```
+
+**3. Auto-Tuning** -- `AutoTuner` finds optimal launch params via warmup-based search. ([auto_tune.rs](crates/core/gpu-host/src/auto_tune.rs))
+
+```rust
+use gpu_host::auto_tune::{AutoTuner, TuningCache};
+
+let cache = TuningCache::new();
+let tuner = AutoTuner::new();
+
+// Tune block size for a kernel — benchmarks [32, 64, 128, 256, 512, 1024]
+let best = tuner.tune_block_size(
+    65536,             // problem size (elements)
+    None,              // optional occupancy filter from KernelResources
+    &|block_size| {    // benchmark: launch kernel, measure elapsed
+        launch_kernel(block_size);
+        Some(elapsed)
+    },
+);
+
+// Cache result — keyed by (kernel, problem-size bucket, device)
+if let Some(result) = best {
+    cache.insert_config("vector_add", 65536, 0, result);
+}
+// Typical result: 1.4x speedup on compute-bound kernels
+```
+
+**4. Dynamic Dispatch on GPU** -- `Box<dyn Trait>` with vtable, closures, and Drop — all on GPU. ([gpu-kernel-test](crates/kernel/gpu-kernel-test/src/lib.rs))
+
+```rust
+// Trait works on GPU — vtable lives in .global memory
+trait Compute { fn eval(&self, x: u32) -> u32; }
+
+struct Linear { slope: u32, intercept: u32 }
+impl Compute for Linear {
+    fn eval(&self, x: u32) -> u32 { self.slope * x + self.intercept }
+}
+
+// &dyn Trait — stack-allocated data, vtable dispatch
+let obj: &dyn Compute = &Linear { slope: 2, intercept: 10 };
+assert_eq!(obj.eval(16), 42);  // indirect call via vtable
+
+// Box<dyn Trait> — heap-allocated via GPU allocator
+let boxed: Box<dyn Compute> = Box::new(Linear { slope: 3, intercept: 0 });
+assert_eq!(boxed.eval(14), 42);  // vtable dispatch + heap alloc
+
+// Box<dyn Fn> — closures on GPU
+let f: Box<dyn Fn(u32) -> u32> = Box::new(|x| x + 5);
+assert_eq!(f(100), 105);
+
+// Overhead: <1.15x vs monomorphized (near-zero per-call)
+```
+
+**5. Cooperative Compute** -- all warps process data in parallel, then return to sequential. ([warp-cooperative](examples/hostcall/warp-cooperative/))
 
 ```rust
 // All warps cooperate: each handles rows where row % n_warps == warp_id
@@ -270,7 +360,7 @@ thread::cooperative(|| {
 });
 ```
 
-**3. Structured Concurrency Pipeline** -- scoped spawn, oneshot channels, lifetime-bounded shared memory. ([structured-concurrency](examples/hostcall/structured-concurrency/))
+**6. Structured Concurrency Pipeline** -- scoped spawn, oneshot channels, lifetime-bounded shared memory. ([structured-concurrency](examples/hostcall/structured-concurrency/))
 
 ```rust
 // Block-scoped producer-consumer on GPU — memory freed when scope exits
@@ -405,6 +495,10 @@ This works via a **patched std** (`-Zbuild-std=std`) with a CUDA platform adapta
 | Type | Purpose |
 |------|---------|
 | `GpuRuntime` | Device init, PTX loading, kernel launch, multi-GPU support |
+| `GpuArray<T>` | Transparent data with 4-state residency tracking and auto host-device sync |
+| `GpuVec<T>` | GPU-backed vector with kernel-side push/pop |
+| `Pipeline` | Multi-stage kernel pipeline with automatic dependency tracking |
+| `FlightRecorder` | Mapped-memory ring buffer for fire-and-forget GPU trace events |
 | `HostcallBuffer` | GPU-host RPC communication (print, file I/O, stdin) |
 | `MappedBuffer<T>` | RAII pinned device-mapped memory (auto-freed on drop) |
 | `GpuStream` | CUDA stream wrapper for overlapping compute and I/O |
@@ -482,24 +576,43 @@ let tokens = model.generate(&prompt_tokens, 50)?;
 ## Crate Map
 
 ```
+crates/async-gpu/    Facade crate — re-exports GpuArray, AutoScheduler, FlightRecorder, nn, async_rt
 crates/core/
-  gpu-host/        Host SDK: gpu:: API, GpuRuntime, HostcallBuffer, MappedBuffer, GpuStream
-    nn/            Neural network: GpuTensor, KernelRegistry, layers, models, autograd
+  gpu-host/        Host SDK: gpu:: API, GpuRuntime, GpuArray, GpuVec, Pipeline, FlightRecorder
+    auto_tune.rs   AutoTuner, TuningCache — warmup-based block-size search
+    scheduler.rs   AutoScheduler, CpuScheduler, GpuScheduler — unified work routing
+    resource_report.rs  KernelResources, SmConfig, OccupancyLevel, KernelWarning
+    nn/            Neural network: GpuTensor, KernelRegistry, layers, models, autograd, fusion
     onnx_rt/       ONNX Runtime: prost parser, graph executor (43 ops), fusion pass
   gpu-protocol/    Shared constants: packet layout, service IDs, error codes
-  gpu-runtime/     GPU-side runtime: index, math, warp, block, thread, nn, executor, channels
+  gpu-runtime/     GPU-side runtime: index, math, warp, block, thread, nn, executor
+    tiered_mem.rs  SharedRef/GlobalRef — address-space-aware GPU pointers
+    collections.rs GpuHashMap — lock-free concurrent hash map
+    unified_channel.rs  Auto-selects shared vs global transport for channels
+    grid_work.rs   Cross-block coordinator/worker dispatch
+    generator.rs   GpuGenerator — warp-cooperative coroutines
+    safety.rs      DisjointSlice, WarpIndex — type-level race-freedom
+    flight_recorder.rs  Fire-and-forget GPU trace ring buffer
   gpu-atomics/     System-scope GPU atomics via inline PTX (CAS, shfl, activemask)
   gpu-libc/        Minimal libc shim for GPU: routes sys calls to hostcall
 crates/kernel/
   gpu-kernel-core/    Shared helpers + basic kernels
   gpu-kernel-compute/ Compute kernels (fused ops, physics, transformer, persistent)
   gpu-kernel-io/      I/O kernels (hostcall, hybrid, async pipeline)
-  gpu-kernel-test/    Test/demo kernels (std-based: println!, Vec, File, thread, warp)
-crates/test/         7 integration test crates (async, pipeline, embassy, std, multi-warp)
+  gpu-kernel-test/    Test/demo kernels (std, dyn dispatch, hashbrown, par_iter)
+crates/test/         9 integration test crates + gpu-test-macro (#[gpu_test])
 rustc-patches/       Custom MIR pass patches for rustc
 examples/hostcall/   10 hostcall examples | examples/std/  14 std/nn examples
 formal/              TLA+ specification and model-checking config
+docs/                ARCHITECTURE.md, CHANGELOG.md, getting-started.md, VALIDATION.md
 ```
+
+## Documentation
+
+- [Architecture Guide](docs/ARCHITECTURE.md) — hostcall protocol, MIR pass, runtime internals
+- [Changelog](docs/CHANGELOG.md) — version history and shipped stories
+- [Getting Started](docs/getting-started.md) — step-by-step first kernel tutorial
+- [Validation](docs/VALIDATION.md) — correctness verification methodology
 
 ## Limitations
 

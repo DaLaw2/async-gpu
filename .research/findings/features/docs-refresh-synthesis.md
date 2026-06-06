@@ -2,27 +2,17 @@
 
 ## State
 
-All docs live in untracked `docs/` (gitignored). No docs at repo root.
+ARCHITECTURE.md rewritten (396 lines). Covers all 15 crates, kernel split,
+unified runtime (AutoScheduler), tiered memory, GpuArray, AutoTuner,
+auto-fusion pipeline, nn/onnx stack, structured concurrency, par_iter,
+channels, executor, build system, compilation pipeline.
 
-## ARCHITECTURE.md Gaps (Critical)
+## Remaining
 
-- Crate map shows 6 crates + 4 examples; actual: 15 crates + 27 examples
-- Missing: kernel split (4 crates), unified runtime, tiered memory,
-  auto-fusion, GpuArray, AutoTuner, nn/onnx stack, GPU test framework
-- Hostcall protocol section still accurate; crate map and build sections stale
+- CHANGELOG.md update (docs-refresh.3 if planned)
+- docs/ is still gitignored — decision pending on tracking
 
-## CHANGELOG.md Gaps (Minor)
+## Completed Tasks
 
-- Covers cycles 309-638; current is 642 (4 cycles behind)
-- Unreleased section exists but cycle range header is stale
-
-## Stale Docs
-
-- DESIGN-executor.md: unimplemented design (637 lines) — remove or archive
-- VALIDATION.md: mostly current, example list incomplete
-- getting-started.md: needs separate audit
-
-## Key Decision
-
-docs/ is gitignored — documentation is invisible to collaborators.
-Un-gitignore and track, or accept local-only status?
+- docs-refresh.1: Audit (crate map, gap analysis) — done
+- docs-refresh.2: ARCHITECTURE.md rewrite — done

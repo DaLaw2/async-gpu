@@ -3,19 +3,20 @@
 ## Scope
 README overhaul to match 62+ shipped stories.
 
-## Key Gaps (priority order)
-1. **12 capabilities absent**: GpuArray, AutoTuner, AutoScheduler, tiered memory, dyn dispatch, GpuHashMap, FlightRecorder, #[gpu_test], gradient checkpointing, tape fusion, unified channels, cross-block work dispatch
-2. **6 capabilities under-documented**: par_iter, structured concurrency, coroutines, cost model, generics, GPU panic
-3. **3 factual errors**: ThreadIndex (should be WarpIndex), "7 test crates" (should be 9), "130+ kernels" (actually 245)
-4. **Crate map stale**: missing async-gpu facade, wrong test crate count, missing GpuVec/Pipeline/FlightRecorder from core types
-5. **docs/ not linked**: ARCHITECTURE.md, CHANGELOG.md, getting-started.md exist in docs/ but README doesn't reference them
+## Status: DONE (docs-readme.2)
+All audit findings resolved:
+- 12 absent capabilities: added to feature matrix with source links
+- 6 under-documented capabilities: expanded with details
+- 3 factual errors: fixed (WarpIndex, 9 test crates, 245+ kernels)
+- Crate map: updated with async-gpu facade, all gpu-runtime modules, docs/
+- Core types: added GpuArray, GpuVec, Pipeline, FlightRecorder
+- Progressive examples: 3 new (transparent data, auto-tuning, dyn dispatch)
+- Performance: Conv2D Winograd 54.8%, auto-tuning 1.4x, dyn dispatch <1.15x
+- Documentation section: links to docs/ directory
 
-## Approach
-- Feature matrix: add rows for GpuArray, AutoTuner, AutoScheduler, tiered memory, dyn dispatch, GpuHashMap, FlightRecorder, #[gpu_test]
-- Add standalone code examples or details sections for par_iter, dyn dispatch, auto-tuning, transparent data
-- Fix all 3 factual errors
-- Update crate map with async-gpu facade and correct test crate count
-- Link to docs/ARCHITECTURE.md and docs/CHANGELOG.md
+## Remaining Work
+- docs-readme.3 (if needed): standalone example crates for auto-tuning, dyn dispatch
+- ARCHITECTURE.md and CHANGELOG.md updates tracked under separate features
 
 ## Risk
-README length already ~514 lines. Adding 12 features needs careful use of collapsed sections.
+None. README at 631 lines (under 700 limit). All content verified against source.

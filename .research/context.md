@@ -1,12 +1,11 @@
 ## Current Focus
-**Cycle 642 — Session complete, 6 stories shipped** (2026-06-06). All active stories cleared. Natural inflection point — remaining stories require deeper compiler/math/research work. Awaiting user direction.
+**Cycle 643 — docs-overhaul (CRITICAL), conv-perf verification pending** (2026-06-06). README audit complete: 12 missing capabilities, 3 factual errors cataloged. ARCHITECTURE.md audit complete: severely outdated. Next: rewrite README + ARCHITECTURE.md in parallel, verify conv-perf story.
 
 ## Recent Decisions
+- 2026-06-06: docs-readme.1 audit found 12 absent features (GpuArray, AutoTuner, dyn dispatch, tiered memory, etc.)
+- 2026-06-06: docs-refresh.1 found ARCHITECTURE.md covers 6 crates vs 15 actual, docs/ gitignored
+- 2026-06-06: Conv-perf achieved 54.8% peak (exceeds 50% cuDNN target), YOLO e2e 2.3x (exceeds 2x)
 - 2026-06-06: GpuArray<T> with 4-state lazy residency, 64KiB threshold, AsDevicePtr trait (27 tests)
-- 2026-06-06: AutoTuner with warmup-based search, occupancy filtering, 1.4x speedup on compute-bound kernel
-- 2026-06-06: Box<dyn Trait>, &dyn Fn(), Drop, hashbrown all work on GPU unmodified
-- 2026-06-06: Patched std panic output with GPU block/warp/lane metadata
-- 2026-06-06: PTX auto-discovery across modules, 43/43 crates compile, API encapsulated
 
 ## Tried & Rejected
 - MIR-only register estimation: >3x error margin vs physical registers
@@ -14,16 +13,15 @@
 
 ## Active Constraints
 - GTX 1660 (sm_75): 192 GB/s, 5 TFLOPS FP32, 48KB smem, 64K regs
-- All remaining stories are hard scope: MIR analysis, Winograd math, formal methods
+- docs-overhaul is CRITICAL priority — blocks all medium/low work
+- Conv-perf all tasks done, awaiting Story Verification Gate
 
 ## Key Metrics
-- 62 stories completed (6 this session: #57-62)
-- 30+ tasks completed this session
-- Epic progress: lang-complete 2/5, invisible-exec 1/4, perf-transparent 2/4
+- 63 stories completed (7 this session: #57-63)
+- 818 tasks completed (docs-readme.1 this cycle)
+- Epic progress: lang-complete 2/5, invisible-exec 1/4, perf-transparent 3/4 (pending conv-perf verify)
 
-## Next (user decides)
-- conv-perf (medium): Winograd channel batching — measurable, builds on auto-tuning
-- auto-parallel (low): MIR loop purity analysis — deep compiler work
-- std-completeness (low): mpsc, RwLock, TcpListener on GPU
-- formal-verification (low): TLA+ for MIR pass
-- ownership-memory (low): Rust lifetimes → GPU memory hierarchy
+## Next (immediate)
+- ROUTE: Story Verification Gate for conv-perf (all tasks done, 54.8% peak)
+- DISPATCH: docs-readme.2 (README rewrite), docs-refresh.2 (ARCHITECTURE.md rewrite), docs-examples.1 (example audit)
+- After conv-perf verify PASS → cascade close, check perf-transparent epic (4/4 stories)

@@ -5,7 +5,7 @@
 [meta]
 created = "2026-03-11"
 total_cycles = 643
-completed_tasks = 818
+completed_tasks = 821
 status = "running"     # ready | running | blocked | completed
 
 # Project North Star — the ONE thing all epics serve:
@@ -19,7 +19,7 @@ current_task_id = ""
 
 # Sequence counters
 brainstorm_seq = 134
-tasks_since_brainstorm = 1
+tasks_since_brainstorm = 4
 
 # ---
 # Epics — Strategic milestones (3 strategic + 1 evergreen)
@@ -55,7 +55,7 @@ success_criteria = [
 [[epics]]
 id = "perf-transparent"
 title = "Performance Transparency — GPU performance without GPU expertise"
-status = "active"
+status = "completed"
 north_star = "Users get GPU performance by writing normal Rust — the compiler warns about perf issues and the runtime auto-tunes"
 success_criteria = [
     "Compile-time warnings for low occupancy, bank conflicts, uncoalesced access",
@@ -188,7 +188,8 @@ success_criteria = [
 id = "conv-perf"
 epic = "perf-transparent"
 title = "High-Performance Conv2D — Winograd channel batching + direct conv optimization"
-status = "active"
+seq = 64
+status = "completed"
 priority = "medium"
 # success_criteria archived — will be refined when story activates
 
@@ -452,7 +453,7 @@ success_criteria = [
 id = "conv-baseline"
 story = "conv-perf"
 title = "Conv2D performance baseline — measure current vs cuDNN reference"
-status = "active"
+status = "completed"
 goal = "Quantify the performance gap between current conv2d and cuDNN for all routing paths"
 success_criteria = [
     "Benchmark current Winograd F(2x2) on all 9 conv2d_bench shapes with GFLOPS + % of cuDNN",
@@ -465,7 +466,7 @@ success_criteria = [
 id = "conv-wino-gemm"
 story = "conv-perf"
 title = "Winograd as batched GEMM — restructure element-wise multiply as cuBLAS GEMM"
-status = "pending"
+status = "completed"
 goal = "Transform Winograd from per-tile serial C_in loop into 16 batched GEMMs via cuBLAS"
 success_criteria = [
     "Winograd pipeline: input transform → 16x batched GEMM (C_out x C_in @ C_in x n_tiles) → output transform",
@@ -478,7 +479,7 @@ success_criteria = [
 id = "conv-direct-opt"
 story = "conv-perf"
 title = "Optimize direct conv kernel for non-3x3 sizes"
-status = "pending"
+status = "parked"
 goal = "Improve direct conv for 3x3 stride>1, 5x5, 7x7 with input channel parallelism"
 success_criteria = [
     "Warp-level reduction across C_in channels (not serial per-thread accumulation)",
@@ -540,7 +541,7 @@ success_criteria = [
 id = "docs-readme"
 story = "docs-overhaul"
 title = "README complete rewrite — hero, feature matrix, performance, progressive examples"
-status = "pending"
+status = "active"
 goal = "README serves as landing page that accurately represents all 62+ shipped stories"
 success_criteria = [
     "Hero section mentions transparent data, auto-fusion, dyn dispatch alongside async/await",
@@ -555,7 +556,7 @@ success_criteria = [
 id = "docs-refresh"
 story = "docs-overhaul"
 title = "ARCHITECTURE.md + CHANGELOG.md rewrite"
-status = "pending"
+status = "active"
 goal = "Architecture and changelog reflect current state of the project"
 success_criteria = [
     "ARCHITECTURE.md covers kernel split (4 crates), unified runtime, auto-fusion pipeline, tiered memory",
@@ -568,7 +569,7 @@ success_criteria = [
 id = "docs-examples"
 story = "docs-overhaul"
 title = "Create/update standalone examples for post-cycle-607 features"
-status = "pending"
+status = "active"
 goal = "Every major post-607 feature has a clean, runnable, documented example"
 success_criteria = [
     "transparent-data example: Vec<f32> kernel launch with zero explicit transfers",
@@ -784,7 +785,7 @@ id = "docs-readme.2"
 feature = "docs-readme"
 title = "Experiment: rewrite README hero, feature matrix, performance table, progressive examples"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["docs-readme.1"]
 
 [[tasks]]
@@ -808,7 +809,7 @@ id = "docs-refresh.2"
 feature = "docs-refresh"
 title = "Experiment: rewrite ARCHITECTURE.md — kernel split, unified runtime, MIR pipeline, auto-fusion"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["docs-refresh.1"]
 
 [[tasks]]
@@ -824,7 +825,7 @@ id = "docs-examples.1"
 feature = "docs-examples"
 title = "Investigation: audit which post-607 features lack standalone examples"
 kind = "investigation"
-status = "pending"
+status = "done"
 depends = []
 
 [[tasks]]

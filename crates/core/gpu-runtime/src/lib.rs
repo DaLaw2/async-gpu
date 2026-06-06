@@ -185,6 +185,27 @@ pub mod scope;
 /// ```
 pub mod safety;
 
+/// Lifetime-parameterized memory tier types for GPU address spaces.
+///
+/// Provides [`GpuRef`] — a lifetime-bounded, address-space-aware GPU memory
+/// reference that encodes shared vs global at the type level. This enables
+/// the compiler to emit `ld.shared`/`st.shared` or `ld.global`/`st.global`
+/// instead of generic loads, avoiding runtime address-space resolution.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use gpu_runtime::scope::block_scope;
+/// use gpu_runtime::tiered_mem::SharedRef;
+///
+/// block_scope(|scope| {
+///     let buf: SharedRef<'_, f32> = scope.alloc_shared::<f32>(256);
+///     buf.write(0, 42.0);  // emits st.shared
+///     let val = buf.read(0);  // emits ld.shared
+/// });
+/// ```
+pub mod tiered_mem;
+
 /// User-extensible GPU traits for generic kernel algorithms.
 ///
 /// Provides [`GpuReducible`] and [`GpuTransformable`] — traits that enable

@@ -102,6 +102,7 @@ use crate::thread::{
     STATUS_COOPERATIVE, STATUS_DONE, STATUS_IDLE, STATUS_TRAPPED, WARP_DATA, WARP_FN, WARP_RESULT,
     WARP_STATUS,
 };
+use crate::tiered_mem::{self, GlobalRef, SharedRef};
 
 // ============================================================
 // SharedMemAllocator — watermark/bump allocator over shared memory
@@ -314,6 +315,45 @@ impl<'scope> BlockScope<'scope> {
             // Zero-initialize the region
             core::ptr::write_bytes(ptr, 0, count);
             core::slice::from_raw_parts_mut(ptr, count)
+        }
+    }
+
+    /// Allocate a zero-initialized [`SharedRef`] of `count` elements from
+    /// shared memory, using raw shared-space addressing.
+    ///
+    /// Unlike [`alloc()`](Self::alloc) which returns `&'scope mut [T]` in
+    /// the generic address space (via `cvta.shared`), this returns a
+    /// [`SharedRef`] that keeps the pointer in PTX address space 3. Access
+    /// via [`SharedRef::read()`] / [`SharedRef::write()`] emits
+    /// `ld.shared` / `st.shared` instructions instead of generic loads.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the allocation would exceed shared memory capacity.
+    ///
+    /// # Alignment
+    ///
+    /// Automatically aligns to `core::mem::align_of::<T>()`.
+    pub fn alloc_shared<T: Copy>(&self, count: usize) -> SharedRef<'scope, T> {
+        debug_assert_eq!(
+            warp_id(),
+            0,
+            "scope.alloc_shared() can only be called from warp 0"
+        );
+        let size = core::mem::size_of::<T>() * count;
+        let align = core::mem::align_of::<T>();
+
+        let offset = unsafe { &mut *ALLOCATOR.as_ptr() }
+            .alloc_raw(size, align)
+            .expect("BlockScope::alloc_shared: shared memory exhausted");
+
+        unsafe {
+            // Get raw shared-space pointer (no cvta.shared conversion)
+            let ptr = tiered_mem::shared_addr_at(offset as usize) as *mut T;
+            // Zero-initialize via generic-space pointer (write_bytes needs generic)
+            let generic_ptr = crate::block::shared_mem_at::<T>(offset as usize);
+            core::ptr::write_bytes(generic_ptr, 0, count);
+            SharedRef::new(ptr, count)
         }
     }
 
@@ -1138,6 +1178,44 @@ impl<'scope> GridScope<'scope> {
             // Zero-initialize the region
             core::ptr::write_bytes(ptr, 0, count);
             core::slice::from_raw_parts_mut(ptr, count)
+        }
+    }
+
+    /// Allocate a zero-initialized [`GlobalRef`] of `count` elements from
+    /// the global memory pool, using `ld.global`/`st.global` addressing.
+    ///
+    /// Unlike [`alloc()`](Self::alloc) which returns `&'scope mut [T]`,
+    /// this returns a [`GlobalRef`] whose access methods emit
+    /// `ld.global` / `st.global` instructions instead of generic loads.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the allocation would exceed the pool capacity.
+    ///
+    /// # Alignment
+    ///
+    /// Automatically aligns to `core::mem::align_of::<T>()`.
+    pub fn alloc_global<T: Copy>(&self, count: usize) -> GlobalRef<'scope, T> {
+        let size = core::mem::size_of::<T>() * count;
+        let align = core::mem::align_of::<T>();
+
+        // SAFETY: Only the coordinator block/warp calls alloc_global() — single writer.
+        let offset = unsafe { *self.pool_offset.get() };
+
+        let aligned = (offset as usize + align - 1) & !(align - 1);
+        let new_offset = aligned + size;
+        assert!(
+            new_offset <= self.pool_capacity as usize,
+            "GridScope::alloc_global: global memory pool exhausted"
+        );
+
+        unsafe { *self.pool_offset.get() = new_offset as u32 };
+
+        unsafe {
+            let ptr = self.pool_base.add(aligned) as *mut T;
+            // Zero-initialize the region
+            core::ptr::write_bytes(ptr, 0, count);
+            GlobalRef::new(ptr, count)
         }
     }
 

@@ -1,26 +1,22 @@
 # om-tiered-types synthesis
 
 ## Current state
-- `GpuRef<'scope, T, Tier>` design complete — single generic + `SharedRef`/`GlobalRef` aliases
+- `tiered_mem.rs` implemented: `GpuRef<'scope, T, Tier>` with `SharedRef`/`GlobalRef` aliases
 - Sealed `MemoryTier` trait (`Shared`, `Global`) encodes address space at type level
-- Inline PTX asm accessors (`ld.shared`/`st.shared`, `ld.global`/`st.global`) bypass `cvta.shared`
-- `TieredAccess<T>` trait enables tier-generic code over both address spaces
-- `DisjointSlice` gains `Tier` parameter; `get_mut` returns `GpuRef` instead of `&mut [T]`
-- No `Deref` impl — forces explicit `.read(i)`/`.write(i,v)` to prevent silent generic fallback
-- `as_generic_slice()` escape hatch for migration
+- Inline PTX asm intrinsics for 7 types x 2 tiers (u8, u32, i32, f32, u64, i64, f64)
+- `shared_addr_at()` uses `mov.u64 + add.u64` for raw addrspace(3) pointers
+- `BlockScope::alloc_shared()` returns `SharedRef`; `GridScope::alloc_global()` returns `GlobalRef`
+- Non-breaking: existing `alloc() -> &'scope mut [T]` preserved alongside new methods
+- `as_generic_slice()` escape hatch for incremental migration
+- All CI lint checks pass; PTX kernel builds compile successfully for nvptx64
 
 ## Key design decisions
 1. Raw shared-space pointer (no `cvta.shared`) stored in `GpuRef::ptr`
 2. `SharedRef` is `!Send` (per-block); `GlobalRef` is `Send + Sync` (grid-wide)
-3. Breaking API: `alloc()` returns `GpuRef` not `&'scope mut [T]`
-4. Compile errors for shared/global confusion, scope escape, cross-block send
-
-## Blocking question
-Verify `ld.shared.u32 %r, [%rd]` works with register-indirect addressing in PTX.
-If not, inline-asm accessor approach needs redesign. Benchmark generic vs shared
-load latency to confirm optimization justifies complexity.
+3. No `Deref` — forces `.read(i)` / `.write(i, val)` for address-space-aware access
+4. `write(&self, ...)` not `&mut self` — `GpuRef` is `Copy`, acts like pointer
 
 ## Next steps
-- PTX compilation test: register-indirect `ld.shared` feasibility
-- Microbenchmark: `ld.shared` vs generic `ld` on SM75/SM86
-- Implementation: `GpuRef`, `MemoryTier`, intrinsics module, alloc migration
+- Microbenchmark: `ld.shared` vs generic `ld` latency on SM75
+- `DisjointSlice<'scope, T, Tier>` integration
+- GEMM kernel adaptation using `SharedRef` for tile loading

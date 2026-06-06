@@ -68,6 +68,9 @@ pub use crate::stdio::{gpu_print_buffer_flush, stdio_init, stdio_print_buffer_in
 // --- Safety types ---
 pub use crate::safety::{DisjointSlice, WarpHandle, WarpIndex};
 
+// --- Tiered memory types ---
+pub use crate::tiered_mem::{Global, GlobalRef, GpuRef, MemoryTier, Shared, SharedRef};
+
 // --- Generator / coroutine ---
 pub use crate::generator::{
     for_each_yield, CounterGenerator, FibGenerator, GeneratorTask, GpuGenerator, WarpBroadcast,

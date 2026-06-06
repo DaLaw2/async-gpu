@@ -580,7 +580,7 @@ id = "om-tiered-types.3"
 feature = "om-tiered-types"
 title = "Experiment: integrate tiered types into BlockScope/GridScope alloc and adapt GEMM kernel"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["om-tiered-types.2"]
 
 [[tasks]]

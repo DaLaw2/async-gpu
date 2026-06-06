@@ -572,7 +572,7 @@ id = "om-tiered-types.2"
 feature = "om-tiered-types"
 title = "Design: define SharedRef<'block, T> and GlobalRef<'grid, T> with address-space phantom types"
 kind = "design"
-status = "pending"
+status = "done"
 depends = ["om-tiered-types.1"]
 
 [[tasks]]

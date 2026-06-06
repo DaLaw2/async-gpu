@@ -1,11 +1,12 @@
 ## Current Focus
-**Cycle 642 — 3 stories completed this session** (2026-06-06). gpu-panic (#57), feature-audit (#58), compile-time-cost (#59) all verified and closed. No active stories remain — brainstorm needed to activate next medium-priority stories. auto-tuning story unblocked (depends on compile-time-cost ✅).
+**Cycle 642 — Session complete, 6 stories shipped** (2026-06-06). All active stories cleared. Natural inflection point — remaining stories require deeper compiler/math/research work. Awaiting user direction.
 
 ## Recent Decisions
-- 2026-06-06: compile-time-cost verified. ptxas-based approach (more accurate than MIR). 187+ kernels analyzed, 1 real issue caught (showcase_kernel 129 regs / 25% occ).
-- 2026-06-06: gpu-panic verified. Standard panic!/assert! with GPU block/warp/lane metadata. gpu_assert! fully removed.
-- 2026-06-06: feature-audit verified. 43/43 compile, PTX auto-discovery, API encapsulated.
-- 2026-06-06: PTX auto-discovery added to get_kernel() — searches all modules via ptx::ALL.
+- 2026-06-06: GpuArray<T> with 4-state lazy residency, 64KiB threshold, AsDevicePtr trait (27 tests)
+- 2026-06-06: AutoTuner with warmup-based search, occupancy filtering, 1.4x speedup on compute-bound kernel
+- 2026-06-06: Box<dyn Trait>, &dyn Fn(), Drop, hashbrown all work on GPU unmodified
+- 2026-06-06: Patched std panic output with GPU block/warp/lane metadata
+- 2026-06-06: PTX auto-discovery across modules, 43/43 crates compile, API encapsulated
 
 ## Tried & Rejected
 - MIR-only register estimation: >3x error margin vs physical registers
@@ -13,16 +14,16 @@
 
 ## Active Constraints
 - GTX 1660 (sm_75): 192 GB/s, 5 TFLOPS FP32, 48KB smem, 64K regs
-- Max 2 concurrent heavy subagents
-- kernel_test.ptx JIT takes 20+ min
+- All remaining stories are hard scope: MIR analysis, Winograd math, formal methods
 
 ## Key Metrics
-- 817 tasks completed, 59 stories completed
-- No active stories — all high/medium work cleared
-- 3 strategic epics still active with pending stories
-- Known gap: std abort path missing set_warp_trapped()/write_panic_to_result()
+- 62 stories completed (6 this session: #57-62)
+- 30+ tasks completed this session
+- Epic progress: lang-complete 2/5, invisible-exec 1/4, perf-transparent 2/4
 
-## Next
-1. Brainstorm to activate next stories (gpu-dyn-dispatch recommended by bs128)
-2. auto-tuning now unblocked (depends on compile-time-cost ✅)
-3. transparent-data unblocked (depends on unified-runtime ✅)
+## Next (user decides)
+- conv-perf (medium): Winograd channel batching — measurable, builds on auto-tuning
+- auto-parallel (low): MIR loop purity analysis — deep compiler work
+- std-completeness (low): mpsc, RwLock, TcpListener on GPU
+- formal-verification (low): TLA+ for MIR pass
+- ownership-memory (low): Rust lifetimes → GPU memory hierarchy

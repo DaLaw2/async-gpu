@@ -14,7 +14,7 @@ status = "running"     # ready | running | blocked | completed
 # No GPU concepts leak — no kernels, no warps, no cudaMemcpy, no device pointers.
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
-current_step = "dispatch"
+current_step = "route"
 current_task_id = ""
 
 # Sequence counters
@@ -89,7 +89,7 @@ success_criteria = [
 id = "gpu-panic"
 epic = "lang-complete"
 title = "GPU Panic Transparency — panic!/unwrap/assert! behave identically to CPU"
-status = "active"
+status = "completed"
 priority = "high"
 success_criteria = [
     "panic!() on GPU prints message + source location + warp/thread ID, propagates to host",
@@ -205,7 +205,7 @@ depends_on = "structured-concurrency"
 id = "feature-audit"
 epic = "codebase-health"
 title = "Feature Audit — verify all 56 shipped stories still work correctly"
-status = "active"
+status = "completed"
 priority = "high"
 success_criteria = [
     "All examples/ compile and run correctly on current toolchain",

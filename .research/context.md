@@ -1,16 +1,15 @@
 ## Current Focus
-**Cycle 641 — gpu-panic 1 task left, feature-audit 2 tasks left** (2026-06-06). API encapsulation done (HostcallBuffer pub→pub(crate) + accessors). Facade re-exports added (GpuVec, schedulers). Runtime audit found 8/24 examples fail due to wrong PTX loaded. gpu_assert! deprecation designed (1 call site).
+**Cycle 642 — gpu-panic and feature-audit stories ready for verification** (2026-06-06). All 12 tasks across both stories completed. gpu_assert! fully removed. PTX auto-discovery added. Story Verification Gates next.
 
 ## Recent Decisions
-- 2026-06-06: HostcallBuffer fields → pub(crate) + 9 accessor methods. All 8 external callers migrated.
-- 2026-06-06: async-gpu facade now re-exports GpuVec, Scheduler, CpuScheduler, GpuScheduler, AutoScheduler.
-- 2026-06-06: Runtime audit root cause: `ptx::KERNEL` aliases KERNEL_COMPUTE but 8 examples need KERNEL_IO or KERNEL_TEST. Fix: examples should specify correct PTX via `.ptx()`.
-- 2026-06-06: gpu_assert! has only 1 live call site — safe to delete entirely (no shim needed).
+- 2026-06-06: gpu_assert! entirely deleted (~200 lines). Standard assert! is now the only assertion path. SERVICE_ASSERT protocol opcode removed.
+- 2026-06-06: PTX auto-discovery: get_kernel() now searches all modules (ptx::ALL) with text pre-filter, fixing 8 examples that loaded wrong PTX.
+- 2026-06-06: HostcallBuffer encapsulated (pub→pub(crate) + accessors). Facade re-exports added.
+- 2026-06-06: Patched std default_hook outputs GPU block/warp/lane in panic messages.
 
 ## Tried & Rejected
 - MIR-only register estimation: >3x error margin vs physical registers
 - PTX virtual register counting: 2-5x overcount vs ptxas allocation
-- Channels for streaming pipeline: adds buffering, not zero-buffered
 
 ## Active Constraints
 - GTX 1660 (sm_75): 192 GB/s, 5 TFLOPS FP32, 48KB smem, 64K regs
@@ -19,13 +18,13 @@
 - Priority gate: gpu-panic + feature-audit (high) block compile-time-cost (medium)
 
 ## Key Metrics
-- 814 tasks completed, 56 stories completed
-- gpu-panic: 5/6 tasks done, 1 remaining (panic-deprecate-gpu-assert.2)
-- feature-audit: 5/6 tasks done, 1 remaining (audit-runtime.2)
-- Both stories very close to completion
+- 816 tasks completed, 56 stories completed (57th and 58th pending verification)
+- gpu-panic: 6/6 tasks done → Story Verification Gate pending
+- feature-audit: 6/6 tasks done → Story Verification Gate pending
+- Known gap: std abort path doesn't call set_warp_trapped()/write_panic_to_result()
 
 ## Next
-1. panic-deprecate-gpu-assert.2: deprecate gpu_assert! and migrate the 1 caller
-2. audit-runtime.2: fix 8 runtime failures (PTX kernel routing)
-3. After both stories complete → Story Verification Gates → potentially close stories
-4. Then: cost-warnings.2 (unblocked when high stories complete)
+1. Story Verification Gate: gpu-panic — verify all 4 success criteria met
+2. Story Verification Gate: feature-audit — verify all 4 success criteria met
+3. If both pass → cascade close → priority gate lifts → cost-warnings.2 becomes eligible
+4. Brainstorm for next stories (gpu-dyn-dispatch, transparent-data, etc.)

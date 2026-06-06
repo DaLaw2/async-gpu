@@ -76,7 +76,7 @@ fn test_hostcall_print_hello() {
     let dev = shared_device();
 
     let hc_buf = hostcall::HostcallBuffer::new(4).expect("hostcall buffer");
-    let dev_ptr = hc_buf.dev_ptr;
+    let dev_ptr = hc_buf.dev_ptr();
     let (result_host, result_dev) =
         unsafe { alloc_mapped_result_array(&dev, 1).expect("alloc mapped") };
 
@@ -137,8 +137,8 @@ fn test_buffered_print() {
     let dev = shared_device();
 
     let hc_buf = hostcall::HostcallBuffer::new(4).expect("hostcall buffer");
-    let dev_ptr = hc_buf.dev_ptr;
-    let sb_dev_ptr = hc_buf.sideband_dev_ptr;
+    let dev_ptr = hc_buf.dev_ptr();
+    let sb_dev_ptr = hc_buf.sideband_dev_ptr();
 
     let (result_host, result_dev) =
         unsafe { alloc_mapped_result_array(&dev, 1).expect("alloc mapped") };

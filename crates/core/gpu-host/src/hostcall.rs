@@ -189,23 +189,23 @@ impl std::error::Error for HostcallError {}
 /// Hostcall buffer handle with both host and device pointers.
 pub struct HostcallBuffer {
     /// Host-side pointer to the pinned hostcall buffer.
-    pub host_ptr: *mut u8,
+    pub(crate) host_ptr: *mut u8,
     /// Device-side pointer to the hostcall buffer (for kernel launch args).
-    pub dev_ptr: sys::CUdeviceptr,
+    pub(crate) dev_ptr: sys::CUdeviceptr,
     /// Total size of the hostcall buffer in bytes.
-    pub size: usize,
+    pub(crate) size: usize,
     /// Number of packet slots in the buffer.
-    pub num_packets: u16,
+    pub(crate) num_packets: u16,
     /// Number of shards (0 = legacy unsharded mode).
-    pub num_shards: u32,
+    pub(crate) num_shards: u32,
     /// Packets assigned to each shard (only meaningful when num_shards > 0).
-    pub pkts_per_shard: u32,
+    pub(crate) pkts_per_shard: u32,
     /// Host-side pointer to the sideband buffer for bulk data transfer (>56 bytes).
-    pub sideband_host_ptr: *mut u8,
+    pub(crate) sideband_host_ptr: *mut u8,
     /// Device-side pointer to the sideband buffer (for kernel launch args).
-    pub sideband_dev_ptr: sys::CUdeviceptr,
+    pub(crate) sideband_dev_ptr: sys::CUdeviceptr,
     /// Total size of the sideband buffer in bytes.
-    pub sideband_size: usize,
+    pub(crate) sideband_size: usize,
 }
 
 // SAFETY: The buffer is pinned memory shared between host and GPU.
@@ -519,6 +519,55 @@ impl HostcallBuffer {
             }
         }
     }
+
+    // ── Public accessors ────────────────────────────────────────
+
+    /// Host-side pointer to the pinned hostcall buffer.
+    pub fn host_ptr(&self) -> *mut u8 {
+        self.host_ptr
+    }
+
+    /// Device-side pointer to the hostcall buffer (for kernel launch args).
+    pub fn dev_ptr(&self) -> sys::CUdeviceptr {
+        self.dev_ptr
+    }
+
+    /// Total size of the hostcall buffer in bytes.
+    pub fn size(&self) -> usize {
+        self.size
+    }
+
+    /// Number of packet slots in the buffer.
+    pub fn num_packets(&self) -> u16 {
+        self.num_packets
+    }
+
+    /// Number of shards (0 = legacy unsharded mode).
+    pub fn num_shards(&self) -> u32 {
+        self.num_shards
+    }
+
+    /// Packets assigned to each shard (only meaningful when num_shards > 0).
+    pub fn pkts_per_shard(&self) -> u32 {
+        self.pkts_per_shard
+    }
+
+    /// Host-side pointer to the sideband buffer for bulk data transfer.
+    pub fn sideband_host_ptr(&self) -> *mut u8 {
+        self.sideband_host_ptr
+    }
+
+    /// Device-side pointer to the sideband buffer (for kernel launch args).
+    pub fn sideband_dev_ptr(&self) -> sys::CUdeviceptr {
+        self.sideband_dev_ptr
+    }
+
+    /// Total size of the sideband buffer in bytes.
+    pub fn sideband_size(&self) -> usize {
+        self.sideband_size
+    }
+
+    // ── Internal helpers ───────────────────────────────────────
 
     /// Get a reference to the doorbell as an AtomicU64.
     fn doorbell(&self) -> &AtomicU64 {

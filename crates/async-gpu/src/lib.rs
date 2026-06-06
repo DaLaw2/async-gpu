@@ -67,10 +67,17 @@ pub use gpu_host::Result;
 
 // Runtime & session types — for users who need full control
 pub use gpu_host::GpuRuntime;
+pub use gpu_host::GpuVec;
 pub use gpu_host::HostcallBuffer;
 pub use gpu_host::HostcallSession;
 pub use gpu_host::MappedBuffer;
 pub use gpu_host::Pipeline;
+
+// Scheduler types — unified CPU/GPU work routing
+pub use gpu_host::scheduler::AutoScheduler;
+pub use gpu_host::scheduler::CpuScheduler;
+pub use gpu_host::scheduler::GpuScheduler;
+pub use gpu_host::scheduler::Scheduler;
 
 // Hostcall error type — returned by HostcallBuffer/HostcallSession/Pipeline constructors
 pub use gpu_host::hostcall::HostcallError;

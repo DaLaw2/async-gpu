@@ -4,8 +4,8 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 640
-completed_tasks = 811
+total_cycles = 641
+completed_tasks = 814
 status = "running"     # ready | running | blocked | completed
 
 # Project North Star — the ONE thing all epics serve:
@@ -14,12 +14,12 @@ status = "running"     # ready | running | blocked | completed
 # No GPU concepts leak — no kernels, no warps, no cudaMemcpy, no device pointers.
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
-current_step = "save"
+current_step = "dispatch"
 current_task_id = ""
 
 # Sequence counters
-brainstorm_seq = 126
-tasks_since_brainstorm = 7
+brainstorm_seq = 127
+tasks_since_brainstorm = 3
 
 # ---
 # Epics — Strategic milestones (3 strategic + 1 evergreen)
@@ -297,7 +297,7 @@ success_criteria = [
 id = "audit-api"
 story = "feature-audit"
 title = "API consistency audit — naming, errors, imports"
-status = "active"
+status = "completed"
 goal = "Consistent API surface across all crates"
 success_criteria = [
     "Naming audit: function/type names follow consistent convention",
@@ -334,20 +334,13 @@ success_criteria = [
 # ---
 # Tasks (active/pending only — done → archive/)
 # ---
+# Done tasks archived (cycle 641): panic-deprecate-gpu-assert.1, audit-runtime.1, audit-api.2
 # Done tasks archived (cycle 640): panic-std-intercept.2, audit-build.2, panic-unwrap-verify.2
 # Done tasks archived (cycle 639): panic-std-intercept.1, panic-unwrap-verify.1, audit-build.1, audit-api.1
 # Done tasks archived (cycle 638): coro-impl.1-.2, cost-analysis.1-.2, cost-warnings.1
 # Previously archived (cycles <=623 through 634): 30+ tasks
 
 # --- gpu-panic ---
-
-[[tasks]]
-id = "panic-deprecate-gpu-assert.1"
-feature = "panic-deprecate-gpu-assert"
-title = "Design: migration plan from gpu_assert! to standard assert!"
-kind = "design"
-status = "pending"
-depends = ["panic-unwrap-verify.1", "panic-unwrap-verify.2"]
 
 [[tasks]]
 id = "panic-deprecate-gpu-assert.2"
@@ -360,28 +353,12 @@ depends = ["panic-deprecate-gpu-assert.1"]
 # --- feature-audit ---
 
 [[tasks]]
-id = "audit-runtime.1"
-feature = "audit-runtime"
-title = "Investigation: run all compilable examples on GPU, catalog runtime failures"
-kind = "investigation"
-status = "pending"
-depends = ["audit-build.2"]
-
-[[tasks]]
 id = "audit-runtime.2"
 feature = "audit-runtime"
 title = "Experiment: fix runtime failures and verify corrections"
 kind = "experiment"
 status = "pending"
 depends = ["audit-runtime.1"]
-
-[[tasks]]
-id = "audit-api.2"
-feature = "audit-api"
-title = "Experiment: fix API inconsistencies found in audit-api.1"
-kind = "experiment"
-status = "pending"
-depends = ["audit-api.1", "audit-build.2"]
 
 # --- compile-time-cost ---
 
@@ -424,3 +401,16 @@ features_parked = []
 features_completed = []
 stories_completed = []
 key_insight = "gpu-panic has mature infrastructure (ADR-5, SERVICE_PANIC, panic_handler!()). Key gap: unify two panic paths (no_std vs patched std) and inject warp/thread metadata. feature-audit split into build/runtime/api for parallelism. 4 tasks can start immediately."
+
+[[brainstorms]]
+seq = 127
+at_cycle = 640
+trigger = "3 features completed (panic-std-intercept, panic-unwrap-verify, audit-build)"
+level = "standard"
+new_tasks_spawned = []
+new_features_spawned = []
+new_stories_spawned = []
+features_parked = []
+features_completed = ["panic-std-intercept", "panic-unwrap-verify", "audit-build"]
+stories_completed = []
+key_insight = "Both stories have clear runways — no new tasks needed. Abort-path gap (set_warp_trapped/write_panic_to_result missing from std panic) is a real reliability issue but orthogonal to story criteria — track as follow-on feature, not blocker."

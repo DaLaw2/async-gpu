@@ -16,15 +16,17 @@ pub(crate) fn run_hostcall_print_hello(dev: Arc<CudaDevice>) -> Result<()> {
     use std::sync::{Arc as StdArc, Mutex};
 
     let hc_buf = hostcall::HostcallBuffer::new(4)?;
-    let dev_ptr = hc_buf.dev_ptr;
+    let dev_ptr = hc_buf.dev_ptr();
 
     println!(
         "  Hostcall buffer allocated: {} bytes, {} packets",
-        hc_buf.size, hc_buf.num_packets
+        hc_buf.size(),
+        hc_buf.num_packets()
     );
     println!(
         "  Host ptr: {:p}, Device ptr: 0x{:016X}",
-        hc_buf.host_ptr, dev_ptr
+        hc_buf.host_ptr(),
+        dev_ptr
     );
 
     let messages: StdArc<Mutex<Vec<String>>> = StdArc::new(Mutex::new(Vec::new()));
@@ -98,11 +100,12 @@ pub(crate) fn run_hostcall_print_multi(dev: Arc<CudaDevice>, num_blocks: u32) ->
 
     let num_packets = (num_blocks as u16).max(8);
     let hc_buf = hostcall::HostcallBuffer::new(num_packets)?;
-    let dev_ptr = hc_buf.dev_ptr;
+    let dev_ptr = hc_buf.dev_ptr();
 
     println!(
         "  Hostcall buffer: {} packets, {} bytes",
-        num_packets, hc_buf.size
+        num_packets,
+        hc_buf.size()
     );
 
     let messages: StdArc<Mutex<Vec<String>>> = StdArc::new(Mutex::new(Vec::new()));
@@ -333,11 +336,12 @@ pub(crate) fn run_hostcall_file_test(dev: Arc<CudaDevice>) -> Result<()> {
     use std::sync::Arc as StdArc;
 
     let hc_buf = hostcall::HostcallBuffer::new(4)?;
-    let dev_ptr = hc_buf.dev_ptr;
+    let dev_ptr = hc_buf.dev_ptr();
 
     println!(
         "  Hostcall buffer allocated: {} bytes, {} packets",
-        hc_buf.size, hc_buf.num_packets
+        hc_buf.size(),
+        hc_buf.num_packets()
     );
 
     let (result_host_ptr, result_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 4)? };
@@ -410,7 +414,7 @@ pub(crate) fn run_async_hostcall_single(dev: Arc<CudaDevice>) -> Result<()> {
     use std::sync::{Arc as StdArc, Mutex};
 
     let hc_buf = hostcall::HostcallBuffer::new(4)?;
-    let dev_ptr = hc_buf.dev_ptr;
+    let dev_ptr = hc_buf.dev_ptr();
 
     let messages: StdArc<Mutex<Vec<String>>> = StdArc::new(Mutex::new(Vec::new()));
     let messages_clone = StdArc::clone(&messages);
@@ -485,7 +489,7 @@ pub(crate) fn run_async_hostcall_two(dev: Arc<CudaDevice>) -> Result<()> {
     use std::sync::{Arc as StdArc, Mutex};
 
     let hc_buf = hostcall::HostcallBuffer::new(4)?;
-    let dev_ptr = hc_buf.dev_ptr;
+    let dev_ptr = hc_buf.dev_ptr();
 
     let messages: StdArc<Mutex<Vec<String>>> = StdArc::new(Mutex::new(Vec::new()));
     let messages_clone = StdArc::clone(&messages);
@@ -564,7 +568,7 @@ pub(crate) fn run_futures_join(dev: Arc<CudaDevice>) -> Result<()> {
     use std::sync::{Arc as StdArc, Mutex};
 
     let hc_buf = hostcall::HostcallBuffer::new(4)?;
-    let dev_ptr = hc_buf.dev_ptr;
+    let dev_ptr = hc_buf.dev_ptr();
 
     let messages: StdArc<Mutex<Vec<String>>> = StdArc::new(Mutex::new(Vec::new()));
     let messages_clone = StdArc::clone(&messages);
@@ -643,7 +647,7 @@ pub(crate) fn run_hostcall_time_test(dev: Arc<CudaDevice>) -> Result<()> {
     use std::sync::Arc as StdArc;
 
     let hc_buf = hostcall::HostcallBuffer::new(4)?;
-    let dev_ptr = hc_buf.dev_ptr;
+    let dev_ptr = hc_buf.dev_ptr();
 
     let (result_host_ptr, result_dev_ptr) = unsafe {
         let cu = cuda_lib();
@@ -741,7 +745,7 @@ pub(crate) fn run_trace_multithread_test(dev: Arc<CudaDevice>) -> Result<()> {
 
     let num_packets = 64u16; // Enough for 32 threads
     let hc_buf = hostcall::HostcallBuffer::new(num_packets)?;
-    let dev_ptr = hc_buf.dev_ptr;
+    let dev_ptr = hc_buf.dev_ptr();
 
     let (count_host_ptr, count_dev_ptr) = unsafe { alloc_mapped_u32(&dev)? };
     unsafe { std::ptr::write_volatile(count_host_ptr, 0u32) };
@@ -800,7 +804,7 @@ pub(crate) fn run_trace_assert_test(dev: Arc<CudaDevice>) -> Result<()> {
 
     let num_packets = 64u16;
     let hc_buf = hostcall::HostcallBuffer::new(num_packets)?;
-    let dev_ptr = hc_buf.dev_ptr;
+    let dev_ptr = hc_buf.dev_ptr();
 
     let (count_host_ptr, count_dev_ptr) = unsafe { alloc_mapped_u32(&dev)? };
     unsafe { std::ptr::write_volatile(count_host_ptr, 0u32) };
@@ -1583,7 +1587,7 @@ pub(crate) fn run_std_future_print_test(dev: Arc<CudaDevice>) -> Result<()> {
     use std::sync::{Arc as StdArc, Mutex};
 
     let hc_buf = hostcall::HostcallBuffer::new(4)?;
-    let dev_ptr = hc_buf.dev_ptr;
+    let dev_ptr = hc_buf.dev_ptr();
 
     let messages: StdArc<Mutex<Vec<String>>> = StdArc::new(Mutex::new(Vec::new()));
     let messages_clone = StdArc::clone(&messages);
@@ -1659,7 +1663,7 @@ pub(crate) fn run_warp_cooperative_future_test(dev: Arc<CudaDevice>) -> Result<(
     use std::sync::{Arc as StdArc, Mutex};
 
     let hc_buf = hostcall::HostcallBuffer::new(4)?;
-    let dev_ptr = hc_buf.dev_ptr;
+    let dev_ptr = hc_buf.dev_ptr();
 
     let messages: StdArc<Mutex<Vec<String>>> = StdArc::new(Mutex::new(Vec::new()));
     let messages_clone = StdArc::clone(&messages);
@@ -1763,7 +1767,7 @@ pub(crate) fn run_warp_cooperative_two_futures_test(dev: Arc<CudaDevice>) -> Res
     use std::sync::{Arc as StdArc, Mutex};
 
     let hc_buf = hostcall::HostcallBuffer::new(4)?;
-    let dev_ptr = hc_buf.dev_ptr;
+    let dev_ptr = hc_buf.dev_ptr();
 
     let messages: StdArc<Mutex<Vec<String>>> = StdArc::new(Mutex::new(Vec::new()));
     let messages_clone = StdArc::clone(&messages);
@@ -1865,7 +1869,7 @@ pub(crate) fn run_warp_result_future_test(dev: Arc<CudaDevice>) -> Result<()> {
     use std::sync::{Arc as StdArc, Mutex};
 
     let hc_buf = hostcall::HostcallBuffer::new(4)?;
-    let dev_ptr = hc_buf.dev_ptr;
+    let dev_ptr = hc_buf.dev_ptr();
 
     let messages: StdArc<Mutex<Vec<String>>> = StdArc::new(Mutex::new(Vec::new()));
     let messages_clone = StdArc::clone(&messages);
@@ -1974,7 +1978,7 @@ pub(crate) fn run_std_future_two_prints_test(dev: Arc<CudaDevice>) -> Result<()>
     use std::sync::{Arc as StdArc, Mutex};
 
     let hc_buf = hostcall::HostcallBuffer::new(4)?;
-    let dev_ptr = hc_buf.dev_ptr;
+    let dev_ptr = hc_buf.dev_ptr();
 
     let messages: StdArc<Mutex<Vec<String>>> = StdArc::new(Mutex::new(Vec::new()));
     let messages_clone = StdArc::clone(&messages);

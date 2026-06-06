@@ -86,7 +86,7 @@ pub(crate) fn run_std_println_test(dev: Arc<CudaDevice>) -> Result<()> {
     use std::sync::{Arc as StdArc, Mutex};
 
     let hc_buf = hostcall::HostcallBuffer::new(4)?;
-    let dev_ptr = hc_buf.dev_ptr;
+    let dev_ptr = hc_buf.dev_ptr();
 
     let messages: StdArc<Mutex<Vec<String>>> = StdArc::new(Mutex::new(Vec::new()));
     let messages_clone = StdArc::clone(&messages);
@@ -505,7 +505,7 @@ pub(crate) fn run_std_stdin_test(dev: Arc<CudaDevice>) -> Result<()> {
     use std::sync::{Arc as StdArc, Mutex};
 
     let hc_buf = hostcall::HostcallBuffer::new(4)?;
-    let dev_ptr = hc_buf.dev_ptr;
+    let dev_ptr = hc_buf.dev_ptr();
 
     let messages: StdArc<Mutex<Vec<String>>> = StdArc::new(Mutex::new(Vec::new()));
     let messages_clone = StdArc::clone(&messages);
@@ -612,7 +612,7 @@ pub(crate) fn run_std_stdin_readline_test(_dev: Arc<CudaDevice>) -> Result<()> {
     let messages_clone = StdArc::clone(&messages);
 
     let hc_buf = hostcall::HostcallBuffer::new(4)?;
-    let hc_ptr = hc_buf.dev_ptr;
+    let hc_ptr = hc_buf.dev_ptr();
 
     let hc_buf_ref = StdArc::new(hc_buf);
     let hc_buf_listener = StdArc::clone(&hc_buf_ref);
@@ -893,7 +893,7 @@ pub(crate) fn run_multithread_println_test(_dev: Arc<CudaDevice>) -> Result<()> 
     let messages_clone = StdArc::clone(&messages);
 
     let hc_buf = hostcall::HostcallBuffer::new(16)?;
-    let hc_ptr = hc_buf.dev_ptr;
+    let hc_ptr = hc_buf.dev_ptr();
 
     let hc_buf_ref = StdArc::new(hc_buf);
     let hc_buf_listener = StdArc::clone(&hc_buf_ref);
@@ -1194,8 +1194,8 @@ pub(crate) fn run_std_buffered_println_test(dev: Arc<CudaDevice>) -> Result<()> 
     use std::sync::{Arc as StdArc, Mutex};
 
     let hc_buf = hostcall::HostcallBuffer::new(4)?;
-    let dev_ptr = hc_buf.dev_ptr;
-    let sb_dev_ptr = hc_buf.sideband_dev_ptr;
+    let dev_ptr = hc_buf.dev_ptr();
+    let sb_dev_ptr = hc_buf.sideband_dev_ptr();
 
     let (result_host_ptr, result_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 1)? };
 
@@ -1280,7 +1280,7 @@ pub(crate) fn run_std_sysroot_file_test(dev: Arc<CudaDevice>) -> Result<()> {
     use std::sync::Arc as StdArc;
 
     let hc_buf = hostcall::HostcallBuffer::new(4)?;
-    let dev_ptr = hc_buf.dev_ptr;
+    let dev_ptr = hc_buf.dev_ptr();
 
     let hc_buf_ref = StdArc::new(hc_buf);
     let hc_buf_listener = StdArc::clone(&hc_buf_ref);

@@ -63,7 +63,7 @@ pub(crate) fn run_warp_future_print_test(dev: Arc<CudaDevice>) -> Result<()> {
     println!("\n--- WarpFuture PoC Test (warp-future.4) ---");
 
     let hc_buf = hostcall::HostcallBuffer::new(4)?;
-    let dev_ptr = hc_buf.dev_ptr;
+    let dev_ptr = hc_buf.dev_ptr();
 
     let (result_host, result_dev) = unsafe { alloc_mapped_result_array(&dev, 1)? };
 
@@ -137,7 +137,7 @@ pub(crate) fn run_warp_future_multi_print_test(dev: Arc<CudaDevice>) -> Result<(
     println!("\n--- WarpFuture Multi-Hostcall Test (warp-future.6) ---");
 
     let hc_buf = hostcall::HostcallBuffer::new(4)?;
-    let dev_ptr = hc_buf.dev_ptr;
+    let dev_ptr = hc_buf.dev_ptr();
 
     let (result_host, result_dev) = unsafe { alloc_mapped_result_array(&dev, 1)? };
 
@@ -221,7 +221,7 @@ pub(crate) fn run_warp_print_test(dev: Arc<CudaDevice>) -> Result<()> {
     println!("\n--- WarpFuture Proc Macro Test (warp-future.5) ---");
 
     let hc_buf = hostcall::HostcallBuffer::new(4)?;
-    let dev_ptr = hc_buf.dev_ptr;
+    let dev_ptr = hc_buf.dev_ptr();
 
     let (result_host, result_dev) = unsafe { alloc_mapped_result_array(&dev, 1)? };
 
@@ -323,7 +323,7 @@ pub(crate) fn run_warp_cfg_if_else_test(dev: Arc<CudaDevice>) -> Result<()> {
             .ok_or(GpuHostError::KernelNotFound("warp_cfg_if_else_test"))?;
 
         let hc_buf = hostcall::HostcallBuffer::new(4)?;
-        let dev_ptr = hc_buf.dev_ptr;
+        let dev_ptr = hc_buf.dev_ptr();
         let (status_host, status_dev) = unsafe { alloc_mapped_result_array(dev, 1)? };
 
         let hc_buf_ref = std::sync::Arc::new(hc_buf);
@@ -416,7 +416,7 @@ pub(crate) fn run_warp_cfg_loop_test(dev: Arc<CudaDevice>) -> Result<()> {
         .ok_or(GpuHostError::KernelNotFound("warp_cfg_loop_test"))?;
 
     let hc_buf = hostcall::HostcallBuffer::new(4)?;
-    let dev_ptr = hc_buf.dev_ptr;
+    let dev_ptr = hc_buf.dev_ptr();
     let (status_host, status_dev) = unsafe { alloc_mapped_result_array(&dev, 1)? };
 
     let hc_buf_ref = std::sync::Arc::new(hc_buf);
@@ -498,7 +498,7 @@ pub(crate) fn run_warp_cfg_match_test(dev: Arc<CudaDevice>) -> Result<()> {
             .ok_or(GpuHostError::KernelNotFound("warp_cfg_match_test"))?;
 
         let hc_buf = hostcall::HostcallBuffer::new(4)?;
-        let dev_ptr = hc_buf.dev_ptr;
+        let dev_ptr = hc_buf.dev_ptr();
         let (status_host, status_dev) = unsafe { alloc_mapped_result_array(dev, 1)? };
 
         let hc_buf_ref = std::sync::Arc::new(hc_buf);
@@ -607,7 +607,7 @@ pub(crate) fn run_warp_cfg_nested_test(dev: Arc<CudaDevice>) -> Result<()> {
             .ok_or(GpuHostError::KernelNotFound("warp_cfg_nested_test"))?;
 
         let hc_buf = hostcall::HostcallBuffer::new(4)?;
-        let dev_ptr = hc_buf.dev_ptr;
+        let dev_ptr = hc_buf.dev_ptr();
         let (status_host, status_dev) = unsafe { alloc_mapped_result_array(dev, 1)? };
 
         let hc_buf_ref = std::sync::Arc::new(hc_buf);
@@ -717,7 +717,7 @@ pub(crate) fn run_hybrid_executor_test(dev: Arc<CudaDevice>) -> Result<()> {
     println!("\n--- Hybrid Executor Test (hybrid-executor.1) ---");
 
     let hc_buf = hostcall::HostcallBuffer::new(4)?;
-    let dev_ptr = hc_buf.dev_ptr;
+    let dev_ptr = hc_buf.dev_ptr();
 
     // Allocate mapped memory for results: 32 u32 values (one per lane) + 1 status
     let (results_host, results_dev) = unsafe { alloc_mapped_result_array(&dev, 33)? };
@@ -815,7 +815,7 @@ pub(crate) fn run_hybrid_stress_test(dev: Arc<CudaDevice>) -> Result<()> {
     println!("\n--- Hybrid Stress Test (hybrid-executor.2) ---");
 
     let hc_buf = hostcall::HostcallBuffer::new(4)?;
-    let dev_ptr = hc_buf.dev_ptr;
+    let dev_ptr = hc_buf.dev_ptr();
 
     // 64 results (32 per compute phase) + 1 status = 65 u32
     let (results_host, results_dev) = unsafe { alloc_mapped_result_array(&dev, 65)? };

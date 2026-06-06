@@ -17,7 +17,7 @@ pub(crate) fn run_multi_warp_test(dev: Arc<CudaDevice>) -> Result<()> {
     use std::sync::{Arc as StdArc, Mutex};
 
     let hc_buf = hostcall::HostcallBuffer::new(64)?;
-    let dev_ptr = hc_buf.dev_ptr;
+    let dev_ptr = hc_buf.dev_ptr();
 
     let messages: StdArc<Mutex<Vec<String>>> = StdArc::new(Mutex::new(Vec::new()));
     let messages_clone = StdArc::clone(&messages);
@@ -134,7 +134,7 @@ pub(crate) fn run_multi_block_test(dev: Arc<CudaDevice>) -> Result<()> {
     let num_packets: u16 = 256;
 
     let hc_buf = hostcall::HostcallBuffer::new(num_packets)?;
-    let dev_ptr = hc_buf.dev_ptr;
+    let dev_ptr = hc_buf.dev_ptr();
 
     let messages: StdArc<Mutex<Vec<String>>> = StdArc::new(Mutex::new(Vec::new()));
     let messages_clone = StdArc::clone(&messages);
@@ -256,7 +256,7 @@ pub(crate) fn run_multi_block_512_test(dev: Arc<CudaDevice>) -> Result<()> {
     let num_packets: u16 = 1024;
 
     let hc_buf = hostcall::HostcallBuffer::new(num_packets)?;
-    let dev_ptr = hc_buf.dev_ptr;
+    let dev_ptr = hc_buf.dev_ptr();
 
     let messages: StdArc<Mutex<Vec<String>>> = StdArc::new(Mutex::new(Vec::new()));
     let messages_clone = StdArc::clone(&messages);
@@ -373,7 +373,7 @@ pub(crate) fn run_pipeline_test(dev: Arc<CudaDevice>) -> Result<()> {
     use std::sync::{Arc as StdArc, Mutex};
 
     let hc_buf = hostcall::HostcallBuffer::new(4)?;
-    let dev_ptr = hc_buf.dev_ptr;
+    let dev_ptr = hc_buf.dev_ptr();
 
     let messages: StdArc<Mutex<Vec<String>>> = StdArc::new(Mutex::new(Vec::new()));
     let messages_clone = StdArc::clone(&messages);
@@ -468,7 +468,7 @@ pub(crate) fn run_showcase_test(dev: Arc<CudaDevice>) -> Result<()> {
     use std::sync::{Arc as StdArc, Mutex};
 
     let hc_buf = hostcall::HostcallBuffer::new(4)?;
-    let dev_ptr = hc_buf.dev_ptr;
+    let dev_ptr = hc_buf.dev_ptr();
 
     let messages: StdArc<Mutex<Vec<String>>> = StdArc::new(Mutex::new(Vec::new()));
     let messages_clone = StdArc::clone(&messages);
@@ -577,7 +577,7 @@ pub(crate) fn run_multi_block_async_test(dev: Arc<CudaDevice>) -> Result<()> {
     use std::sync::{Arc as StdArc, Mutex};
 
     let hc_buf = hostcall::HostcallBuffer::new(8)?;
-    let dev_ptr = hc_buf.dev_ptr;
+    let dev_ptr = hc_buf.dev_ptr();
 
     let messages: StdArc<Mutex<Vec<String>>> = StdArc::new(Mutex::new(Vec::new()));
     let messages_clone = StdArc::clone(&messages);
@@ -672,7 +672,7 @@ pub(crate) fn run_error_propagation_test(dev: Arc<CudaDevice>) -> Result<()> {
     println!("\n--- Error Handling Test: error propagation (hostcall \u{2192} GPU) ---");
 
     let hc_buf = hostcall::HostcallBuffer::new(4)?;
-    let dev_ptr = hc_buf.dev_ptr;
+    let dev_ptr = hc_buf.dev_ptr();
 
     let (result_host_ptr, result_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 6)? };
 
@@ -745,7 +745,7 @@ pub(crate) fn run_println_direct_test(dev: Arc<CudaDevice>) -> Result<()> {
     use std::sync::{Arc as StdArc, Mutex};
 
     let hc_buf = hostcall::HostcallBuffer::new(4)?;
-    let dev_ptr = hc_buf.dev_ptr;
+    let dev_ptr = hc_buf.dev_ptr();
 
     let messages: StdArc<Mutex<Vec<String>>> = StdArc::new(Mutex::new(Vec::new()));
     let messages_clone = StdArc::clone(&messages);

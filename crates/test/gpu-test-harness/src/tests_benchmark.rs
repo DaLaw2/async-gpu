@@ -29,7 +29,7 @@ fn run_latency_bench_config(
     use std::sync::Arc as StdArc;
 
     let hc_buf = hostcall::HostcallBuffer::new(num_packets)?;
-    let dev_ptr = hc_buf.dev_ptr;
+    let dev_ptr = hc_buf.dev_ptr();
 
     // Allocate results: 3 u64 per thread
     let results_count = (num_threads as usize) * 3;
@@ -173,7 +173,7 @@ pub(super) fn run_latency_bench_explicit(
 
     let num_threads = grid_dim * block_dim;
     let hc_buf = hostcall::HostcallBuffer::new(num_packets)?;
-    let dev_ptr = hc_buf.dev_ptr;
+    let dev_ptr = hc_buf.dev_ptr();
 
     let results_count = (num_threads as usize) * 3;
     let (results_host_ptr, results_dev_ptr) =
@@ -395,7 +395,7 @@ pub(super) fn run_sharding_bench_config(
     hc_buf: &std::sync::Arc<hostcall::HostcallBuffer>,
 ) -> Result<(f64, u64, u64, Vec<f64>)> {
     let num_threads = grid_dim * block_dim;
-    let dev_ptr = hc_buf.dev_ptr;
+    let dev_ptr = hc_buf.dev_ptr();
 
     let results_count = (num_threads as usize) * 3;
     let (results_host_ptr, results_dev_ptr) =
@@ -565,7 +565,7 @@ fn run_v3_bench(
     let num_threads = grid_dim * block_dim;
 
     let hc_buf = hostcall::HostcallBuffer::new(num_packets)?;
-    let dev_ptr = hc_buf.dev_ptr;
+    let dev_ptr = hc_buf.dev_ptr();
 
     // Allocate results: header (3 u64/thread) + per-iter (1 u64/thread/iter)
     let header_count = (num_threads as usize) * 3;
@@ -823,7 +823,7 @@ pub(crate) fn run_file_io_benchmark(dev: Arc<CudaDevice>) -> Result<()> {
     let num_iters: u32 = 30;
 
     let hc_buf = hostcall::HostcallBuffer::new(4)?;
-    let dev_ptr = hc_buf.dev_ptr;
+    let dev_ptr = hc_buf.dev_ptr();
 
     // Results: 2 header + 6 per iter
     let results_count = 2 + (num_iters as usize) * 6;

@@ -135,8 +135,8 @@ pub(crate) fn run_vector_search_test(dev: Arc<CudaDevice>) -> Result<()> {
 
     // Launch GPU kernel
     let hc_buf = hostcall::HostcallBuffer::new(4)?;
-    let dev_ptr = hc_buf.dev_ptr;
-    let sb_dev_ptr = hc_buf.sideband_dev_ptr;
+    let dev_ptr = hc_buf.dev_ptr();
+    let sb_dev_ptr = hc_buf.sideband_dev_ptr();
 
     let (status_host, status_dev) = unsafe { alloc_mapped_result_array(&dev, 1)? };
     let hc_buf_ref = std::sync::Arc::new(hc_buf);
@@ -298,8 +298,8 @@ pub(crate) fn run_batch_search_test(dev: Arc<CudaDevice>) -> Result<()> {
 
     // Launch GPU kernel
     let hc_buf = hostcall::HostcallBuffer::new(4)?;
-    let dev_ptr = hc_buf.dev_ptr;
-    let sb_dev_ptr = hc_buf.sideband_dev_ptr;
+    let dev_ptr = hc_buf.dev_ptr();
+    let sb_dev_ptr = hc_buf.sideband_dev_ptr();
 
     let (status_host, status_dev) = unsafe { alloc_mapped_result_array(&dev, 1)? };
     let hc_buf_ref = std::sync::Arc::new(hc_buf);

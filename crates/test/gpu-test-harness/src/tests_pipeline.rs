@@ -36,8 +36,8 @@ pub(crate) fn run_file_transform_test(dev: Arc<CudaDevice>) -> Result<()> {
     println!("  Created gpu_input.txt ({} bytes)", input_data.len());
 
     let hc_buf = hostcall::HostcallBuffer::new(4)?;
-    let dev_ptr = hc_buf.dev_ptr;
-    let sb_dev_ptr = hc_buf.sideband_dev_ptr;
+    let dev_ptr = hc_buf.dev_ptr();
+    let sb_dev_ptr = hc_buf.sideband_dev_ptr();
 
     let (status_host, status_dev) = unsafe { alloc_mapped_result_array(&dev, 1)? };
 
@@ -160,7 +160,7 @@ pub(crate) fn run_panic_test(dev: Arc<CudaDevice>) -> Result<()> {
     println!("\n--- GPU Panic Handler Test (gpu-panic.2) ---");
 
     let hc_buf = hostcall::HostcallBuffer::new(4)?;
-    let dev_ptr = hc_buf.dev_ptr;
+    let dev_ptr = hc_buf.dev_ptr();
 
     let (result_host_ptr, result_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 1)? };
 
@@ -230,14 +230,15 @@ pub(crate) fn run_bulk_io_test(dev: Arc<CudaDevice>) -> Result<()> {
     use std::sync::Arc as StdArc;
 
     let hc_buf = hostcall::HostcallBuffer::new(4)?;
-    let dev_ptr = hc_buf.dev_ptr;
-    let sb_dev_ptr = hc_buf.sideband_dev_ptr;
+    let dev_ptr = hc_buf.dev_ptr();
+    let sb_dev_ptr = hc_buf.sideband_dev_ptr();
 
     println!(
         "  Hostcall buffer: {} bytes, {} packets",
-        hc_buf.size, hc_buf.num_packets
+        hc_buf.size(),
+        hc_buf.num_packets()
     );
-    println!("  Sideband buffer: {} bytes", hc_buf.sideband_size);
+    println!("  Sideband buffer: {} bytes", hc_buf.sideband_size());
 
     let (result_host_ptr, result_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 4)? };
 
@@ -315,11 +316,14 @@ pub(crate) fn run_sharded_hostcall_test(dev: Arc<CudaDevice>) -> Result<()> {
     let num_blocks: u32 = 4;
     let pkts_per_shard: u32 = 4;
     let hc_buf = hostcall::HostcallBuffer::new_sharded(num_blocks, pkts_per_shard)?;
-    let dev_ptr = hc_buf.dev_ptr;
+    let dev_ptr = hc_buf.dev_ptr();
 
     println!(
         "  Sharded buffer: {} shards × {} pkts/shard = {} total packets, {} bytes",
-        hc_buf.num_shards, hc_buf.pkts_per_shard, hc_buf.num_packets, hc_buf.size
+        hc_buf.num_shards(),
+        hc_buf.pkts_per_shard(),
+        hc_buf.num_packets(),
+        hc_buf.size()
     );
 
     let messages: StdArc<Mutex<Vec<String>>> = StdArc::new(Mutex::new(Vec::new()));
@@ -414,8 +418,8 @@ Yet another GPU mention for testing\n";
 
     // Allocate hostcall buffer with sideband for bulk read
     let hc_buf = hostcall::HostcallBuffer::new_with_sideband(8, 1024 * 1024)?;
-    let dev_ptr = hc_buf.dev_ptr;
-    let sb_dev_ptr = hc_buf.sideband_dev_ptr;
+    let dev_ptr = hc_buf.dev_ptr();
+    let sb_dev_ptr = hc_buf.sideband_dev_ptr();
 
     // Allocate results array (1 u32 per thread, but use u64 array for convenience)
     let (results_host_ptr, results_dev_ptr) =
@@ -547,7 +551,7 @@ pub(crate) fn run_branching_pipeline_test(dev: Arc<CudaDevice>) -> Result<()> {
             .get_func("kernel_bp1", "branching_pipeline")
             .ok_or(GpuHostError::KernelNotFound("branching_pipeline"))?;
         let hc_buf = hostcall::HostcallBuffer::new(4)?;
-        let dev_ptr = hc_buf.dev_ptr;
+        let dev_ptr = hc_buf.dev_ptr();
         let (status_host, status_dev) = unsafe { alloc_mapped_result_array(&dev, 1)? };
 
         let hc_buf_ref = std::sync::Arc::new(hc_buf);
@@ -613,7 +617,7 @@ pub(crate) fn run_branching_pipeline_test(dev: Arc<CudaDevice>) -> Result<()> {
             .ok_or(GpuHostError::KernelNotFound("branching_pipeline"))?;
 
         let hc_buf = hostcall::HostcallBuffer::new(4)?;
-        let dev_ptr = hc_buf.dev_ptr;
+        let dev_ptr = hc_buf.dev_ptr();
         let (status_host, status_dev) = unsafe { alloc_mapped_result_array(&dev, 1)? };
 
         let hc_buf_ref = std::sync::Arc::new(hc_buf);
@@ -678,7 +682,7 @@ pub(crate) fn run_pipelined_compute_test(dev: Arc<CudaDevice>) -> Result<()> {
     println!("\n--- Pipelined I/O + Compute (async-pipeline.4) ---");
 
     let hc_buf = hostcall::HostcallBuffer::new(4)?;
-    let dev_ptr = hc_buf.dev_ptr;
+    let dev_ptr = hc_buf.dev_ptr();
     let (status_host, status_dev) = unsafe { alloc_mapped_result_array(&dev, 1)? };
 
     let hc_buf_ref = std::sync::Arc::new(hc_buf);
@@ -771,7 +775,7 @@ pub(crate) fn run_warp_scale_async_test(dev: Arc<CudaDevice>) -> Result<()> {
     use std::sync::{Arc as StdArc, Mutex};
 
     let hc_buf = hostcall::HostcallBuffer::new(64)?;
-    let dev_ptr = hc_buf.dev_ptr;
+    let dev_ptr = hc_buf.dev_ptr();
 
     let messages: StdArc<Mutex<Vec<String>>> = StdArc::new(Mutex::new(Vec::new()));
     let messages_clone = StdArc::clone(&messages);
@@ -890,7 +894,7 @@ pub(crate) fn run_autonomous_pipeline_test(dev: Arc<CudaDevice>) -> Result<()> {
             .ok_or(GpuHostError::KernelNotFound("autonomous_pipeline"))?;
 
         let hc_buf = hostcall::HostcallBuffer::new(4)?;
-        let dev_ptr = hc_buf.dev_ptr;
+        let dev_ptr = hc_buf.dev_ptr();
         let (status_host, status_dev) = unsafe { alloc_mapped_result_array(dev, 1)? };
 
         let hc_buf_ref = std::sync::Arc::new(hc_buf);
@@ -991,14 +995,15 @@ pub(crate) fn run_buffered_print_test(dev: Arc<CudaDevice>) -> Result<()> {
     use std::sync::{Arc as StdArc, Mutex};
 
     let hc_buf = hostcall::HostcallBuffer::new(4)?;
-    let dev_ptr = hc_buf.dev_ptr;
-    let sb_dev_ptr = hc_buf.sideband_dev_ptr;
+    let dev_ptr = hc_buf.dev_ptr();
+    let sb_dev_ptr = hc_buf.sideband_dev_ptr();
 
     println!(
         "  Hostcall buffer: {} bytes, {} packets",
-        hc_buf.size, hc_buf.num_packets
+        hc_buf.size(),
+        hc_buf.num_packets()
     );
-    println!("  Sideband buffer: {} bytes", hc_buf.sideband_size);
+    println!("  Sideband buffer: {} bytes", hc_buf.sideband_size());
 
     let (result_host_ptr, result_dev_ptr) = unsafe { alloc_mapped_result_array(&dev, 1)? };
 

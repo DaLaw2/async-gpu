@@ -1,11 +1,11 @@
 ## Current Focus
-**Cycle 643 — docs-overhaul (CRITICAL) progressing, perf-transparent epic COMPLETED** (2026-06-06). README rewritten (631 lines, 29 features), ARCHITECTURE.md rewritten (396 lines, 15 crates), example audit done (5 features missing examples). Next: README crate map/limitations (docs-readme.3), CHANGELOG.md (docs-refresh.3), example creation (docs-examples.2-3).
+**Cycle 643 — docs-overhaul COMPLETED, perf-transparent epic COMPLETED** (2026-06-06). All critical/high priority work cleared. User requested stop after docs story completion.
 
 ## Recent Decisions
-- 2026-06-06: perf-transparent epic verified PASS — all 4 criteria met, epic COMPLETED
-- 2026-06-06: conv-direct-opt parked per user (30% cuDNN too hard), conv-perf story #64 closed
-- 2026-06-06: README rewritten with 29-row feature matrix, 6 progressive examples, 3 factual fixes
-- 2026-06-06: ARCHITECTURE.md rewritten covering all 15 crates + compilation pipeline + subsystems
+- 2026-06-06: docs-overhaul story #65 completed — README, ARCHITECTURE.md, CHANGELOG.md, getting-started.md all rewritten; 6 new examples; stale docs removed; docs/ re-tracked
+- 2026-06-06: perf-transparent epic completed — all 4 criteria verified PASS
+- 2026-06-06: conv-direct-opt parked per user (30% cuDNN too hard for direct conv)
+- 2026-06-06: conv-perf story #64 closed (54.8% peak Winograd, 2.3x YOLO e2e)
 
 ## Tried & Rejected
 - MIR-only register estimation: >3x error margin vs physical registers
@@ -14,16 +14,16 @@
 
 ## Active Constraints
 - GTX 1660 (sm_75): 192 GB/s, 5 TFLOPS FP32, 48KB smem, 64K regs
-- docs-overhaul is CRITICAL priority — blocks all medium/low work
-- docs/ directory still gitignored — docs-cleanup.1 will fix
+- All remaining stories are hard scope: MIR analysis, Winograd math, formal methods, std expansion
 
 ## Key Metrics
-- 64 stories completed (8 this session)
-- 821 tasks completed (4 this cycle: docs-readme.2, docs-refresh.2, docs-examples.1, docs-readme.1)
-- Epic progress: lang-complete 2/5, invisible-exec 1/4, **perf-transparent COMPLETED**, codebase-health active
+- 65 stories completed (9 this session: #57-65)
+- 827 tasks completed (10 this cycle)
+- Epic progress: lang-complete 2/5, invisible-exec 1/4, **perf-transparent COMPLETED**, codebase-health active (evergreen)
 
-## Next (immediate)
-- docs-readme.3: README crate map, limitations, architecture sections
-- docs-refresh.3: CHANGELOG.md + getting-started.md rewrite
-- docs-examples.2: create examples for transparent-data, dyn-dispatch, auto-tuning
-- docs-examples.3: create examples for auto-fusion, par_iter, gpu_test
+## Next (user decides)
+- conv-perf: conv-direct-opt still parked (30% cuDNN for non-3x3)
+- auto-parallel (low): MIR loop purity analysis — deep compiler work
+- std-completeness (low): mpsc, RwLock, TcpListener on GPU
+- formal-verification (low): TLA+ for MIR pass
+- whole-program-partition (medium): compiler decides CPU vs GPU per function

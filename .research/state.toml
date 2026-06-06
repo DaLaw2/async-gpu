@@ -235,7 +235,8 @@ success_criteria = [
 id = "docs-overhaul"
 epic = "codebase-health"
 title = "Documentation Overhaul — README, docs, and examples reflect all 62+ shipped stories"
-status = "active"
+seq = 65
+status = "completed"
 priority = "critical"
 success_criteria = [
     "README hero/feature-matrix/performance covers all breakthroughs: transparent data, auto-fusion, graph compiler, dyn dispatch, auto-tuning, par_iter, gpu_test, persistent kernel, coroutines, generics, type safety, cost model",

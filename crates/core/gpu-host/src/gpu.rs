@@ -963,12 +963,42 @@ impl GpuContext {
             .sideband_dev_ptr()
     }
 
+    /// Bind a [`GpuArray`](crate::gpu_array::GpuArray) as a kernel input argument.
+    ///
+    /// Calls [`ensure_device()`](crate::gpu_array::GpuArray::ensure_device) to
+    /// lazily upload host data to the device (if needed), and returns the device
+    /// pointer as a `u64` suitable for passing to [`launch()`](Self::launch).
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use gpu_host::{gpu, GpuArray};
+    ///
+    /// let data = GpuArray::from_vec(vec![1.0f32, 2.0, 3.0, 4.0]);
+    /// let ctx = gpu::custom("my_kernel")
+    ///     .ptx("...")
+    ///     .threads(256)
+    ///     .prepare()
+    ///     .unwrap();
+    /// let input_ptr = ctx.bind_gpu_array(&data).unwrap();
+    /// // Pass input_ptr as a u64 kernel argument
+    /// ```
+    pub fn bind_gpu_array(&self, arr: &dyn crate::gpu_array::AsDevicePtr) -> Result<u64> {
+        arr.ensure_device(&self.dev)
+    }
+
     /// Download device memory to host.
     ///
     /// Can be called before launch (e.g., to verify uploaded data).
     /// For post-launch downloads, use [`GpuResult::download()`].
     pub fn download<T: DeviceRepr + Unpin + Clone>(&self, buf: &CudaSlice<T>) -> Result<Vec<T>> {
         self.dev.dtoh_sync_copy(buf).map_err(GpuHostError::Cudarc)
+    }
+
+    /// Get the underlying CUDA device for advanced operations (e.g.,
+    /// [`GpuArray::ensure_device()`](crate::gpu_array::GpuArray::ensure_device)).
+    pub fn device(&self) -> &std::sync::Arc<CudaDevice> {
+        &self.dev
     }
 
     /// Launch the kernel with the given argument tuple, synchronize,

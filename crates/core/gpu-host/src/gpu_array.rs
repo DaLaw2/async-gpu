@@ -679,4 +679,336 @@ mod tests {
         dyn_ref.mark_device_dirty();
         assert_eq!(arr.residency(), Residency::DeviceOnly);
     }
+
+    // ── GpuArray + gpu::custom() integration tests ────────────────
+    //
+    // These tests use a minimal inline PTX kernel (f(x) = x * 2.0 + 1.0)
+    // that JIT-compiles in milliseconds, avoiding the 10+ minute full
+    // kernel PTX compilation.
+
+    /// Minimal PTX for a map kernel: f(x) = x * 2.0 + 1.0
+    ///
+    /// Kernel signature: `fn(input: *const f32, output: *mut f32, n: u32)`
+    /// Grid-stride loop for multi-block correctness.
+    const MAP_KERNEL_PTX: &str = "\
+.version 7.8\n\
+.target sm_75\n\
+.address_size 64\n\
+\n\
+.visible .entry gpu_array_map_f32(\n\
+    .param .u64 input,\n\
+    .param .u64 output,\n\
+    .param .u32 n\n\
+)\n\
+{\n\
+    .reg .u32  %r<10>;\n\
+    .reg .u64  %rd<6>;\n\
+    .reg .f32  %f<3>;\n\
+    .reg .pred %p;\n\
+\n\
+    ld.param.u64    %rd0, [input];\n\
+    ld.param.u64    %rd1, [output];\n\
+    ld.param.u32    %r0,  [n];\n\
+\n\
+    mov.u32         %r1,  %tid.x;\n\
+    mov.u32         %r2,  %ntid.x;\n\
+    mov.u32         %r3,  %ctaid.x;\n\
+    mov.u32         %r4,  %nctaid.x;\n\
+\n\
+    mad.lo.u32      %r5,  %r3, %r2, %r1;\n\
+    mul.lo.u32      %r6,  %r4, %r2;\n\
+\n\
+LOOP:\n\
+    setp.ge.u32     %p, %r5, %r0;\n\
+    @%p bra         DONE;\n\
+\n\
+    mul.wide.u32    %rd2, %r5, 4;\n\
+    add.u64         %rd3, %rd0, %rd2;\n\
+    ld.global.f32   %f0,  [%rd3];\n\
+\n\
+    fma.rn.f32      %f1,  %f0, 0f40000000, 0f3F800000;\n\
+\n\
+    add.u64         %rd4, %rd1, %rd2;\n\
+    st.global.f32   [%rd4], %f1;\n\
+\n\
+    add.u32         %r5, %r5, %r6;\n\
+    bra             LOOP;\n\
+\n\
+DONE:\n\
+    ret;\n\
+}\n\
+";
+
+    /// End-to-end: GpuArray<f32> with gpu::custom() — auto H2D, kernel, auto D2H.
+    ///
+    /// This is the core story criterion test: a program that uses only
+    /// GpuArray<f32> with zero explicit cudaMemcpy, zero GpuVec, zero CudaSlice.
+    #[test]
+    fn gpu_array_custom_launch_small() {
+        let n: usize = 1024;
+        let input_data: Vec<f32> = (0..n).map(|i| i as f32 * 0.5).collect();
+
+        // Create GpuArrays — just normal Rust data, no GPU concepts visible
+        let input = GpuArray::from_vec(input_data.clone());
+        let output = GpuArray::<f32>::zeroed(n);
+
+        // Prepare kernel
+        let ctx = crate::gpu::custom("gpu_array_map_f32")
+            .ptx(MAP_KERNEL_PTX)
+            .threads(256)
+            .elements(n as u32)
+            .prepare()
+            .expect("prepare");
+
+        // Bind GpuArrays — auto H2D transfer
+        let input_ptr = ctx.bind_gpu_array(&input).expect("bind input");
+        let output_ptr = ctx.bind_gpu_array(&output).expect("bind output");
+
+        assert_eq!(input.residency(), Residency::Synced);
+        assert_eq!(output.residency(), Residency::Synced);
+        assert_ne!(input_ptr, 0);
+        assert_ne!(output_ptr, 0);
+
+        // Launch kernel with raw u64 pointers
+        let _result = unsafe {
+            ctx.launch((input_ptr, output_ptr, n as u32))
+                .expect("launch")
+        };
+
+        // Mark output as device-dirty (kernel wrote to it)
+        output.mark_device_dirty();
+        assert_eq!(output.residency(), Residency::DeviceOnly);
+
+        // Read results — Deref triggers auto D2H sync
+        let results: &[f32] = &output;
+        assert_eq!(output.residency(), Residency::Synced);
+
+        for i in 0..n {
+            let expected = input_data[i] * 2.0 + 1.0;
+            assert!(
+                (results[i] - expected).abs() < 1e-5,
+                "mismatch at index {i}: got {}, expected {expected}",
+                results[i]
+            );
+        }
+    }
+
+    /// GpuArray + gpu::custom() with large data (above 64 KiB threshold).
+    ///
+    /// Uses the CudaSlice backend (not MappedBuffer) for device storage.
+    /// Verifies that the auto-transfer works correctly for both backends.
+    #[test]
+    fn gpu_array_custom_launch_large() {
+        let n: usize = 32768; // 128 KiB of f32, above 64 KiB threshold
+        let input_data: Vec<f32> = (0..n).map(|i| i as f32 * 0.001).collect();
+
+        let input = GpuArray::from_vec(input_data.clone());
+        let output = GpuArray::<f32>::zeroed(n);
+
+        // Verify large arrays use DeviceMem backend
+        assert!(!input.should_use_mapped());
+        assert!(!output.should_use_mapped());
+
+        let ctx = crate::gpu::custom("gpu_array_map_f32")
+            .ptx(MAP_KERNEL_PTX)
+            .threads(256)
+            .elements(n as u32)
+            .prepare()
+            .expect("prepare");
+
+        let input_ptr = ctx.bind_gpu_array(&input).expect("bind input");
+        let output_ptr = ctx.bind_gpu_array(&output).expect("bind output");
+
+        let _result = unsafe {
+            ctx.launch((input_ptr, output_ptr, n as u32))
+                .expect("launch")
+        };
+
+        output.mark_device_dirty();
+
+        // Deref triggers D2H — for large arrays, this is a real cudaMemcpy
+        let results: &[f32] = &output;
+        for i in (0..n).step_by(1000) {
+            let expected = input_data[i] * 2.0 + 1.0;
+            assert!(
+                (results[i] - expected).abs() < 1e-3,
+                "mismatch at index {i}: got {}, expected {expected}",
+                results[i]
+            );
+        }
+    }
+
+    /// Full transparent lifecycle: modify -> re-upload -> kernel -> read back.
+    ///
+    /// Tests the HostDirty -> Synced -> DeviceOnly -> Synced state transitions
+    /// through the gpu::custom() builder API.
+    #[test]
+    fn gpu_array_modify_reupload_cycle() {
+        let n: usize = 256;
+
+        let mut input = GpuArray::from_vec(vec![1.0f32; n]);
+        let output = GpuArray::<f32>::zeroed(n);
+
+        // First pass: all 1.0 -> kernel -> f(1.0) = 1.0 * 2.0 + 1.0 = 3.0
+        {
+            let ctx = crate::gpu::custom("gpu_array_map_f32")
+                .ptx(MAP_KERNEL_PTX)
+                .threads(256)
+                .elements(n as u32)
+                .prepare()
+                .expect("prepare");
+
+            let in_ptr = ctx.bind_gpu_array(&input).expect("bind");
+            let out_ptr = ctx.bind_gpu_array(&output).expect("bind");
+
+            let _result = unsafe { ctx.launch((in_ptr, out_ptr, n as u32)).expect("launch") };
+            output.mark_device_dirty();
+
+            let results: &[f32] = &output;
+            assert!(
+                (results[0] - 3.0).abs() < 1e-5,
+                "expected 3.0, got {}",
+                results[0]
+            );
+        }
+
+        // Modify input on host: all 1.0 -> all 10.0
+        input[0] = 10.0;
+        assert_eq!(input.residency(), Residency::HostDirty);
+
+        // Second pass: 10.0 -> kernel -> f(10.0) = 10.0 * 2.0 + 1.0 = 21.0
+        {
+            let ctx = crate::gpu::custom("gpu_array_map_f32")
+                .ptx(MAP_KERNEL_PTX)
+                .threads(256)
+                .elements(n as u32)
+                .prepare()
+                .expect("prepare");
+
+            // bind_gpu_array triggers re-upload of HostDirty data
+            let in_ptr = ctx.bind_gpu_array(&input).expect("re-bind");
+            assert_eq!(input.residency(), Residency::Synced);
+
+            let out_ptr = ctx.bind_gpu_array(&output).expect("bind");
+
+            let _result = unsafe { ctx.launch((in_ptr, out_ptr, n as u32)).expect("launch") };
+            output.mark_device_dirty();
+
+            let results: &[f32] = &output;
+            assert!(
+                (results[0] - 21.0).abs() < 1e-5,
+                "expected 21.0, got {}",
+                results[0]
+            );
+            // Other elements still 1.0 -> f(1.0) = 3.0
+            assert!(
+                (results[1] - 3.0).abs() < 1e-5,
+                "expected 3.0, got {}",
+                results[1]
+            );
+        }
+    }
+
+    /// Transparent demo: uses only GpuArray<f32> — zero explicit cudaMemcpy,
+    /// zero GpuVec, zero CudaSlice in user code.
+    ///
+    /// This is the story criterion demo: "a program that uses only Vec<f32>
+    /// and runs compute on GPU transparently."
+    #[test]
+    fn gpu_array_transparent_demo() {
+        // Step 1: User writes normal Rust code — just Vec<f32>
+        let data = vec![1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+        let n = data.len();
+
+        // Step 2: Wrap in GpuArray (the only "GPU" concept)
+        let input = GpuArray::from_vec(data);
+        let result = GpuArray::<f32>::zeroed(n);
+
+        // Step 3: Launch kernel — auto H2D transfers
+        let ctx = crate::gpu::custom("gpu_array_map_f32")
+            .ptx(MAP_KERNEL_PTX)
+            .threads(256)
+            .elements(n as u32)
+            .prepare()
+            .expect("prepare");
+
+        let in_ptr = ctx.bind_gpu_array(&input).expect("bind input");
+        let out_ptr = ctx.bind_gpu_array(&result).expect("bind output");
+
+        let _res = unsafe { ctx.launch((in_ptr, out_ptr, n as u32)).expect("launch") };
+        result.mark_device_dirty();
+
+        // Step 4: Read results — auto D2H sync, Deref makes it feel like a slice
+        assert_eq!(result[0], 1.0 * 2.0 + 1.0); // 3.0
+        assert_eq!(result[1], 2.0 * 2.0 + 1.0); // 5.0
+        assert_eq!(result[7], 8.0 * 2.0 + 1.0); // 17.0
+
+        // The user never wrote: cudaMemcpy, htod, dtoh, CudaSlice, or GpuVec
+    }
+
+    /// Test bind_gpu_array via the AsDevicePtr trait (dynamic dispatch).
+    #[test]
+    fn gpu_array_bind_via_trait() {
+        let n: usize = 64;
+        let input = GpuArray::from_vec(vec![5.0f32; n]);
+        let output = GpuArray::<f32>::zeroed(n);
+
+        let ctx = crate::gpu::custom("gpu_array_map_f32")
+            .ptx(MAP_KERNEL_PTX)
+            .threads(256)
+            .elements(n as u32)
+            .prepare()
+            .expect("prepare");
+
+        // Use AsDevicePtr trait references
+        let input_ref: &dyn AsDevicePtr = &input;
+        let output_ref: &dyn AsDevicePtr = &output;
+
+        let in_ptr = ctx.bind_gpu_array(input_ref).expect("bind input");
+        let out_ptr = ctx.bind_gpu_array(output_ref).expect("bind output");
+
+        let _result = unsafe { ctx.launch((in_ptr, out_ptr, n as u32)).expect("launch") };
+
+        output_ref.mark_device_dirty();
+
+        // f(5.0) = 5.0 * 2.0 + 1.0 = 11.0
+        let results: &[f32] = &output;
+        assert!(
+            (results[0] - 11.0).abs() < 1e-5,
+            "expected 11.0, got {}",
+            results[0]
+        );
+    }
+
+    /// Test try_sync_to_host after a real kernel launch.
+    ///
+    /// Verifies that the fallible sync path works after actual GPU writes.
+    #[test]
+    fn gpu_array_try_sync_after_kernel() {
+        let n: usize = 128;
+        let input = GpuArray::from_vec(vec![3.0f32; n]);
+        let output = GpuArray::<f32>::zeroed(n);
+
+        let ctx = crate::gpu::custom("gpu_array_map_f32")
+            .ptx(MAP_KERNEL_PTX)
+            .threads(256)
+            .elements(n as u32)
+            .prepare()
+            .expect("prepare");
+
+        let in_ptr = ctx.bind_gpu_array(&input).expect("bind");
+        let out_ptr = ctx.bind_gpu_array(&output).expect("bind");
+
+        let _result = unsafe { ctx.launch((in_ptr, out_ptr, n as u32)).expect("launch") };
+        output.mark_device_dirty();
+
+        // Use try_sync_to_host instead of Deref
+        let results = output.try_sync_to_host().expect("try_sync");
+        assert_eq!(output.residency(), Residency::Synced);
+
+        // f(3.0) = 3.0 * 2.0 + 1.0 = 7.0
+        for &val in results.iter() {
+            assert!((val - 7.0).abs() < 1e-5, "expected 7.0, got {val}",);
+        }
+    }
 }

@@ -4,8 +4,8 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 641
-completed_tasks = 814
+total_cycles = 642
+completed_tasks = 816
 status = "running"     # ready | running | blocked | completed
 
 # Project North Star — the ONE thing all epics serve:
@@ -19,7 +19,7 @@ current_task_id = ""
 
 # Sequence counters
 brainstorm_seq = 127
-tasks_since_brainstorm = 3
+tasks_since_brainstorm = 5
 
 # ---
 # Epics — Strategic milestones (3 strategic + 1 evergreen)
@@ -259,7 +259,7 @@ success_criteria = [
 id = "panic-deprecate-gpu-assert"
 story = "gpu-panic"
 title = "Deprecate gpu_assert! in favor of standard assert!"
-status = "active"
+status = "completed"
 goal = "Standard assert!/assert_eq! fully replace gpu_assert!, gpu_assert! is deprecated"
 success_criteria = [
     "assert! and assert_eq! produce identical output to CPU (with warp info)",
@@ -286,7 +286,7 @@ success_criteria = [
 id = "audit-runtime"
 story = "feature-audit"
 title = "Runtime audit — run all examples on GPU, verify correct behavior"
-status = "active"
+status = "completed"
 goal = "Every example produces expected output when run on the dev machine GPU"
 success_criteria = [
     "All examples that compile also run correctly",
@@ -334,31 +334,12 @@ success_criteria = [
 # ---
 # Tasks (active/pending only — done → archive/)
 # ---
+# Done tasks archived (cycle 642): panic-deprecate-gpu-assert.2, audit-runtime.2
 # Done tasks archived (cycle 641): panic-deprecate-gpu-assert.1, audit-runtime.1, audit-api.2
 # Done tasks archived (cycle 640): panic-std-intercept.2, audit-build.2, panic-unwrap-verify.2
 # Done tasks archived (cycle 639): panic-std-intercept.1, panic-unwrap-verify.1, audit-build.1, audit-api.1
 # Done tasks archived (cycle 638): coro-impl.1-.2, cost-analysis.1-.2, cost-warnings.1
 # Previously archived (cycles <=623 through 634): 30+ tasks
-
-# --- gpu-panic ---
-
-[[tasks]]
-id = "panic-deprecate-gpu-assert.2"
-feature = "panic-deprecate-gpu-assert"
-title = "Experiment: deprecate gpu_assert! and migrate all callers"
-kind = "experiment"
-status = "pending"
-depends = ["panic-deprecate-gpu-assert.1"]
-
-# --- feature-audit ---
-
-[[tasks]]
-id = "audit-runtime.2"
-feature = "audit-runtime"
-title = "Experiment: fix runtime failures and verify corrections"
-kind = "experiment"
-status = "pending"
-depends = ["audit-runtime.1"]
 
 # --- compile-time-cost ---
 

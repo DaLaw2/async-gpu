@@ -744,10 +744,6 @@ impl HostcallBuffer {
                                     self.handle_trace(pkt);
                                     control.store(CONTROL_READY, Ordering::Release);
                                 }
-                                SERVICE_ASSERT => {
-                                    self.handle_assert(pkt);
-                                    control.store(CONTROL_READY, Ordering::Release);
-                                }
                                 SERVICE_BULK_PRINT => {
                                     self.handle_bulk_print(pkt, &mut on_print);
                                     control.store(CONTROL_READY, Ordering::Release);
@@ -1203,38 +1199,6 @@ impl HostcallBuffer {
         eprintln!("{color}[GPU {level_str}]\x1b[0m B{block_idx}.T{thread_idx} @{timestamp}: {msg}");
 
         false
-    }
-
-    /// Handle SERVICE_ASSERT: receive and display a GPU assertion failure.
-    ///
-    /// Request payload (lane 0):
-    ///   Slot 0: metadata (threadIdx:16 | blockIdx:16 | msg_len:16 — same as PANIC format)
-    ///   Slots 1-7: assertion message bytes (up to 56 bytes)
-    /// Response: CONTROL_READY (GPU will trap after receiving response)
-    unsafe fn handle_assert(&self, pkt: *mut u8) -> bool {
-        // SAFETY: Same as handle_open — payload slot reads within packet bounds.
-        let payload = pkt.add(PKT_OFF_PAYLOAD);
-
-        // Decode metadata — uses same format as PANIC
-        let meta = std::ptr::read_volatile(payload as *const u64);
-        let thread_idx = panic_thread_idx(meta);
-        let block_idx = panic_block_idx(meta);
-        let msg_len = panic_msg_len(meta) as usize;
-        let msg_len = msg_len.min(ASSERT_MAX_MSG_LEN);
-
-        // Read message bytes from slots 1-7
-        let msg_ptr = payload.add(8);
-        let mut msg_buf = [0u8; ASSERT_MAX_MSG_LEN];
-        for i in 0..msg_len {
-            msg_buf[i] = std::ptr::read_volatile(msg_ptr.add(i));
-        }
-
-        let msg = std::str::from_utf8(&msg_buf[..msg_len]).unwrap_or("<invalid UTF-8>");
-        eprintln!(
-            "\x1b[1;31m[GPU ASSERT FAILED]\x1b[0m block={block_idx} thread={thread_idx}: {msg}"
-        );
-
-        false // GPU will trap after receiving response
     }
 
     /// Handle SERVICE_CLOSE: close an open file.

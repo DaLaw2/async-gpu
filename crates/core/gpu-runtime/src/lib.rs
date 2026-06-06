@@ -393,63 +393,6 @@ macro_rules! _gpu_trace_impl {
     }};
 }
 
-/// Assert a condition on GPU, sending diagnostic info to host before trapping.
-///
-/// Usage:
-/// ```rust,ignore
-/// gpu_assert!(buf, x > 0, "x must be positive, got {}", x);
-/// gpu_assert!(buf, ptr != core::ptr::null(), "null pointer");
-/// ```
-///
-/// When `gpu-trace` feature is enabled: sends diagnostic message (with
-/// thread/block coordinates) to host via SERVICE_ASSERT, then traps.
-/// When disabled: traps without sending diagnostics (still catches the bug).
-#[cfg(feature = "gpu-trace")]
-#[macro_export]
-macro_rules! gpu_assert {
-    ($buf:expr, $cond:expr, $($arg:tt)*) => {
-        if !($cond) {
-            let mut tbuf = $crate::panic::PanicBuf::new();
-            {
-                use core::fmt::Write;
-                let _ = write!(tbuf, "assertion failed: {}", stringify!($cond));
-                let _ = write!(tbuf, " — ");
-                let _ = write!(tbuf, $($arg)*);
-            }
-            let msg = tbuf.as_slice();
-            unsafe {
-                $crate::hostcall::gpu_hostcall_assert($buf, msg.as_ptr(), msg.len() as u32);
-            }
-        }
-    };
-    ($buf:expr, $cond:expr) => {
-        if !($cond) {
-            let msg = concat!("assertion failed: ", stringify!($cond));
-            unsafe {
-                $crate::hostcall::gpu_hostcall_assert($buf, msg.as_ptr(), msg.len() as u32);
-            }
-        }
-    };
-}
-
-/// Minimal version of `gpu_assert!` when `gpu-trace` feature is disabled.
-/// Still checks the condition and traps, but without sending diagnostics.
-#[cfg(not(feature = "gpu-trace"))]
-#[macro_export]
-macro_rules! gpu_assert {
-    ($buf:expr, $cond:expr $(, $($arg:tt)*)?) => {
-        if !($cond) {
-            let _ = &$buf;
-            #[cfg(target_arch = "nvptx64")]
-            unsafe {
-                core::arch::asm!("trap;", options(noreturn));
-            }
-            #[cfg(not(target_arch = "nvptx64"))]
-            panic!("GPU assertion failed");
-        }
-    };
-}
-
 // -- Async / Future --
 /// Warp-level Future — SIMT-convergent async on GPU.
 ///

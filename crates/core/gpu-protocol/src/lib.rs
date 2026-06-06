@@ -761,12 +761,6 @@ pub const STDIN_MAX_READ_LEN: usize = 56;
 /// timestamp. The host can collect, sort, and filter events.
 pub const SERVICE_TRACE: u32 = 13;
 
-/// Emit a GPU assertion failure diagnostic to host (before trap).
-///
-/// Similar to `SERVICE_PANIC` but includes the assertion expression
-/// and is designed for `gpu_assert!()` macro output.
-pub const SERVICE_ASSERT: u32 = 14;
-
 /// Flush buffered print messages from sideband buffer.
 ///
 /// GPU-side code accumulates multiple print messages in a per-thread
@@ -878,23 +872,6 @@ pub const fn decode_trace_metadata(meta: u64) -> (u16, u16, u8, u8, u16) {
         trace_lane_id(meta),
     )
 }
-
-// ============================================================
-// ASSERT service payload layout (lane 0)
-// ============================================================
-//
-// Request:
-//   Slot 0: metadata (u64) — same format as PANIC
-//     - Bits 15..0:  threadIdx.x (u16)
-//     - Bits 31..16: blockIdx.x (u16)
-//     - Bits 47..32: message length (u16)
-//     - Bits 63..48: reserved
-//   Slots 1-7: assertion message bytes (up to 56 bytes, UTF-8)
-// Response:
-//   (CONTROL_READY set — GPU will trap after sending)
-
-/// Maximum assertion message length (7 slots × 8 bytes).
-pub const ASSERT_MAX_MSG_LEN: usize = 56;
 
 // ================================================================
 // Command Buffer Protocol — Host→GPU command channel

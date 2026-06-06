@@ -72,15 +72,26 @@ fn get_kernel(
     dev: &std::sync::Arc<CudaDevice>,
     kernel_name: &'static str,
 ) -> Result<cudarc::driver::CudaFunction> {
-    let ptx = cudarc::nvrtc::Ptx::from_src(crate::ptx::KERNEL);
-    let module = fresh_module_name();
-    dev.load_ptx(ptx, &module, &[kernel_name])
-        .map_err(|e| GpuHostError::Verification {
-            test: "ptx_load",
-            detail: format!("{e}"),
-        })?;
-    dev.get_func(&module, kernel_name)
-        .ok_or(GpuHostError::KernelNotFound(kernel_name))
+    // Search all PTX modules for the requested kernel function.
+    // This avoids failures when a kernel lives in KERNEL_IO or KERNEL_TEST
+    // but the caller didn't specify a PTX source (defaulting to KERNEL_COMPUTE).
+    //
+    // Pre-filter: check if the kernel name appears as a `.visible .entry`
+    // in the PTX text before JIT-compiling, to avoid slow loads of modules
+    // that definitely don't contain the kernel.
+    for m in crate::ptx::ALL {
+        if !m.ptx.contains(kernel_name) {
+            continue;
+        }
+        let ptx = cudarc::nvrtc::Ptx::from_src(m.ptx);
+        let module = fresh_module_name();
+        if dev.load_ptx(ptx, &module, &[kernel_name]).is_ok() {
+            if let Some(func) = dev.get_func(&module, kernel_name) {
+                return Ok(func);
+            }
+        }
+    }
+    Err(GpuHostError::KernelNotFound(kernel_name))
 }
 
 /// Launch a hostcall-enabled kernel (supports println!, file I/O).
@@ -789,19 +800,36 @@ impl CustomLaunchBuilder {
         }
 
         // Slow path: JIT-compile PTX via cudarc
-        let ptx_src = self.ptx_src.unwrap_or(crate::ptx::KERNEL);
-        let module = fresh_module_name();
-
-        let ptx = cudarc::nvrtc::Ptx::from_src(ptx_src);
-        dev.load_ptx(ptx, &module, &[self.kernel_name])
-            .map_err(|e| GpuHostError::Verification {
-                test: "ptx_load",
-                detail: format!("{e}"),
-            })?;
-
-        let func = dev
-            .get_func(&module, self.kernel_name)
-            .ok_or(GpuHostError::KernelNotFound(self.kernel_name))?;
+        let func = if let Some(ptx_src) = self.ptx_src {
+            // Caller specified a PTX source — use it directly.
+            let module = fresh_module_name();
+            let ptx = cudarc::nvrtc::Ptx::from_src(ptx_src);
+            dev.load_ptx(ptx, &module, &[self.kernel_name])
+                .map_err(|e| GpuHostError::Verification {
+                    test: "ptx_load",
+                    detail: format!("{e}"),
+                })?;
+            dev.get_func(&module, self.kernel_name)
+                .ok_or(GpuHostError::KernelNotFound(self.kernel_name))?
+        } else {
+            // No PTX specified — search all PTX modules for the kernel.
+            // Pre-filter by kernel name in PTX text to skip unnecessary JIT.
+            let mut found = None;
+            for m in crate::ptx::ALL {
+                if !m.ptx.contains(self.kernel_name) {
+                    continue;
+                }
+                let module = fresh_module_name();
+                let ptx = cudarc::nvrtc::Ptx::from_src(m.ptx);
+                if dev.load_ptx(ptx, &module, &[self.kernel_name]).is_ok() {
+                    if let Some(f) = dev.get_func(&module, self.kernel_name) {
+                        found = Some(f);
+                        break;
+                    }
+                }
+            }
+            found.ok_or(GpuHostError::KernelNotFound(self.kernel_name))?
+        };
 
         let session = if self.hostcall {
             Some(HostcallSession::start(self.hostcall_packets)?)

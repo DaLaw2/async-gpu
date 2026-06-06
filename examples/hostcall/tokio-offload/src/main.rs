@@ -4,12 +4,12 @@
 //! runtime without blocking the async executor. Events from the GPU (print
 //! messages) are received asynchronously via `next_event().await`.
 //!
-//! This example uses the embedded kernel PTX from `gpu_host::ptx::KERNEL`,
+//! This example uses the embedded kernel PTX from `gpu_host::ptx::KERNEL_IO`,
 //! which includes `hostcall_print_hello` — a kernel that prints via hostcall.
 
-use async_gpu::{AsyncGpuRuntime, GpuTask, HostcallEvent};
-use async_gpu::MappedBuffer;
 use async_gpu::GpuRuntime;
+use async_gpu::MappedBuffer;
+use async_gpu::{AsyncGpuRuntime, GpuTask, HostcallEvent};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -21,7 +21,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Load PTX module (synchronous — fast, no GPU work queued)
     rt.load_ptx(
-        async_gpu::ptx::KERNEL,
+        async_gpu::ptx::KERNEL_IO,
         "kernel",
         &["hostcall_print_hello"],
     )?;
@@ -56,12 +56,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("[host] Draining GPU events...");
     let mut event_count = 0;
     loop {
-        match tokio::time::timeout(
-            std::time::Duration::from_millis(50),
-            task.next_event(),
-        )
-        .await
-        {
+        match tokio::time::timeout(std::time::Duration::from_millis(50), task.next_event()).await {
             Ok(Some(HostcallEvent::Print(msg))) => {
                 let s = String::from_utf8_lossy(&msg);
                 println!("  [GPU → host] {s}");

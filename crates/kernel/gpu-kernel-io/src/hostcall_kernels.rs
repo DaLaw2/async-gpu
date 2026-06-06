@@ -1276,7 +1276,7 @@ pub unsafe extern "gpu-kernel" fn trace_assert_test(buf: *mut u8, success_count:
 
     // Thread 0 asserts a true condition (should NOT trap)
     if tid == 0 {
-        gpu_runtime::gpu_assert!(buf, 1 + 1 == 2, "math works");
+        assert!(1 + 1 == 2, "math works");
     }
 
     gpu_atomics::sys_fetch_add_u32(success_count, 1);

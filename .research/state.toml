@@ -14,12 +14,12 @@ status = "running"     # ready | running | blocked | completed
 # No GPU concepts leak. VectorWare's I/O strength + async-gpu's compute strength, unified.
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
-current_step = "save"
+current_step = "gate"
 current_task_id = ""
 
 # Sequence counters
-brainstorm_seq = 123
-tasks_since_brainstorm = 8
+brainstorm_seq = 124
+tasks_since_brainstorm = 1
 
 # ============================================================
 # Epics — Tiered (T0 → T3), sorted by tier then priority
@@ -129,7 +129,7 @@ success_criteria = [
 id = "gpu-coroutines"
 title = "GPU Coroutines — generator/yield pattern on GPU warps"
 tier = 2
-status = "pending"
+status = "active"
 priority = "medium"
 success_criteria = [
     "GpuGenerator trait with yield_value() and resume()",
@@ -502,7 +502,7 @@ success_criteria = [
 id = "coro-design"
 epic = "gpu-coroutines"
 title = "Generator trait + MIR pass design"
-status = "pending"
+status = "active"
 goal = "Design GPU generator pattern building on async/await MIR pass"
 success_criteria = [
     "GpuGenerator trait with yield_value() and resume()",
@@ -514,7 +514,7 @@ success_criteria = [
 id = "coro-impl"
 epic = "gpu-coroutines"
 title = "Generator implementation + streaming pipeline"
-status = "pending"
+status = "active"
 goal = "Working generators on GPU warps"
 success_criteria = [
     "Generator compiles to PTX via extended MIR pass",
@@ -930,7 +930,7 @@ id = "coro-design.1"
 theme = "coro-design"
 title = "Investigation: map Rust generator/coroutine semantics to GPU warp state machines"
 kind = "investigation"
-status = "pending"
+status = "done"
 depends = []
 
 [[tasks]]
@@ -1093,7 +1093,7 @@ theme = "perf-conv-wino"
 title = "Experiment: implement Winograd input/filter/output transforms"
 kind = "experiment"
 status = "pending"
-depends = ["perf-conv.1"]
+depends = ["perf-conv.6"]
 
 [[tasks]]
 id = "perf-conv-wino.2"
@@ -1311,19 +1311,6 @@ epics_completed = ["gpu-test", "gpu-iterator"]
 key_insight = "gpu-iterator's MIR pass criterion was aspirational — Rust monomorphization achieves identical fusion. Amend C2, close as 52nd epic. T1 focus shifts to gpu-type-safety (DisjointSlice + WarpIndex implementation)."
 
 [[brainstorms]]
-seq = 122
-at_cycle = 625
-trigger = "3 themes completed (safety-types, safety-tiers, safety-apply) → gpu-type-safety epic closed"
-level = "standard"
-new_tasks_spawned = []
-new_themes_spawned = []
-new_epics_spawned = []
-themes_parked = []
-themes_completed = ["safety-types", "safety-tiers", "safety-apply"]
-epics_completed = ["gpu-type-safety"]
-key_insight = "gpu-generics is likely fast since monomorphization already works for library types. unified-runtime queued as first T2 (IS the North Star). hardware-intrinsics blocked by sm_75 hardware."
-
-[[brainstorms]]
 seq = 123
 at_cycle = 629
 trigger = "T1 fully cleared (4 epics: SC, type-safety, iterator, generics). T2 tier activation."
@@ -1335,3 +1322,16 @@ themes_parked = []
 themes_completed = ["gen-mono", "gen-traits", "gen-demo"]
 epics_completed = ["gpu-generics"]
 key_insight = "T1 fully cleared (54 epics). unified-runtime is THE synthesis epic — it wires BlockScope, par_iter, hostcall, DisjointSlice, and generics into one async fn that spans CPU+GPU with zero GPU concepts. First dispatch: two parallel investigations (scheduler + transfer)."
+
+[[brainstorms]]
+seq = 124
+at_cycle = 634
+trigger = "unified-runtime epic completed (3 themes, 8 tasks). T2 activation planning."
+level = "standard"
+new_tasks_spawned = []
+new_themes_spawned = []
+new_epics_spawned = []
+themes_parked = []
+themes_completed = ["unified-scheduler", "unified-transfer", "unified-demo"]
+epics_completed = ["unified-runtime"]
+key_insight = "gpu-coroutines is the natural next T2 epic — extends async/await to generator/yield with warp-cooperative execution. Stagger compile-time-cost as companion. conv-perf has broken dependency (perf-conv.1 phantom, fixed to perf-conv.6). gpu-hot-reload needs task redesign."

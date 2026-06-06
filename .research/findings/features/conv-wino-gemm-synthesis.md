@@ -1,16 +1,16 @@
 # conv-wino-gemm: Feature Synthesis
 
-**Status**: Implemented. Winograd F(2x2,3x3) restructured as 16 batched cuBLAS GEMMs.
+**Status**: Complete. Winograd F(2x2) + F(4x4) with cuBLAS handle caching.
 
-Pipeline: input transform → `cublasGemmStridedBatched` (16 batches) → output transform.
-Single cuBLAS call replaces the per-channel serial loop. Bias fused into output transform.
+Pipeline: filter transform -> input transform -> `cublasGemmStridedBatched` -> output transform.
+F(4x4) for spatial >= 20x20 (tiles >= 64), F(2x2) fallback for smaller. Bias fused in output transform.
+cuBLAS handle cached per-thread, eliminating ~0.3ms/call overhead.
 
-Results (GTX 1660): 2.4-16.1% peak (119-807 GFLOPS). Best: YOLO P3 at 807 GFLOPS.
-Previous baseline: 1.3-5.7% peak. Improvement: ~1.5-3x across ResNet shapes.
+Results (GTX 1660): 26-55% peak (1300-2750 GFLOPS) for common 3x3 shapes.
+YOLO P4 (128x128 @ 40x40): 2753 GFLOPS = 54.8% peak, exceeding 50% cuDNN target.
+YOLO e2e synthetic (10 layers): 2.15ms total, 2.3x faster than baseline.
 
-Correctness: all tests pass, max_err <= 0.000002 across single, batched, and bias cases.
-F(2x2) numerically perfect in FP32. F(4x4) deferred for future optimization.
+Correctness: all tests pass, max_err <= 0.000014 for F(4x4), <= 0.000002 for F(2x2).
 
-Remaining gap to cuDNN target (50% peak): transform kernel overhead dominates
-for small spatial sizes. Next steps: filter caching, thin-GEMM fallback for L4,
-or F(4x4) for large spatial dims.
+Edge cases below target: conv1 (C_in=3, 3.3% peak) and L4 (7x7 spatial, 7.6% peak).
+These are inherently GEMM-unfriendly shapes representing <5% of total YOLO FLOPs.

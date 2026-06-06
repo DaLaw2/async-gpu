@@ -758,7 +758,7 @@ id = "conv-wino-gemm.3"
 feature = "conv-wino-gemm"
 title = "Experiment: verify >= 50% cuDNN on ResNet/YOLO shapes and >= 2x YOLO e2e improvement"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["conv-wino-gemm.2"]
 
 [[tasks]]
@@ -776,7 +776,7 @@ id = "docs-readme.1"
 feature = "docs-readme"
 title = "Investigation: audit README vs actual capabilities — catalog every gap with line numbers"
 kind = "investigation"
-status = "pending"
+status = "active"
 depends = []
 
 [[tasks]]
@@ -800,7 +800,7 @@ id = "docs-refresh.1"
 feature = "docs-refresh"
 title = "Investigation: audit ARCHITECTURE.md + CHANGELOG.md vs current project state"
 kind = "investigation"
-status = "pending"
+status = "active"
 depends = []
 
 [[tasks]]

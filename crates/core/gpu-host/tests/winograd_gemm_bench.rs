@@ -31,6 +31,8 @@ fn bench_winograd_gemm() {
         (512, 512, 7, 7, 1, "ResNet L4"),
         (32, 32, 32, 32, 1, "CIFAR-10"),
         (64, 64, 80, 80, 1, "YOLO P3"),
+        (128, 128, 40, 40, 1, "YOLO P4"),
+        (256, 256, 20, 20, 1, "YOLO P5"),
     ];
 
     // GTX 1660: 5027 GFLOPS FP32 peak
@@ -98,6 +100,108 @@ fn bench_winograd_gemm() {
 
     println!("\nGTX 1660 theoretical peak: {peak_gflops:.0} GFLOPS FP32");
     println!("cuDNN target: ~50% peak = {:.0} GFLOPS", peak_gflops * 0.5);
+
+    // --- YOLOv8-nano synthetic e2e benchmark ---
+    // All 3x3 stride=1 convolution layers from YOLOv8-nano backbone + neck.
+    // This simulates the conv-heavy portion of inference.
+    println!("\n=== YOLOv8-nano 3x3 Conv Layers (Synthetic) ===");
+    println!(
+        "{:>5} {:>5} {:>5}x{:<5} | {:>9} {:>10}",
+        "Cin", "Cout", "H", "W", "Time(ms)", "GFLOPS"
+    );
+    println!("{}", "-".repeat(50));
+
+    let yolo_layers: Vec<(usize, usize, usize, usize, &str)> = vec![
+        // Backbone C2f blocks (3x3 bottleneck convs, stride=1)
+        (32, 32, 160, 160, "BB-P2"),
+        (64, 64, 80, 80, "BB-P3"),
+        (64, 64, 80, 80, "BB-P3b"),
+        (128, 128, 40, 40, "BB-P4"),
+        (128, 128, 40, 40, "BB-P4b"),
+        (256, 256, 20, 20, "BB-P5"),
+        // Neck upsampled concat + C2f 3x3 convs
+        (128, 128, 40, 40, "Neck-P4"),
+        (64, 64, 80, 80, "Neck-P3"),
+        // Neck downsample + C2f 3x3 convs
+        (128, 128, 40, 40, "Neck-P4d"),
+        (256, 256, 20, 20, "Neck-P5d"),
+    ];
+
+    let yolo_warmup = 3;
+    let yolo_iters = 10;
+    let mut total_yolo_ms = 0.0f64;
+    let mut total_yolo_flops = 0.0f64;
+
+    for &(c_in, c_out, h, w, label) in &yolo_layers {
+        let kh = 3;
+        let stride = 1;
+        let padding = 1;
+        let h_out = (h + 2 * padding - kh) / stride + 1;
+        let w_out = (w + 2 * padding - kh) / stride + 1;
+        let flops =
+            2.0 * c_out as f64 * h_out as f64 * w_out as f64 * c_in as f64 * kh as f64 * kh as f64;
+
+        let input_data: Vec<f32> = (0..c_in * h * w)
+            .map(|i| ((i * 17 + 31) % 1000) as f32 / 1000.0)
+            .collect();
+        let weight_data: Vec<f32> = (0..c_out * c_in * kh * kh)
+            .map(|i| ((i * 13 + 47) % 1000) as f32 / 1000.0 - 0.5)
+            .collect();
+
+        let input_tensor =
+            gpu_host::nn::tensor::GpuTensor::from_host(&input_data, &[c_in, h, w], &dev)
+                .expect("input");
+        let weight_tensor =
+            gpu_host::nn::tensor::GpuTensor::from_host(&weight_data, &[c_out, c_in, kh, kh], &dev)
+                .expect("weight");
+
+        for _ in 0..yolo_warmup {
+            let _ = gpu_host::nn::ops::conv2d(
+                &input_tensor,
+                &weight_tensor,
+                None,
+                stride,
+                padding,
+                &registry,
+            )
+            .expect("conv2d");
+            dev.synchronize().expect("sync");
+        }
+
+        let t0 = Instant::now();
+        for _ in 0..yolo_iters {
+            let _ = gpu_host::nn::ops::conv2d(
+                &input_tensor,
+                &weight_tensor,
+                None,
+                stride,
+                padding,
+                &registry,
+            )
+            .expect("conv2d");
+            dev.synchronize().expect("sync");
+        }
+        let ms = t0.elapsed().as_secs_f64() * 1000.0 / yolo_iters as f64;
+        let gflops = flops / (ms / 1000.0) / 1e9;
+        total_yolo_ms += ms;
+        total_yolo_flops += flops;
+
+        println!(
+            "{:>5} {:>5} {:>5}x{:<5} | {:>8.3} {:>10.1}  {}",
+            c_in, c_out, h, w, ms, gflops, label
+        );
+    }
+
+    let total_gflops = total_yolo_flops / (total_yolo_ms / 1000.0) / 1e9;
+    println!("{}", "-".repeat(50));
+    println!(
+        "Total 3x3 conv time: {:.2}ms, aggregate GFLOPS: {:.0}",
+        total_yolo_ms, total_gflops
+    );
+    // Previous baseline (conv-wino-gemm.2): ~0.5-0.6ms per layer = ~5-6ms total
+    // Target: >= 2x improvement = <= 2.5-3ms total
+    println!("Previous baseline estimate: ~5.0ms total (from conv-wino-gemm.2 numbers)");
+    println!("Speedup vs baseline: ~{:.1}x", 5.0 / total_yolo_ms);
 }
 
 /// Correctness test for batched Winograd with bias, through the conv2d API.

@@ -311,12 +311,13 @@ fn matmul_cublas(
     n: usize,
     dev: &Arc<cudarc::driver::CudaDevice>,
 ) -> Result<GpuTensor> {
-    use cudarc::cublas::{CudaBlas, Gemm, GemmConfig};
+    use cudarc::cublas::{Gemm, GemmConfig};
 
-    let blas = CudaBlas::new(Arc::clone(dev)).map_err(|e| NnError::ShapeMismatch {
-        expected: "cuBLAS init".to_string(),
-        actual: format!("{e:?}"),
-    })?;
+    let blas =
+        super::conv::cublas_cache::get_or_create(dev).map_err(|e| NnError::ShapeMismatch {
+            expected: "cuBLAS init".to_string(),
+            actual: format!("{e:?}"),
+        })?;
     let mut c_dev = dev.alloc_zeros::<f32>(m * n).map_err(NnError::Cuda)?;
 
     // Row-major C = A × B is equivalent to column-major C^T = B^T × A^T
@@ -358,7 +359,6 @@ pub fn matmul_v4(
     dev: &std::sync::Arc<cudarc::driver::CudaDevice>,
 ) -> Result<GpuTensor> {
     use cudarc::driver::LaunchAsync;
-    use cudarc::nvrtc::compile_ptx;
 
     static GEMM_V4_SRC: &str = r#"
 // GEMM V4: 128×128 tile, BK=8, 8×8 register blocking, float4 loads

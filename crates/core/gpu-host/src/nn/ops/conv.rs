@@ -1,5 +1,5 @@
-//! Convolution via im2col + GEMM pipeline, with Winograd F(2×2, 3×3) fast path
-//! and direct convolution kernels for 1×1, 5×5, 7×7 (and other non-3×3 sizes).
+//! Convolution via im2col + GEMM pipeline, with Winograd F(2×2, 3×3) / F(4×4, 3×3)
+//! fast paths and direct convolution kernels for 1×1, 5×5, 7×7 (and other non-3×3 sizes).
 
 use std::sync::Arc;
 
@@ -8,6 +8,39 @@ use cudarc::driver::LaunchAsync;
 use crate::nn::error::{NnError, Result};
 use crate::nn::registry::KernelRegistry;
 use crate::nn::tensor::GpuTensor;
+
+/// Thread-local cuBLAS handle cache to avoid the ~0.3ms overhead of
+/// `CudaBlas::new()` on every convolution call.
+#[cfg(feature = "cublas")]
+pub(crate) mod cublas_cache {
+    use std::cell::RefCell;
+    use std::sync::Arc;
+
+    use cudarc::cublas::CudaBlas;
+    use cudarc::driver::CudaDevice;
+
+    thread_local! {
+        static CACHED_HANDLE: RefCell<Option<Arc<CudaBlas>>> = const { RefCell::new(None) };
+    }
+
+    /// Get or create a cuBLAS handle for the given device.
+    ///
+    /// The handle is cached per-thread and reused across calls.
+    /// This saves ~0.3ms per convolution call.
+    pub fn get_or_create(
+        dev: &Arc<CudaDevice>,
+    ) -> Result<Arc<CudaBlas>, cudarc::cublas::result::CublasError> {
+        CACHED_HANDLE.with(|cell| {
+            let mut cached = cell.borrow_mut();
+            if let Some(ref handle) = *cached {
+                return Ok(Arc::clone(handle));
+            }
+            let handle = Arc::new(CudaBlas::new(Arc::clone(dev))?);
+            *cached = Some(Arc::clone(&handle));
+            Ok(handle)
+        })
+    }
+}
 
 /// 2D convolution via im2col → GEMM pipeline.
 ///
@@ -471,9 +504,7 @@ fn conv2d_batched_winograd(
 
     let dev = registry.device();
 
-    // Single-launch batched Winograd: input/output treated as contiguous
-    // [N, C_in, H, W] / [N, C_out, H_out, W_out] with batch offset in kernel.
-    let mut output = conv2d_winograd_f2x2_impl(input, weight, bias, padding, dev, batch)?;
+    let mut output = winograd_dispatch(input, weight, bias, padding, dev, batch)?;
 
     // Record on autograd tape
     if input.requires_grad() {
@@ -1382,7 +1413,264 @@ fn conv2d_winograd_f2x2(
     padding: usize,
     dev: &Arc<cudarc::driver::CudaDevice>,
 ) -> Result<GpuTensor> {
-    conv2d_winograd_f2x2_impl(input, weight, bias, padding, dev, 1)
+    winograd_dispatch(input, weight, bias, padding, dev, 1)
+}
+
+/// Dispatch Winograd variant based on spatial dimensions.
+///
+/// F(4x4) is faster for larger spatial dims (more tiles → fatter GEMM matrices).
+/// F(2x2) is better for tiny spatial dims where F(4x4) would produce too few tiles.
+///
+/// Heuristic: Use F(4x4) when the F(4x4) tile count >= 64. Below that,
+/// cuBLAS GEMM matrices are too thin and F(2x2) (which has 4x more tiles)
+/// gives better utilization.
+#[cfg(feature = "cublas")]
+fn winograd_dispatch(
+    input: &GpuTensor,
+    weight: &GpuTensor,
+    bias: Option<&GpuTensor>,
+    padding: usize,
+    dev: &Arc<cudarc::driver::CudaDevice>,
+    batch_size: usize,
+) -> Result<GpuTensor> {
+    let (h, w) = if batch_size > 1 {
+        (input.shape()[2], input.shape()[3])
+    } else {
+        (input.shape()[1], input.shape()[2])
+    };
+    let h_out = h + 2 * padding - 2;
+    let w_out = w + 2 * padding - 2;
+
+    // F(4x4) tile count
+    let n_tile_y_f4 = h_out.div_ceil(4);
+    let n_tile_x_f4 = w_out.div_ceil(4);
+    let total_tiles_f4 = n_tile_x_f4 * n_tile_y_f4 * batch_size;
+
+    // Use F(4x4) when tiles >= 64 (enough for cuBLAS efficiency)
+    if h_out >= 4 && w_out >= 4 && total_tiles_f4 >= 64 {
+        conv2d_winograd_f4x4_impl(input, weight, bias, padding, dev, batch_size)
+    } else {
+        conv2d_winograd_f2x2_impl(input, weight, bias, padding, dev, batch_size)
+    }
+}
+
+/// Winograd F(4×4, 3×3) convolution via batched cuBLAS GEMM.
+///
+/// Four-phase pipeline using 6×6 input tiles producing 4×4 output tiles:
+/// 1. Filter transform: `G·g·Gᵀ` → `U[36, C_out, C_in]`
+/// 2. Input transform: `Bᵀ·d·B` → `V[36, C_in, n_tiles]`
+/// 3. 36× strided batched GEMM: `M[k] = U[k] × V[k]` via cuBLAS
+/// 4. Output transform: `Aᵀ·M·A` → spatial output (fuses bias)
+///
+/// Compared to F(2×2), tile count is 4× smaller (each tile covers 4×4 output
+/// instead of 2×2), making the GEMM matrices wider and more efficient.
+/// The tradeoff is 36 batched GEMMs instead of 16, but each matrix has 4× more
+/// columns, giving cuBLAS much better utilization.
+///
+/// Supports both single-sample and batched modes:
+/// - `batch_size=1`: input `[C_in, H, W]` → output `[C_out, H_out, W_out]`
+/// - `batch_size=N`: input `[N, C_in, H, W]` → output `[N, C_out, H_out, W_out]`
+#[cfg(feature = "cublas")]
+fn conv2d_winograd_f4x4_impl(
+    input: &GpuTensor,
+    weight: &GpuTensor,
+    bias: Option<&GpuTensor>,
+    padding: usize,
+    dev: &Arc<cudarc::driver::CudaDevice>,
+    batch_size: usize,
+) -> Result<GpuTensor> {
+    use cudarc::cublas::{Gemm, GemmConfig, StridedBatchedConfig};
+    use cudarc::driver::LaunchAsync;
+    use cudarc::nvrtc::compile_ptx_with_opts;
+
+    let (c_in, h, w) = if batch_size > 1 {
+        (input.shape()[1], input.shape()[2], input.shape()[3])
+    } else {
+        (input.shape()[0], input.shape()[1], input.shape()[2])
+    };
+    let c_out = weight.shape()[0];
+
+    let h_out = h + 2 * padding - 2; // stride=1, kh=3
+    let w_out = w + 2 * padding - 2;
+
+    // Number of 4×4 output tiles covering the output (per sample)
+    let n_tile_y = h_out.div_ceil(4);
+    let n_tile_x = w_out.div_ceil(4);
+    let n_tiles_per_sample = n_tile_x * n_tile_y;
+    let total_tiles = n_tiles_per_sample * batch_size;
+
+    // --- Compile F(4x4) transform kernels ---
+    static WINOGRAD_F4X4_SRC: &str = include_str!("winograd_gemm_f4x4.cu");
+
+    if dev
+        .get_func("winograd_gemm_f4x4", "winograd_filter_transform_f4x4")
+        .is_none()
+    {
+        let opts = cudarc::nvrtc::CompileOptions {
+            arch: Some("sm_75"),
+            use_fast_math: Some(true),
+            ..Default::default()
+        };
+        let ptx = compile_ptx_with_opts(WINOGRAD_F4X4_SRC, opts)
+            .expect("NVRTC winograd_gemm_f4x4 compile failed");
+        dev.load_ptx(
+            ptx,
+            "winograd_gemm_f4x4",
+            &[
+                "winograd_filter_transform_f4x4",
+                "winograd_input_transform_f4x4",
+                "winograd_output_transform_f4x4",
+            ],
+        )
+        .expect("winograd_gemm_f4x4 PTX load failed");
+    }
+
+    // === Phase 1: Filter transform ===
+    // weight[C_out, C_in, 3, 3] → U[36, C_out, C_in]
+    let filter_plane = c_out * c_in;
+    let mut u_dev = dev.alloc_zeros::<f32>(36 * filter_plane)?;
+
+    let ft_func = dev
+        .get_func("winograd_gemm_f4x4", "winograd_filter_transform_f4x4")
+        .ok_or(NnError::KernelNotFound {
+            name: "winograd_filter_transform_f4x4",
+        })?;
+    let ft_config = cudarc::driver::LaunchConfig {
+        grid_dim: ((filter_plane as u32).div_ceil(256), 1, 1),
+        block_dim: (256, 1, 1),
+        shared_mem_bytes: 0,
+    };
+    unsafe {
+        ft_func
+            .launch(
+                ft_config,
+                (weight.data(), &mut u_dev, c_out as u32, c_in as u32),
+            )
+            .map_err(NnError::Cuda)?;
+    }
+
+    // === Phase 2: Input transform ===
+    // input → V[36, C_in, total_tiles]
+    let mut v_dev = dev.alloc_zeros::<f32>(36 * c_in * total_tiles)?;
+
+    let it_func = dev
+        .get_func("winograd_gemm_f4x4", "winograd_input_transform_f4x4")
+        .ok_or(NnError::KernelNotFound {
+            name: "winograd_input_transform_f4x4",
+        })?;
+    let block_size = 256u32;
+    let it_config = cudarc::driver::LaunchConfig {
+        grid_dim: ((total_tiles as u32).div_ceil(block_size), c_in as u32, 1),
+        block_dim: (block_size, 1, 1),
+        shared_mem_bytes: 0,
+    };
+    unsafe {
+        it_func
+            .launch(
+                it_config,
+                (
+                    input.data(),
+                    &mut v_dev,
+                    c_in as u32,
+                    h as u32,
+                    w as u32,
+                    n_tile_x as u32,
+                    n_tile_y as u32,
+                    n_tiles_per_sample as u32,
+                    batch_size as u32,
+                    padding as u32,
+                ),
+            )
+            .map_err(NnError::Cuda)?;
+    }
+
+    // === Phase 3: 36× strided batched GEMM ===
+    // For each k in 0..35:
+    //   M_k[C_out, total_tiles] = U_k[C_out, C_in] × V_k[C_in, total_tiles]
+    let mut m_dev = dev.alloc_zeros::<f32>(36 * c_out * total_tiles)?;
+
+    let blas = cublas_cache::get_or_create(dev).map_err(|e| NnError::ShapeMismatch {
+        expected: "cuBLAS init".to_string(),
+        actual: format!("{e:?}"),
+    })?;
+
+    let gemm_cfg = StridedBatchedConfig {
+        gemm: GemmConfig {
+            transa: cudarc::cublas::sys::cublasOperation_t::CUBLAS_OP_N,
+            transb: cudarc::cublas::sys::cublasOperation_t::CUBLAS_OP_N,
+            m: total_tiles as i32,
+            n: c_out as i32,
+            k: c_in as i32,
+            alpha: 1.0f32,
+            lda: total_tiles as i32,
+            ldb: c_in as i32,
+            beta: 0.0f32,
+            ldc: total_tiles as i32,
+        },
+        batch_size: 36,
+        stride_a: (c_in * total_tiles) as i64,
+        stride_b: (c_out * c_in) as i64,
+        stride_c: (c_out * total_tiles) as i64,
+    };
+
+    unsafe {
+        blas.gemm_strided_batched(gemm_cfg, &v_dev, &u_dev, &mut m_dev)
+            .map_err(|e| NnError::ShapeMismatch {
+                expected: "cuBLAS strided batched GEMM".to_string(),
+                actual: format!("{e:?}"),
+            })?;
+    }
+
+    // === Phase 4: Output transform ===
+    // M[36, C_out, total_tiles] → output[N, C_out, H_out, W_out]
+    let output_shape = if batch_size > 1 {
+        vec![batch_size, c_out, h_out, w_out]
+    } else {
+        vec![c_out, h_out, w_out]
+    };
+    let mut output = GpuTensor::zeros(&output_shape, dev)?;
+
+    let bias_dev;
+    let bias_ptr = if let Some(b) = bias {
+        b.data()
+    } else {
+        bias_dev = dev.alloc_zeros::<f32>(1)?;
+        &bias_dev
+    };
+    let has_bias: u32 = if bias.is_some() { 1 } else { 0 };
+
+    let ot_func = dev
+        .get_func("winograd_gemm_f4x4", "winograd_output_transform_f4x4")
+        .ok_or(NnError::KernelNotFound {
+            name: "winograd_output_transform_f4x4",
+        })?;
+    let ot_config = cudarc::driver::LaunchConfig {
+        grid_dim: ((total_tiles as u32).div_ceil(block_size), c_out as u32, 1),
+        block_dim: (block_size, 1, 1),
+        shared_mem_bytes: 0,
+    };
+    unsafe {
+        ot_func
+            .launch(
+                ot_config,
+                (
+                    &m_dev,
+                    bias_ptr,
+                    output.data_mut(),
+                    c_out as u32,
+                    h_out as u32,
+                    w_out as u32,
+                    n_tile_x as u32,
+                    n_tile_y as u32,
+                    n_tiles_per_sample as u32,
+                    batch_size as u32,
+                    has_bias,
+                ),
+            )
+            .map_err(NnError::Cuda)?;
+    }
+
+    Ok(output)
 }
 
 /// Winograd F(2×2, 3×3) convolution via batched cuBLAS GEMM.
@@ -1405,7 +1693,7 @@ fn conv2d_winograd_f2x2_impl(
     dev: &Arc<cudarc::driver::CudaDevice>,
     batch_size: usize,
 ) -> Result<GpuTensor> {
-    use cudarc::cublas::{CudaBlas, Gemm, GemmConfig, StridedBatchedConfig};
+    use cudarc::cublas::{Gemm, GemmConfig, StridedBatchedConfig};
     use cudarc::driver::LaunchAsync;
     use cudarc::nvrtc::compile_ptx_with_opts;
 
@@ -1542,7 +1830,7 @@ fn conv2d_winograd_f2x2_impl(
     // which gives us M[C_out, total_tiles] in row-major = what we want.
     let mut m_dev = dev.alloc_zeros::<f32>(16 * c_out * total_tiles)?;
 
-    let blas = CudaBlas::new(Arc::clone(dev)).map_err(|e| NnError::ShapeMismatch {
+    let blas = cublas_cache::get_or_create(dev).map_err(|e| NnError::ShapeMismatch {
         expected: "cuBLAS init".to_string(),
         actual: format!("{e:?}"),
     })?;

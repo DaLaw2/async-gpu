@@ -624,7 +624,7 @@ Other
   rustc-patches/       Custom MIR pass patches for rustc
   examples/hostcall/   10 hostcall examples | examples/std/  14 std/nn examples
   formal/              TLA+ specification and model-checking config
-  docs/                ARCHITECTURE.md, CHANGELOG.md, getting-started.md, VALIDATION.md
+  docs/                ARCHITECTURE.md, CHANGELOG.md, getting-started.md
 ```
 
 ## Documentation
@@ -632,7 +632,6 @@ Other
 - [Architecture Guide](docs/ARCHITECTURE.md) — hostcall protocol, MIR pass, runtime internals
 - [Changelog](docs/CHANGELOG.md) — version history and shipped stories
 - [Getting Started](docs/getting-started.md) — step-by-step first kernel tutorial
-- [Validation](docs/VALIDATION.md) — correctness verification methodology
 
 ## Limitations
 

@@ -4,8 +4,8 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 642
-completed_tasks = 817
+total_cycles = 643
+completed_tasks = 818
 status = "running"     # ready | running | blocked | completed
 
 # Project North Star — the ONE thing all epics serve:
@@ -14,12 +14,12 @@ status = "running"     # ready | running | blocked | completed
 # No GPU concepts leak — no kernels, no warps, no cudaMemcpy, no device pointers.
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
-current_step = "dispatch"
+current_step = "save"
 current_task_id = ""
 
 # Sequence counters
 brainstorm_seq = 134
-tasks_since_brainstorm = 0
+tasks_since_brainstorm = 1
 
 # ---
 # Epics — Strategic milestones (3 strategic + 1 evergreen)
@@ -776,7 +776,7 @@ id = "docs-readme.1"
 feature = "docs-readme"
 title = "Investigation: audit README vs actual capabilities — catalog every gap with line numbers"
 kind = "investigation"
-status = "active"
+status = "done"
 depends = []
 
 [[tasks]]
@@ -800,7 +800,7 @@ id = "docs-refresh.1"
 feature = "docs-refresh"
 title = "Investigation: audit ARCHITECTURE.md + CHANGELOG.md vs current project state"
 kind = "investigation"
-status = "active"
+status = "done"
 depends = []
 
 [[tasks]]

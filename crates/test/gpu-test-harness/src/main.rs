@@ -344,8 +344,8 @@ fn main() -> Result<()> {
                 // CPU reference matmul
                 // A[i][j] = (i * K + j + 1) as f32
                 // B[i][j] = ((i * N + j + 1) * 2) as f32
-                let mut a = vec![0.0f32; M * K];
-                let mut b = vec![0.0f32; K * N];
+                let mut a = [0.0f32; M * K];
+                let mut b = [0.0f32; K * N];
                 for i in 0..M {
                     for j in 0..K {
                         a[i * K + j] = (i * K + j + 1) as f32;
@@ -358,7 +358,7 @@ fn main() -> Result<()> {
                 }
 
                 // C = A × B (CPU reference)
-                let mut expected = vec![0.0f32; M * N];
+                let mut expected = [0.0f32; M * N];
                 for i in 0..M {
                     for j in 0..N {
                         let mut sum = 0.0f32;
@@ -1184,7 +1184,7 @@ fn run_std_thread_spawn_demo(_dev: Arc<CudaDevice>) -> Result<()> {
         gpu_host::gpu::GpuStdModule::load(KERNEL_STD_PTX, "std_thread_spawn_demo", 128, (1, 1, 1))?;
 
     let result_dev: cudarc::driver::CudaSlice<u32> = module.device().alloc_zeros::<u32>(3)?;
-    let mut result_ptr = *result_dev.device_ptr() as u64;
+    let mut result_ptr = *result_dev.device_ptr();
 
     unsafe {
         module.launch_raw(&[&mut result_ptr as *mut u64 as *mut std::ffi::c_void])?;
@@ -1223,7 +1223,7 @@ fn run_real_std_thread_spawn(_dev: Arc<CudaDevice>) -> Result<()> {
     )?;
 
     let result_dev: cudarc::driver::CudaSlice<u32> = module.device().alloc_zeros::<u32>(3)?;
-    let mut result_ptr = *result_dev.device_ptr() as u64;
+    let mut result_ptr = *result_dev.device_ptr();
 
     unsafe {
         module.launch_raw(&[&mut result_ptr as *mut u64 as *mut std::ffi::c_void])?;
@@ -1264,7 +1264,7 @@ fn run_std_thread_spawn_minimal(_dev: Arc<CudaDevice>) -> Result<()> {
     )?;
 
     let result_dev: cudarc::driver::CudaSlice<u32> = module.device().alloc_zeros::<u32>(3)?;
-    let mut result_ptr = *result_dev.device_ptr() as u64;
+    let mut result_ptr = *result_dev.device_ptr();
 
     unsafe {
         module.launch_raw(&[&mut result_ptr as *mut u64 as *mut std::ffi::c_void])?;
@@ -1332,7 +1332,7 @@ fn run_kernel_std_smoke(_dev: Arc<CudaDevice>) -> Result<()> {
             (1, 1, 1),
         )?;
         let result_dev: cudarc::driver::CudaSlice<u32> = module.device().alloc_zeros::<u32>(1)?;
-        let mut result_ptr = *result_dev.device_ptr() as u64;
+        let mut result_ptr = *result_dev.device_ptr();
 
         unsafe {
             module.launch_raw(&[&mut result_ptr as *mut u64 as *mut std::ffi::c_void])?;
@@ -1525,13 +1525,13 @@ fn run_matmul_io_compute(_dev: Arc<CudaDevice>) -> Result<()> {
     const N: usize = 6;
 
     // === Step 1: Create input matrix files ===
-    let mut a = vec![0.0f32; M * K];
+    let mut a = [0.0f32; M * K];
     for i in 0..M {
         for j in 0..K {
             a[i * K + j] = (i * K + j + 1) as f32;
         }
     }
-    let mut b = vec![0.0f32; K * N];
+    let mut b = [0.0f32; K * N];
     for i in 0..K {
         for j in 0..N {
             b[i * N + j] = ((i * N + j + 1) * 2) as f32;
@@ -1581,7 +1581,7 @@ fn run_matmul_io_compute(_dev: Arc<CudaDevice>) -> Result<()> {
 
     // === Step 4: Launch kernel with (dims, result) ===
     let mut dims_ptr = *dims_dev.device_ptr() as u64;
-    let mut result_ptr = *result_dev.device_ptr() as u64;
+    let mut result_ptr = *result_dev.device_ptr();
 
     println!(
         "  Launching matmul_io_compute ({}x{} x {}x{} -> {}x{})...",
@@ -1644,7 +1644,7 @@ fn run_matmul_io_compute(_dev: Arc<CudaDevice>) -> Result<()> {
         .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
         .collect();
 
-    let mut expected = vec![0.0f32; M * N];
+    let mut expected = [0.0f32; M * N];
     for i in 0..M {
         for j in 0..N {
             let mut sum = 0.0f32;

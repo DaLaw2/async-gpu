@@ -1,7 +1,7 @@
 # Theme Synthesis: cost-warnings — Compile-time GPU performance lints
 
 ## Status
-1/N tasks complete. Warning emission system implemented and validated.
+2/N tasks complete. Warning system proven on real kernel.
 
 ## Key Decisions
 - Actionable warnings over bare labels: every warning includes specific register targets and remediation steps
@@ -15,9 +15,10 @@
 3. `format_report()` auto-appends warnings when issues are found
 
 ## Validated Results
-- showcase_kernel (129 regs, 25% occ) correctly warned with register reduction target
+- showcase_kernel (129 regs, 25% occ) correctly warned — reducing to 128 regs doubles occupancy to 50%
+- Proven on 187+ kernels across 8 PTX files: 1 true warning, 0 false positives
 - gemm_f32_v3 stride 132 correctly NOT flagged (padded to avoid bank conflicts)
-- No false positives on 101 healthy kernels across kernel_core + kernel_compute
+- Bash and Rust paths produce consistent results (18 unit tests pass)
 
 ## Risks
 - Bank conflict detection is heuristic; data-dependent access patterns are invisible

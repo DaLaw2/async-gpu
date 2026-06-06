@@ -14,12 +14,12 @@ status = "running"     # ready | running | blocked | completed
 # No GPU concepts leak — no kernels, no warps, no cudaMemcpy, no device pointers.
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
-current_step = "route"
+current_step = "dispatch"
 current_task_id = ""
 
 # Sequence counters
-brainstorm_seq = 127
-tasks_since_brainstorm = 5
+brainstorm_seq = 128
+tasks_since_brainstorm = 0
 
 # ---
 # Epics — Strategic milestones (3 strategic + 1 evergreen)
@@ -348,7 +348,7 @@ id = "cost-warnings.2"
 feature = "cost-warnings"
 title = "Experiment: catch real perf issue in existing kernel via compile-time lint"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["cost-warnings.1"]
 
 # ---

@@ -1022,7 +1022,7 @@ fn load_multiblock_module(dev: &Arc<CudaDevice>) -> Result<()> {
 /// block_size = 256 threads, grid = ceil(n / 256) blocks.
 /// No shared memory needed for the grid-stride loop kernel.
 fn multiblock_launch_config(n: usize, block_size: u32) -> LaunchConfig {
-    let grid = ((n as u32) + block_size - 1) / block_size;
+    let grid = (n as u32).div_ceil(block_size);
     LaunchConfig {
         grid_dim: (grid, 1, 1),
         block_dim: (block_size, 1, 1),
@@ -1210,7 +1210,7 @@ pub(crate) fn run_multiblock_benchmark(dev: Arc<CudaDevice>) -> Result<()> {
             crossover_n = Some(n);
         }
 
-        let blocks = ((n as u32) + 255) / 256;
+        let blocks = (n as u32).div_ceil(256);
 
         println!(
             "  {:>4}{} | {:>9.3} {:>9.3} {:>9} {:>9.3} | {:>9.3} {:>7.2}x  ({} blks)",

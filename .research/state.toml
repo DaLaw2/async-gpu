@@ -588,7 +588,7 @@ id = "om-borrow-safety.1"
 feature = "om-borrow-safety"
 title = "Experiment: write compile_fail tests for cross-scope memory access violations"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["om-tiered-types.3"]
 
 [[tasks]]
@@ -604,7 +604,7 @@ id = "om-register-promo.1"
 feature = "om-register-promo"
 title = "Investigation: PTX diff analysis of register vs memory placement for owned vs borrowed values"
 kind = "investigation"
-status = "pending"
+status = "done"
 depends = ["om-tiered-types.3"]
 
 [[tasks]]

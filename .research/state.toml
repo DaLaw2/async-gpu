@@ -19,7 +19,7 @@ current_task_id = ""
 
 # Sequence counters
 brainstorm_seq = 124
-tasks_since_brainstorm = 2
+tasks_since_brainstorm = 4
 
 # ============================================================
 # Epics — Tiered (T0 → T3), sorted by tier then priority
@@ -81,7 +81,7 @@ success_criteria = [
 id = "compile-time-cost"
 title = "Compile-Time Cost Model — know GPU performance at compile time"
 tier = 2
-status = "pending"
+status = "active"
 priority = "medium"
 success_criteria = [
     "MIR pass estimates register usage and shared memory per kernel",
@@ -245,7 +245,7 @@ success_criteria = [
 # ============================================================
 # Completed themes archived (cycle 634): test-integration, safety-types, safety-tiers,
 # safety-apply, iter-demo, gen-mono, gen-traits, gen-demo, unified-scheduler,
-# unified-transfer, unified-demo
+# unified-transfer, unified-demo, coro-design
 # Previously archived (cycle 623): split-design, split-execute, split-loader,
 # split-devpath, test-framework, fusion-codegen, fusion-integrate
 # Previously archived: thread-spawn, thread-api, perf-elem-fix, onnx-fix,
@@ -276,18 +276,6 @@ success_criteria = [
 # --- T2: gpu-coroutines themes ---
 
 [[themes]]
-id = "coro-design"
-epic = "gpu-coroutines"
-title = "Generator trait + MIR pass design"
-status = "active"
-goal = "Design GPU generator pattern building on async/await MIR pass"
-success_criteria = [
-    "GpuGenerator trait with yield_value() and resume()",
-    "MIR pass extension for generator state machines",
-    "Warp-cooperative yield: all lanes yield together",
-]
-
-[[themes]]
 id = "coro-impl"
 epic = "gpu-coroutines"
 title = "Generator implementation + streaming pipeline"
@@ -304,7 +292,7 @@ success_criteria = [
 id = "cost-analysis"
 epic = "compile-time-cost"
 title = "MIR-level GPU resource estimation"
-status = "pending"
+status = "active"
 goal = "Estimate register usage, shared memory, occupancy at compile time"
 success_criteria = [
     "Register usage estimated from MIR live value analysis",
@@ -516,7 +504,7 @@ success_criteria = [
 # ============================================================
 # Done tasks archived (cycle 634): safety-types.2, safety-tiers.1, safety-apply.1-.2,
 # iter-demo.4-.5, gen-mono.1-.2, gen-traits.1, gen-demo.1, unified-scheduler.1-.3,
-# unified-transfer.1-.3, unified-demo.1-.2, coro-design.1
+# unified-transfer.1-.3, unified-demo.1-.2, coro-design.1-.2
 # Previously archived (cycle 623): split-design.1-.3, split-execute.1-.5,
 # split-loader.1-.5, split-devpath.1, test-framework.2, test-integration.1-.2,
 # safety-types.1, iter-demo.1-.3, fusion-codegen.3, fusion-integrate.1-.2
@@ -550,19 +538,11 @@ depends = ["reload-impl.2"]
 # --- gpu-coroutines ---
 
 [[tasks]]
-id = "coro-design.2"
-theme = "coro-design"
-title = "Design: GpuGenerator trait + MIR pass extension for yield to warp context switch"
-kind = "design"
-status = "done"
-depends = ["coro-design.1"]
-
-[[tasks]]
 id = "coro-impl.1"
 theme = "coro-impl"
 title = "Experiment: implement generator compilation to PTX + warp-cooperative yield"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["coro-design.2"]
 
 [[tasks]]
@@ -580,7 +560,7 @@ id = "cost-analysis.1"
 theme = "cost-analysis"
 title = "Investigation: estimate register + shared memory usage from MIR/PTX"
 kind = "investigation"
-status = "pending"
+status = "done"
 depends = []
 
 [[tasks]]

@@ -3980,3 +3980,11 @@ title = "Investigation: map Rust generator/coroutine semantics to GPU warp state
 kind = "investigation"
 status = "done"
 depends = []
+
+[[tasks]]
+id = "coro-design.2"
+theme = "coro-design"
+title = "Design: GpuGenerator trait + MIR pass extension for yield to warp context switch"
+kind = "design"
+status = "done"
+depends = ["coro-design.1"]

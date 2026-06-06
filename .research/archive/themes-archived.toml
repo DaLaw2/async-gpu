@@ -1532,3 +1532,15 @@ success_criteria = [
     "Demo: read → compute → write pipeline, zero explicit memory management",
     "Performance within 2x of hand-optimized MappedBuffer + gpu::launch path",
 ]
+
+[[themes]]
+id = "coro-design"
+epic = "gpu-coroutines"
+title = "Generator trait + MIR pass design"
+status = "completed"
+goal = "Design GPU generator pattern building on async/await MIR pass"
+success_criteria = [
+    "GpuGenerator trait with yield_value() and resume()",
+    "MIR pass extension for generator state machines",
+    "Warp-cooperative yield: all lanes yield together",
+]

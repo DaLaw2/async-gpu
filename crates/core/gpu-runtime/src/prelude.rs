@@ -69,6 +69,12 @@ pub use crate::stdio::{gpu_print_buffer_flush, stdio_init, stdio_print_buffer_in
 // --- Safety types ---
 pub use crate::safety::{DisjointSlice, WarpHandle, WarpIndex};
 
+// --- Generator / coroutine ---
+pub use crate::generator::{
+    for_each_yield, CounterGenerator, GeneratorTask, GpuGenerator, WarpBroadcast,
+    WarpCoroutineState,
+};
+
 // --- GPU traits for generic algorithms ---
 pub use crate::traits::{GpuReducible, GpuTransformable};
 

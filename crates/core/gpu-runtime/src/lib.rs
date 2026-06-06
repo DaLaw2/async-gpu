@@ -724,6 +724,38 @@ pub mod par_iter;
 /// ```
 pub mod stdio;
 
+/// GPU coroutine generators — warp-cooperative generator/yield pattern.
+///
+/// Provides `GpuGenerator`, a warp-cooperative generator trait that produces
+/// a stream of values using warp-cooperative execution with zero buffering.
+/// Generators yield values broadcast from lane 0 to all lanes, enabling
+/// data-parallel consumption.
+///
+/// # Key Types
+///
+/// - `WarpCoroutineState`: Yielded(Y) or Complete(R) — result of resuming
+/// - `GpuGenerator`: trait with `resume_warp()` — the generator protocol
+/// - `WarpBroadcast`: trait for lane-0-to-all broadcast (shfl.sync based)
+/// - `GeneratorTask`: adapter wrapping generators as Futures for the executor
+/// - `for_each_yield`: zero-buffered streaming pipeline combinator
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use gpu_runtime::generator::*;
+/// use gpu_runtime::warp_future::WarpContext;
+///
+/// let mut gen = CounterGenerator::new(10);
+/// let mut wcx = unsafe { WarpContext::new() };
+/// let sum = unsafe {
+///     for_each_yield(&mut gen, |val, _wcx| {
+///         // all 32 lanes see the same val
+///     }, &mut wcx)
+/// };
+/// // sum == 0+1+2+...+9 == 45
+/// ```
+pub mod generator;
+
 /// Prelude — import everything you need for a basic GPU kernel.
 ///
 /// The prelude exports high-level APIs for common tasks. For low-level

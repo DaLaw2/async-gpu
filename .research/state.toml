@@ -750,7 +750,7 @@ id = "conv-wino-gemm.2"
 feature = "conv-wino-gemm"
 title = "Experiment: implement Winograd with 16x batched cuBLAS GEMM for transform-domain multiply"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["conv-wino-gemm.1"]
 
 [[tasks]]

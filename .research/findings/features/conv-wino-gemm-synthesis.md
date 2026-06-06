@@ -1,19 +1,16 @@
 # conv-wino-gemm: Feature Synthesis
 
-Winograd F(2x2,3x3) restructured as 16 batched cuBLAS GEMMs.
-Three-phase pipeline: input transform → strided batched GEMM → output transform.
+**Status**: Implemented. Winograd F(2x2,3x3) restructured as 16 batched cuBLAS GEMMs.
 
-cudarc 0.12 exposes `gemm_strided_batched` (f32) — exactly what we need.
-Each GEMM: U_k[C_out, C_in] × V_k[C_in, n_tiles], k=0..15.
-Single cuBLAS call replaces the per-channel serial loop (current bottleneck).
+Pipeline: input transform → `cublasGemmStridedBatched` (16 batches) → output transform.
+Single cuBLAS call replaces the per-channel serial loop. Bias fused into output transform.
 
-F(2x2) chosen over F(4x4): numerically stable in FP32, simpler,
-and the serial-loop bottleneck (not arithmetic) dominates current perf.
-F(4x4) deferred as future optimization for large spatial dims.
+Results (GTX 1660): 2.4-16.1% peak (119-807 GFLOPS). Best: YOLO P3 at 807 GFLOPS.
+Previous baseline: 1.3-5.7% peak. Improvement: ~1.5-3x across ResNet shapes.
 
-Two new NVRTC kernels needed: input transform (tiles→V layout)
-and output transform (M layout→spatial). Filter transform reused as-is.
+Correctness: all tests pass, max_err <= 0.000002 across single, batched, and bias cases.
+F(2x2) numerically perfect in FP32. F(4x4) deferred for future optimization.
 
-Memory overhead: ~3 MB transient for typical ResNet shapes.
-Expected speedup: 10-30× over current kernel (matching cuBLAS reference).
-Risk: L4 shape (n_tiles=16) may need thin-GEMM fallback.
+Remaining gap to cuDNN target (50% peak): transform kernel overhead dominates
+for small spatial sizes. Next steps: filter caching, thin-GEMM fallback for L4,
+or F(4x4) for large spatial dims.

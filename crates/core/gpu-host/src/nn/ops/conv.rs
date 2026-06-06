@@ -1385,21 +1385,17 @@ fn conv2d_winograd_f2x2(
     conv2d_winograd_f2x2_impl(input, weight, bias, padding, dev, 1)
 }
 
-/// Winograd F(2×2, 3×3) convolution — NVRTC compiled.
+/// Winograd F(2×2, 3×3) convolution via batched cuBLAS GEMM.
 ///
-/// Reduces FLOPs for 3×3 stride=1 convolutions by ~2.25× compared to direct.
+/// Three-phase pipeline replacing the fused per-channel kernel:
+/// 1. Filter transform: `G·g·Gᵀ` → `U[16, C_out, C_in]` (reuses existing kernel)
+/// 2. Input transform: `Bᵀ·d·B` → `V[16, C_in, n_tiles]` (new NVRTC kernel)
+/// 3. 16× strided batched GEMM: `M[k] = U[k] × V[k]` via cuBLAS
+/// 4. Output transform: `Aᵀ·M·A` → spatial output (new NVRTC kernel, fuses bias)
 ///
 /// Supports both single-sample and batched modes:
 /// - `batch_size=1`: input `[C_in, H, W]` → output `[C_out, H_out, W_out]`
 /// - `batch_size=N`: input `[N, C_in, H, W]` → output `[N, C_out, H_out, W_out]`
-///
-/// The kernel uses `grid.z = batch_size` to process all samples in one launch.
-///
-/// The algorithm:
-/// 1. Filter transform: G·g·Gᵀ (done once, 3×3 → 4×4 Winograd domain)
-/// 2. Input transform: Bᵀ·d·B (per 4×4 input tile)
-/// 3. Element-wise multiply in Winograd domain (16 muls per tile)
-/// 4. Output transform: Aᵀ·m·A (4×4 → 2×2 output tile)
 #[cfg(feature = "cublas")]
 fn conv2d_winograd_f2x2_impl(
     input: &GpuTensor,
@@ -1409,6 +1405,7 @@ fn conv2d_winograd_f2x2_impl(
     dev: &Arc<cudarc::driver::CudaDevice>,
     batch_size: usize,
 ) -> Result<GpuTensor> {
+    use cudarc::cublas::{CudaBlas, Gemm, GemmConfig, StridedBatchedConfig};
     use cudarc::driver::LaunchAsync;
     use cudarc::nvrtc::compile_ptx_with_opts;
 
@@ -1422,13 +1419,14 @@ fn conv2d_winograd_f2x2_impl(
     let h_out = h + 2 * padding - 2; // stride=1, kh=3: (h + 2p - 3)/1 + 1 = h + 2p - 2
     let w_out = w + 2 * padding - 2;
 
-    // Number of 2×2 output tiles covering the output
+    // Number of 2×2 output tiles covering the output (per sample)
     let n_tile_y = h_out.div_ceil(2);
     let n_tile_x = w_out.div_ceil(2);
-    let total_tiles = n_tile_x * n_tile_y;
+    let n_tiles_per_sample = n_tile_x * n_tile_y;
+    // Total tiles across the entire batch
+    let total_tiles = n_tiles_per_sample * batch_size;
 
-    // Compile Winograd CUDA kernels via NVRTC (cached per device).
-    // Check if already loaded by probing for the function; compile + load if missing.
+    // --- Compile filter transform kernel (original winograd_f2x2.cu) ---
     static WINOGRAD_SRC: &str = include_str!("winograd_f2x2.cu");
 
     if dev
@@ -1450,9 +1448,32 @@ fn conv2d_winograd_f2x2_impl(
         .expect("winograd_f2x2 PTX load failed");
     }
 
-    // 1. Filter transform: weight[C_out, C_in, 3, 3] → filter_wino[16, C_out, C_in]
+    // --- Compile input/output transform kernels (winograd_gemm_f2x2.cu) ---
+    static WINOGRAD_GEMM_SRC: &str = include_str!("winograd_gemm_f2x2.cu");
+
+    if dev
+        .get_func("winograd_gemm_f2x2", "winograd_input_transform")
+        .is_none()
+    {
+        let opts = cudarc::nvrtc::CompileOptions {
+            arch: Some("sm_75"),
+            use_fast_math: Some(true),
+            ..Default::default()
+        };
+        let ptx = compile_ptx_with_opts(WINOGRAD_GEMM_SRC, opts)
+            .expect("NVRTC winograd_gemm_f2x2 compile failed");
+        dev.load_ptx(
+            ptx,
+            "winograd_gemm_f2x2",
+            &["winograd_input_transform", "winograd_output_transform"],
+        )
+        .expect("winograd_gemm_f2x2 PTX load failed");
+    }
+
+    // === Phase 1: Filter transform ===
+    // weight[C_out, C_in, 3, 3] → U[16, C_out, C_in]
     let filter_plane = c_out * c_in;
-    let mut filter_wino = dev.alloc_zeros::<f32>(16 * filter_plane)?;
+    let mut u_dev = dev.alloc_zeros::<f32>(16 * filter_plane)?;
 
     let ft_func = dev
         .get_func("winograd_f2x2", "winograd_filter_transform")
@@ -1468,13 +1489,93 @@ fn conv2d_winograd_f2x2_impl(
         ft_func
             .launch(
                 ft_config,
-                (weight.data(), &mut filter_wino, c_out as u32, c_in as u32),
+                (weight.data(), &mut u_dev, c_out as u32, c_in as u32),
             )
             .map_err(NnError::Cuda)?;
     }
 
-    // 2. Winograd convolution: input tiles × transformed filters → output tiles
-    // grid.z = batch_size to process all samples in one launch
+    // === Phase 2: Input transform ===
+    // input → V[16, C_in, total_tiles]
+    let mut v_dev = dev.alloc_zeros::<f32>(16 * c_in * total_tiles)?;
+
+    let it_func = dev
+        .get_func("winograd_gemm_f2x2", "winograd_input_transform")
+        .ok_or(NnError::KernelNotFound {
+            name: "winograd_input_transform",
+        })?;
+    let block_size = 256u32;
+    let it_config = cudarc::driver::LaunchConfig {
+        grid_dim: ((total_tiles as u32).div_ceil(block_size), c_in as u32, 1),
+        block_dim: (block_size, 1, 1),
+        shared_mem_bytes: 0,
+    };
+    unsafe {
+        it_func
+            .launch(
+                it_config,
+                (
+                    input.data(),
+                    &mut v_dev,
+                    c_in as u32,
+                    h as u32,
+                    w as u32,
+                    n_tile_x as u32,
+                    n_tile_y as u32,
+                    n_tiles_per_sample as u32,
+                    batch_size as u32,
+                    padding as u32,
+                ),
+            )
+            .map_err(NnError::Cuda)?;
+    }
+
+    // === Phase 3: 16× strided batched GEMM ===
+    // For each k in 0..15:
+    //   M_k[C_out, total_tiles] = U_k[C_out, C_in] × V_k[C_in, total_tiles]
+    //
+    // cuBLAS is column-major, so we compute:
+    //   C^T = B^T × A^T  where A=U (row-major), B=V (row-major)
+    //   i.e., cublas sees U as [C_in, C_out] col-major and V as [total_tiles, C_in] col-major
+    //
+    // So: transa=N, transb=N, m=total_tiles, n=C_out, k=C_in
+    //   C_colmaj[total_tiles, C_out] = V_colmaj[total_tiles, C_in] × U_colmaj[C_in, C_out]
+    // which gives us M[C_out, total_tiles] in row-major = what we want.
+    let mut m_dev = dev.alloc_zeros::<f32>(16 * c_out * total_tiles)?;
+
+    let blas = CudaBlas::new(Arc::clone(dev)).map_err(|e| NnError::ShapeMismatch {
+        expected: "cuBLAS init".to_string(),
+        actual: format!("{e:?}"),
+    })?;
+
+    let gemm_cfg = StridedBatchedConfig {
+        gemm: GemmConfig {
+            transa: cudarc::cublas::sys::cublasOperation_t::CUBLAS_OP_N,
+            transb: cudarc::cublas::sys::cublasOperation_t::CUBLAS_OP_N,
+            m: total_tiles as i32,
+            n: c_out as i32,
+            k: c_in as i32,
+            alpha: 1.0f32,
+            lda: total_tiles as i32, // leading dim of V (col-major: total_tiles)
+            ldb: c_in as i32,        // leading dim of U (col-major: C_in)
+            beta: 0.0f32,
+            ldc: total_tiles as i32, // leading dim of M (col-major: total_tiles)
+        },
+        batch_size: 16,
+        stride_a: (c_in * total_tiles) as i64, // between V planes
+        stride_b: (c_out * c_in) as i64,       // between U planes
+        stride_c: (c_out * total_tiles) as i64, // between M planes
+    };
+
+    unsafe {
+        blas.gemm_strided_batched(gemm_cfg, &v_dev, &u_dev, &mut m_dev)
+            .map_err(|e| NnError::ShapeMismatch {
+                expected: "cuBLAS strided batched GEMM".to_string(),
+                actual: format!("{e:?}"),
+            })?;
+    }
+
+    // === Phase 4: Output transform ===
+    // M[16, C_out, total_tiles] → output[N, C_out, H_out, W_out]
     let output_shape = if batch_size > 1 {
         vec![batch_size, c_out, h_out, w_out]
     } else {
@@ -1482,59 +1583,45 @@ fn conv2d_winograd_f2x2_impl(
     };
     let mut output = GpuTensor::zeros(&output_shape, dev)?;
 
-    let tile_c_out: u32 = 32;
-    let conv_func = dev
-        .get_func("winograd_f2x2", "winograd_conv2d_f2x2")
+    // Create a dummy bias buffer if needed (the kernel needs a valid pointer)
+    let bias_dev;
+    let bias_ptr = if let Some(b) = bias {
+        b.data()
+    } else {
+        bias_dev = dev.alloc_zeros::<f32>(1)?;
+        &bias_dev
+    };
+    let has_bias: u32 = if bias.is_some() { 1 } else { 0 };
+
+    let ot_func = dev
+        .get_func("winograd_gemm_f2x2", "winograd_output_transform")
         .ok_or(NnError::KernelNotFound {
-            name: "winograd_conv2d_f2x2",
+            name: "winograd_output_transform",
         })?;
-    let conv_config = cudarc::driver::LaunchConfig {
-        grid_dim: (
-            total_tiles as u32,
-            (c_out as u32).div_ceil(tile_c_out),
-            batch_size as u32,
-        ),
-        block_dim: (tile_c_out, 1, 1),
+    let ot_config = cudarc::driver::LaunchConfig {
+        grid_dim: ((total_tiles as u32).div_ceil(block_size), c_out as u32, 1),
+        block_dim: (block_size, 1, 1),
         shared_mem_bytes: 0,
     };
     unsafe {
-        conv_func
+        ot_func
             .launch(
-                conv_config,
+                ot_config,
                 (
-                    input.data(),
-                    &filter_wino,
+                    &m_dev,
+                    bias_ptr,
                     output.data_mut(),
-                    c_in as u32,
                     c_out as u32,
-                    h as u32,
-                    w as u32,
                     h_out as u32,
                     w_out as u32,
                     n_tile_x as u32,
                     n_tile_y as u32,
-                    padding as u32,
+                    n_tiles_per_sample as u32,
+                    batch_size as u32,
+                    has_bias,
                 ),
             )
             .map_err(NnError::Cuda)?;
-    }
-
-    // 3. Add bias if present
-    if let Some(bias_tensor) = bias {
-        // Bias add for all samples: bias[C_out] broadcast across batch and spatial dims
-        let bias_host = bias_tensor.to_host()?;
-        let mut out_host = output.to_host()?;
-        for b in 0..batch_size {
-            let sample_offset = b * c_out * h_out * w_out;
-            for co in 0..c_out {
-                let bv = bias_host[co];
-                let base = sample_offset + co * h_out * w_out;
-                for i in 0..h_out * w_out {
-                    out_host[base + i] += bv;
-                }
-            }
-        }
-        output = GpuTensor::from_host(&out_host, &output_shape, dev)?;
     }
 
     Ok(output)

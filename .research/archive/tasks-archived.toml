@@ -1,10 +1,12 @@
 # Archived done/skipped tasks — moved from state.toml at cycle 193
+# Migrated from Epic→Theme→Task hierarchy at cycle 638
+# Items below cycle 638 use "theme" field name; semantically equivalent to "feature"
 
 # --- mma-fix (gpu-perf) ---
 
 [[tasks]]
 id = "mma-fix.1"
-theme = "mma-fix"
+feature = "mma-fix"
 title = "Diagnose MMA kernel failure at 768x768"
 kind = "investigation"
 status = "done"
@@ -13,7 +15,7 @@ spawned_by = "bs43"
 
 [[tasks]]
 id = "mma-fix.2"
-theme = "mma-fix"
+feature = "mma-fix"
 title = "Fix and validate MMA GEMM for all GPT-2 dimensions"
 kind = "experiment"
 status = "skipped"
@@ -22,7 +24,7 @@ spawned_by = "bs43"
 
 [[tasks]]
 id = "mma-fix.3"
-theme = "mma-fix"
+feature = "mma-fix"
 title = "MMA inference end-to-end validation"
 kind = "experiment"
 status = "done"
@@ -33,7 +35,7 @@ spawned_by = "bs43"
 
 [[tasks]]
 id = "kv-cache.1"
-theme = "kv-cache"
+feature = "kv-cache"
 title = "KV cache architecture and memory layout design"
 kind = "design"
 status = "done"
@@ -42,7 +44,7 @@ spawned_by = "bs43"
 
 [[tasks]]
 id = "kv-cache.2"
-theme = "kv-cache"
+feature = "kv-cache"
 title = "Implement KV cache for single-layer attention"
 kind = "experiment"
 status = "done"
@@ -51,7 +53,7 @@ spawned_by = "bs43"
 
 [[tasks]]
 id = "kv-cache.3"
-theme = "kv-cache"
+feature = "kv-cache"
 title = "Full 12-layer KV-cached inference"
 kind = "experiment"
 status = "done"
@@ -62,7 +64,7 @@ spawned_by = "bs43"
 
 [[tasks]]
 id = "repo-cleanup.1"
-theme = "repo-cleanup"
+feature = "repo-cleanup"
 title = "Gitignore PTX + remove duplicate model file"
 kind = "experiment"
 status = "done"
@@ -71,7 +73,7 @@ spawned_by = "bs43"
 
 [[tasks]]
 id = "repo-cleanup.2"
-theme = "repo-cleanup"
+feature = "repo-cleanup"
 title = "Extract async-io example from pipeline tests"
 kind = "experiment"
 status = "done"
@@ -80,7 +82,7 @@ spawned_by = "bs43"
 
 [[tasks]]
 id = "repo-cleanup.3"
-theme = "repo-cleanup"
+feature = "repo-cleanup"
 title = "Extract compute example from search/GEMM tests"
 kind = "experiment"
 status = "done"
@@ -91,7 +93,7 @@ spawned_by = "bs43"
 
 [[tasks]]
 id = "mixed-precision.1"
-theme = "mixed-precision"
+feature = "mixed-precision"
 title = "BF16 MMA GEMM kernel implementation"
 kind = "experiment"
 status = "done"
@@ -100,7 +102,7 @@ spawned_by = "bs45"
 
 [[tasks]]
 id = "mixed-precision.2"
-theme = "mixed-precision"
+feature = "mixed-precision"
 title = "BF16 mixed-precision inference validation"
 kind = "experiment"
 status = "done"
@@ -111,7 +113,7 @@ spawned_by = "bs45"
 
 [[tasks]]
 id = "tf32-mma.1"
-theme = "tf32-mma"
+feature = "tf32-mma"
 title = "TF32 MMA GEMM kernel (m16n8k8)"
 kind = "experiment"
 status = "done"
@@ -120,7 +122,7 @@ spawned_by = "bs47"
 
 [[tasks]]
 id = "tf32-mma.2"
-theme = "tf32-mma"
+feature = "tf32-mma"
 title = "TF32 inference validation (decision gate)"
 kind = "experiment"
 status = "done"
@@ -131,7 +133,7 @@ spawned_by = "bs47"
 
 [[tasks]]
 id = "gpu-error-propagation.1"
-theme = "gpu-error-propagation"
+feature = "gpu-error-propagation"
 title = "Design GpuKernelResult ABI + error buffer layout"
 kind = "design"
 status = "done"
@@ -140,7 +142,7 @@ spawned_by = "bs48"
 
 [[tasks]]
 id = "gpu-error-propagation.2"
-theme = "gpu-error-propagation"
+feature = "gpu-error-propagation"
 title = "Implement GPU-side error checking in hostcall helpers"
 kind = "experiment"
 status = "done"
@@ -149,7 +151,7 @@ spawned_by = "bs48"
 
 [[tasks]]
 id = "gpu-error-propagation.3"
-theme = "gpu-error-propagation"
+feature = "gpu-error-propagation"
 title = "Implement host-side error extraction from kernel result buffer"
 kind = "experiment"
 status = "done"
@@ -158,7 +160,7 @@ spawned_by = "bs48"
 
 [[tasks]]
 id = "gpu-error-propagation.4"
-theme = "gpu-error-propagation"
+feature = "gpu-error-propagation"
 title = "Non-destructive panic handler (error buffer + cooperative exit)"
 kind = "experiment"
 status = "done"
@@ -169,7 +171,7 @@ spawned_by = "bs48"
 
 [[tasks]]
 id = "std-migration.1"
-theme = "std-migration"
+feature = "std-migration"
 title = "Create gpu-kernel-std crate + verify println/Vec/format work"
 kind = "experiment"
 status = "done"
@@ -178,7 +180,7 @@ spawned_by = "bs48"
 
 [[tasks]]
 id = "std-migration.2"
-theme = "std-migration"
+feature = "std-migration"
 title = "Factor shared hostcall protocol into std-compatible library"
 kind = "design"
 status = "done"
@@ -187,7 +189,7 @@ spawned_by = "bs48"
 
 [[tasks]]
 id = "std-migration.3"
-theme = "std-migration"
+feature = "std-migration"
 title = "Port async pipeline kernels to gpu-kernel-std with Result types"
 kind = "experiment"
 status = "done"
@@ -196,7 +198,7 @@ spawned_by = "bs48"
 
 [[tasks]]
 id = "std-migration.4"
-theme = "std-migration"
+feature = "std-migration"
 title = "Verify stdin().read_line() end-to-end on GPU"
 kind = "experiment"
 status = "done"
@@ -207,7 +209,7 @@ spawned_by = "bs49"
 
 [[tasks]]
 id = "std-fs.1"
-theme = "std-fs"
+feature = "std-fs"
 title = "Add SERVICE_FS_* hostcall services + host-side handlers"
 kind = "experiment"
 status = "done"
@@ -216,7 +218,7 @@ spawned_by = "bs48"
 
 [[tasks]]
 id = "std-fs.2"
-theme = "std-fs"
+feature = "std-fs"
 title = "Implement gpu-libc open/read/write/close via hostcall (replace stubs)"
 kind = "experiment"
 status = "done"
@@ -225,7 +227,7 @@ spawned_by = "bs48"
 
 [[tasks]]
 id = "std-fs.3"
-theme = "std-fs"
+feature = "std-fs"
 title = "Fix OnceLock for stdin path (spinlock replacement)"
 kind = "experiment"
 status = "done"
@@ -234,7 +236,7 @@ spawned_by = "bs48"
 
 [[tasks]]
 id = "std-fs.4"
-theme = "std-fs"
+feature = "std-fs"
 title = "End-to-end: File::create + write_all + read with error handling"
 kind = "experiment"
 status = "done"
@@ -243,7 +245,7 @@ spawned_by = "bs48"
 
 [[tasks]]
 id = "std-fs.5"
-theme = "std-fs"
+feature = "std-fs"
 title = "Verify std::io::Error mapping for file-not-found and permission errors"
 kind = "experiment"
 status = "done"
@@ -254,7 +256,7 @@ spawned_by = "bs49"
 
 [[tasks]]
 id = "workflow.1"
-theme = "workflow-improvement"
+feature = "workflow-improvement"
 title = "/maintain skill created — event-driven housekeeping"
 kind = "design"
 status = "done"
@@ -265,7 +267,7 @@ spawned_by = "user"
 
 [[tasks]]
 id = "host-sdk.2"
-theme = "host-sdk"
+feature = "host-sdk"
 title = "Extract reusable API types from gpu-host"
 kind = "design"
 status = "done"
@@ -274,7 +276,7 @@ spawned_by = "bs47"
 
 [[tasks]]
 id = "host-sdk.3"
-theme = "host-sdk"
+feature = "host-sdk"
 title = "Standalone example using SDK as library dependency"
 kind = "experiment"
 status = "done"
@@ -283,7 +285,7 @@ spawned_by = "bs38"
 
 [[tasks]]
 id = "host-sdk.4"
-theme = "host-sdk"
+feature = "host-sdk"
 title = "Two additional examples (async-io, compute) with documentation"
 kind = "experiment"
 status = "done"
@@ -292,7 +294,7 @@ spawned_by = "bs47"
 
 [[tasks]]
 id = "host-sdk.5"
-theme = "host-sdk"
+feature = "host-sdk"
 title = "Automate build system — single cargo command"
 kind = "experiment"
 status = "done"
@@ -303,7 +305,7 @@ spawned_by = "bs47"
 
 [[tasks]]
 id = "workspace.1"
-theme = "workspace-consolidation"
+feature = "workspace-consolidation"
 title = "Consolidate all crates into single Cargo workspace"
 kind = "experiment"
 status = "done"
@@ -312,7 +314,7 @@ spawned_by = "user"
 
 [[tasks]]
 id = "workspace.2"
-theme = "workspace-consolidation"
+feature = "workspace-consolidation"
 title = "Deduplicate .cargo/config.toml across kernel crates"
 kind = "experiment"
 status = "done"
@@ -321,7 +323,7 @@ spawned_by = "user"
 
 [[tasks]]
 id = "workspace.3"
-theme = "workspace-consolidation"
+feature = "workspace-consolidation"
 title = "Single-source nightly toolchain version"
 kind = "experiment"
 status = "done"
@@ -332,7 +334,7 @@ spawned_by = "user"
 
 [[tasks]]
 id = "build-auto.1"
-theme = "build-automation"
+feature = "build-automation"
 title = "Auto-generate PTX stub list from crate scan"
 kind = "experiment"
 status = "done"
@@ -341,7 +343,7 @@ spawned_by = "user"
 
 [[tasks]]
 id = "build-auto.2"
-theme = "build-automation"
+feature = "build-automation"
 title = "Single-source CI: generate build.yml from ci-lint.sh or shared config"
 kind = "design"
 status = "done"
@@ -352,7 +354,7 @@ spawned_by = "user"
 
 [[tasks]]
 id = "docs.1"
-theme = "docs"
+feature = "docs"
 title = "Rewrite README.md to reflect current project state"
 kind = "experiment"
 status = "done"
@@ -361,7 +363,7 @@ spawned_by = "user"
 
 [[tasks]]
 id = "docs.2"
-theme = "docs"
+feature = "docs"
 title = "Add doc-comments to undocumented public APIs"
 kind = "experiment"
 status = "done"
@@ -374,7 +376,7 @@ spawned_by = "user"
 
 [[tasks]]
 id = "std-hardening.1"
-theme = "std-hardening"
+feature = "std-hardening"
 title = "Update README with single-thread std limitation"
 kind = "experiment"
 status = "done"
@@ -382,7 +384,7 @@ deps = []
 
 [[tasks]]
 id = "std-hardening.2"
-theme = "std-hardening"
+feature = "std-hardening"
 title = "Atomic CAS bump allocator in gpu-libc"
 kind = "experiment"
 status = "done"
@@ -390,7 +392,7 @@ deps = []
 
 [[tasks]]
 id = "std-hardening.3"
-theme = "std-hardening"
+feature = "std-hardening"
 title = "Multi-thread allocation test (32 threads, verify no overlap)"
 kind = "experiment"
 status = "done"
@@ -398,7 +400,7 @@ deps = ["std-hardening.2"]
 
 [[tasks]]
 id = "std-hardening.4"
-theme = "std-hardening"
+feature = "std-hardening"
 title = "Per-thread errno in gpu-libc"
 kind = "experiment"
 status = "done"
@@ -408,7 +410,7 @@ deps = []
 
 [[tasks]]
 id = "hashmap-fix.1"
-theme = "hashmap-fix"
+feature = "hashmap-fix"
 title = "Investigate HashMap seed — already works via address-based keys"
 kind = "investigation"
 status = "done"
@@ -416,7 +418,7 @@ deps = []
 
 [[tasks]]
 id = "hashmap-fix.2"
-theme = "hashmap-fix"
+feature = "hashmap-fix"
 title = "HashMap test kernel in gpu-kernel-std"
 kind = "experiment"
 status = "done"
@@ -426,7 +428,7 @@ deps = ["hashmap-fix.1"]
 
 [[tasks]]
 id = "gpu-tls.1"
-theme = "gpu-tls"
+feature = "gpu-tls"
 title = "Test #[thread_local] static on nvptx64 — NOT SUPPORTED"
 kind = "investigation"
 status = "done"
@@ -436,7 +438,7 @@ deps = []
 
 [[tasks]]
 id = "trace-protocol.1"
-theme = "trace-protocol"
+feature = "trace-protocol"
 title = "Define trace event format + SERVICE_TRACE in gpu-protocol"
 kind = "design"
 status = "done"
@@ -444,7 +446,7 @@ deps = []
 
 [[tasks]]
 id = "trace-protocol.2"
-theme = "trace-protocol"
+feature = "trace-protocol"
 title = "Implement gpu_trace!() macro in gpu-runtime"
 kind = "experiment"
 status = "done"
@@ -452,7 +454,7 @@ deps = ["trace-protocol.1"]
 
 [[tasks]]
 id = "trace-protocol.3"
-theme = "trace-protocol"
+feature = "trace-protocol"
 title = "Host-side trace collector + display"
 kind = "experiment"
 status = "done"
@@ -460,7 +462,7 @@ deps = ["trace-protocol.1"]
 
 [[tasks]]
 id = "trace-protocol.4"
-theme = "trace-protocol"
+feature = "trace-protocol"
 title = "Multi-thread trace test (32 threads, verify all events captured)"
 kind = "experiment"
 status = "done"
@@ -470,7 +472,7 @@ deps = ["trace-protocol.2", "trace-protocol.3"]
 
 [[tasks]]
 id = "gpu-assert-diag.1"
-theme = "gpu-assert-diag"
+feature = "gpu-assert-diag"
 title = "Implement gpu_assert!() macro with hostcall diagnostic"
 kind = "experiment"
 status = "done"
@@ -478,7 +480,7 @@ deps = ["trace-protocol.1"]
 
 [[tasks]]
 id = "gpu-assert-diag.2"
-theme = "gpu-assert-diag"
+feature = "gpu-assert-diag"
 title = "Host-side assertion failure display + test"
 kind = "experiment"
 status = "done"
@@ -488,7 +490,7 @@ deps = ["gpu-assert-diag.1"]
 
 [[tasks]]
 id = "flight-recorder.1"
-theme = "flight-recorder"
+feature = "flight-recorder"
 title = "Design flight recorder ring buffer layout + dump protocol"
 kind = "design"
 status = "done"
@@ -496,7 +498,7 @@ deps = []
 
 [[tasks]]
 id = "flight-recorder.2"
-theme = "flight-recorder"
+feature = "flight-recorder"
 title = "GPU-side ring buffer write + host-side dump implementation"
 kind = "experiment"
 status = "done"
@@ -504,7 +506,7 @@ deps = ["flight-recorder.1"]
 
 [[tasks]]
 id = "flight-recorder.3"
-theme = "flight-recorder"
+feature = "flight-recorder"
 title = "Test: kernel crash → host dumps last N events"
 kind = "experiment"
 status = "done"
@@ -514,7 +516,7 @@ deps = ["flight-recorder.2"]
 
 [[tasks]]
 id = "cond-trace.1"
-theme = "cond-trace"
+feature = "cond-trace"
 title = "Add gpu-trace feature flag to gpu-runtime, gate trace/assert codegen"
 kind = "experiment"
 status = "done"
@@ -522,7 +524,7 @@ deps = []
 
 [[tasks]]
 id = "cond-trace.2"
-theme = "cond-trace"
+feature = "cond-trace"
 title = "Verify release build without feature has zero trace overhead"
 kind = "experiment"
 status = "done"
@@ -532,7 +534,7 @@ deps = ["cond-trace.1"]
 
 [[tasks]]
 id = "hc-session.1"
-theme = "hc-session"
+feature = "hc-session"
 title = "Design HostcallSession API — lifecycle, packet reinit, fd persistence"
 kind = "design"
 status = "done"
@@ -540,7 +542,7 @@ deps = []
 
 [[tasks]]
 id = "hc-session.2"
-theme = "hc-session"
+feature = "hc-session"
 title = "Implement HostcallSession in gpu-host"
 kind = "experiment"
 status = "done"
@@ -548,7 +550,7 @@ deps = ["hc-session.1"]
 
 [[tasks]]
 id = "hc-session.3"
-theme = "hc-session"
+feature = "hc-session"
 title = "Multi-launch session test — Kernel A opens file, Kernel B reads same fd"
 kind = "experiment"
 status = "done"
@@ -558,7 +560,7 @@ deps = ["hc-session.2"]
 
 [[tasks]]
 id = "cmd-buffer.1"
-theme = "cmd-buffer"
+feature = "cmd-buffer"
 title = "Command buffer protocol — ring buffer layout, command types, host→GPU signaling"
 kind = "design"
 status = "done"
@@ -566,7 +568,7 @@ deps = []
 
 [[tasks]]
 id = "cmd-buffer.2"
-theme = "cmd-buffer"
+feature = "cmd-buffer"
 title = "Host-side CommandBuffer + GPU-side polling kernel"
 kind = "experiment"
 status = "done"
@@ -574,7 +576,7 @@ deps = ["cmd-buffer.1", "hc-session.2"]
 
 [[tasks]]
 id = "cmd-buffer.3"
-theme = "cmd-buffer"
+feature = "cmd-buffer"
 title = "Integration test — COMPUTE → PRINT → EXIT sequence"
 kind = "experiment"
 status = "done"
@@ -584,7 +586,7 @@ deps = ["cmd-buffer.2"]
 
 [[tasks]]
 id = "cross-pipeline.1"
-theme = "cross-pipeline"
+feature = "cross-pipeline"
 title = "Cross-launch device buffer demo — Kernel A writes, Kernel B reads"
 kind = "experiment"
 status = "done"
@@ -592,7 +594,7 @@ deps = ["hc-session.2"]
 
 [[tasks]]
 id = "cross-pipeline.2"
-theme = "cross-pipeline"
+feature = "cross-pipeline"
 title = "Pipeline API — session.stage(k_a).stage(k_b).run() wrapper"
 kind = "experiment"
 status = "done"
@@ -602,7 +604,7 @@ deps = ["cross-pipeline.1"]
 
 [[tasks]]
 id = "iter-workflow.1"
-theme = "iter-workflow"
+feature = "iter-workflow"
 title = "Iterative convergence kernel — loop until residual < threshold"
 kind = "experiment"
 status = "done"
@@ -610,7 +612,7 @@ deps = ["hc-session.2"]
 
 [[tasks]]
 id = "iter-workflow.2"
-theme = "iter-workflow"
+feature = "iter-workflow"
 title = "Multi-step autonomous pipeline with iteration + file I/O"
 kind = "experiment"
 status = "done"
@@ -620,7 +622,7 @@ deps = ["iter-workflow.1"]
 
 [[tasks]]
 id = "rustc-survey.1"
-theme = "rustc-survey"
+feature = "rustc-survey"
 title = "Map rustc async fn → coroutine → state machine pipeline"
 kind = "investigation"
 status = "done"
@@ -628,7 +630,7 @@ deps = []
 
 [[tasks]]
 id = "rustc-survey.2"
-theme = "rustc-survey"
+feature = "rustc-survey"
 title = "Feasibility assessment — warp-cooperative generator lowering"
 kind = "design"
 status = "done"
@@ -638,7 +640,7 @@ deps = ["rustc-survey.1"]
 
 [[tasks]]
 id = "warp-future-bridge.1"
-theme = "warp-future-bridge"
+feature = "warp-future-bridge"
 title = "GpuPrintFuture as standard impl Future — compile + test on GPU"
 kind = "experiment"
 status = "done"
@@ -646,7 +648,7 @@ deps = []
 
 [[tasks]]
 id = "warp-future-bridge.2"
-theme = "warp-future-bridge"
+feature = "warp-future-bridge"
 title = "Warp-cooperative wrapper: lane 0 polls GpuPrintFuture, broadcast result"
 kind = "experiment"
 status = "done"
@@ -654,7 +656,7 @@ deps = ["warp-future-bridge.1"]
 
 [[tasks]]
 id = "warp-future-bridge.3"
-theme = "warp-future-bridge"
+feature = "warp-future-bridge"
 title = "Chain two GpuPrintFutures in warp-cooperative state machine"
 kind = "experiment"
 status = "done"
@@ -662,7 +664,7 @@ deps = ["warp-future-bridge.2"]
 
 [[tasks]]
 id = "warp-future-bridge.4"
-theme = "warp-future-bridge"
+feature = "warp-future-bridge"
 title = "Add Result<T, E> error broadcasting across .await boundaries"
 kind = "experiment"
 status = "done"
@@ -672,7 +674,7 @@ deps = ["warp-future-bridge.3"]
 
 [[tasks]]
 id = "warp-async-v2.1"
-theme = "warp-async-v2"
+feature = "warp-async-v2"
 title = "Design .await recognition in proc macro"
 kind = "design"
 status = "done"
@@ -680,7 +682,7 @@ deps = []
 
 [[tasks]]
 id = "warp-async-v2.2"
-theme = "warp-async-v2"
+feature = "warp-async-v2"
 title = "Implement ? operator in #[warp_async] (standalone win)"
 kind = "experiment"
 status = "done"
@@ -688,7 +690,7 @@ deps = []
 
 [[tasks]]
 id = "warp-async-v2.3"
-theme = "warp-async-v2"
+feature = "warp-async-v2"
 title = "Implement .await syntax recognition in proc macro"
 kind = "experiment"
 status = "done"
@@ -696,7 +698,7 @@ deps = ["warp-async-v2.1"]
 
 [[tasks]]
 id = "warp-async-v2.4"
-theme = "warp-async-v2"
+feature = "warp-async-v2"
 title = "End-to-end test: async fn with .await?, branching, error handling"
 kind = "experiment"
 status = "done"
@@ -706,7 +708,7 @@ deps = ["warp-async-v2.2", "warp-async-v2.3"]
 
 [[tasks]]
 id = "rustc-warp.1"
-theme = "rustc-warp"
+feature = "rustc-warp"
 title = "Set up rustc fork, verify baseline async fn → PTX"
 kind = "experiment"
 status = "done"
@@ -714,7 +716,7 @@ deps = ["warp-future-bridge.4"]
 
 [[tasks]]
 id = "rustc-warp.2"
-theme = "rustc-warp"
+feature = "rustc-warp"
 title = "MIR transformation spec — before/after for 2-yield async fn"
 kind = "design"
 status = "done"
@@ -724,7 +726,7 @@ deps = ["rustc-warp.1"]
 
 [[tasks]]
 id = "std-multithread.1"
-theme = "std-multithread"
+feature = "std-multithread"
 title = "Design thread-ID-indexed ThreadLocal for gpu-libc"
 kind = "design"
 status = "done"
@@ -732,7 +734,7 @@ deps = ["rustc-warp.2"]
 
 [[tasks]]
 id = "std-multithread.2"
-theme = "std-multithread"
+feature = "std-multithread"
 title = "Implement ThreadLocal using tid-indexed array"
 kind = "experiment"
 status = "done"
@@ -740,7 +742,7 @@ deps = ["std-multithread.1"]
 
 [[tasks]]
 id = "std-multithread.3"
-theme = "std-multithread"
+feature = "std-multithread"
 title = "Test all std features with multi-thread launch (32 threads)"
 kind = "experiment"
 status = "done"
@@ -750,7 +752,7 @@ deps = ["std-multithread.2"]
 
 [[tasks]]
 id = "nightly-pin.1"
-theme = "nightly-pin"
+feature = "nightly-pin"
 title = "Refactor example build.rs to parse rust-toolchain.toml dynamically"
 kind = "experiment"
 status = "done"
@@ -760,7 +762,7 @@ deps = []
 
 [[tasks]]
 id = "readme-update.1"
-theme = "readme-update"
+feature = "readme-update"
 title = "Update README with multi-thread std + warp-async achievements"
 kind = "experiment"
 status = "done"
@@ -771,7 +773,7 @@ deps = []
 # readme-fix
 [[tasks]]
 id = "readme-fix.1"
-theme = "readme-fix"
+feature = "readme-fix"
 title = "Fix README Limitations — single-thread std claim is outdated"
 kind = "experiment"
 status = "done"
@@ -780,7 +782,7 @@ deps = []
 # host-async
 [[tasks]]
 id = "host-async.1"
-theme = "host-async"
+feature = "host-async"
 title = "Design async API surface — launch().await, Stream<HostcallEvent>, cancellation"
 kind = "design"
 status = "done"
@@ -788,7 +790,7 @@ deps = []
 
 [[tasks]]
 id = "host-async.2"
-theme = "host-async"
+feature = "host-async"
 title = "Implement tokio-compatible GPU launch future + hostcall Stream"
 kind = "experiment"
 status = "done"
@@ -797,7 +799,7 @@ deps = ["host-async.1"]
 # printf-batch
 [[tasks]]
 id = "printf-batch.1"
-theme = "printf-batch"
+feature = "printf-batch"
 title = "Design GPU-side print buffer — layout, flush protocol, memory budget"
 kind = "design"
 status = "done"
@@ -805,7 +807,7 @@ deps = []
 
 [[tasks]]
 id = "printf-batch.2"
-theme = "printf-batch"
+feature = "printf-batch"
 title = "Implement buffered print in gpu-runtime + flush via sideband"
 kind = "experiment"
 status = "done"
@@ -813,7 +815,7 @@ deps = ["printf-batch.1"]
 
 [[tasks]]
 id = "printf-batch.3"
-theme = "printf-batch"
+feature = "printf-batch"
 title = "Write GPU kernel test: 10+ buffered prints, verify fewer hostcall round-trips"
 kind = "experiment"
 status = "done"
@@ -822,7 +824,7 @@ deps = ["printf-batch.2"]
 # batched-hc
 [[tasks]]
 id = "batched-hc.1"
-theme = "batched-hc"
+feature = "batched-hc"
 title = "Profile hostcall latency breakdown — CAS vs mapped memory vs host processing"
 kind = "investigation"
 status = "done"
@@ -831,7 +833,7 @@ deps = []
 # example-verify
 [[tasks]]
 id = "example-verify.1"
-theme = "example-verify"
+feature = "example-verify"
 title = "Build and run hello-gpu, async-io, vector-math — document status"
 kind = "investigation"
 status = "done"
@@ -840,7 +842,7 @@ deps = []
 # api-docs
 [[tasks]]
 id = "api-docs.1"
-theme = "api-docs"
+feature = "api-docs"
 title = "Audit gpu-host public API — add missing rustdoc + enable warn(missing_docs)"
 kind = "experiment"
 status = "done"
@@ -849,7 +851,7 @@ deps = []
 # gpu-test-harness
 [[tasks]]
 id = "gpu-test-harness.1"
-theme = "gpu-test-harness"
+feature = "gpu-test-harness"
 title = "Design GPU test harness — investigate cargo test integration for GPU kernels"
 kind = "investigation"
 status = "done"
@@ -857,7 +859,7 @@ deps = []
 
 [[tasks]]
 id = "gpu-test-harness.2"
-theme = "gpu-test-harness"
+feature = "gpu-test-harness"
 title = "Implement cargo test integration harness — 3 proof-of-concept GPU tests"
 kind = "experiment"
 status = "done"
@@ -866,7 +868,7 @@ deps = ["gpu-test-harness.1"]
 # println-buffer
 [[tasks]]
 id = "println-buffer.1"
-theme = "println-buffer"
+feature = "println-buffer"
 title = "Investigate gpu-libc write() path — where does println!() call write()?"
 kind = "investigation"
 status = "done"
@@ -874,7 +876,7 @@ deps = []
 
 [[tasks]]
 id = "println-buffer.2"
-theme = "println-buffer"
+feature = "println-buffer"
 title = "Implement buffered println — modify gpu_stdout_write() to use print_buffer"
 kind = "experiment"
 status = "done"
@@ -884,7 +886,7 @@ deps = ["println-buffer.1"]
 
 [[tasks]]
 id = "rustc-warp-async.1"
-theme = "rustc-warp-async"
+feature = "rustc-warp-async"
 title = "Map rustc async transform pipeline — where does async fn become a state machine?"
 kind = "investigation"
 status = "done"
@@ -892,7 +894,7 @@ deps = []
 
 [[tasks]]
 id = "rustc-warp-async.2"
-theme = "rustc-warp-async"
+feature = "rustc-warp-async"
 title = "Design MIR pass for warp-cooperative poll — specify pass inputs/outputs and MIR rewrites"
 kind = "design"
 status = "done"
@@ -900,7 +902,7 @@ deps = ["rustc-warp-async.1"]
 
 [[tasks]]
 id = "rustc-warp-async.3"
-theme = "rustc-warp-async"
+feature = "rustc-warp-async"
 title = "Write rustc patch files for skeleton WarpCooperativeTransform MIR pass"
 kind = "experiment"
 status = "done"
@@ -910,7 +912,7 @@ deps = ["rustc-warp-async.2"]
 
 [[tasks]]
 id = "data-iter.1"
-theme = "data-iter"
+feature = "data-iter"
 title = "Implement convergence-loop kernel — Newton's method sqrt on GPU"
 kind = "experiment"
 status = "done"
@@ -920,7 +922,7 @@ deps = []
 
 [[tasks]]
 id = "rustc-impl.1"
-theme = "rustc-impl"
+feature = "rustc-impl"
 title = "Study actual rustc coroutine.rs StateTransform + lib.rs pass pipeline from source"
 kind = "investigation"
 status = "done"
@@ -928,7 +930,7 @@ deps = []
 
 [[tasks]]
 id = "rustc-impl.2"
-theme = "rustc-impl"
+feature = "rustc-impl"
 title = "Implement WarpCooperativeTransform in toolchain/compiler/ and register in pipeline"
 kind = "experiment"
 status = "done"
@@ -936,7 +938,7 @@ deps = ["rustc-impl.1"]
 
 [[tasks]]
 id = "rustc-impl.3"
-theme = "rustc-impl"
+feature = "rustc-impl"
 title = "Generate rustc-patches/ diffs from toolchain/ changes"
 kind = "experiment"
 status = "done"
@@ -948,7 +950,7 @@ deps = ["rustc-impl.2"]
 
 [[tasks]]
 id = "std-sysroot-build.1"
-theme = "std-sysroot-build"
+feature = "std-sysroot-build"
 title = "Investigation: attempt x.py build with std patches, catalog all errors"
 kind = "investigation"
 status = "done"
@@ -956,7 +958,7 @@ depends = []
 
 [[tasks]]
 id = "std-sysroot-build.2"
-theme = "std-sysroot-build"
+feature = "std-sysroot-build"
 title = "Experiment: fix compilation errors — add missing cfg gates / PAL stubs"
 kind = "experiment"
 status = "done"
@@ -964,7 +966,7 @@ depends = ["std-sysroot-build.1"]
 
 [[tasks]]
 id = "std-sysroot-build.3"
-theme = "std-sysroot-build"
+feature = "std-sysroot-build"
 title = "Experiment: build test kernel with use std::fs::File, verify PTX"
 kind = "experiment"
 status = "done"
@@ -972,7 +974,7 @@ depends = ["std-sysroot-build.2"]
 
 [[tasks]]
 id = "std-sysroot-build.4"
-theme = "std-sysroot-build"
+feature = "std-sysroot-build"
 title = "Experiment: end-to-end test — File::create + write on GPU via hostcall"
 kind = "experiment"
 status = "done"
@@ -982,7 +984,7 @@ depends = ["std-sysroot-build.3"]
 
 [[tasks]]
 id = "gpu-executor.1"
-theme = "gpu-executor"
+feature = "gpu-executor"
 title = "Design: executor API — block_on, yield strategy, timeout, warp-cooperative"
 kind = "design"
 status = "done"
@@ -990,7 +992,7 @@ depends = []
 
 [[tasks]]
 id = "gpu-executor.2"
-theme = "gpu-executor"
+feature = "gpu-executor"
 title = "Experiment: implement block_on in gpu-runtime, refactor async-pipeline"
 kind = "experiment"
 status = "done"
@@ -1000,7 +1002,7 @@ depends = ["gpu-executor.1"]
 
 [[tasks]]
 id = "ptx-codegen-fix.1"
-theme = "ptx-codegen-fix"
+feature = "ptx-codegen-fix"
 title = "Investigation: root cause of .ptr .align N — LLVM or rustc_codegen_llvm?"
 kind = "investigation"
 status = "done"
@@ -1008,7 +1010,7 @@ depends = []
 
 [[tasks]]
 id = "ptx-codegen-fix.2"
-theme = "ptx-codegen-fix"
+feature = "ptx-codegen-fix"
 title = "Experiment: try PTX ISA 7.8+ targeting or add build.rs post-processing for .ptr .align"
 kind = "experiment"
 status = "done"
@@ -1018,7 +1020,7 @@ depends = ["ptx-codegen-fix.1"]
 
 [[tasks]]
 id = "async-std-demo.1"
-theme = "async-std-demo"
+feature = "async-std-demo"
 title = "Design: demo kernel architecture — pipeline stages, Future types, PTX expectations"
 kind = "design"
 status = "done"
@@ -1026,7 +1028,7 @@ depends = []
 
 [[tasks]]
 id = "async-std-demo.2"
-theme = "async-std-demo"
+feature = "async-std-demo"
 title = "Experiment: run existing async-pipeline example end-to-end, verify file I/O"
 kind = "experiment"
 status = "done"
@@ -1034,7 +1036,7 @@ depends = ["async-std-demo.1"]
 
 [[tasks]]
 id = "async-std-demo.3"
-theme = "async-std-demo"
+feature = "async-std-demo"
 title = "Experiment: end-to-end host test + PTX inspection for bar.warp.sync at yield points"
 kind = "experiment"
 status = "done"
@@ -1044,7 +1046,7 @@ depends = ["async-std-demo.2"]
 
 [[tasks]]
 id = "async-bulk-io.1"
-theme = "async-bulk-io"
+feature = "async-bulk-io"
 title = "Investigation: review existing sideband bulk I/O API, design async Future wrappers"
 kind = "investigation"
 status = "done"
@@ -1052,7 +1054,7 @@ depends = []
 
 [[tasks]]
 id = "async-bulk-io.2"
-theme = "async-bulk-io"
+feature = "async-bulk-io"
 title = "Experiment: implement GpuBulkReadFuture + GpuBulkWriteFuture in gpu-runtime"
 kind = "experiment"
 status = "done"
@@ -1060,7 +1062,7 @@ depends = ["async-bulk-io.1"]
 
 [[tasks]]
 id = "async-bulk-io.3"
-theme = "async-bulk-io"
+feature = "async-bulk-io"
 title = "Experiment: end-to-end test — async bulk file read + write from warp-cooperative kernel"
 kind = "experiment"
 status = "done"
@@ -1070,7 +1072,7 @@ depends = ["async-bulk-io.2"]
 
 [[tasks]]
 id = "build-fix.1"
-theme = "build-fix"
+feature = "build-fix"
 title = "Investigation: audit build scripts, identify broken/missing pieces"
 kind = "investigation"
 status = "done"
@@ -1078,7 +1080,7 @@ depends = []
 
 [[tasks]]
 id = "build-fix.2"
-theme = "build-fix"
+feature = "build-fix"
 title = "Experiment: fix build scripts, clean git status, update README build section"
 kind = "experiment"
 status = "done"
@@ -1088,7 +1090,7 @@ depends = ["build-fix.1"]
 
 [[tasks]]
 id = "rustdoc-coverage.1"
-theme = "rustdoc-coverage"
+feature = "rustdoc-coverage"
 title = "Investigation: run cargo doc on gpu-host, catalog missing doc warnings"
 kind = "investigation"
 status = "done"
@@ -1096,7 +1098,7 @@ depends = []
 
 [[tasks]]
 id = "rustdoc-coverage.2"
-theme = "rustdoc-coverage"
+feature = "rustdoc-coverage"
 title = "Experiment: add doc comments to all undocumented pub items in gpu-host"
 kind = "experiment"
 status = "done"
@@ -1106,7 +1108,7 @@ depends = ["rustdoc-coverage.1"]
 
 [[tasks]]
 id = "arch-doc.1"
-theme = "arch-doc"
+feature = "arch-doc"
 title = "Design: outline ARCHITECTURE.md structure"
 kind = "design"
 status = "done"
@@ -1114,7 +1116,7 @@ depends = []
 
 [[tasks]]
 id = "arch-doc.2"
-theme = "arch-doc"
+feature = "arch-doc"
 title = "Experiment: write ARCHITECTURE.md"
 kind = "experiment"
 status = "done"
@@ -1124,7 +1126,7 @@ depends = ["arch-doc.1"]
 
 [[tasks]]
 id = "release-prep.1"
-theme = "release-prep"
+feature = "release-prep"
 title = "Investigation: catalog key milestones for CHANGELOG"
 kind = "investigation"
 status = "done"
@@ -1132,7 +1134,7 @@ depends = []
 
 [[tasks]]
 id = "release-prep.2"
-theme = "release-prep"
+feature = "release-prep"
 title = "Experiment: create CHANGELOG.md and git tag v0.1.0"
 kind = "experiment"
 status = "done"
@@ -1142,7 +1144,7 @@ depends = ["release-prep.1"]
 
 [[tasks]]
 id = "showcase-demo.1"
-theme = "showcase-demo"
+feature = "showcase-demo"
 title = "Design: parallel search kernel architecture"
 kind = "design"
 status = "done"
@@ -1150,7 +1152,7 @@ depends = []
 
 [[tasks]]
 id = "showcase-demo.2"
-theme = "showcase-demo"
+feature = "showcase-demo"
 title = "Experiment: implement parallel file search kernel + host"
 kind = "experiment"
 status = "done"
@@ -1160,7 +1162,7 @@ depends = ["showcase-demo.1"]
 
 [[tasks]]
 id = "readme-polish.1"
-theme = "readme-polish"
+feature = "readme-polish"
 title = "Experiment: add CI badge to README header"
 kind = "experiment"
 status = "done"
@@ -1168,7 +1170,7 @@ depends = []
 
 [[tasks]]
 id = "readme-polish.2"
-theme = "readme-polish"
+feature = "readme-polish"
 title = "Experiment: add warp-cooperative to README examples + write its README"
 kind = "experiment"
 status = "done"
@@ -1178,7 +1180,7 @@ depends = []
 
 [[tasks]]
 id = "contributing-guide.1"
-theme = "contributing-guide"
+feature = "contributing-guide"
 title = "Experiment: write CONTRIBUTING.md"
 kind = "experiment"
 status = "done"
@@ -1188,7 +1190,7 @@ depends = []
 
 [[tasks]]
 id = "ci-hygiene.1"
-theme = "ci-hygiene"
+feature = "ci-hygiene"
 title = "Experiment: add async-pipeline + parallel-search kernels and hosts to ci-lint.sh"
 kind = "experiment"
 status = "done"
@@ -1196,7 +1198,7 @@ depends = []
 
 [[tasks]]
 id = "ci-hygiene.2"
-theme = "ci-hygiene"
+feature = "ci-hygiene"
 title = "Experiment: add missing run scripts (parallel-search, async-pipeline)"
 kind = "experiment"
 status = "done"
@@ -1204,7 +1206,7 @@ depends = ["ci-hygiene.1"]
 
 [[tasks]]
 id = "ci-hygiene.3"
-theme = "ci-hygiene"
+feature = "ci-hygiene"
 title = "Experiment: clean up warp-cooperative scratch directory"
 kind = "experiment"
 status = "done"
@@ -1214,7 +1216,7 @@ depends = []
 
 [[tasks]]
 id = "build-scripts.1"
-theme = "build-scripts"
+feature = "build-scripts"
 title = "Experiment: commit build-toolchain.bat, clean up .ps1 and postprocess-ptx.sh"
 kind = "experiment"
 status = "done"
@@ -1224,7 +1226,7 @@ depends = []
 
 [[tasks]]
 id = "example-docs.1"
-theme = "example-docs"
+feature = "example-docs"
 title = "Experiment: write README.md for async-pipeline and parallel-search"
 kind = "experiment"
 status = "done"
@@ -1232,7 +1234,7 @@ depends = []
 
 [[tasks]]
 id = "example-docs.2"
-theme = "example-docs"
+feature = "example-docs"
 title = "Experiment: write README.md for hello-gpu, async-io, vector-math"
 kind = "experiment"
 status = "done"
@@ -1242,7 +1244,7 @@ depends = []
 
 [[tasks]]
 id = "ci-update.1"
-theme = "ci-update"
+feature = "ci-update"
 title = "Experiment: add parallel-search host check to ci-lint.sh"
 kind = "experiment"
 status = "done"
@@ -1252,7 +1254,7 @@ depends = []
 
 [[tasks]]
 id = "blog-draft.1"
-theme = "blog-draft"
+feature = "blog-draft"
 title = "Experiment: write technical blog post draft"
 kind = "experiment"
 status = "done"
@@ -1264,7 +1266,7 @@ depends = []
 
 [[tasks]]
 id = "net-protocol.1"
-theme = "net-protocol"
+feature = "net-protocol"
 title = "Investigation: design TCP service protocol — service IDs, fd model, sideband usage"
 kind = "investigation"
 status = "done"
@@ -1278,7 +1280,7 @@ questions = [
 
 [[tasks]]
 id = "net-protocol.2"
-theme = "net-protocol"
+feature = "net-protocol"
 title = "Experiment: implement TCP service IDs and constants in gpu-protocol"
 kind = "experiment"
 status = "done"
@@ -1288,7 +1290,7 @@ depends = ["net-protocol.1"]
 
 [[tasks]]
 id = "net-host.1"
-theme = "net-host"
+feature = "net-host"
 title = "Experiment: implement TCP connect/send/recv/close handlers in gpu-host listener"
 kind = "experiment"
 status = "done"
@@ -1298,7 +1300,7 @@ depends = ["net-protocol.2"]
 
 [[tasks]]
 id = "blog-update.1"
-theme = "blog-update"
+feature = "blog-update"
 title = "Experiment: add TCP networking section to BLOG_DRAFT.md"
 kind = "experiment"
 status = "done"
@@ -1308,7 +1310,7 @@ depends = []
 
 [[tasks]]
 id = "changelog-update.1"
-theme = "changelog-update"
+feature = "changelog-update"
 title = "Experiment: update CHANGELOG.md with v0.2.0 section"
 kind = "experiment"
 status = "done"
@@ -1318,7 +1320,7 @@ depends = []
 
 [[tasks]]
 id = "net-demo.1"
-theme = "net-demo"
+feature = "net-demo"
 title = "Experiment: create tcp-echo example (kernel + host)"
 kind = "experiment"
 status = "done"
@@ -1326,7 +1328,7 @@ depends = ["net-host.1", "net-gpu.1"]
 
 [[tasks]]
 id = "net-demo.2"
-theme = "net-demo"
+feature = "net-demo"
 title = "Experiment: update README and ARCHITECTURE.md with TCP networking"
 kind = "experiment"
 status = "done"
@@ -1336,7 +1338,7 @@ depends = ["net-demo.1"]
 
 [[tasks]]
 id = "net-gpu.1"
-theme = "net-gpu"
+feature = "net-gpu"
 title = "Experiment: implement GpuTcpConnectFuture/SendFuture/RecvFuture in gpu-runtime"
 kind = "experiment"
 status = "done"
@@ -1346,7 +1348,7 @@ depends = ["net-protocol.2"]
 
 [[tasks]]
 id = "safety-audit.1"
-theme = "safety-audit"
+feature = "safety-audit"
 title = "Investigation: catalog unsafe blocks in hostcall CAS/packet/PAL code, classify by risk"
 kind = "investigation"
 status = "done"
@@ -1360,7 +1362,7 @@ questions = [
 
 [[tasks]]
 id = "safety-audit.2"
-theme = "safety-audit"
+feature = "safety-audit"
 title = "Experiment: add // SAFETY comments to high/medium-risk unsafe blocks"
 kind = "experiment"
 status = "done"
@@ -1370,7 +1372,7 @@ depends = ["safety-audit.1"]
 
 [[tasks]]
 id = "api-docs.1"
-theme = "api-docs"
+feature = "api-docs"
 title = "Experiment: add //! module docs to gpu-host lib.rs and hostcall.rs"
 kind = "experiment"
 status = "done"
@@ -1382,7 +1384,7 @@ depends = []
 
 [[tasks]]
 id = "tla-model.1"
-theme = "tla-model"
+feature = "tla-model"
 title = "Investigation: learn TLA+ basics, identify protocol aspects to model"
 kind = "investigation"
 status = "done"
@@ -1390,7 +1392,7 @@ depends = []
 
 [[tasks]]
 id = "tla-model.2"
-theme = "tla-model"
+feature = "tla-model"
 title = "Experiment: write TLA+ spec for packet lifecycle FSM"
 kind = "experiment"
 status = "done"
@@ -1398,7 +1400,7 @@ depends = ["tla-model.1"]
 
 [[tasks]]
 id = "tla-model.3"
-theme = "tla-model"
+feature = "tla-model"
 title = "Experiment: add multi-agent contention model, verify safety + liveness"
 kind = "experiment"
 status = "done"
@@ -1408,7 +1410,7 @@ depends = ["tla-model.2"]
 
 [[tasks]]
 id = "build-stabilize.1"
-theme = "build-stabilize"
+feature = "build-stabilize"
 title = "Experiment: finalize build-toolchain scripts (.ps1/.bat/.sh state)"
 kind = "experiment"
 status = "done"
@@ -1418,7 +1420,7 @@ depends = []
 
 [[tasks]]
 id = "validation-prep.1"
-theme = "validation-prep"
+feature = "validation-prep"
 title = "Experiment: write VALIDATION.md with first-run checklist and smoke test"
 kind = "experiment"
 status = "done"
@@ -1428,7 +1430,7 @@ depends = []
 
 [[tasks]]
 id = "readme-tla.1"
-theme = "readme-tla"
+feature = "readme-tla"
 title = "Experiment: add formal verification section to README.md"
 kind = "experiment"
 status = "done"
@@ -1438,7 +1440,7 @@ depends = []
 
 [[tasks]]
 id = "executor-design.1"
-theme = "executor-design"
+feature = "executor-design"
 title = "Design: GPU-side async executor with work-stealing"
 kind = "design"
 status = "done"
@@ -1448,7 +1450,7 @@ depends = []
 
 [[tasks]]
 id = "executor-impl.1"
-theme = "executor-impl"
+feature = "executor-impl"
 title = "Investigation: verify indirect fn pointers work on nvptx64 PTX"
 kind = "investigation"
 status = "done"
@@ -1456,7 +1458,7 @@ depends = []
 
 [[tasks]]
 id = "executor-impl.2"
-theme = "executor-impl"
+feature = "executor-impl"
 title = "Experiment: implement WorkQueue + TaskSlot arena"
 kind = "experiment"
 status = "done"
@@ -1464,7 +1466,7 @@ depends = ["executor-impl.1"]
 
 [[tasks]]
 id = "executor-impl.3"
-theme = "executor-impl"
+feature = "executor-impl"
 title = "Experiment: implement executor loop + spawn() API"
 kind = "experiment"
 status = "done"
@@ -1472,7 +1474,7 @@ depends = ["executor-impl.2"]
 
 [[tasks]]
 id = "executor-impl.4"
-theme = "executor-impl"
+feature = "executor-impl"
 title = "Experiment: demo kernel with dynamic task spawning"
 kind = "experiment"
 status = "done"
@@ -1482,7 +1484,7 @@ depends = ["executor-impl.3"]
 
 [[tasks]]
 id = "std-sync.1"
-theme = "std-sync"
+feature = "std-sync"
 title = "Investigation: GPU sync primitive feasibility (Mutex, RwLock, Barrier)"
 kind = "investigation"
 status = "done"
@@ -1490,7 +1492,7 @@ depends = []
 
 [[tasks]]
 id = "std-sync.2"
-theme = "std-sync"
+feature = "std-sync"
 title = "Experiment: implement GPU Mutex<T> via atomic CAS"
 kind = "experiment"
 status = "done"
@@ -1498,7 +1500,7 @@ depends = ["std-sync.1"]
 
 [[tasks]]
 id = "std-sync.3"
-theme = "std-sync"
+feature = "std-sync"
 title = "Experiment: implement GPU-side HashMap with bump allocator"
 kind = "experiment"
 status = "done"
@@ -1508,7 +1510,7 @@ depends = ["std-sync.1"]
 
 [[tasks]]
 id = "api-ergonomics.1"
-theme = "api-ergonomics"
+feature = "api-ergonomics"
 title = "Investigation: audit API pain points from all 7 examples"
 kind = "investigation"
 status = "done"
@@ -1516,7 +1518,7 @@ depends = []
 
 [[tasks]]
 id = "api-ergonomics.2"
-theme = "api-ergonomics"
+feature = "api-ergonomics"
 title = "Experiment: builder pattern for HostcallBuffer + session management"
 kind = "experiment"
 status = "done"
@@ -1524,7 +1526,7 @@ depends = ["api-ergonomics.1"]
 
 [[tasks]]
 id = "api-ergonomics.3"
-theme = "api-ergonomics"
+feature = "api-ergonomics"
 title = "Experiment: update remaining examples to use HostcallSession + require_func"
 kind = "experiment"
 status = "done"
@@ -1534,7 +1536,7 @@ depends = ["api-ergonomics.1"]
 
 [[tasks]]
 id = "bench-suite.1"
-theme = "bench-suite"
+feature = "bench-suite"
 title = "Investigation: design benchmark suite (metrics, methodology, baselines)"
 kind = "investigation"
 status = "done"
@@ -1542,7 +1544,7 @@ depends = []
 
 [[tasks]]
 id = "bench-suite.2"
-theme = "bench-suite"
+feature = "bench-suite"
 title = "Experiment: hostcall throughput + scalability benchmark"
 kind = "experiment"
 status = "done"
@@ -1550,7 +1552,7 @@ depends = ["bench-suite.1"]
 
 [[tasks]]
 id = "bench-suite.3"
-theme = "bench-suite"
+feature = "bench-suite"
 title = "Experiment: file I/O latency + throughput benchmark"
 kind = "experiment"
 status = "done"
@@ -1558,7 +1560,7 @@ depends = ["bench-suite.1"]
 
 [[tasks]]
 id = "bench-suite.4"
-theme = "bench-suite"
+feature = "bench-suite"
 title = "Design: consolidated benchmark results document"
 kind = "design"
 status = "done"
@@ -1568,7 +1570,7 @@ depends = ["bench-suite.2", "bench-suite.3"]
 
 [[tasks]]
 id = "api-examples.1"
-theme = "api-examples"
+feature = "api-examples"
 title = "Experiment: create hello-gpu standalone example"
 kind = "experiment"
 status = "done"
@@ -1576,7 +1578,7 @@ depends = ["api-ergonomics.2"]
 
 [[tasks]]
 id = "api-examples.2"
-theme = "api-examples"
+feature = "api-examples"
 title = "Experiment: create async-io example (file read/write on GPU)"
 kind = "experiment"
 status = "done"
@@ -1584,7 +1586,7 @@ depends = ["api-ergonomics.2"]
 
 [[tasks]]
 id = "api-examples.3"
-theme = "api-examples"
+feature = "api-examples"
 title = "Experiment: create compute example (data pipeline on GPU)"
 kind = "experiment"
 status = "done"
@@ -1594,7 +1596,7 @@ depends = ["api-ergonomics.2"]
 
 [[tasks]]
 id = "api-build.1"
-theme = "api-build"
+feature = "api-build"
 title = "Experiment: single-command build (xtask or build.rs)"
 kind = "experiment"
 status = "done"
@@ -1606,7 +1608,7 @@ depends = []
 
 [[tasks]]
 id = "compute-audit.1"
-theme = "compute-audit"
+feature = "compute-audit"
 title = "Investigation: full scan of all compute functions in codebase"
 kind = "investigation"
 status = "done"
@@ -1620,7 +1622,7 @@ questions = [
 
 [[tasks]]
 id = "compute-audit.2"
-theme = "compute-audit"
+feature = "compute-audit"
 title = "Design: decide API surface for gpu_runtime::compute"
 kind = "design"
 status = "done"
@@ -1630,7 +1632,7 @@ depends = ["compute-audit.1"]
 
 [[tasks]]
 id = "compute-extract.1"
-theme = "compute-extract"
+feature = "compute-extract"
 title = "Experiment: extract all compute primitives (index/math/warp/block/nn)"
 kind = "experiment"
 status = "done"
@@ -1638,7 +1640,7 @@ depends = ["compute-audit.2"]
 
 [[tasks]]
 id = "compute-extract.2"
-theme = "compute-extract"
+feature = "compute-extract"
 title = "Experiment: add block-level reduction (shared mem reduce_sum/max/min)"
 kind = "experiment"
 status = "done"
@@ -1646,7 +1648,7 @@ depends = ["compute-extract.1"]
 
 [[tasks]]
 id = "compute-extract.3"
-theme = "compute-extract"
+feature = "compute-extract"
 title = "Experiment: add warp_softmax_f32 and warp_layer_norm_f32 to nn module"
 kind = "experiment"
 status = "done"
@@ -1656,7 +1658,7 @@ depends = ["compute-extract.1"]
 
 [[tasks]]
 id = "demo-pipeline.1"
-theme = "demo-pipeline"
+feature = "demo-pipeline"
 title = "Design: choose compute demo scenario and architecture"
 kind = "design"
 status = "done"
@@ -1664,7 +1666,7 @@ depends = ["compute-extract.1"]
 
 [[tasks]]
 id = "demo-pipeline.2"
-theme = "demo-pipeline"
+feature = "demo-pipeline"
 title = "Experiment: implement multi-stage compute pipeline demo"
 kind = "experiment"
 status = "done"
@@ -1672,7 +1674,7 @@ depends = ["demo-pipeline.1", "compute-extract.3"]
 
 [[tasks]]
 id = "demo-pipeline.3"
-theme = "demo-pipeline"
+feature = "demo-pipeline"
 title = "Experiment: benchmark async pipeline vs sequential kernel launches"
 kind = "experiment"
 status = "done"
@@ -1682,7 +1684,7 @@ depends = ["demo-pipeline.2"]
 
 [[tasks]]
 id = "channel-oneshot.1"
-theme = "channel-oneshot"
+feature = "channel-oneshot"
 title = "Investigation: oneshot channel design for GPU async tasks"
 kind = "investigation"
 status = "done"
@@ -1690,7 +1692,7 @@ depends = []
 
 [[tasks]]
 id = "channel-oneshot.2"
-theme = "channel-oneshot"
+feature = "channel-oneshot"
 title = "Experiment: implement Oneshot<T> sender + receiver on GPU"
 kind = "experiment"
 status = "done"
@@ -1698,7 +1700,7 @@ depends = ["channel-oneshot.1"]
 
 [[tasks]]
 id = "channel-oneshot.3"
-theme = "channel-oneshot"
+feature = "channel-oneshot"
 title = "Experiment: oneshot receiver as Future (poll returns Pending until sent)"
 kind = "experiment"
 status = "done"
@@ -1708,7 +1710,7 @@ depends = ["channel-oneshot.2"]
 
 [[tasks]]
 id = "channel-mpsc.1"
-theme = "channel-mpsc"
+feature = "channel-mpsc"
 title = "Investigation: MPSC channel design — lock-free ring buffer on GPU"
 kind = "investigation"
 status = "done"
@@ -1716,7 +1718,7 @@ depends = ["channel-oneshot.1"]
 
 [[tasks]]
 id = "channel-mpsc.2"
-theme = "channel-mpsc"
+feature = "channel-mpsc"
 title = "Experiment: implement Mpsc<T> sender + receiver on GPU"
 kind = "experiment"
 status = "done"
@@ -1726,7 +1728,7 @@ depends = ["channel-mpsc.1", "channel-oneshot.3"]
 
 [[tasks]]
 id = "channel-waker.1"
-theme = "channel-waker"
+feature = "channel-waker"
 title = "Investigation: waker integration — how sender wakes receiver task"
 kind = "investigation"
 status = "done"
@@ -1734,7 +1736,7 @@ depends = ["channel-oneshot.1"]
 
 [[tasks]]
 id = "channel-waker.2"
-theme = "channel-waker"
+feature = "channel-waker"
 title = "Experiment: implement waker-based wake-on-send for channels"
 kind = "experiment"
 status = "done"
@@ -1746,7 +1748,7 @@ depends = ["channel-waker.1", "channel-oneshot.2"]
 
 [[tasks]]
 id = "tokio-investigate.1"
-theme = "tokio-investigate"
+feature = "tokio-investigate"
 title = "Investigation: current host threading model and tokio integration points"
 kind = "investigation"
 status = "done"
@@ -1754,7 +1756,7 @@ depends = []
 
 [[tasks]]
 id = "tokio-investigate.2"
-theme = "tokio-investigate"
+feature = "tokio-investigate"
 title = "Design: tokio bridge architecture (GpuRuntime + gpu_spawn API)"
 kind = "design"
 status = "done"
@@ -1764,7 +1766,7 @@ depends = ["tokio-investigate.1"]
 
 [[tasks]]
 id = "tokio-impl.1"
-theme = "tokio-impl"
+feature = "tokio-impl"
 title = "Experiment: implement GpuTask struct in async_rt.rs"
 kind = "experiment"
 status = "done"
@@ -1774,7 +1776,7 @@ depends = ["tokio-investigate.2"]
 
 [[tasks]]
 id = "tokio-demo.1"
-theme = "tokio-demo"
+feature = "tokio-demo"
 title = "Experiment: build tokio GPU compute offload example"
 kind = "experiment"
 status = "done"
@@ -1784,7 +1786,7 @@ depends = ["tokio-impl.1"]
 
 [[tasks]]
 id = "multi-gpu.1"
-theme = "multi-gpu"
+feature = "multi-gpu"
 title = "Investigation: current GpuRuntime device handling and cudarc multi-device support"
 kind = "investigation"
 status = "done"
@@ -1798,7 +1800,7 @@ questions = [
 
 [[tasks]]
 id = "multi-gpu.2"
-theme = "multi-gpu"
+feature = "multi-gpu"
 title = "Experiment: implement multi-GPU device enumeration + validation"
 kind = "experiment"
 status = "done"
@@ -1806,7 +1808,7 @@ depends = ["multi-gpu.1"]
 
 [[tasks]]
 id = "cuda-streams.1"
-theme = "cuda-streams"
+feature = "cuda-streams"
 title = "Investigation: cudarc stream API and async launch patterns"
 kind = "investigation"
 status = "done"
@@ -1820,7 +1822,7 @@ questions = [
 
 [[tasks]]
 id = "cuda-streams.2"
-theme = "cuda-streams"
+feature = "cuda-streams"
 title = "Design: stream-aware launch wrapper + per-stream sync API"
 kind = "design"
 status = "done"
@@ -1828,7 +1830,7 @@ depends = ["cuda-streams.1"]
 
 [[tasks]]
 id = "cuda-streams.3"
-theme = "cuda-streams"
+feature = "cuda-streams"
 title = "Experiment: implement GpuStream wrapper + basic overlap test"
 kind = "experiment"
 status = "done"
@@ -1836,7 +1838,7 @@ depends = ["cuda-streams.2"]
 
 [[tasks]]
 id = "gpu-alloc.1"
-theme = "gpu-alloc"
+feature = "gpu-alloc"
 title = "Investigation: current GPU allocator design and slab allocator options"
 kind = "investigation"
 status = "done"
@@ -1850,7 +1852,7 @@ questions = [
 
 [[tasks]]
 id = "prebuilt-toolchain.1"
-theme = "prebuilt-toolchain"
+feature = "prebuilt-toolchain"
 title = "Investigation: CI workflow for building + publishing patched rustc"
 kind = "investigation"
 status = "done"
@@ -1864,7 +1866,7 @@ questions = [
 
 [[tasks]]
 id = "prebuilt-toolchain.2"
-theme = "prebuilt-toolchain"
+feature = "prebuilt-toolchain"
 title = "Experiment: create CI workflow + download script for pre-built toolchain"
 kind = "experiment"
 status = "done"
@@ -1876,7 +1878,7 @@ depends = ["prebuilt-toolchain.1"]
 
 [[tasks]]
 id = "mma-splitk.1"
-theme = "mma-splitk"
+feature = "mma-splitk"
 title = "Investigation: study split-K GEMM implementations (CUTLASS, cuBLAS patterns)"
 kind = "investigation"
 status = "done"
@@ -1884,7 +1886,7 @@ depends = []
 
 [[tasks]]
 id = "mma-splitk.2"
-theme = "mma-splitk"
+feature = "mma-splitk"
 title = "Experiment: implement split-K f16 MMA GEMM kernel + fix fragment mapping bug"
 kind = "experiment"
 status = "done"
@@ -1892,7 +1894,7 @@ depends = ["mma-splitk.1"]
 
 [[tasks]]
 id = "mma-splitk.3"
-theme = "mma-splitk"
+feature = "mma-splitk"
 title = "Experiment: direct f16 weight loading (eliminate f32->f16 truncation)"
 kind = "experiment"
 status = "done"
@@ -1900,7 +1902,7 @@ depends = ["mma-splitk.1"]
 
 [[tasks]]
 id = "mma-splitk.4"
-theme = "mma-splitk"
+feature = "mma-splitk"
 title = "Experiment: GPT-2 inference with MMA — validate top-5 agreement"
 kind = "experiment"
 status = "done"
@@ -1908,7 +1910,7 @@ depends = ["mma-splitk.2"]
 
 [[tasks]]
 id = "mma-splitk.5"
-theme = "mma-splitk"
+feature = "mma-splitk"
 title = "Experiment: benchmark split-K MMA throughput and per-token latency"
 kind = "experiment"
 status = "done"
@@ -1918,7 +1920,7 @@ depends = ["mma-splitk.4"]
 
 [[tasks]]
 id = "yolo-inference.1"
-theme = "yolo-inference"
+feature = "yolo-inference"
 title = "Investigation: YOLOv8-nano architecture mapping"
 kind = "investigation"
 status = "done"
@@ -1926,7 +1928,7 @@ depends = []
 
 [[tasks]]
 id = "yolo-inference.2"
-theme = "yolo-inference"
+feature = "yolo-inference"
 title = "Experiment: Conv2D kernel (im2col + GEMM)"
 kind = "experiment"
 status = "done"
@@ -1934,7 +1936,7 @@ depends = ["yolo-inference.1"]
 
 [[tasks]]
 id = "yolo-inference.3"
-theme = "yolo-inference"
+feature = "yolo-inference"
 title = "Experiment: BatchNorm + SiLU fused kernel"
 kind = "experiment"
 status = "done"
@@ -1942,7 +1944,7 @@ depends = []
 
 [[tasks]]
 id = "yolo-inference.4"
-theme = "yolo-inference"
+feature = "yolo-inference"
 title = "Experiment: MaxPool2D + Upsample + Concat kernels"
 kind = "experiment"
 status = "done"
@@ -1950,7 +1952,7 @@ depends = []
 
 [[tasks]]
 id = "yolo-inference.5"
-theme = "yolo-inference"
+feature = "yolo-inference"
 title = "Experiment: weight loading + image I/O"
 kind = "experiment"
 status = "done"
@@ -1958,7 +1960,7 @@ depends = ["yolo-inference.1"]
 
 [[tasks]]
 id = "yolo-inference.6"
-theme = "yolo-inference"
+feature = "yolo-inference"
 title = "Experiment: backbone integration (Conv + BN + SiLU chain)"
 kind = "experiment"
 status = "done"
@@ -1966,7 +1968,7 @@ depends = ["yolo-inference.2", "yolo-inference.3", "yolo-inference.5"]
 
 [[tasks]]
 id = "yolo-inference.7"
-theme = "yolo-inference"
+feature = "yolo-inference"
 title = "Experiment: detection head + NMS"
 kind = "experiment"
 status = "done"
@@ -1974,7 +1976,7 @@ depends = ["yolo-inference.6", "yolo-inference.4"]
 
 [[tasks]]
 id = "yolo-inference.8"
-theme = "yolo-inference"
+feature = "yolo-inference"
 title = "Experiment: end-to-end demo + validation"
 kind = "experiment"
 status = "done"
@@ -1984,7 +1986,7 @@ depends = ["yolo-inference.7"]
 
 [[tasks]]
 id = "codebase-update.1"
-theme = "codebase-update"
+feature = "codebase-update"
 title = "Fix: update README with MMA GEMM and YOLOv8-nano achievements"
 kind = "experiment"
 status = "done"
@@ -1992,7 +1994,7 @@ depends = []
 
 [[tasks]]
 id = "codebase-update.2"
-theme = "codebase-update"
+feature = "codebase-update"
 title = "Fix: consolidate nightly toolchain version in build scripts"
 kind = "experiment"
 status = "done"
@@ -2000,7 +2002,7 @@ depends = []
 
 [[tasks]]
 id = "codebase-update.3"
-theme = "codebase-update"
+feature = "codebase-update"
 title = "Fix: ensure all examples and test crates covered in ci-lint.sh"
 kind = "experiment"
 status = "done"
@@ -2010,7 +2012,7 @@ depends = []
 
 [[tasks]]
 id = "dx-xtask.1"
-theme = "dx-xtask"
+feature = "dx-xtask"
 title = "Investigation: audit current build flows (build.rs, ci-lint.sh, PTX post-processing)"
 kind = "investigation"
 status = "done"
@@ -2018,7 +2020,7 @@ depends = []
 
 [[tasks]]
 id = "dx-xtask.2"
-theme = "dx-xtask"
+feature = "dx-xtask"
 title = "Experiment: implement xtask crate with gpu-build subcommand"
 kind = "experiment"
 status = "done"
@@ -2026,7 +2028,7 @@ depends = ["dx-xtask.1"]
 
 [[tasks]]
 id = "dx-xtask.3"
-theme = "dx-xtask"
+feature = "dx-xtask"
 title = "Experiment: add per-example build support + PTX post-processing"
 kind = "experiment"
 status = "done"
@@ -2036,7 +2038,7 @@ depends = ["dx-xtask.2"]
 
 [[tasks]]
 id = "dx-editor.1"
-theme = "dx-editor"
+feature = "dx-editor"
 title = "Investigation: test RA behavior with nvptx64 target, identify what works"
 kind = "investigation"
 status = "done"
@@ -2044,7 +2046,7 @@ depends = []
 
 [[tasks]]
 id = "dx-editor.2"
-theme = "dx-editor"
+feature = "dx-editor"
 title = "Experiment: create RA configuration that maximizes useful analysis"
 kind = "experiment"
 status = "done"
@@ -2054,7 +2056,7 @@ depends = ["dx-editor.1"]
 
 [[tasks]]
 id = "dx-setup.1"
-theme = "dx-setup"
+feature = "dx-setup"
 title = "Investigation: verify what pre-built toolchain artifacts exist (CI, releases)"
 kind = "investigation"
 status = "done"
@@ -2062,7 +2064,7 @@ depends = []
 
 [[tasks]]
 id = "dx-setup.2"
-theme = "dx-setup"
+feature = "dx-setup"
 title = "Experiment: write setup scripts for Linux + Windows"
 kind = "experiment"
 status = "done"
@@ -2074,7 +2076,7 @@ depends = ["dx-setup.1"]
 
 [[tasks]]
 id = "ve-nn-unit-tests.4"
-theme = "ve-nn-unit-tests"
+feature = "ve-nn-unit-tests"
 title = "Add MultiHeadAttention numerical correctness test"
 kind = "experiment"
 status = "done"
@@ -2083,7 +2085,7 @@ status = "done"
 
 [[tasks]]
 id = "ti-cpu-ref.5"
-theme = "ti-cpu-ref"
+feature = "ti-cpu-ref"
 title = "Per-op validation tests: GPU output vs CPU f64 reference for all 13 ops"
 kind = "experiment"
 status = "done"
@@ -2092,7 +2094,7 @@ status = "done"
 
 [[tasks]]
 id = "ag-demo.1"
-theme = "ag-demo"
+feature = "ag-demo"
 title = "End-to-end training: 2-layer MLP on XOR/MNIST, verify loss converges"
 kind = "experiment"
 status = "done"
@@ -2101,14 +2103,14 @@ status = "done"
 
 [[tasks]]
 id = "gs-spike.1"
-theme = "gs-spike"
+feature = "gs-spike"
 title = "Audit all unsafe blocks in nn module + tensor.rs for lifetime safety gaps"
 kind = "investigation"
 status = "done"
 
 [[tasks]]
 id = "gs-spike.2"
-theme = "gs-spike"
+feature = "gs-spike"
 title = "Write decision doc: GpuRef vs arena vs current RAII — with concrete bug scenarios"
 kind = "design"
 status = "done"
@@ -2117,7 +2119,7 @@ status = "done"
 
 [[tasks]]
 id = "ag2-train-demo.2"
-theme = "ag2-train-demo"
+feature = "ag2-train-demo"
 title = "Train small CNN on CIFAR-10, verify loss converges"
 kind = "experiment"
 status = "done"
@@ -2126,7 +2128,7 @@ status = "done"
 
 [[tasks]]
 id = "te-cifar.3"
-theme = "te-cifar"
+feature = "te-cifar"
 title = "Run CIFAR-10 training, verify loss decreases and accuracy > random"
 kind = "experiment"
 status = "done"
@@ -2135,14 +2137,14 @@ status = "done"
 
 [[tasks]]
 id = "tp-batch-conv.1"
-theme = "tp-batch-conv"
+feature = "tp-batch-conv"
 title = "Extend conv2d op to accept batched [N,C,H,W] input"
 kind = "experiment"
 status = "done"
 
 [[tasks]]
 id = "tp-batch-conv.2"
-theme = "tp-batch-conv"
+feature = "tp-batch-conv"
 title = "Benchmark CIFAR-10 GPU vs CPU after batched conv2d"
 kind = "experiment"
 status = "done"
@@ -2151,28 +2153,28 @@ status = "done"
 
 [[tasks]]
 id = "tp-audit.1"
-theme = "tp-audit"
+feature = "tp-audit"
 title = "Subagent audit: conv2d correctness — verify all dimensions match CPU"
 kind = "investigation"
 status = "done"
 
 [[tasks]]
 id = "tp-audit.2"
-theme = "tp-audit"
+feature = "tp-audit"
 title = "Subagent audit: YOLO nn model vs raw yolo_backbone — compare detections"
 kind = "investigation"
 status = "done"
 
 [[tasks]]
 id = "tp-audit.3"
-theme = "tp-audit"
+feature = "tp-audit"
 title = "Subagent audit: CIFAR GPU training — trace gradient flow end-to-end"
 kind = "investigation"
 status = "done"
 
 [[tasks]]
 id = "tp-audit.4"
-theme = "tp-audit"
+feature = "tp-audit"
 title = "Fix all issues found by audit subagents"
 kind = "experiment"
 status = "done"
@@ -2181,21 +2183,21 @@ status = "done"
 
 [[tasks]]
 id = "tv-impl.1"
-theme = "tv-impl"
+feature = "tv-impl"
 title = "Refactor GpuTensor to use Arc<CudaSlice<f32>> + offset + length"
 kind = "experiment"
 status = "done"
 
 [[tasks]]
 id = "tv-impl.2"
-theme = "tv-impl"
+feature = "tv-impl"
 title = "Zero-copy reshape: return view when numel matches"
 kind = "experiment"
 status = "done"
 
 [[tasks]]
 id = "tv-impl.3"
-theme = "tv-impl"
+feature = "tv-impl"
 title = "Benchmark: conv2d + CIFAR training after view optimization"
 kind = "experiment"
 status = "done"
@@ -2204,7 +2206,7 @@ status = "done"
 
 [[tasks]]
 id = "np-mha.1"
-theme = "np-mha"
+feature = "np-mha"
 title = "Rewrite MHA forward to use GPU split_qkv + multi-head flash_attention + concat_heads"
 kind = "experiment"
 status = "done"
@@ -2213,35 +2215,35 @@ status = "done"
 
 [[tasks]]
 id = "ag3-foundation.1"
-theme = "ag3-foundation"
+feature = "ag3-foundation"
 title = "Wire CrossEntropy backward into tape dispatcher"
 kind = "experiment"
 status = "skipped"
 
 [[tasks]]
 id = "ag3-foundation.2"
-theme = "ag3-foundation"
+feature = "ag3-foundation"
 title = "GPU-side optimizer: sgd_step/adam_step without host roundtrip"
 kind = "experiment"
 status = "skipped"
 
 [[tasks]]
 id = "ag3-foundation.3"
-theme = "ag3-foundation"
+feature = "ag3-foundation"
 title = "conv2d backward: compute dWeight (not just dInput)"
 kind = "experiment"
 status = "skipped"
 
 [[tasks]]
 id = "ag3-foundation.4"
-theme = "ag3-foundation"
+feature = "ag3-foundation"
 title = "Linear weight pre-padding: pad once in constructor, skip in matmul"
 kind = "experiment"
 status = "skipped"
 
 [[tasks]]
 id = "ag3-foundation.5"
-theme = "ag3-foundation"
+feature = "ag3-foundation"
 title = "Benchmark: GPT-2 nn API after weight pre-padding"
 kind = "experiment"
 status = "skipped"
@@ -2250,21 +2252,21 @@ status = "skipped"
 
 [[tasks]]
 id = "ag3-lora.1"
-theme = "ag3-lora"
+feature = "ag3-lora"
 title = "Implement LoRA adapter (low-rank Linear wrapper with A,B matrices)"
 kind = "experiment"
 status = "done"
 
 [[tasks]]
 id = "ag3-lora.2"
-theme = "ag3-lora"
+feature = "ag3-lora"
 title = "Download WikiText-2 subset + tokenize for training"
 kind = "experiment"
 status = "done"
 
 [[tasks]]
 id = "ag3-lora.3"
-theme = "ag3-lora"
+feature = "ag3-lora"
 title = "GPT-2 LoRA training loop: freeze base, train adapters, verify loss converges"
 kind = "experiment"
 status = "done"
@@ -2273,7 +2275,7 @@ status = "done"
 
 [[tasks]]
 id = "lt-mnist-cnn.1"
-theme = "lt-mnist-cnn"
+feature = "lt-mnist-cnn"
 title = "Implement MNIST CNN training example with GPU conv2d + autograd"
 kind = "experiment"
 status = "done"
@@ -2282,7 +2284,7 @@ status = "done"
 
 [[tasks]]
 id = "mp-measure.1"
-theme = "mp-measure"
+feature = "mp-measure"
 title = "Profile CUDA alloc overhead in MNIST training loop"
 kind = "investigation"
 status = "done"
@@ -2291,14 +2293,14 @@ status = "done"
 
 [[tasks]]
 id = "rn-inference.1"
-theme = "rn-inference"
+feature = "rn-inference"
 title = "Implement ResNet-18 model definition (BasicBlock + ResNet struct)"
 kind = "experiment"
 status = "done"
 
 [[tasks]]
 id = "rn-inference.2"
-theme = "rn-inference"
+feature = "rn-inference"
 title = "Create ResNet-18 CIFAR-10 inference example with random weights"
 kind = "experiment"
 status = "done"
@@ -2307,14 +2309,14 @@ status = "done"
 
 [[tasks]]
 id = "rn-training.1"
-theme = "rn-training"
+feature = "rn-training"
 title = "Implement proper batch_norm backward (dGamma, dBeta, dInput)"
 kind = "experiment"
 status = "done"
 
 [[tasks]]
 id = "rn-training.2"
-theme = "rn-training"
+feature = "rn-training"
 title = "ResNet-18 CIFAR-10 training loop with full backward"
 kind = "experiment"
 status = "done"
@@ -2323,21 +2325,21 @@ status = "done"
 
 [[tasks]]
 id = "cb-kernels.1"
-theme = "cb-kernels"
+feature = "cb-kernels"
 title = "Implement GPU conv2d_backward_dweight kernel (im2col-based)"
 kind = "experiment"
 status = "done"
 
 [[tasks]]
 id = "cb-kernels.2"
-theme = "cb-kernels"
+feature = "cb-kernels"
 title = "Implement GPU conv2d_backward_dinput kernel (col2im-based)"
 kind = "experiment"
 status = "done"
 
 [[tasks]]
 id = "cb-kernels.3"
-theme = "cb-kernels"
+feature = "cb-kernels"
 title = "Wire GPU conv2d backward into autograd tape dispatcher"
 kind = "experiment"
 status = "done"
@@ -2346,14 +2348,14 @@ status = "done"
 
 [[tasks]]
 id = "cb-batched.1"
-theme = "cb-batched"
+feature = "cb-batched"
 title = "Extend conv2d backward to accept batched [N,C,H,W] input"
 kind = "experiment"
 status = "done"
 
 [[tasks]]
 id = "cb-batched.2"
-theme = "cb-batched"
+feature = "cb-batched"
 title = "Benchmark MNIST CNN with GPU batched backward vs CPU backward"
 kind = "experiment"
 status = "done"
@@ -2362,21 +2364,21 @@ status = "done"
 
 [[tasks]]
 id = "gl-schema.1"
-theme = "gl-schema"
+feature = "gl-schema"
 title = "Investigate current weight loading patterns across GPT-2, YOLO, ResNet"
 kind = "investigation"
 status = "done"
 
 [[tasks]]
 id = "gl-schema.2"
-theme = "gl-schema"
+feature = "gl-schema"
 title = "Design and implement ModelDef schema + generic load_weights()"
 kind = "experiment"
 status = "done"
 
 [[tasks]]
 id = "gl-schema.3"
-theme = "gl-schema"
+feature = "gl-schema"
 title = "Migrate GPT-2 to generic loader, verify regression"
 kind = "experiment"
 status = "done"
@@ -2385,14 +2387,14 @@ status = "done"
 
 [[tasks]]
 id = "gl-resnet.1"
-theme = "gl-resnet"
+feature = "gl-resnet"
 title = "Export PyTorch ResNet-18 CIFAR-10 pretrained weights to safetensors"
 kind = "experiment"
 status = "done"
 
 [[tasks]]
 id = "gl-resnet.2"
-theme = "gl-resnet"
+feature = "gl-resnet"
 title = "Load pretrained ResNet-18 via generic loader, verify >90% accuracy"
 kind = "experiment"
 status = "done"
@@ -2401,7 +2403,7 @@ status = "done"
 
 [[tasks]]
 id = "gl-yolo.1"
-theme = "gl-yolo"
+feature = "gl-yolo"
 title = "Implement YOLOv8 from_safetensors using generic loader"
 kind = "experiment"
 status = "done"
@@ -2410,7 +2412,7 @@ status = "done"
 
 [[tasks]]
 id = "tq-resnet.1"
-theme = "tq-resnet"
+feature = "tq-resnet"
 title = "Mini-ResNet full conv training with GPU backward on CIFAR-10"
 kind = "experiment"
 status = "done"
@@ -2419,7 +2421,7 @@ status = "done"
 
 [[tasks]]
 id = "tq-lora.1"
-theme = "tq-lora"
+feature = "tq-lora"
 title = "Rewrite gpt2-lora example to use LoraLinear + autograd tape"
 kind = "experiment"
 status = "done"
@@ -2430,21 +2432,21 @@ status = "done"
 
 [[tasks]]
 id = "rag-embed.1"
-theme = "rag-embed"
+feature = "rag-embed"
 title = "Investigation: how to embed text chunks for GPU vector search"
 kind = "investigation"
 status = "done"
 
 [[tasks]]
 id = "rag-embed.2"
-theme = "rag-embed"
+feature = "rag-embed"
 title = "GPU cosine similarity kernel + top-K selection"
 kind = "experiment"
 status = "done"
 
 [[tasks]]
 id = "rag-embed.3"
-theme = "rag-embed"
+feature = "rag-embed"
 title = "Vector store: load pre-embedded chunks, benchmark search latency"
 kind = "experiment"
 status = "done"
@@ -2453,21 +2455,21 @@ status = "done"
 
 [[tasks]]
 id = "rag-pipeline.1"
-theme = "rag-pipeline"
+feature = "rag-pipeline"
 title = "Investigation: how to orchestrate RAG in a single kernel with hostcall"
 kind = "investigation"
 status = "done"
 
 [[tasks]]
 id = "rag-pipeline.2"
-theme = "rag-pipeline"
+feature = "rag-pipeline"
 title = "Implement autonomous RAG kernel: query → search → GPT-2 generate → output"
 kind = "experiment"
 status = "done"
 
 [[tasks]]
 id = "rag-pipeline.3"
-theme = "rag-pipeline"
+feature = "rag-pipeline"
 title = "Standalone gpu-rag example with 1000+ embedded chunks"
 kind = "experiment"
 status = "done"
@@ -2476,14 +2478,14 @@ status = "done"
 
 [[tasks]]
 id = "ag4-batchnorm.1"
-theme = "ag4-batchnorm"
+feature = "ag4-batchnorm"
 title = "Implement GPU BatchNorm2d backward kernel + wire into tape"
 kind = "experiment"
 status = "done"
 
 [[tasks]]
 id = "ag4-batchnorm.2"
-theme = "ag4-batchnorm"
+feature = "ag4-batchnorm"
 title = "Numerical gradient check for BatchNorm backward"
 kind = "experiment"
 status = "done"
@@ -2492,7 +2494,7 @@ status = "done"
 
 [[tasks]]
 id = "ag4-maxpool.1"
-theme = "ag4-maxpool"
+feature = "ag4-maxpool"
 title = "MaxPool2d forward saves indices, backward routes gradients"
 kind = "experiment"
 status = "done"
@@ -2501,7 +2503,7 @@ status = "done"
 
 [[tasks]]
 id = "ag4-upsample.1"
-theme = "ag4-upsample"
+feature = "ag4-upsample"
 title = "UpsampleNearest backward: 4-to-1 gradient accumulation"
 kind = "experiment"
 status = "done"
@@ -2510,14 +2512,14 @@ status = "done"
 
 [[tasks]]
 id = "int8-gemm.1"
-theme = "int8-gemm"
+feature = "int8-gemm"
 title = "Investigation: dp4a instruction, quantization scheme, PTX syntax"
 kind = "investigation"
 status = "done"
 
 [[tasks]]
 id = "int8-gemm.2"
-theme = "int8-gemm"
+feature = "int8-gemm"
 title = "Implement INT8 GEMM kernel with dp4a + benchmark vs f32"
 kind = "experiment"
 status = "done"
@@ -2526,14 +2528,14 @@ status = "done"
 
 [[tasks]]
 id = "int8-gpt2.1"
-theme = "int8-gpt2"
+feature = "int8-gpt2"
 title = "Quantize GPT-2 weights to INT8 + implement INT8 Linear forward"
 kind = "experiment"
 status = "done"
 
 [[tasks]]
 id = "int8-gpt2.2"
-theme = "int8-gpt2"
+feature = "int8-gpt2"
 title = "GPT-2 INT8 inference: benchmark latency + verify output quality"
 kind = "experiment"
 status = "done"
@@ -2542,28 +2544,28 @@ status = "done"
 
 [[tasks]]
 id = "diffphys-sim.1"
-theme = "diffphys-sim"
+feature = "diffphys-sim"
 title = "Investigation: differentiable simulation design (what ops, how to tape)"
 kind = "investigation"
 status = "done"
 
 [[tasks]]
 id = "diffphys-sim.2"
-theme = "diffphys-sim"
+feature = "diffphys-sim"
 title = "GPU N-body force kernel + Euler integrator forward pass"
 kind = "experiment"
 status = "done"
 
 [[tasks]]
 id = "diffphys-sim.3"
-theme = "diffphys-sim"
+feature = "diffphys-sim"
 title = "Backward through simulation + optimize initial conditions"
 kind = "experiment"
 status = "done"
 
 [[tasks]]
 id = "diffphys-sim.4"
-theme = "diffphys-sim"
+feature = "diffphys-sim"
 title = "Standalone diff-physics example with benchmark"
 kind = "experiment"
 status = "done"
@@ -2572,14 +2574,14 @@ status = "done"
 
 [[tasks]]
 id = "fuse-gemm-act.1"
-theme = "fuse-gemm-act"
+feature = "fuse-gemm-act"
 title = "Implement fused gemm_bias_gelu + gemm_bias_relu PTX kernels"
 kind = "experiment"
 status = "done"
 
 [[tasks]]
 id = "fuse-gemm-act.2"
-theme = "fuse-gemm-act"
+feature = "fuse-gemm-act"
 title = "Benchmark fused vs unfused on GPT-2 dimensions"
 kind = "experiment"
 status = "done"
@@ -2588,21 +2590,21 @@ status = "done"
 
 [[tasks]]
 id = "persist-kernel.1"
-theme = "persist-kernel"
+feature = "persist-kernel"
 title = "Investigation: persistent kernel design, TDR avoidance, work queue protocol"
 kind = "investigation"
 status = "done"
 
 [[tasks]]
 id = "persist-kernel.2"
-theme = "persist-kernel"
+feature = "persist-kernel"
 title = "Implement persistent kernel + work queue + host API"
 kind = "experiment"
 status = "done"
 
 [[tasks]]
 id = "persist-kernel.3"
-theme = "persist-kernel"
+feature = "persist-kernel"
 title = "Benchmark: persistent dispatch latency vs kernel re-launch"
 kind = "experiment"
 status = "done"
@@ -2613,7 +2615,7 @@ status = "done"
 
 [[tasks]]
 id = "onnx-parser.1"
-theme = "onnx-parser"
+feature = "onnx-parser"
 title = "Investigation: ONNX protobuf schema, prost codegen, key data structures"
 kind = "investigation"
 status = "done"
@@ -2621,7 +2623,7 @@ depends = []
 
 [[tasks]]
 id = "onnx-parser.2"
-theme = "onnx-parser"
+feature = "onnx-parser"
 title = "Implement ONNX protobuf parser with prost + build typed OnnxGraph"
 kind = "experiment"
 status = "done"
@@ -2629,7 +2631,7 @@ depends = ["onnx-parser.1"]
 
 [[tasks]]
 id = "onnx-parser.3"
-theme = "onnx-parser"
+feature = "onnx-parser"
 title = "Test parser: load ResNet-18 ONNX, verify node count + initializer shapes"
 kind = "experiment"
 status = "done"
@@ -2639,7 +2641,7 @@ depends = ["onnx-parser.2"]
 
 [[tasks]]
 id = "onnx-executor.1"
-theme = "onnx-executor"
+feature = "onnx-executor"
 title = "Design: op dispatcher architecture, tensor lifecycle, attribute mapping"
 kind = "design"
 status = "done"
@@ -2647,7 +2649,7 @@ depends = ["onnx-parser.2"]
 
 [[tasks]]
 id = "onnx-executor.2"
-theme = "onnx-executor"
+feature = "onnx-executor"
 title = "Implement graph executor with core 8 ops (MatMul, Add, Relu, Reshape, Conv, BN, MaxPool, Softmax)"
 kind = "experiment"
 status = "done"
@@ -2655,7 +2657,7 @@ depends = ["onnx-executor.1"]
 
 [[tasks]]
 id = "onnx-executor.3"
-theme = "onnx-executor"
+feature = "onnx-executor"
 title = "Add remaining Phase 1 ops (Concat, Flatten, Gather, Unsqueeze, Squeeze, Clip, Transpose)"
 kind = "experiment"
 status = "done"
@@ -2663,7 +2665,7 @@ depends = ["onnx-executor.2"]
 
 [[tasks]]
 id = "onnx-executor.4"
-theme = "onnx-executor"
+feature = "onnx-executor"
 title = "ResNet-18 ONNX end-to-end: export from PyTorch, load, infer, verify >90% CIFAR-10"
 kind = "experiment"
 status = "done"
@@ -2673,7 +2675,7 @@ depends = ["onnx-executor.3"]
 
 [[tasks]]
 id = "onnx-transformer.1"
-theme = "onnx-transformer"
+feature = "onnx-transformer"
 title = "Export GPT-2 to ONNX via PyTorch, inspect required ops"
 kind = "investigation"
 status = "done"
@@ -2681,7 +2683,7 @@ depends = ["onnx-executor.2"]
 
 [[tasks]]
 id = "onnx-transformer.2"
-theme = "onnx-transformer"
+feature = "onnx-transformer"
 title = "Implement transformer ops: Where, Cast, Slice, Split, Expand, LayerNorm, Erf"
 kind = "experiment"
 status = "done"
@@ -2689,7 +2691,7 @@ depends = ["onnx-transformer.1"]
 
 [[tasks]]
 id = "onnx-transformer.3"
-theme = "onnx-transformer"
+feature = "onnx-transformer"
 title = "GPT-2 ONNX end-to-end inference + verify output quality"
 kind = "experiment"
 status = "done"
@@ -2699,7 +2701,7 @@ depends = ["onnx-transformer.2"]
 
 [[tasks]]
 id = "onnx-breadth.1"
-theme = "onnx-breadth"
+feature = "onnx-breadth"
 title = "Investigate MobileNetV2 ONNX: list missing ops, implement them"
 kind = "experiment"
 status = "done"
@@ -2707,7 +2709,7 @@ depends = ["onnx-executor.4"]
 
 [[tasks]]
 id = "onnx-breadth.2"
-theme = "onnx-breadth"
+feature = "onnx-breadth"
 title = "MobileNetV2 ONNX end-to-end inference + verify top-5 accuracy"
 kind = "experiment"
 status = "done"
@@ -2717,7 +2719,7 @@ depends = ["onnx-breadth.1"]
 
 [[tasks]]
 id = "fuse-nn-api.1"
-theme = "fuse-nn-api"
+feature = "fuse-nn-api"
 title = "Add matmul_fused() op that calls gemm_bias_gelu/relu with proper padding"
 kind = "experiment"
 status = "done"
@@ -2725,7 +2727,7 @@ depends = []
 
 [[tasks]]
 id = "fuse-nn-api.2"
-theme = "fuse-nn-api"
+feature = "fuse-nn-api"
 title = "Wire fused matmul into GPT-2 FFN forward path"
 kind = "experiment"
 status = "done"
@@ -2733,7 +2735,7 @@ depends = ["fuse-nn-api.1"]
 
 [[tasks]]
 id = "fuse-nn-api.3"
-theme = "fuse-nn-api"
+feature = "fuse-nn-api"
 title = "Benchmark GPT-2 fused vs unfused: measure per-token latency reduction"
 kind = "experiment"
 status = "done"
@@ -2743,7 +2745,7 @@ depends = ["fuse-nn-api.2"]
 
 [[tasks]]
 id = "int4-kernel.1"
-theme = "int4-kernel"
+feature = "int4-kernel"
 title = "Investigation: INT4 packing format, per-group quantization, GPTQ algorithm"
 kind = "investigation"
 status = "done"
@@ -2751,7 +2753,7 @@ depends = []
 
 [[tasks]]
 id = "int4-kernel.2"
-theme = "int4-kernel"
+feature = "int4-kernel"
 title = "Implement INT4 dequantize GEMM kernel (W4A16)"
 kind = "experiment"
 status = "done"
@@ -2759,7 +2761,7 @@ depends = ["int4-kernel.1"]
 
 [[tasks]]
 id = "int4-kernel.3"
-theme = "int4-kernel"
+feature = "int4-kernel"
 title = "Benchmark INT4 GEMM: throughput + accuracy vs f32 and INT8"
 kind = "experiment"
 status = "done"
@@ -2769,7 +2771,7 @@ depends = ["int4-kernel.2"]
 
 [[tasks]]
 id = "int4-gpt2.1"
-theme = "int4-gpt2"
+feature = "int4-gpt2"
 title = "Python quantization script: GPT-2 f32 → INT4 with per-group scales"
 kind = "experiment"
 status = "done"
@@ -2777,7 +2779,7 @@ depends = ["int4-kernel.2"]
 
 [[tasks]]
 id = "int4-gpt2.2"
-theme = "int4-gpt2"
+feature = "int4-gpt2"
 title = "GPT-2 INT4 inference: load quantized weights, generate text, verify quality"
 kind = "experiment"
 status = "done"
@@ -2787,7 +2789,7 @@ depends = ["int4-gpt2.1"]
 
 [[tasks]]
 id = "gc-ir.1"
-theme = "gc-ir"
+feature = "gc-ir"
 title = "Design: Graph IR data structure, fusion rule specification format"
 kind = "design"
 status = "done"
@@ -2795,7 +2797,7 @@ depends = []
 
 [[tasks]]
 id = "gc-ir.2"
-theme = "gc-ir"
+feature = "gc-ir"
 title = "Implement Graph IR + topological sort + dead node elimination"
 kind = "experiment"
 status = "done"
@@ -2803,7 +2805,7 @@ depends = ["gc-ir.1"]
 
 [[tasks]]
 id = "gc-ir.3"
-theme = "gc-ir"
+feature = "gc-ir"
 title = "Implement fusion pass: pattern matching for GEMM+Bias+Act and Conv+BN+Act"
 kind = "experiment"
 status = "done"
@@ -2813,7 +2815,7 @@ depends = ["gc-ir.2"]
 
 [[tasks]]
 id = "gc-codegen.1"
-theme = "gc-codegen"
+feature = "gc-codegen"
 title = "Investigation: template-based codegen vs precompiled pattern library"
 kind = "investigation"
 status = "done"
@@ -2821,7 +2823,7 @@ depends = ["gc-ir.3"]
 
 [[tasks]]
 id = "gc-codegen.2"
-theme = "gc-codegen"
+feature = "gc-codegen"
 title = "Implement fused kernel dispatch for top-3 fusion patterns"
 kind = "experiment"
 status = "done"
@@ -2829,7 +2831,7 @@ depends = ["gc-codegen.1"]
 
 [[tasks]]
 id = "gc-codegen.3"
-theme = "gc-codegen"
+feature = "gc-codegen"
 title = "Benchmark: ONNX inference with graph compiler vs without"
 kind = "experiment"
 status = "done"
@@ -2841,7 +2843,7 @@ depends = ["gc-codegen.2"]
 
 [[tasks]]
 id = "onnx-fix.1"
-theme = "onnx-fix"
+feature = "onnx-fix"
 title = "Fix raw_data parsing — diagnose why some TensorProto.raw_data decode as empty"
 kind = "experiment"
 status = "done"
@@ -2849,7 +2851,7 @@ depends = []
 
 [[tasks]]
 id = "onnx-fix.2"
-theme = "onnx-fix"
+feature = "onnx-fix"
 title = "Export ResNet-18 ONNX with all weights embedded, run e2e inference"
 kind = "experiment"
 status = "done"
@@ -2857,7 +2859,7 @@ depends = ["onnx-fix.1"]
 
 [[tasks]]
 id = "onnx-fix.3"
-theme = "onnx-fix"
+feature = "onnx-fix"
 title = "Run GPT-2 ONNX inference, verify coherent text output"
 kind = "experiment"
 status = "done"
@@ -2865,7 +2867,7 @@ depends = ["onnx-fix.1"]
 
 [[tasks]]
 id = "onnx-fix.4"
-theme = "onnx-fix"
+feature = "onnx-fix"
 title = "Benchmark ONNX executor vs native nn API (latency comparison)"
 kind = "experiment"
 status = "done"
@@ -2875,7 +2877,7 @@ depends = ["onnx-fix.2", "onnx-fix.3"]
 
 [[tasks]]
 id = "refactor-quality.1"
-theme = "refactor-quality"
+feature = "refactor-quality"
 title = "Fix all clippy warnings in gpu-host (nn, gpt2, onnx features)"
 kind = "experiment"
 status = "done"
@@ -2883,7 +2885,7 @@ depends = []
 
 [[tasks]]
 id = "refactor-quality.2"
-theme = "refactor-quality"
+feature = "refactor-quality"
 title = "Split dispatch_node() into per-category handlers (activation, gemm, conv, shape, etc)"
 kind = "experiment"
 status = "done"
@@ -2891,7 +2893,7 @@ depends = []
 
 [[tasks]]
 id = "refactor-quality.3"
-theme = "refactor-quality"
+feature = "refactor-quality"
 title = "Replace unwrap() with ? in all nn/ and onnx_rt/ library code"
 kind = "experiment"
 status = "done"
@@ -2901,7 +2903,7 @@ depends = []
 
 [[tasks]]
 id = "refactor-api.1"
-theme = "refactor-api"
+feature = "refactor-api"
 title = "Migrate all 9 examples to KernelRegistry::init_default()"
 kind = "experiment"
 status = "done"
@@ -2909,7 +2911,7 @@ depends = []
 
 [[tasks]]
 id = "refactor-api.2"
-theme = "refactor-api"
+feature = "refactor-api"
 title = "Extract shared quantization pack/unpack utilities from gemm.rs"
 kind = "experiment"
 status = "done"
@@ -2917,7 +2919,7 @@ depends = []
 
 [[tasks]]
 id = "refactor-api.3"
-theme = "refactor-api"
+feature = "refactor-api"
 title = "Audit pub visibility — mark internal helpers as pub(crate)"
 kind = "experiment"
 status = "done"
@@ -2927,7 +2929,7 @@ depends = []
 
 [[tasks]]
 id = "onnx-cache.1"
-theme = "onnx-cache"
+feature = "onnx-cache"
 title = "Implement OnnxSession with initializer caching (upload once)"
 kind = "experiment"
 status = "done"
@@ -2935,7 +2937,7 @@ depends = []
 
 [[tasks]]
 id = "onnx-cache.2"
-theme = "onnx-cache"
+feature = "onnx-cache"
 title = "Benchmark cached ONNX vs native nn API on ResNet-18"
 kind = "experiment"
 status = "done"
@@ -2945,7 +2947,7 @@ depends = ["onnx-cache.1"]
 
 [[tasks]]
 id = "onnx-gpu-ops.1"
-theme = "onnx-gpu-ops"
+feature = "onnx-gpu-ops"
 title = "Replace CPU-fallback Mul/Sub/Div/Pow/Sqrt with GPU elementwise ops"
 kind = "experiment"
 status = "done"
@@ -2953,7 +2955,7 @@ depends = []
 
 [[tasks]]
 id = "onnx-gpu-ops.2"
-theme = "onnx-gpu-ops"
+feature = "onnx-gpu-ops"
 title = "GPU ReduceMean kernel for 4D tensors"
 kind = "experiment"
 status = "done"
@@ -2961,7 +2963,7 @@ depends = []
 
 [[tasks]]
 id = "onnx-gpu-ops.3"
-theme = "onnx-gpu-ops"
+feature = "onnx-gpu-ops"
 title = "Run GPT-2 ONNX full forward pass, benchmark latency"
 kind = "experiment"
 status = "done"
@@ -2971,7 +2973,7 @@ depends = ["onnx-cache.1", "onnx-gpu-ops.1"]
 
 [[tasks]]
 id = "rv2-unwrap.1"
-theme = "refactor-v2-code"
+feature = "refactor-v2-code"
 title = "Fix resnet.rs Option::unwrap() → ok_or(NnError) + backward.rs + optim.rs"
 kind = "experiment"
 status = "done"
@@ -2979,7 +2981,7 @@ depends = []
 
 [[tasks]]
 id = "rv2-quant.1"
-theme = "refactor-v2-code"
+feature = "refactor-v2-code"
 title = "Extract INT8+INT4 pack/unpack into nn/ops/quantize.rs shared module"
 kind = "experiment"
 status = "done"
@@ -2987,7 +2989,7 @@ depends = []
 
 [[tasks]]
 id = "rv2-pub.1"
-theme = "refactor-v2-code"
+feature = "refactor-v2-code"
 title = "pub(crate) audit: scan all pub fn/struct in nn/ and onnx_rt/, mark internal ones"
 kind = "experiment"
 status = "done"
@@ -2995,7 +2997,7 @@ depends = []
 
 [[tasks]]
 id = "rv2-dead.1"
-theme = "refactor-v2-code"
+feature = "refactor-v2-code"
 title = "Dead code cleanup: unused functions, imports, variables across gpu-host"
 kind = "experiment"
 status = "done"
@@ -3003,7 +3005,7 @@ depends = []
 
 [[tasks]]
 id = "rv2-magic.1"
-theme = "refactor-v2-code"
+feature = "refactor-v2-code"
 title = "Extract all magic numbers to named constants"
 kind = "experiment"
 status = "done"
@@ -3013,7 +3015,7 @@ depends = []
 
 [[tasks]]
 id = "rv2-gpu-elem.1"
-theme = "refactor-v2-perf"
+feature = "refactor-v2-perf"
 title = "GPU elementwise kernels for Mul/Sub/Div/Neg (replace to_host round-trips)"
 kind = "experiment"
 status = "done"
@@ -3021,7 +3023,7 @@ depends = []
 
 [[tasks]]
 id = "rv2-prepad.1"
-theme = "refactor-v2-perf"
+feature = "refactor-v2-perf"
 title = "OnnxSession: pre-transpose+pad Conv/Gemm weights at session creation"
 kind = "experiment"
 status = "done"
@@ -3029,7 +3031,7 @@ depends = []
 
 [[tasks]]
 id = "rv2-bench.1"
-theme = "refactor-v2-perf"
+feature = "refactor-v2-perf"
 title = "Benchmark ResNet-18 ONNX with all optimizations, target < 25ms"
 kind = "experiment"
 status = "done"
@@ -3037,7 +3039,7 @@ depends = ["rv2-gpu-elem.1", "rv2-prepad.1"]
 
 [[tasks]]
 id = "rv2-gpt2.1"
-theme = "refactor-v2-perf"
+feature = "refactor-v2-perf"
 title = "Run GPT-2 ONNX forward pass end-to-end, measure latency"
 kind = "experiment"
 status = "done"
@@ -3047,7 +3049,7 @@ depends = ["rv2-gpu-elem.1"]
 
 [[tasks]]
 id = "rv2-test.1"
-theme = "refactor-v2-test"
+feature = "refactor-v2-test"
 title = "Add unit tests for Int4Linear, OnnxSession, quantize pack/unpack"
 kind = "experiment"
 status = "done"
@@ -3057,7 +3059,7 @@ depends = ["rv2-quant.1"]
 
 [[tasks]]
 id = "onnx-gpt2-gen.1"
-theme = "onnx-gpt2-gen"
+feature = "onnx-gpt2-gen"
 title = "Run GPT-2 ONNX single forward pass, fix any op errors"
 kind = "experiment"
 status = "done"
@@ -3065,7 +3067,7 @@ depends = []
 
 [[tasks]]
 id = "onnx-gpt2-gen.2"
-theme = "onnx-gpt2-gen"
+feature = "onnx-gpt2-gen"
 title = "GPT-2 ONNX autoregressive generation (10+ tokens)"
 kind = "experiment"
 status = "done"
@@ -3075,7 +3077,7 @@ depends = ["onnx-gpt2-gen.1"]
 
 [[tasks]]
 id = "onnx-conv-prepad.1"
-theme = "onnx-conv-prepad"
+feature = "onnx-conv-prepad"
 title = "Pre-compute im2col column matrix for Conv weights in OnnxSession"
 kind = "experiment"
 status = "done"
@@ -3085,7 +3087,7 @@ depends = []
 
 [[tasks]]
 id = "onnx-gpt2-debug.1"
-theme = "onnx-gpt2-gen"
+feature = "onnx-gpt2-gen"
 title = "Debug GPT-2 ONNX logit divergence — compare node-by-node with native API"
 kind = "investigation"
 status = "done"
@@ -3095,7 +3097,7 @@ depends = []
 
 [[tasks]]
 id = "onnx-resnet-acc.1"
-theme = "onnx-resnet-acc"
+feature = "onnx-resnet-acc"
 title = "Fix ResNet ONNX export key mapping + GlobalAveragePool batch dim"
 kind = "experiment"
 status = "done"
@@ -3105,7 +3107,7 @@ depends = []
 
 [[tasks]]
 id = "onnx-mobilenet.1"
-theme = "onnx-mobilenet"
+feature = "onnx-mobilenet"
 title = "Add Identity op + grouped conv support, run MobileNetV2 e2e"
 kind = "experiment"
 status = "done"
@@ -3115,7 +3117,7 @@ depends = []
 
 [[tasks]]
 id = "dyn-control.1"
-theme = "dyn-control"
+feature = "dyn-control"
 title = "Experiment: variable-length GPT-2 generation — stop at EOS per sample"
 kind = "experiment"
 status = "done"
@@ -3123,7 +3125,7 @@ depends = []
 
 [[tasks]]
 id = "dyn-control.2"
-theme = "dyn-control"
+feature = "dyn-control"
 title = "Experiment: early-exit inference — skip layers when confidence > threshold"
 kind = "experiment"
 status = "done"
@@ -3131,7 +3133,7 @@ depends = []
 
 [[tasks]]
 id = "dyn-control.3"
-theme = "dyn-control"
+feature = "dyn-control"
 title = "Design: document why these patterns are impossible with CUDA graphs"
 kind = "design"
 status = "done"
@@ -3141,7 +3143,7 @@ depends = ["dyn-control.1", "dyn-control.2"]
 
 [[tasks]]
 id = "graph-bfs.1"
-theme = "graph-bfs"
+feature = "graph-bfs"
 title = "Experiment: CSR graph representation + synthetic graph generator (RMAT)"
 kind = "experiment"
 status = "done"
@@ -3149,7 +3151,7 @@ depends = []
 
 [[tasks]]
 id = "graph-bfs.2"
-theme = "graph-bfs"
+feature = "graph-bfs"
 title = "Experiment: GPU BFS (level-synchronous) + CPU reference comparison"
 kind = "experiment"
 status = "done"
@@ -3157,7 +3159,7 @@ depends = ["graph-bfs.1"]
 
 [[tasks]]
 id = "graph-bfs.3"
-theme = "graph-bfs"
+feature = "graph-bfs"
 title = "Experiment: GPU PageRank (iterative SpMV) + convergence check"
 kind = "experiment"
 status = "done"
@@ -3167,7 +3169,7 @@ depends = ["graph-bfs.1"]
 
 [[tasks]]
 id = "int4-integrate.1"
-theme = "int4-integrate"
+feature = "int4-integrate"
 title = "Experiment: wire Int4Linear into GPT-2, load quantized weights, generate text"
 kind = "experiment"
 status = "done"
@@ -3175,7 +3177,7 @@ depends = []
 
 [[tasks]]
 id = "int4-integrate.2"
-theme = "int4-integrate"
+feature = "int4-integrate"
 title = "Design: verify top-5 match on 3 prompts + measure per-token latency"
 kind = "design"
 status = "done"
@@ -3185,7 +3187,7 @@ depends = ["int4-integrate.1"]
 
 [[tasks]]
 id = "mc-finance.1"
-theme = "mc-finance"
+feature = "mc-finance"
 title = "Experiment: GPU xoshiro256++ PRNG kernel with per-thread seeding"
 kind = "experiment"
 status = "done"
@@ -3193,7 +3195,7 @@ depends = []
 
 [[tasks]]
 id = "mc-finance.2"
-theme = "mc-finance"
+feature = "mc-finance"
 title = "Experiment: Black-Scholes Monte Carlo option pricing (1M paths)"
 kind = "experiment"
 status = "done"
@@ -3201,7 +3203,7 @@ depends = ["mc-finance.1"]
 
 [[tasks]]
 id = "mc-finance.3"
-theme = "mc-finance"
+feature = "mc-finance"
 title = "Experiment: Pi estimation via Monte Carlo (10M points) + CPU comparison"
 kind = "experiment"
 status = "done"
@@ -3211,7 +3213,7 @@ depends = ["mc-finance.1"]
 
 [[tasks]]
 id = "bench-kernels.1"
-theme = "bench-kernels"
+feature = "bench-kernels"
 title = "Experiment: SGEMM benchmark harness — measure GFLOPS at multiple sizes, compare cuBLAS"
 kind = "experiment"
 status = "done"
@@ -3219,7 +3221,7 @@ depends = []
 
 [[tasks]]
 id = "bench-kernels.2"
-theme = "bench-kernels"
+feature = "bench-kernels"
 title = "Experiment: Conv2D benchmark — GFLOPS for ResNet/YOLO shapes, compare cuDNN"
 kind = "experiment"
 status = "done"
@@ -3227,7 +3229,7 @@ depends = []
 
 [[tasks]]
 id = "bench-kernels.3"
-theme = "bench-kernels"
+feature = "bench-kernels"
 title = "Experiment: Flash Attention benchmark — throughput at GPT-2 shapes"
 kind = "experiment"
 status = "done"
@@ -3235,7 +3237,7 @@ depends = []
 
 [[tasks]]
 id = "bench-kernels.4"
-theme = "bench-kernels"
+feature = "bench-kernels"
 title = "Experiment: Memory-bound ops (LayerNorm, GELU, elementwise) — GB/s measurement"
 kind = "experiment"
 status = "done"
@@ -3245,7 +3247,7 @@ depends = []
 
 [[tasks]]
 id = "bench-e2e.1"
-theme = "bench-e2e"
+feature = "bench-e2e"
 title = "Experiment: GPT-2 inference per-layer profiling — identify bottleneck ops"
 kind = "experiment"
 status = "done"
@@ -3253,7 +3255,7 @@ depends = ["bench-kernels.1"]
 
 [[tasks]]
 id = "bench-e2e.2"
-theme = "bench-e2e"
+feature = "bench-e2e"
 title = "Design: benchmark results summary + improvement roadmap"
 kind = "design"
 status = "done"
@@ -3263,7 +3265,7 @@ depends = ["bench-kernels.1", "bench-kernels.2", "bench-kernels.3", "bench-kerne
 
 [[tasks]]
 id = "perf-gemm.1"
-theme = "perf-gemm"
+feature = "perf-gemm"
 title = "Investigation: study Cutlass SGEMM tile schedule, register mapping, smem layout"
 kind = "investigation"
 status = "done"
@@ -3271,7 +3273,7 @@ depends = []
 
 [[tasks]]
 id = "perf-gemm.2"
-theme = "perf-gemm"
+feature = "perf-gemm"
 title = "Experiment: implement 64×64 tile + 4×4 register blocking GEMM kernel"
 kind = "experiment"
 status = "done"
@@ -3279,7 +3281,7 @@ depends = ["perf-gemm.1"]
 
 [[tasks]]
 id = "perf-gemm.3"
-theme = "perf-gemm"
+feature = "perf-gemm"
 title = "Experiment: scale to 128×64 tile + 4×8 register blocking + double-buffered smem"
 kind = "experiment"
 status = "done"
@@ -3287,7 +3289,7 @@ depends = ["perf-gemm.2"]
 
 [[tasks]]
 id = "perf-gemm.4"
-theme = "perf-gemm"
+feature = "perf-gemm"
 title = "Experiment: BK=16 attempt (reverted — numerical issues) + float4 deferred"
 kind = "experiment"
 status = "done"
@@ -3295,7 +3297,7 @@ depends = ["perf-gemm.3"]
 
 [[tasks]]
 id = "perf-gemm.5"
-theme = "perf-gemm"
+feature = "perf-gemm"
 title = "Experiment: integrate V2 GEMM into nn API, benchmark GPT-2 end-to-end"
 kind = "experiment"
 status = "done"
@@ -3303,7 +3305,7 @@ depends = ["perf-gemm.4"]
 
 [[tasks]]
 id = "perf-gemm.6"
-theme = "perf-gemm"
+feature = "perf-gemm"
 title = "Experiment: 128×128 tile + 8×8 register blocking via macro-generated accumulators"
 kind = "experiment"
 status = "done"
@@ -3313,7 +3315,7 @@ depends = ["perf-gemm.5"]
 
 [[tasks]]
 id = "perf-attention.1"
-theme = "perf-attention"
+feature = "perf-attention"
 title = "Investigation: study FlashAttention-2 algorithm — tile schedule, softmax, memory staging"
 kind = "investigation"
 status = "done"
@@ -3321,7 +3323,7 @@ depends = []
 
 [[tasks]]
 id = "perf-attention.2"
-theme = "perf-attention"
+feature = "perf-attention"
 title = "Experiment: flash_attention_v2 with 4-way unrolled dots + explicit FMA"
 kind = "experiment"
 status = "done"
@@ -3331,7 +3333,7 @@ depends = ["perf-attention.1", "perf-gemm.3"]
 
 [[tasks]]
 id = "perf-layernorm.1"
-theme = "perf-layernorm"
+feature = "perf-layernorm"
 title = "Experiment: single-pass Welford LayerNorm with 256 threads + shared memory reduction"
 kind = "experiment"
 status = "done"
@@ -3341,7 +3343,7 @@ depends = []
 
 [[tasks]]
 id = "perf-elementwise.1"
-theme = "perf-elementwise"
+feature = "perf-elementwise"
 title = "Experiment: float4 vectorized elementwise_add + gelu + sigmoid + relu"
 kind = "experiment"
 status = "done"
@@ -3351,7 +3353,7 @@ depends = []
 
 [[tasks]]
 id = "perf-gemm-v4.1"
-theme = "perf-gemm-v4"
+feature = "perf-gemm-v4"
 title = "Experiment: NVRTC V4 kernel with float4 loads — achieved 63% cuBLAS"
 kind = "experiment"
 status = "done"
@@ -3363,7 +3365,7 @@ depends = []
 
 [[tasks]]
 id = "iter-design.1"
-theme = "iter-design"
+feature = "iter-design"
 title = "Investigation: Rust Iterator/Rayon traits — which semantics map to GPU, which don't"
 kind = "investigation"
 status = "done"
@@ -3371,7 +3373,7 @@ depends = []
 
 [[tasks]]
 id = "iter-design.2"
-theme = "iter-design"
+feature = "iter-design"
 title = "Design: ParallelIterator trait API surface + closure capture rules"
 kind = "design"
 status = "done"
@@ -3379,7 +3381,7 @@ depends = ["iter-design.1"]
 
 [[tasks]]
 id = "iter-design.3"
-theme = "iter-design"
+feature = "iter-design"
 title = "Design: MIR pass strategy — iterator chain → single fused GPU kernel"
 kind = "design"
 status = "done"
@@ -3389,7 +3391,7 @@ depends = ["iter-design.2"]
 
 [[tasks]]
 id = "iter-compiler.1"
-theme = "iter-compiler"
+feature = "iter-compiler"
 title = "Experiment: implement GpuParallelIterator trait with map/for_each/collect_into"
 kind = "experiment"
 status = "done"
@@ -3397,7 +3399,7 @@ depends = ["iter-design.3"]
 
 [[tasks]]
 id = "iter-compiler.2"
-theme = "iter-compiler"
+feature = "iter-compiler"
 title = "Experiment: implement filter() with atomic compaction + fused filter_map()"
 kind = "experiment"
 status = "done"
@@ -3405,7 +3407,7 @@ depends = ["iter-compiler.1"]
 
 [[tasks]]
 id = "iter-compiler.3"
-theme = "iter-compiler"
+feature = "iter-compiler"
 title = "Experiment: collect_count() + filter demo kernels"
 kind = "experiment"
 status = "done"
@@ -3415,7 +3417,7 @@ depends = ["iter-compiler.1"]
 
 [[tasks]]
 id = "iter-runtime.1"
-theme = "iter-runtime"
+feature = "iter-runtime"
 title = "Experiment: warp-parallel input partitioning + output buffer management"
 kind = "experiment"
 status = "done"
@@ -3425,7 +3427,7 @@ depends = ["iter-compiler.1"]
 
 [[tasks]]
 id = "fusion-analysis.1"
-theme = "fusion-analysis"
+feature = "fusion-analysis"
 title = "Investigation: fusable patterns in MIR — elementwise chains, broadcast, reductions"
 kind = "investigation"
 status = "done"
@@ -3433,7 +3435,7 @@ depends = []
 
 [[tasks]]
 id = "fusion-analysis.2"
-theme = "fusion-analysis"
+feature = "fusion-analysis"
 title = "Design: tape-level pattern matching rules for fusion candidates"
 kind = "design"
 status = "done"
@@ -3441,7 +3443,7 @@ depends = ["fusion-analysis.1"]
 
 [[tasks]]
 id = "fusion-analysis.3"
-theme = "fusion-analysis"
+feature = "fusion-analysis"
 title = "Experiment: implement fusion candidate detection in tape optimizer"
 kind = "experiment"
 status = "done"
@@ -3451,7 +3453,7 @@ depends = ["fusion-analysis.2"]
 
 [[tasks]]
 id = "fusion-codegen.1"
-theme = "fusion-codegen"
+feature = "fusion-codegen"
 title = "Investigation: code generation strategies — template PTX vs NVRTC vs dynamic"
 kind = "investigation"
 status = "done"
@@ -3461,7 +3463,7 @@ depends = ["fusion-analysis.2"]
 
 [[tasks]]
 id = "showcase-api.1"
-theme = "showcase-api"
+feature = "showcase-api"
 title = "Investigation: audit async-gpu facade for all missing re-exports (SC, channels, executor)"
 kind = "investigation"
 status = "done"
@@ -3469,7 +3471,7 @@ depends = []
 
 [[tasks]]
 id = "showcase-api.2"
-theme = "showcase-api"
+feature = "showcase-api"
 title = "Experiment: add SC types + channels + executor to async-gpu facade re-exports"
 kind = "experiment"
 status = "done"
@@ -3477,7 +3479,7 @@ depends = ["showcase-api.1"]
 
 [[tasks]]
 id = "showcase-api.3"
-theme = "showcase-api"
+feature = "showcase-api"
 title = "Experiment: verify cargo doc --no-deps with new exports, fix any doc issues"
 kind = "experiment"
 status = "done"
@@ -3487,7 +3489,7 @@ depends = ["showcase-api.2"]
 
 [[tasks]]
 id = "showcase-sc.1"
-theme = "showcase-sc"
+feature = "showcase-sc"
 title = "Experiment: create examples/hostcall/structured-concurrency/ — BlockScope producer-consumer"
 kind = "experiment"
 status = "done"
@@ -3495,7 +3497,7 @@ depends = ["showcase-api.2"]
 
 [[tasks]]
 id = "showcase-sc.2"
-theme = "showcase-sc"
+feature = "showcase-sc"
 title = "Experiment: add GridScope multi-block reduce to SC example"
 kind = "experiment"
 status = "done"
@@ -3505,7 +3507,7 @@ depends = ["showcase-sc.1"]
 
 [[tasks]]
 id = "showcase-channels.1"
-theme = "showcase-channels"
+feature = "showcase-channels"
 title = "Experiment: create GPU channels example — oneshot + MPSC producer-consumer pipeline"
 kind = "experiment"
 status = "done"
@@ -3513,7 +3515,7 @@ depends = ["showcase-api.2"]
 
 [[tasks]]
 id = "showcase-channels.2"
-theme = "showcase-channels"
+feature = "showcase-channels"
 title = "Experiment: create GPU executor example — spawn 4+ async tasks dynamically"
 kind = "experiment"
 status = "done"
@@ -3523,7 +3525,7 @@ depends = ["showcase-api.2"]
 
 [[tasks]]
 id = "showcase-examples.1"
-theme = "showcase-examples"
+feature = "showcase-examples"
 title = "Investigation: scan all 42 completed epics — list features without clean public examples"
 kind = "investigation"
 status = "done"
@@ -3533,7 +3535,7 @@ depends = []
 
 [[tasks]]
 id = "showcase-examples.2"
-theme = "showcase-examples"
+feature = "showcase-examples"
 title = "Experiment: clean up warp-cooperative as cooperative compute showcase"
 kind = "experiment"
 status = "done"
@@ -3541,7 +3543,7 @@ depends = []
 
 [[tasks]]
 id = "showcase-examples.3"
-theme = "showcase-examples"
+feature = "showcase-examples"
 title = "Experiment: update benchmark example with latest perf numbers (SGEMM 90%, FA 47-60%)"
 kind = "experiment"
 status = "done"
@@ -3551,7 +3553,7 @@ depends = []
 
 [[tasks]]
 id = "showcase-readme.1"
-theme = "showcase-readme"
+feature = "showcase-readme"
 title = "Experiment: write feature matrix — all GPU capabilities in one table"
 kind = "experiment"
 status = "done"
@@ -3559,7 +3561,7 @@ depends = ["showcase-examples.1"]
 
 [[tasks]]
 id = "showcase-readme.2"
-theme = "showcase-readme"
+feature = "showcase-readme"
 title = "Experiment: write performance comparison table — vs cuBLAS/cuDNN with actual numbers"
 kind = "experiment"
 status = "done"
@@ -3567,7 +3569,7 @@ depends = []
 
 [[tasks]]
 id = "showcase-readme.3"
-theme = "showcase-readme"
+feature = "showcase-readme"
 title = "Experiment: North Star hero example in README — File::read → matmul → File::write"
 kind = "experiment"
 status = "done"
@@ -3575,7 +3577,7 @@ depends = []
 
 [[tasks]]
 id = "showcase-readme.4"
-theme = "showcase-readme"
+feature = "showcase-readme"
 title = "Experiment: progressive code snippets — hello → cooperative → SC pipeline"
 kind = "experiment"
 status = "done"
@@ -3583,7 +3585,7 @@ depends = ["showcase-sc.1"]
 
 [[tasks]]
 id = "showcase-readme.5"
-theme = "showcase-readme"
+feature = "showcase-readme"
 title = "Experiment: update getting-started guide with SC, channels, executor sections"
 kind = "experiment"
 status = "done"
@@ -3593,7 +3595,7 @@ depends = ["showcase-sc.1", "showcase-channels.1"]
 
 [[tasks]]
 id = "test-framework.1"
-theme = "test-framework"
+feature = "test-framework"
 title = "Investigation: design #[gpu_test] proc macro — kernel generation + host runner pattern"
 kind = "investigation"
 status = "done"
@@ -3601,7 +3603,7 @@ depends = []
 
 [[tasks]]
 id = "iter-runtime.2"
-theme = "iter-runtime"
+feature = "iter-runtime"
 title = "Experiment: chained iterator fusion — zero intermediate buffers in pipeline"
 kind = "experiment"
 status = "done"
@@ -3609,7 +3611,7 @@ depends = ["iter-runtime.1", "iter-compiler.2"]
 
 [[tasks]]
 id = "fusion-codegen.2"
-theme = "fusion-codegen"
+feature = "fusion-codegen"
 title = "Experiment: generate fused PTX from fusion graph — multiply+add+activation chain"
 kind = "experiment"
 status = "done"
@@ -3621,21 +3623,21 @@ depends = ["fusion-codegen.1", "fusion-analysis.3"]
 
 [[tasks]]
 id = "split-design.1"
-theme = "split-design"
+feature = "split-design"
 title = "Investigation: map kernel→crate assignments and verify dependency graph"
 kind = "investigation"
 status = "done"
 
 [[tasks]]
 id = "split-design.2"
-theme = "split-design"
+feature = "split-design"
 title = "Design: stdio infrastructure extraction to gpu-runtime"
 kind = "design"
 status = "done"
 
 [[tasks]]
 id = "split-design.3"
-theme = "split-design"
+feature = "split-design"
 title = "Design: host loader multi-cubin API with backward compat"
 kind = "design"
 status = "done"
@@ -3644,35 +3646,35 @@ status = "done"
 
 [[tasks]]
 id = "split-execute.1"
-theme = "split-execute"
+feature = "split-execute"
 title = "Experiment: extract stdio infrastructure from lib.rs to gpu-runtime"
 kind = "experiment"
 status = "done"
 
 [[tasks]]
 id = "split-execute.2"
-theme = "split-execute"
+feature = "split-execute"
 title = "Experiment: create gpu-kernel-core crate (helpers + basic + compute_math)"
 kind = "experiment"
 status = "done"
 
 [[tasks]]
 id = "split-execute.3"
-theme = "split-execute"
+feature = "split-execute"
 title = "Experiment: create gpu-kernel-compute crate (ML/HPC kernels)"
 kind = "experiment"
 status = "done"
 
 [[tasks]]
 id = "split-execute.4"
-theme = "split-execute"
+feature = "split-execute"
 title = "Experiment: create gpu-kernel-io crate (hostcall/pipeline/hybrid)"
 kind = "experiment"
 status = "done"
 
 [[tasks]]
 id = "split-execute.5"
-theme = "split-execute"
+feature = "split-execute"
 title = "Experiment: refactor gpu-kernel-std → gpu-kernel-test (test/demo kernels)"
 kind = "experiment"
 status = "done"
@@ -3681,35 +3683,35 @@ status = "done"
 
 [[tasks]]
 id = "split-loader.1"
-theme = "split-loader"
+feature = "split-loader"
 title = "Experiment: per-crate PTX constants + backward-compat aliases"
 kind = "experiment"
 status = "done"
 
 [[tasks]]
 id = "split-loader.2"
-theme = "split-loader"
+feature = "split-loader"
 title = "Experiment: update host loader (gpu.rs, KernelRegistry) for multi-module"
 kind = "experiment"
 status = "done"
 
 [[tasks]]
 id = "split-loader.3"
-theme = "split-loader"
+feature = "split-loader"
 title = "Experiment: build script — parallel per-crate PTX + cubin"
 kind = "experiment"
 status = "done"
 
 [[tasks]]
 id = "split-loader.4"
-theme = "split-loader"
+feature = "split-loader"
 title = "Experiment: dev-mode opt-level reduction (opt-level 1 for kernel crates)"
 kind = "experiment"
 status = "done"
 
 [[tasks]]
 id = "split-loader.5"
-theme = "split-loader"
+feature = "split-loader"
 title = "Experiment: litmus test — single-crate rebuild under 5 minutes"
 kind = "experiment"
 status = "done"
@@ -3718,7 +3720,7 @@ status = "done"
 
 [[tasks]]
 id = "split-devpath.1"
-theme = "split-devpath"
+feature = "split-devpath"
 title = "Experiment: PTX JIT dev path — skip ptxas in default build, use PTX directly"
 kind = "experiment"
 status = "done"
@@ -3727,7 +3729,7 @@ status = "done"
 
 [[tasks]]
 id = "test-framework.2"
-theme = "test-framework"
+feature = "test-framework"
 title = "Experiment: implement #[gpu_test] proc macro + GPU assert! with warp ID"
 kind = "experiment"
 status = "done"
@@ -3736,14 +3738,14 @@ status = "done"
 
 [[tasks]]
 id = "test-integration.1"
-theme = "test-integration"
+feature = "test-integration"
 title = "Experiment: cargo test integration — discover and run #[gpu_test] alongside #[test]"
 kind = "experiment"
 status = "done"
 
 [[tasks]]
 id = "test-integration.2"
-theme = "test-integration"
+feature = "test-integration"
 title = "Experiment: write 10+ #[gpu_test] tests covering SC, channels, executor, cooperative"
 kind = "experiment"
 status = "done"
@@ -3752,7 +3754,7 @@ status = "done"
 
 [[tasks]]
 id = "safety-types.1"
-theme = "safety-types"
+feature = "safety-types"
 title = "Investigation: cuda-oxide DisjointSlice + ThreadIndex design — adapt to async-gpu model"
 kind = "investigation"
 status = "done"
@@ -3761,21 +3763,21 @@ status = "done"
 
 [[tasks]]
 id = "iter-demo.1"
-theme = "iter-demo"
+feature = "iter-demo"
 title = "Experiment: par_iter().map().collect() on 1M+ f32 elements — correctness + performance"
 kind = "experiment"
 status = "done"
 
 [[tasks]]
 id = "iter-demo.2"
-theme = "iter-demo"
+feature = "iter-demo"
 title = "Experiment: benchmark GPU par_iter vs CPU Rayon — find crossover point"
 kind = "experiment"
 status = "done"
 
 [[tasks]]
 id = "iter-demo.3"
-theme = "iter-demo"
+feature = "iter-demo"
 title = "Experiment: multi-block par_iter dispatch + cached loads for collect/map"
 kind = "experiment"
 status = "done"
@@ -3784,7 +3786,7 @@ status = "done"
 
 [[tasks]]
 id = "fusion-codegen.3"
-theme = "fusion-codegen"
+feature = "fusion-codegen"
 title = "Experiment: register-only intermediates + float4 vectorization in generated kernels"
 kind = "experiment"
 status = "done"
@@ -3793,14 +3795,14 @@ status = "done"
 
 [[tasks]]
 id = "fusion-integrate.1"
-theme = "fusion-integrate"
+feature = "fusion-integrate"
 title = "Experiment: auto-fuse nn::Linear matmul+bias+activation — integrate with nn API"
 kind = "experiment"
 status = "done"
 
 [[tasks]]
 id = "fusion-integrate.2"
-theme = "fusion-integrate"
+feature = "fusion-integrate"
 title = "Experiment: benchmark GPT-2 with auto-fusion vs manual — measure speedup"
 kind = "experiment"
 status = "done"
@@ -3811,7 +3813,7 @@ status = "done"
 
 [[tasks]]
 id = "safety-types.2"
-theme = "safety-types"
+feature = "safety-types"
 title = "Experiment: implement DisjointSlice<T> + ThreadIndex<'kernel> types"
 kind = "experiment"
 status = "done"
@@ -3821,7 +3823,7 @@ depends = ["safety-types.1"]
 
 [[tasks]]
 id = "safety-tiers.1"
-theme = "safety-tiers"
+feature = "safety-tiers"
 title = "Design: 3-tier safety model — categorize all GPU operations into tiers"
 kind = "design"
 status = "done"
@@ -3831,7 +3833,7 @@ depends = ["safety-types.1"]
 
 [[tasks]]
 id = "safety-apply.1"
-theme = "safety-apply"
+feature = "safety-apply"
 title = "Experiment: enhance BlockScope/GridScope with DisjointSlice + ThreadIndex"
 kind = "experiment"
 status = "done"
@@ -3839,7 +3841,7 @@ depends = ["safety-types.2", "safety-tiers.1"]
 
 [[tasks]]
 id = "safety-apply.2"
-theme = "safety-apply"
+feature = "safety-apply"
 title = "Experiment: rewrite existing example with zero unsafe using type-safe APIs"
 kind = "experiment"
 status = "done"
@@ -3849,7 +3851,7 @@ depends = ["safety-apply.1"]
 
 [[tasks]]
 id = "iter-demo.4"
-theme = "iter-demo"
+feature = "iter-demo"
 title = "Experiment: re-benchmark multi-block par_iter vs Rayon — find crossover point"
 kind = "experiment"
 status = "done"
@@ -3857,7 +3859,7 @@ depends = ["iter-demo.3"]
 
 [[tasks]]
 id = "iter-demo.5"
-theme = "iter-demo"
+feature = "iter-demo"
 title = "Experiment: multi-block fold/sum via two-pass reduction"
 kind = "experiment"
 status = "parked"
@@ -3867,7 +3869,7 @@ depends = ["iter-demo.3"]
 
 [[tasks]]
 id = "gen-mono.1"
-theme = "gen-mono"
+feature = "gen-mono"
 title = "Investigation: how PTX monomorphization works — LLVM IR level vs Rust MIR level"
 kind = "investigation"
 status = "done"
@@ -3875,7 +3877,7 @@ depends = []
 
 [[tasks]]
 id = "gen-mono.2"
-theme = "gen-mono"
+feature = "gen-mono"
 title = "Experiment: compile generic fn<T: Copy + Add> to PTX for f32 and i32"
 kind = "experiment"
 status = "done"
@@ -3885,7 +3887,7 @@ depends = ["gen-mono.1"]
 
 [[tasks]]
 id = "gen-traits.1"
-theme = "gen-traits"
+feature = "gen-traits"
 title = "Experiment: user-defined trait with where bounds working in GPU kernel"
 kind = "experiment"
 status = "done"
@@ -3895,7 +3897,7 @@ depends = ["gen-mono.2"]
 
 [[tasks]]
 id = "gen-demo.1"
-theme = "gen-demo"
+feature = "gen-demo"
 title = "Experiment: generic parallel_reduce<T: Reducible> — f32, i32, custom struct"
 kind = "experiment"
 status = "done"
@@ -3905,7 +3907,7 @@ depends = ["gen-traits.1"]
 
 [[tasks]]
 id = "unified-scheduler.1"
-theme = "unified-scheduler"
+feature = "unified-scheduler"
 title = "Investigation: scheduler architecture — CpuScheduler/GpuScheduler/AutoScheduler design"
 kind = "investigation"
 status = "done"
@@ -3913,7 +3915,7 @@ depends = []
 
 [[tasks]]
 id = "unified-scheduler.2"
-theme = "unified-scheduler"
+feature = "unified-scheduler"
 title = "Experiment: implement CpuScheduler + GpuScheduler with explicit affinity routing"
 kind = "experiment"
 status = "done"
@@ -3921,7 +3923,7 @@ depends = ["unified-scheduler.1"]
 
 [[tasks]]
 id = "unified-scheduler.3"
-theme = "unified-scheduler"
+feature = "unified-scheduler"
 title = "Experiment: AutoScheduler with work type heuristics (I/O → CPU, compute → GPU)"
 kind = "experiment"
 status = "done"
@@ -3931,7 +3933,7 @@ depends = ["unified-scheduler.2"]
 
 [[tasks]]
 id = "unified-transfer.1"
-theme = "unified-transfer"
+feature = "unified-transfer"
 title = "Investigation: automatic data transfer architecture — GpuBuffer<T> with location tracking"
 kind = "investigation"
 status = "done"
@@ -3939,7 +3941,7 @@ depends = []
 
 [[tasks]]
 id = "unified-transfer.2"
-theme = "unified-transfer"
+feature = "unified-transfer"
 title = "Experiment: transparent host ↔ device transfer — From<Vec<T>> / Into<Vec<T>>"
 kind = "experiment"
 status = "done"
@@ -3947,7 +3949,7 @@ depends = ["unified-transfer.1"]
 
 [[tasks]]
 id = "unified-transfer.3"
-theme = "unified-transfer"
+feature = "unified-transfer"
 title = "Experiment: lazy transfer + redundancy elimination — skip unnecessary copies"
 kind = "experiment"
 status = "done"
@@ -3957,7 +3959,7 @@ depends = ["unified-transfer.2"]
 
 [[tasks]]
 id = "unified-demo.1"
-theme = "unified-demo"
+feature = "unified-demo"
 title = "Experiment: read → compute → write pipeline with zero GPU concepts in user code"
 kind = "experiment"
 status = "done"
@@ -3965,7 +3967,7 @@ depends = ["unified-scheduler.2", "unified-transfer.2"]
 
 [[tasks]]
 id = "unified-demo.2"
-theme = "unified-demo"
+feature = "unified-demo"
 title = "Experiment: performance benchmark + AutoScheduler choosing GPU for compute, CPU for I/O"
 kind = "experiment"
 status = "done"
@@ -3975,7 +3977,7 @@ depends = ["unified-scheduler.3", "unified-demo.1"]
 
 [[tasks]]
 id = "coro-design.1"
-theme = "coro-design"
+feature = "coro-design"
 title = "Investigation: map Rust generator/coroutine semantics to GPU warp state machines"
 kind = "investigation"
 status = "done"
@@ -3983,7 +3985,7 @@ depends = []
 
 [[tasks]]
 id = "coro-design.2"
-theme = "coro-design"
+feature = "coro-design"
 title = "Design: GpuGenerator trait + MIR pass extension for yield to warp context switch"
 kind = "design"
 status = "done"
@@ -3993,7 +3995,7 @@ depends = ["coro-design.1"]
 
 [[tasks]]
 id = "coro-impl.1"
-theme = "coro-impl"
+feature = "coro-impl"
 title = "Experiment: implement generator compilation to PTX + warp-cooperative yield"
 kind = "experiment"
 status = "done"
@@ -4001,7 +4003,7 @@ depends = ["coro-design.2"]
 
 [[tasks]]
 id = "coro-impl.2"
-theme = "coro-impl"
+feature = "coro-impl"
 title = "Experiment: streaming pipeline demo — producer yields, consumer processes"
 kind = "experiment"
 status = "done"
@@ -4011,7 +4013,7 @@ depends = ["coro-impl.1"]
 
 [[tasks]]
 id = "cost-analysis.1"
-theme = "cost-analysis"
+feature = "cost-analysis"
 title = "Investigation: estimate register + shared memory usage from MIR/PTX"
 kind = "investigation"
 status = "done"
@@ -4019,8 +4021,18 @@ depends = []
 
 [[tasks]]
 id = "cost-analysis.2"
-theme = "cost-analysis"
+feature = "cost-analysis"
 title = "Experiment: implement per-kernel resource estimation pass"
 kind = "experiment"
 status = "done"
 depends = ["cost-analysis.1"]
+
+# Archived at cycle 638 — pre-hierarchy migration cleanup
+
+[[tasks]]
+id = "cost-warnings.1"
+feature = "cost-warnings"
+title = "Experiment: emit compile-time warnings for low occupancy + bank conflicts"
+kind = "experiment"
+status = "done"
+depends = ["cost-analysis.2"]

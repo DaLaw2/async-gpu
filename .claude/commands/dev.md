@@ -14,8 +14,8 @@ You MAY do lightweight file discovery (`ls`, `find`, `grep -l`) to assemble navi
 ├── findings/
 │   ├── brainstorm/bs{N}*.md         # Brainstorm outputs
 │   ├── tasks/{task_id}-c{N}.md      # Task findings
-│   └── themes/{theme_id}-synthesis.md  # Theme synthesis (≤30 lines, rewritten)
-└── archive/                         # Completed items (epics, themes, tasks, brainstorms)
+│   └── features/{feature_id}-synthesis.md  # Feature synthesis (≤30 lines, rewritten)
+└── archive/                         # Completed items (stories, features, tasks, brainstorms)
 ```
 
 ## Recovery (ALWAYS FIRST)
@@ -33,27 +33,24 @@ RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE → loop
 
 ### GATE
 
-1. **Tier Gate** (`dev-gates.md`): determine which tier is eligible.
-   - T(N) must have ALL epics satisfied before T(N+1) tasks become eligible.
-   - **Exception**: infrastructure epics (e.g., gpu-test, developer-showcase) at T0 may run in parallel with T1 core epics. T0 infrastructure does not block T1 work — both tiers are eligible simultaneously.
+1. **Story Priority Gate** (`dev-gates.md`): determine which stories are eligible. High-priority stories block medium/low globally (blocked stories excepted).
 2. **Brainstorm triggers** — if any fire, run brainstorm (`dev-brainstorm.md`) before proceeding:
    - `tasks_since_brainstorm >= 10`
-   - No ready tasks remain but active epics have unmet criteria
-   - An active epic with priority `highest` has active themes but NO eligible tasks (even if lower-priority epics have tasks) — brainstorm targets that epic specifically
+   - No ready tasks remain but active stories have unmet criteria
+   - An eligible story with priority `high` has active features but NO eligible tasks (even if lower-priority stories have tasks) — brainstorm targets that story specifically
    - User requests brainstorm
 
 ### SELECT
 
-1. Filter tasks: `status == "pending"` AND deps met AND parent theme `"active"`
-2. Apply tier priority: only tasks belonging to eligible tiers (see GATE)
-3. **Apply epic priority**: within the same tier, sort by epic priority (`highest > high > medium > low`). Higher-priority epics fill slots first. Remaining slots may be filled by lower-priority epics.
-4. If no tasks pass → brainstorm to generate new work, then re-filter. Still empty → report to user, STOP.
-5. **Form one batch**: same-theme sequential, cross-theme may parallelize. This batch is a fixed set — do NOT add tasks mid-cycle.
-6. **Classify slots** for each task in the batch:
+1. Filter tasks: `status == "pending"` AND deps met AND parent feature `"active"` AND parent story eligible (per GATE).
+2. Sort by parent story priority (`high > medium > low`). Higher-priority stories fill slots first.
+3. If no tasks pass → brainstorm to generate new work, then re-filter. Still empty → report to user, STOP.
+4. **Form one batch**: same-feature sequential, cross-feature may parallelize. This batch is a fixed set — do NOT add tasks mid-cycle.
+5. **Classify slots** for each task in the batch:
    - **Heavy** — tasks that compile code (experiment kind — runs cargo build/test/clippy). Max 2 concurrent.
    - **Light** — tasks that only read and analyze (investigation, design kind — no compilation). No concurrency limit.
    - Classify by task kind. Verify/retry for experiment tasks are also heavy; verify for investigation/design is light.
-7. Set selected tasks → `status = "active"`, update `current_task_id`
+6. Set selected tasks → `status = "active"`, update `current_task_id`
 
 ### DISPATCH
 
@@ -79,18 +76,21 @@ See `dev-dispatch.md` for brief templates.
 
 ### ROUTE
 
-1. **North Star Gate** (`dev-gates.md`): dispatch subagent to judge whether completed work aligns with epic and project north stars.
-2. **Epic lifecycle**:
-   - If all success criteria of an epic appear met → dispatch Epic Verification Gate (`dev-gates.md`).
+1. **North Star Gate** (`dev-gates.md`): dispatch subagent to judge whether completed work aligns with story and project north stars.
+2. **Story lifecycle**:
+   - If all success criteria of a story appear met → dispatch Story Verification Gate (`dev-gates.md`).
    - FAIL → create tasks for unmet criteria.
-   - PASS → cascade close: mark all child themes `completed`, all child tasks `done` (or `skipped` if never started), mark epic `completed`. Next SAVE archives the batch.
-3. **Brainstorm triggers** — if any fire, run brainstorm (`dev-brainstorm.md`):
-   - Theme just completed
-   - Task was marked blocked (single or 3+ consecutive in same theme)
+   - PASS → cascade close: mark all child features `completed`, all child tasks `done` (or `skipped` if never started), mark story `completed`. Next SAVE archives the batch.
+3. **Epic lifecycle**:
+   - If all stories within an epic are completed → dispatch Epic Verification Gate (`dev-gates.md`).
+   - FAIL → identify which story criteria are actually unmet, reopen that story.
+   - PASS → mark epic `completed`. Next SAVE archives the batch.
+4. **Brainstorm triggers** — if any fire, run brainstorm (`dev-brainstorm.md`):
+   - Feature just completed
+   - Task was marked blocked (single or 3+ consecutive in same feature)
    - North Star Gate returned DRIFT
-4. **Tier promotion** — if all T(N) epics satisfied, activate T(N+1) and brainstorm to create themes/tasks.
 5. More ready tasks → back to GATE.
-6. All active epics fully satisfied → report to user, STOP.
+6. All active stories fully satisfied → report to user, STOP.
 
 ## Error Handling
 
@@ -105,4 +105,4 @@ See `dev-dispatch.md` for brief templates.
 - When sources conflict, prefer official docs and source code
 - Experiment code goes in `crates/` or `examples/`
 - Disk-first: subagent writes findings BEFORE reporting done
-- **state.toml scoping**: only active/pending/parked epics keep themes/tasks in state.toml. When an epic activates, brainstorm creates its themes/tasks. Cascade close sets archivable status on all children; maintain-archive moves them out.
+- **state.toml scoping**: only active/pending/parked stories keep features/tasks in state.toml. When a story activates, brainstorm creates its features/tasks. Cascade close sets archivable status on all children; maintain-archive moves them out.

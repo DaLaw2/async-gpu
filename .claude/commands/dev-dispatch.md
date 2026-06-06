@@ -11,12 +11,13 @@ or make strategic decisions. The orchestrator assembles the brief and judges res
 Kind: {investigation | experiment | design}
 
 ## Context
-Theme: {theme_id} — {theme_title}
+Feature: {feature_id} — {feature_title}
+Story: {story_id} — {story_title}
 Epic: {epic_id} — {epic_title}
-Epic North Star: {one_sentence_from_state_toml}
-Epic Success Criteria: {list from state.toml}
+Epic North Star: {one_sentence_from_state_toml, via story→epic chain}
+Story Success Criteria: {list from state.toml}
 This task resolves: {which specific criterion or sub-goal}
-Theme synthesis: {paste findings/themes/{theme_id}-synthesis.md, or "First task in this theme"}
+Feature synthesis: {paste findings/features/{feature_id}-synthesis.md, or "First task in this feature"}
 
 ## Prior Work
 Tried & Rejected: {from context.md — what NOT to do and why}
@@ -41,7 +42,7 @@ Entry point: {specific file, script, or function to start from}
 1. **Findings file**: .research/findings/tasks/{task_id}-c{cycle}.md
    Format: Summary (2-3 sentences), Findings (Q/A with confidence), Unexpected Discoveries,
    Open Questions, Impact on Downstream Tasks
-2. **Theme synthesis update**: .research/findings/themes/{theme_id}-synthesis.md
+2. **Feature synthesis update**: .research/findings/features/{feature_id}-synthesis.md
    REWRITE (not append), ≤30 lines. Sections: Progress, Verified Conclusions,
    Rejected Approaches, Open Questions, Key Metrics, Next Steps
 3. **Return to orchestrator**: STATUS (done|blocked), SUMMARY (3 sentences), FILES_CHANGED (list)
@@ -69,7 +70,7 @@ All stages use separate subagents. The orchestrator does NOT read code — only 
 ```
 ## Verify: {task_id}
 Task goal: {title}
-Epic success criteria this task serves: {criterion}
+Story success criteria this task serves: {criterion}
 Files changed: {FILES_CHANGED from task subagent}
 Findings file: .research/findings/tasks/{task_id}-c{cycle}.md
 
@@ -77,7 +78,7 @@ Findings file: .research/findings/tasks/{task_id}-c{cycle}.md
 1. Tests pass: run relevant tests for changed crates
 2. Lint clean: cargo +stable fmt --check && cargo +stable clippy -- -D warnings
 3. Findings file exists and has required sections (Summary, Findings, Open Questions)
-4. Theme synthesis updated and ≤30 lines
+4. Feature synthesis updated and ≤30 lines
 5. Goal check: do the changes actually resolve the task goal? Read the diff and findings.
 
 Return: PASS (all checks green) or FAIL (which check failed + evidence)
@@ -135,18 +136,29 @@ PASS → task is done. FAIL → mark task blocked (triggers brainstorm in ROUTE)
 ### type: north-star
 ```
 Read these completed task findings: {paths}
+Read this story's Success Criteria: {story_criteria}
 Read this epic's North Star: {north_star_text}
 Read the Project North Star from state.toml [meta] section.
-Does this work advance BOTH?
+Does this work advance the story criteria AND the epic North Star?
 Return: ALIGNED (1-sentence evidence) or DRIFT (1-sentence explanation)
+```
+
+### type: story-verify
+```
+Story: {story_id} — {title}
+Epic: {epic_id} — {epic_title}
+Success Criteria: {story_criteria_list}
+Verify EACH criterion by actually running/checking the observable outcome described.
+Return: PASS or FAIL with concrete evidence for each criterion.
 ```
 
 ### type: epic-verify
 ```
 Epic: {epic_id} — {title}
-Litmus Test: {litmus_test_text}
-Success Criteria: {criteria_list}
-Verify EACH criterion by actually running/checking the observable outcome described.
+North Star: {north_star_text}
+Success Criteria: {epic_criteria_list}
+All stories completed: {list of story_ids with PASS status}
+Verify EACH epic criterion is satisfied by the aggregate of completed stories.
 Return: PASS or FAIL with concrete evidence for each criterion.
 ```
 

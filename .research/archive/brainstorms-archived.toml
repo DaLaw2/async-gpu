@@ -1,3 +1,5 @@
+# Migrated from Epic→Theme→Task hierarchy at cycle 638
+# Field names below cycle 638 use old naming (themes_*/epics_*); semantically equivalent to features_*/stories_*
 # Archived brainstorms — moved from state.toml at cycle 193
 # Keeping last 3 (bs47, bs48, bs49) in state.toml
 

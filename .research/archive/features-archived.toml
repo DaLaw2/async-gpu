@@ -1,387 +1,390 @@
+# Archived completed features — moved from state.toml
+# Migrated from Epic→Theme→Task hierarchy at cycle 638
+# Items below cycle 638 were originally "themes" in the old 3-level hierarchy
 # Archived completed themes — moved from state.toml at cycle 193
 
-[[themes]]
+[[features]]
 id = "mma-fix"
 title = "Fix Tensor Core MMA kernel for GPT-2 dimensions"
 status = "completed"
 spawned_by = "bs43"
-epic = "gpu-perf"
+story = "gpu-perf"
 
-[[themes]]
+[[features]]
 id = "kv-cache"
 title = "KV cache for efficient autoregressive generation"
 status = "completed"
 spawned_by = "bs43"
-epic = "gpu-perf"
+story = "gpu-perf"
 
-[[themes]]
+[[features]]
 id = "repo-cleanup"
 title = "Repository cleanup + example expansion"
 status = "completed"
 spawned_by = "bs43"
-epic = "public-api"
+story = "public-api"
 
-[[themes]]
+[[features]]
 id = "mixed-precision"
 title = "BF16/TF32 mixed precision Tensor Core inference"
 status = "completed"
 spawned_by = "bs45"
-epic = "gpu-perf"
+story = "gpu-perf"
 
-[[themes]]
+[[features]]
 id = "tf32-mma"
 title = "TF32 Tensor Core MMA experiment"
 status = "completed"
 spawned_by = "bs47"
-epic = "gpu-perf"
+story = "gpu-perf"
 
-[[themes]]
+[[features]]
 id = "gpu-error-propagation"
 title = "GPU→host error propagation via output buffer convention"
 status = "completed"
 spawned_by = "bs48"
-epic = "gpu-error"
+story = "gpu-error"
 
-[[themes]]
+[[features]]
 id = "std-migration"
 title = "Migrate hostcall/IO kernels to use patched std"
 status = "completed"
 spawned_by = "bs48"
-epic = "real-std"
+story = "real-std"
 
-[[themes]]
+[[features]]
 id = "std-fs"
 title = "std::fs on GPU via hostcall with proper error handling"
 status = "completed"
 spawned_by = "bs48"
-epic = "real-std"
+story = "real-std"
 
-[[themes]]
+[[features]]
 id = "workflow-improvement"
 title = "Research workflow improvements for routine tasks"
 status = "completed"
 spawned_by = "user"
-epic = "codebase-health"
+story = "codebase-health"
 
 # --- Archived at cycle 204 ---
 
-[[themes]]
+[[features]]
 id = "host-sdk"
 title = "Extract reusable host-side SDK library from gpu-host"
 status = "completed"
 spawned_by = "bs38"
-epic = "public-api"
+story = "public-api"
 
-[[themes]]
+[[features]]
 id = "workspace-consolidation"
 title = "Consolidate workspace, configs, and toolchain version"
 status = "completed"
 spawned_by = "user"
-epic = "codebase-health"
+story = "codebase-health"
 
-[[themes]]
+[[features]]
 id = "build-automation"
 title = "Build system automation — PTX stubs, CI sync"
 status = "completed"
 spawned_by = "user"
-epic = "codebase-health"
+story = "codebase-health"
 
-[[themes]]
+[[features]]
 id = "docs"
 title = "Documentation — README, API docs, architecture"
 status = "completed"
 spawned_by = "user"
-epic = "codebase-health"
+story = "codebase-health"
 
 # --- Archived at cycle 246 ---
 
-[[themes]]
+[[features]]
 id = "std-hardening"
-epic = "real-std"
+story = "real-std"
 title = "Document std limitations + harden allocator/errno for multi-thread"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "hashmap-fix"
-epic = "real-std"
+story = "real-std"
 title = "Verify HashMap works on GPU (no patch needed)"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "gpu-tls"
-epic = "real-std"
+story = "real-std"
 title = "Research native #[thread_local] on nvptx64"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "trace-protocol"
-epic = "gpu-debug"
+story = "gpu-debug"
 title = "Structured trace event protocol + gpu_trace!() macro"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "gpu-assert-diag"
-epic = "gpu-debug"
+story = "gpu-debug"
 title = "GPU assert with diagnostic messages"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "flight-recorder"
-epic = "gpu-debug"
+story = "gpu-debug"
 title = "Post-mortem flight recorder — ring buffer of last N trace events"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "cond-trace"
-epic = "gpu-debug"
+story = "gpu-debug"
 title = "Conditional compilation — tracing compiles out in release builds"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "hc-session"
-epic = "gpu-autonomous"
+story = "gpu-autonomous"
 title = "Hostcall session persistence — listener + fd table across kernel launches"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "cmd-buffer"
-epic = "gpu-autonomous"
+story = "gpu-autonomous"
 title = "Multi-command kernel via mapped memory command buffer"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "cross-pipeline"
-epic = "gpu-autonomous"
+story = "gpu-autonomous"
 title = "Cross-launch pipeline — device buffer persistence + Pipeline API"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "iter-workflow"
-epic = "gpu-autonomous"
+story = "gpu-autonomous"
 title = "Data-dependent iteration — autonomous convergence loop on GPU"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "rustc-survey"
-epic = "native-warp-async"
+story = "native-warp-async"
 title = "Lightweight survey of rustc async→coroutine pipeline"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "warp-future-bridge"
-epic = "native-warp-async"
+story = "native-warp-async"
 title = "Phase 1: Standard impl Future wrapped in warp cooperation"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "warp-async-v2"
-epic = "native-warp-async"
+story = "native-warp-async"
 title = "Phase 2: Enhanced #[warp_async] with async fn syntax + ? operator"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "rustc-warp"
-epic = "native-warp-async"
+story = "native-warp-async"
 title = "Phase 3: rustc MIR pass for warp-cooperative codegen"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "std-multithread"
-epic = "real-std"
+story = "real-std"
 title = "Multi-thread safe std — thread-ID-indexed ThreadLocal replacement"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "nightly-pin"
-epic = "codebase-health"
+story = "codebase-health"
 title = "Centralize nightly toolchain version — eliminate hardcoded versions"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "readme-update"
-epic = "codebase-health"
+story = "codebase-health"
 title = "Update README with multi-thread std and native warp-async achievements"
 status = "completed"
 
 # --- Archived at cycle 259 ---
 
-[[themes]]
+[[features]]
 id = "readme-fix"
-epic = "codebase-health"
+story = "codebase-health"
 title = "Fix README contradictions — Limitations section vs body"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "host-async"
-epic = "public-api"
+story = "public-api"
 title = "Host-side async/await integration — tokio-compatible GPU launch"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "batched-hc"
-epic = "gpu-perf"
+story = "gpu-perf"
 title = "Hostcall latency profiling — where does 20-100us go?"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "printf-batch"
-epic = "gpu-perf"
+story = "gpu-perf"
 title = "GPU-side printf batching — reduce hostcall overhead for print-heavy kernels"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "example-verify"
-epic = "public-api"
+story = "public-api"
 title = "Verify all 3 examples compile and run post-refactoring"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "api-docs"
-epic = "public-api"
+story = "public-api"
 title = "GPU-host public API documentation — missing_docs lint + rustdoc coverage"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "gpu-test-harness"
-epic = "public-api"
+story = "public-api"
 title = "GPU integration test harness — cargo test for GPU kernels"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "println-buffer"
-epic = "gpu-perf"
+story = "gpu-perf"
 title = "Integrate print_buffer with gpu-libc write() for automatic println buffering"
 status = "completed"
 
 # --- archived at cycle 266 ---
 
-[[themes]]
+[[features]]
 id = "rustc-warp-async"
-epic = "native-warp-async"
+story = "native-warp-async"
 title = "Rustc MIR pass feasibility — warp-cooperative async/await compiler support"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "data-iter"
-epic = "gpu-autonomous"
+story = "gpu-autonomous"
 title = "Data-dependent iteration — GPU kernel autonomously converges"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "rustc-impl"
-epic = "native-warp-async"
+story = "native-warp-async"
 title = "Implement WarpCooperativeTransform MIR pass in rustc source"
 status = "completed"
 
 # --- Archived at cycle 293 ---
 
-[[themes]]
+[[features]]
 id = "std-sysroot-build"
-epic = "std-sysroot"
+story = "std-sysroot"
 title = "Build patched std into sysroot for nvptx64"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "gpu-executor"
-epic = "async-std"
+story = "async-std"
 title = "GPU-side async executor — block_on() with yield strategy"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "ptx-codegen-fix"
-epic = "codebase-health"
+story = "codebase-health"
 title = "Fix PTX codegen issues in patched rustc — .ptr .align + panic stubs"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "async-std-demo"
-epic = "async-std"
+story = "async-std"
 title = "Warp-cooperative async file pipeline demo"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "async-bulk-io"
-epic = "codebase-health"
+story = "codebase-health"
 title = "Async bulk I/O Futures — GpuBulkReadFuture + GpuBulkWriteFuture"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "build-fix"
-epic = "codebase-health"
+story = "codebase-health"
 title = "Fix build scripts and developer onboarding"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "rustdoc-coverage"
-epic = "public-api"
+story = "public-api"
 title = "Rustdoc coverage for gpu-host public API"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "arch-doc"
-epic = "public-api"
+story = "public-api"
 title = "Write ARCHITECTURE.md for contributors"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "release-prep"
-epic = "codebase-health"
+story = "codebase-health"
 title = "Tag v0.1.0 release with CHANGELOG"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "showcase-demo"
-epic = "public-api"
+story = "public-api"
 title = "Showcase demo — parallel file search on GPU"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "ci-update"
-epic = "codebase-health"
+story = "codebase-health"
 title = "Add parallel-search example to CI lint and check scripts"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "blog-draft"
-epic = "public-api"
+story = "public-api"
 title = "Draft technical blog post for project visibility"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "readme-polish"
-epic = "codebase-health"
+story = "codebase-health"
 title = "CI badge + warp-cooperative in README"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "contributing-guide"
-epic = "public-api"
+story = "public-api"
 title = "CONTRIBUTING.md for developer onboarding"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "ci-hygiene"
-epic = "codebase-health"
+story = "codebase-health"
 title = "CI coverage for all examples + cleanup"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "build-scripts"
-epic = "codebase-health"
+story = "codebase-health"
 title = "Commit pending build script changes"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "example-docs"
-epic = "public-api"
+story = "public-api"
 title = "Per-example README documentation"
 status = "completed"
 
 # --- Archived at cycle 303 ---
 
-[[themes]]
+[[features]]
 id = "net-protocol"
-epic = "network-io"
+story = "network-io"
 title = "Define TCP hostcall service protocol"
 status = "completed"
 goal = "Service IDs, packet layout, fd model for TCP connections"
@@ -390,9 +393,9 @@ success_criteria = [
     "Protocol documented with packet layout",
 ]
 
-[[themes]]
+[[features]]
 id = "net-host"
-epic = "network-io"
+story = "network-io"
 title = "Host-side TCP service handlers"
 status = "completed"
 goal = "Host listener handles TCP connect/send/recv/close requests"
@@ -401,9 +404,9 @@ success_criteria = [
     "Socket fd table management",
 ]
 
-[[themes]]
+[[features]]
 id = "net-gpu"
-epic = "network-io"
+story = "network-io"
 title = "GPU-side TCP Future types"
 status = "completed"
 goal = "Async Futures for TCP operations in gpu-runtime"
@@ -411,25 +414,25 @@ success_criteria = [
     "GpuTcpConnectFuture, GpuTcpSendFuture, GpuTcpRecvFuture in gpu-runtime",
 ]
 
-[[themes]]
+[[features]]
 id = "blog-update"
-epic = "public-api"
+story = "public-api"
 title = "Update blog post with TCP networking"
 status = "completed"
 goal = "BLOG_DRAFT.md covers 4 innovations (incl. TCP)"
 success_criteria = ["BLOG_DRAFT.md has TCP networking section"]
 
-[[themes]]
+[[features]]
 id = "changelog-update"
-epic = "codebase-health"
+story = "codebase-health"
 title = "Prepare CHANGELOG v0.2.0"
 status = "completed"
 goal = "CHANGELOG.md has v0.2.0 section with TCP milestone"
 success_criteria = ["CHANGELOG.md updated with v0.2.0"]
 
-[[themes]]
+[[features]]
 id = "net-demo"
-epic = "network-io"
+story = "network-io"
 title = "TCP networking demo example + documentation"
 status = "completed"
 goal = "Working TCP demo kernel + updated docs"
@@ -438,9 +441,9 @@ success_criteria = [
     "README updated with TCP networking section",
 ]
 
-[[themes]]
+[[features]]
 id = "safety-audit"
-epic = "codebase-health"
+story = "codebase-health"
 title = "Unsafe safety documentation for hostcall protocol"
 status = "completed"
 goal = "Document safety invariants for all high/medium-risk unsafe blocks"
@@ -449,9 +452,9 @@ success_criteria = [
     "Unsafe blocks classified by risk level (lock-free CAS > raw pointer > inline PTX > FFI)",
 ]
 
-[[themes]]
+[[features]]
 id = "api-docs"
-epic = "public-api"
+story = "public-api"
 title = "Module-level API documentation for gpu-host"
 status = "completed"
 goal = "Add //! module docs with usage overview to gpu-host public modules"
@@ -462,90 +465,90 @@ success_criteria = [
 
 # --- Archived at cycle 311 ---
 
-[[themes]]
+[[features]]
 id = "tla-model"
-epic = "formal-verification"
+story = "formal-verification"
 title = "TLA+ model of hostcall CAS protocol"
 status = "completed"
 goal = "Formal verification of packet lifecycle FSM with multi-agent contention"
 
-[[themes]]
+[[features]]
 id = "build-stabilize"
-epic = "codebase-health"
+story = "codebase-health"
 title = "Stabilize build toolchain scripts"
 status = "completed"
 goal = "Clean up in-flux build scripts, ensure consistent state"
 
-[[themes]]
+[[features]]
 id = "validation-prep"
-epic = "codebase-health"
+story = "codebase-health"
 title = "First-run validation checklist for GPU testing"
 status = "completed"
 goal = "Enable someone with GPU hardware to validate the system"
 
-[[themes]]
+[[features]]
 id = "readme-tla"
-epic = "codebase-health"
+story = "codebase-health"
 title = "Add TLA+ formal verification section to README"
 status = "completed"
 goal = "README documents formal verification results"
 
-[[themes]]
+[[features]]
 id = "executor-design"
-epic = "public-api"
+story = "public-api"
 title = "Design doc: GPU-side async task spawning executor"
 status = "completed"
 goal = "Architecture document for on-GPU work-stealing executor"
 
 # --- archived at cycle 327 ---
 
-[[themes]]
+[[features]]
 id = "executor-impl"
-epic = "gpu-executor"
+story = "gpu-executor"
 title = "Implement GPU-side async executor MVP (Phase 1)"
 status = "completed"
 goal = "Working executor with MPMC queue, TaskSlot arena, spawn() + poll loop"
 
-[[themes]]
+[[features]]
 id = "std-sync"
-epic = "extended-std"
+story = "extended-std"
 title = "GPU sync primitives + collections"
 status = "completed"
 goal = "Mutex<T>, HashMap on GPU via atomics + hostcall allocator"
 
-[[themes]]
+[[features]]
 id = "api-ergonomics"
-epic = "public-api"
+story = "public-api"
 title = "Polish public API — builder pattern, session management, error context"
 status = "completed"
 goal = "Reduce boilerplate, improve error messages, simplify kernel launch"
 
-[[themes]]
+[[features]]
 id = "bench-suite"
-epic = "benchmarks"
+story = "benchmarks"
 title = "Comprehensive benchmark suite"
 status = "completed"
 goal = "Measure hostcall latency, throughput, scalability, file I/O performance"
 
-[[themes]]
+[[features]]
 id = "api-examples"
-epic = "public-api"
+story = "public-api"
 title = "Working examples with documentation"
 status = "completed"
 goal = "At least 3 working standalone examples demonstrating gpu-host API"
 
-[[themes]]
+[[features]]
 id = "api-build"
-epic = "public-api"
+story = "public-api"
 title = "Single-command build system"
 status = "completed"
 goal = "Single cargo command compiles host + kernel PTX"
 
 # --- Archived at cycle 337 ---
 
-[[themes]]
+[[features]]
 id = "channel-oneshot"
-epic = "gpu-channels"
+story = "gpu-channels"
 title = "Oneshot<T> channel — single-value single-use channel"
 status = "completed"
 goal = "Sender sends one value, Receiver awaits it as a Future"
@@ -555,9 +558,9 @@ success_criteria = [
     "Verified on GPU with executor",
 ]
 
-[[themes]]
+[[features]]
 id = "compute-audit"
-epic = "compute-utils"
+story = "compute-utils"
 title = "Full audit of all compute functions in codebase"
 status = "completed"
 goal = "Scan every file, catalog all reusable compute functions"
@@ -566,9 +569,9 @@ success_criteria = [
     "Decision on which functions to expose vs keep internal",
 ]
 
-[[themes]]
+[[features]]
 id = "compute-extract"
-epic = "compute-utils"
+story = "compute-utils"
 title = "Extract and expose compute functions in gpu_runtime::compute"
 status = "completed"
 goal = "Create public gpu_runtime::compute module with documented API"
@@ -579,9 +582,9 @@ success_criteria = [
     "All compile to PTX and documented",
 ]
 
-[[themes]]
+[[features]]
 id = "demo-pipeline"
-epic = "compute-demo"
+story = "compute-demo"
 title = "Multi-stage compute pipeline demo"
 status = "completed"
 goal = "Demo that proves async GPU is simpler and faster than sequential kernel launches"
@@ -593,53 +596,53 @@ success_criteria = [
 
 # --- Archived at cycle 342 ---
 
-[[themes]]
+[[features]]
 id = "channel-mpsc"
-epic = "gpu-channels"
+story = "gpu-channels"
 title = "Mpsc<T> channel — multi-producer single-consumer"
 status = "completed"
 goal = "Lock-free ring buffer with CAS-based enqueue, atomic waker"
 
-[[themes]]
+[[features]]
 id = "channel-waker"
-epic = "gpu-channels"
+story = "gpu-channels"
 title = "Waker integration — sender wakes receiver task in executor"
 status = "completed"
 goal = "When sender.send() completes, receiver task is re-enqueued in executor"
 
-[[themes]]
+[[features]]
 id = "channel-demo"
-epic = "gpu-channels"
+story = "gpu-channels"
 title = "Demo: producer-consumer pipeline with channels"
 status = "completed"
 goal = "End-to-end demo kernel showing channels + executor working together"
 
-[[themes]]
+[[features]]
 id = "tokio-investigate"
-epic = "tokio-bridge"
+story = "tokio-bridge"
 title = "Investigation: tokio integration architecture"
 status = "completed"
 goal = "Understand current host architecture and design tokio integration points"
 
-[[themes]]
+[[features]]
 id = "tokio-impl"
-epic = "tokio-bridge"
+story = "tokio-bridge"
 title = "Implement GpuTask API + async kernel launch"
 status = "completed"
 goal = "Add GpuTask struct to async_rt.rs that orchestrates launch + hostcall + events"
 
-[[themes]]
+[[features]]
 id = "tokio-demo"
-epic = "tokio-bridge"
+story = "tokio-bridge"
 title = "Demo: tokio server that offloads compute to GPU"
 status = "completed"
 goal = "End-to-end example showing tokio + GPU async bridge"
 
 # --- Archived at cycle 349 (production-ready epic completed) ---
 
-[[themes]]
+[[features]]
 id = "multi-gpu"
-epic = "production-ready"
+story = "production-ready"
 title = "Multi-GPU support — device selection + multi-context"
 status = "completed"
 goal = "GpuRuntime can target any GPU device, multiple runtimes coexist"
@@ -649,9 +652,9 @@ success_criteria = [
     "Device enumeration API (list available GPUs)",
 ]
 
-[[themes]]
+[[features]]
 id = "cuda-streams"
-epic = "production-ready"
+story = "production-ready"
 title = "CUDA stream support — overlapping compute and I/O"
 status = "completed"
 goal = "Kernel launches can use non-default streams for pipelining"
@@ -661,9 +664,9 @@ success_criteria = [
     "Host can synchronize per-stream (not just global device sync)",
 ]
 
-[[themes]]
+[[features]]
 id = "gpu-alloc"
-epic = "production-ready"
+story = "production-ready"
 title = "GPU memory pool — slab allocator with deallocation"
 status = "completed"
 goal = "Replace bump-only allocator with slab allocator that supports free()"
@@ -673,9 +676,9 @@ success_criteria = [
     "Existing Vec, String, Box work with new allocator",
 ]
 
-[[themes]]
+[[features]]
 id = "prebuilt-toolchain"
-epic = "production-ready"
+story = "production-ready"
 title = "Pre-built toolchain binaries via CI"
 status = "completed"
 goal = "GitHub Actions builds patched rustc and publishes as release artifact"
@@ -687,305 +690,305 @@ success_criteria = [
 
 # --- Archived at cycle 365 ---
 
-[[themes]]
+[[features]]
 id = "mma-splitk"
-epic = "tensor-core-gemm"
+story = "tensor-core-gemm"
 title = "Split-K MMA GEMM with correct precision and real speedup"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "yolo-inference"
-epic = "object-detection"
+story = "object-detection"
 title = "YOLOv8-nano inference end-to-end with Conv2D, BN, SiLU, pooling, NMS"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "codebase-update"
-epic = "codebase-health"
+story = "codebase-health"
 title = "README + build script maintenance"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "dx-xtask"
-epic = "developer-experience"
+story = "developer-experience"
 title = "cargo xtask for GPU build"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "dx-editor"
-epic = "developer-experience"
+story = "developer-experience"
 title = "rust-analyzer configuration for GPU crates"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "dx-setup"
-epic = "developer-experience"
+story = "developer-experience"
 title = "Setup script for new users"
 status = "completed"
 
 # --- Archived at cycle 458 ---
 
-[[themes]]
+[[features]]
 id = "ve-nn-unit-tests"
-epic = "verify-examples"
+story = "verify-examples"
 title = "Add nn layer numerical correctness tests"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "ti-cpu-ref"
-epic = "testing-infra"
+story = "testing-infra"
 title = "CPU f64 reference implementations"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "ag-demo"
-epic = "autograd-v1"
+story = "autograd-v1"
 title = "Training demo — MLP on XOR/MNIST"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "gs-spike"
-epic = "gpu-safety-spike"
+story = "gpu-safety-spike"
 title = "GpuRef investigation spike"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "ag2-train-demo"
-epic = "autograd-v2"
+story = "autograd-v2"
 title = "CNN training demo on CIFAR-10"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "te-cifar"
-epic = "training-examples"
+story = "training-examples"
 title = "CIFAR-10 tiny CNN training example"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "tp-batch-conv"
-epic = "training-perf"
+story = "training-perf"
 title = "Batched conv2d — process full batch in one GPU launch"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "tp-audit"
-epic = "training-perf"
+story = "training-perf"
 title = "Audit all prior fixes — verify correctness from root"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "tv-impl"
-epic = "tensor-views"
+story = "tensor-views"
 title = "Implement tensor views with shared ownership"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "np-mha"
-epic = "nn-perf"
+story = "nn-perf"
 title = "GPU-native MHA — replace host-side QKV split with GPU kernels"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "ag3-foundation"
-epic = "autograd-v3"
+story = "autograd-v3"
 title = "Fix autograd foundation gaps"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "ag3-lora"
-epic = "autograd-v3"
+story = "autograd-v3"
 title = "GPT-2 LoRA fine-tuning example"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "lt-mnist-cnn"
-epic = "larger-training"
+story = "larger-training"
 title = "MNIST CNN — Conv2d + ReLU + MaxPool + Linear on full MNIST"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "mp-measure"
-epic = "gpu-mempool"
+story = "gpu-mempool"
 title = "Measure GPU allocation overhead in training workloads"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "rn-inference"
-epic = "resnet"
+story = "resnet"
 title = "ResNet-18 inference — model definition + forward pass"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "rn-training"
-epic = "resnet"
+story = "resnet"
 title = "ResNet-18 training on CIFAR-10"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "cb-kernels"
-epic = "conv-backward-training"
+story = "conv-backward-training"
 title = "GPU conv2d backward kernels (dWeight + dInput)"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "cb-batched"
-epic = "conv-backward-training"
+story = "conv-backward-training"
 title = "Batched conv2d backward — process full batch in one launch"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "gl-schema"
-epic = "generic-loader"
+story = "generic-loader"
 title = "ModelDef schema + generic SafeTensors loading"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "gl-resnet"
-epic = "generic-loader"
+story = "generic-loader"
 title = "Load pretrained ResNet-18 weights + verify accuracy"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "gl-yolo"
-epic = "generic-loader"
+story = "generic-loader"
 title = "Migrate YOLOv8 weights to generic loader"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "tq-resnet"
-epic = "training-quality"
+story = "training-quality"
 title = "Mini-ResNet full conv training"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "tq-lora"
-epic = "training-quality"
+story = "training-quality"
 title = "Real GPT-2 LoRA training with autograd"
 status = "completed"
 
 # --- Archived at cycle 479 (2026-03-17) ---
 
-[[themes]]
+[[features]]
 id = "rag-embed"
-epic = "gpu-rag"
+story = "gpu-rag"
 title = "Vector embedding + similarity search on GPU"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "rag-pipeline"
-epic = "gpu-rag"
+story = "gpu-rag"
 title = "Autonomous RAG pipeline in a single kernel"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "ag4-batchnorm"
-epic = "autograd-v4"
+story = "autograd-v4"
 title = "Fix BatchNorm2d backward — GPU kernel"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "ag4-maxpool"
-epic = "autograd-v4"
+story = "autograd-v4"
 title = "Fix MaxPool2d backward — gradient routing through max indices"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "ag4-upsample"
-epic = "autograd-v4"
+story = "autograd-v4"
 title = "Fix UpsampleNearest backward — correct gradient accumulation"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "int8-gemm"
-epic = "int8-inference"
+story = "int8-inference"
 title = "INT8 GEMM kernel using dp4a"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "int8-gpt2"
-epic = "int8-inference"
+story = "int8-inference"
 title = "GPT-2 INT8 inference"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "diffphys-sim"
-epic = "diff-physics"
+story = "diff-physics"
 title = "GPU particle simulation + backward pass"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "fuse-gemm-act"
-epic = "kernel-fusion"
+story = "kernel-fusion"
 title = "Fused GEMM + bias + activation kernels"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "persist-kernel"
-epic = "persistent-kernel"
+story = "persistent-kernel"
 title = "Persistent kernel with work queue"
 status = "completed"
 
 # --- Archived at cycle 510 ---
 
-[[themes]]
+[[features]]
 id = "onnx-parser"
-epic = "onnx-inference"
+story = "onnx-inference"
 title = "ONNX protobuf parser + graph IR"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "onnx-executor"
-epic = "onnx-inference"
+story = "onnx-inference"
 title = "Graph executor — dispatch ONNX nodes to GPU kernels"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "onnx-transformer"
-epic = "onnx-inference"
+story = "onnx-inference"
 title = "Transformer ONNX support — GPT-2 + attention ops"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "onnx-breadth"
-epic = "onnx-inference"
+story = "onnx-inference"
 title = "Broaden ONNX operator coverage to 30+"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "fuse-nn-api"
-epic = "kernel-fusion-v2"
+story = "kernel-fusion-v2"
 title = "Wire fused kernels into nn Linear layer + GPT-2 model"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "int4-kernel"
-epic = "int4-quantization"
+story = "int4-quantization"
 title = "INT4 dequantize + GEMM kernel"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "int4-gpt2"
-epic = "int4-quantization"
+story = "int4-quantization"
 title = "GPT-2 INT4 inference"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "gc-ir"
-epic = "graph-compiler"
+story = "graph-compiler"
 title = "Graph IR + fusion pass"
 status = "completed"
 
-[[themes]]
+[[features]]
 id = "gc-codegen"
-epic = "graph-compiler"
+story = "graph-compiler"
 title = "Fused kernel code generation"
 status = "completed"
 
 # --- Archived at cycle 594 (workflow v2 migration) ---
 
-[[themes]]
+[[features]]
 id = "onnx-fix"
-epic = "onnx-inference"
+story = "onnx-inference"
 title = "Fix ONNX runtime — raw_data parsing, ResNet e2e, GPT-2 e2e, benchmark"
 status = "completed"
 goal = "ONNX executor runs real models correctly with performance measurement"
@@ -996,9 +999,9 @@ success_criteria = [
     "Benchmark: ONNX executor latency vs native nn API on same model",
 ]
 
-[[themes]]
+[[features]]
 id = "refactor-quality"
-epic = "refactor"
+story = "refactor"
 title = "Code quality — clippy, unwrap, large functions, dead code"
 status = "completed"
 goal = "Clean up code quality issues across the codebase"
@@ -1008,9 +1011,9 @@ success_criteria = [
     "unwrap() → Result in lib code",
 ]
 
-[[themes]]
+[[features]]
 id = "refactor-api"
-epic = "refactor"
+story = "refactor"
 title = "API cleanup — pub(crate), example boilerplate, quantization utils"
 status = "completed"
 goal = "Clean public API surface and reduce example duplication"
@@ -1020,9 +1023,9 @@ success_criteria = [
     "Internal helpers marked pub(crate)",
 ]
 
-[[themes]]
+[[features]]
 id = "onnx-cache"
-epic = "onnx-perf"
+story = "onnx-perf"
 title = "Initializer caching + weight prepadding"
 status = "completed"
 goal = "Eliminate per-inference weight upload overhead"
@@ -1031,9 +1034,9 @@ success_criteria = [
     "ResNet-18 ONNX < 25ms with caching",
 ]
 
-[[themes]]
+[[features]]
 id = "onnx-gpu-ops"
-epic = "onnx-perf"
+story = "onnx-perf"
 title = "Replace CPU-fallback ops with GPU paths"
 status = "completed"
 goal = "Eliminate to_host() round-trips in hot path ops"
@@ -1043,9 +1046,9 @@ success_criteria = [
     "GPT-2 ONNX forward pass < 5 seconds",
 ]
 
-[[themes]]
+[[features]]
 id = "refactor-v2-code"
-epic = "refactor-v2"
+story = "refactor-v2"
 title = "代碼品質 — unwrap, pub(crate), dead code, magic numbers, quantize utils"
 status = "completed"
 goal = "徹底清理代碼品質問題"
@@ -1056,9 +1059,9 @@ success_criteria = [
     "magic numbers 常量化",
 ]
 
-[[themes]]
+[[features]]
 id = "refactor-v2-perf"
-epic = "refactor-v2"
+story = "refactor-v2"
 title = "ONNX 效能 — GPU-side ops + weight prepadding + GPT-2 forward"
 status = "completed"
 goal = "ResNet-18 ONNX < 25ms, GPT-2 forward pass 實際執行"
@@ -1069,9 +1072,9 @@ success_criteria = [
     "GPT-2 forward pass 計時",
 ]
 
-[[themes]]
+[[features]]
 id = "refactor-v2-test"
-epic = "refactor-v2"
+story = "refactor-v2"
 title = "Unit tests — Int4Linear, OnnxSession, quantize utils"
 status = "completed"
 goal = "新增缺失的 unit test"
@@ -1081,9 +1084,9 @@ success_criteria = [
     "quantize pack/unpack test",
 ]
 
-[[themes]]
+[[features]]
 id = "onnx-conv-prepad"
-epic = "onnx-inference"
+story = "onnx-inference"
 title = "Conv2d weight prepadding in OnnxSession"
 status = "completed"
 goal = "Reduce ResNet ONNX from 43ms toward 25ms"
@@ -1092,9 +1095,9 @@ success_criteria = [
     "ResNet-18 ONNX < 30ms",
 ]
 
-[[themes]]
+[[features]]
 id = "onnx-resnet-acc"
-epic = "onnx-inference"
+story = "onnx-inference"
 title = "ResNet-18 ONNX accuracy — export key mapping + GAP batch dim"
 status = "completed"
 goal = "ResNet-18 ONNX achieves >90% on CIFAR-10"
@@ -1104,9 +1107,9 @@ success_criteria = [
     "Our ONNX executor matches ORT accuracy (91.2%)",
 ]
 
-[[themes]]
+[[features]]
 id = "onnx-mobilenet"
-epic = "onnx-inference"
+story = "onnx-inference"
 title = "MobileNetV2 ONNX — Identity op + grouped conv"
 status = "completed"
 goal = "MobileNetV2 runs end-to-end through ONNX executor"
@@ -1116,9 +1119,9 @@ success_criteria = [
     "MobileNetV2 produces valid 1000-class output",
 ]
 
-[[themes]]
+[[features]]
 id = "dyn-control"
-epic = "gpu-dynamic"
+story = "gpu-dynamic"
 title = "Dynamic control flow demos — variable-length generation, early-exit"
 status = "completed"
 goal = "Demonstrate GPU compute patterns impossible with CUDA graphs"
@@ -1128,9 +1131,9 @@ success_criteria = [
     "Clear documentation of why CUDA graphs cannot do this",
 ]
 
-[[themes]]
+[[features]]
 id = "graph-bfs"
-epic = "graph-algorithms"
+story = "graph-algorithms"
 title = "BFS + PageRank on CSR graphs"
 status = "completed"
 goal = "GPU graph traversal with async-friendly frontier scheduling"
@@ -1140,9 +1143,9 @@ success_criteria = [
     "GPU PageRank convergence",
 ]
 
-[[themes]]
+[[features]]
 id = "int4-integrate"
-epic = "int4-gpt2"
+story = "int4-gpt2"
 title = "Integrate Int4Linear into GPT-2 model"
 status = "completed"
 goal = "GPT-2 runs with 4-bit quantized weights"
@@ -1151,9 +1154,9 @@ success_criteria = [
     "Coherent text generation from INT4 model",
 ]
 
-[[themes]]
+[[features]]
 id = "mc-finance"
-epic = "monte-carlo"
+story = "monte-carlo"
 title = "Monte Carlo — GPU PRNG + Black-Scholes + Pi estimation"
 status = "completed"
 goal = "Stochastic simulation with GPU-parallel random sampling"
@@ -1163,9 +1166,9 @@ success_criteria = [
     "GPU speedup >= 10x",
 ]
 
-[[themes]]
+[[features]]
 id = "bench-kernels"
-epic = "benchmark"
+story = "benchmark"
 title = "Kernel microbenchmarks — GFLOPS/GB/s vs cuBLAS/cuDNN"
 status = "completed"
 goal = "Quantify per-kernel performance gap against NVIDIA optimized libraries"
@@ -1176,9 +1179,9 @@ success_criteria = [
     "Bandwidth-bound ops GB/s vs GPU memory bandwidth peak",
 ]
 
-[[themes]]
+[[features]]
 id = "bench-e2e"
-epic = "benchmark"
+story = "benchmark"
 title = "End-to-end model profiling — per-layer breakdown + bottleneck analysis"
 status = "completed"
 goal = "Identify which ops dominate latency and where to optimize"
@@ -1188,9 +1191,9 @@ success_criteria = [
     "Top-3 bottleneck ops identified with improvement targets",
 ]
 
-[[themes]]
+[[features]]
 id = "perf-gemm"
-epic = "kernel-perf"
+story = "kernel-perf"
 title = "High-performance GEMM — Cutlass-level tiled matmul"
 status = "completed"
 goal = "SGEMM >= 2000 GFLOPS (70% of cuBLAS)"
@@ -1204,9 +1207,9 @@ success_criteria = [
 
 # Archived at cycle 607 — developer-showcase themes completed
 
-[[themes]]
+[[features]]
 id = "showcase-api"
-epic = "developer-showcase"
+story = "developer-showcase"
 title = "Facade re-exports — make hidden features discoverable"
 status = "completed"
 goal = "async-gpu crate re-exports SC scopes, channels, and executor types"
@@ -1217,9 +1220,9 @@ success_criteria = [
     "cargo doc --no-deps shows all new public types cleanly",
 ]
 
-[[themes]]
+[[features]]
 id = "showcase-sc"
-epic = "developer-showcase"
+story = "developer-showcase"
 title = "Structured Concurrency example — BlockScope producer-consumer"
 status = "completed"
 goal = "Standalone example demonstrating structured concurrency on GPU"
@@ -1229,9 +1232,9 @@ success_criteria = [
     "GpuChannel used for producer-consumer communication",
 ]
 
-[[themes]]
+[[features]]
 id = "showcase-channels"
-epic = "developer-showcase"
+story = "developer-showcase"
 title = "GPU Channels + Executor example — async programming on GPU"
 status = "completed"
 goal = "Standalone examples demonstrating GPU async channels and executor"
@@ -1240,9 +1243,9 @@ success_criteria = [
     "GPU executor example: spawn 4+ async tasks dynamically",
 ]
 
-[[themes]]
+[[features]]
 id = "showcase-examples"
-epic = "developer-showcase"
+story = "developer-showcase"
 title = "Example gap-fill — ensure all shipped features have examples"
 status = "completed"
 goal = "Every major feature has at least one clean, documented example"
@@ -1251,9 +1254,9 @@ success_criteria = [
     "Benchmark example updated with latest numbers",
 ]
 
-[[themes]]
+[[features]]
 id = "showcase-readme"
-epic = "developer-showcase"
+story = "developer-showcase"
 title = "README overhaul — feature matrix, perf table, hero examples"
 status = "completed"
 goal = "README serves as landing page that sells async-gpu in 5 minutes"
@@ -1267,9 +1270,9 @@ success_criteria = [
 
 # Archived at cycle 607 — gpu-iterator + auto-fusion themes completed
 
-[[themes]]
+[[features]]
 id = "iter-design"
-epic = "gpu-iterator"
+story = "gpu-iterator"
 title = "Iterator API design — ParallelIterator trait for GPU"
 status = "completed"
 goal = "Design gpu::par_iter() that maps Rust iterator semantics to GPU execution"
@@ -1279,9 +1282,9 @@ success_criteria = [
     "MIR pass transformation strategy designed (iterator chain → fused GPU kernel)",
 ]
 
-[[themes]]
+[[features]]
 id = "iter-compiler"
-epic = "gpu-iterator"
+story = "gpu-iterator"
 title = "MIR pass — iterator chain to GPU kernel compilation"
 status = "completed"
 goal = "Compile iterator chains into warp-parallel GPU kernels via MIR transformation"
@@ -1292,9 +1295,9 @@ success_criteria = [
     "collect() handles dynamic output sizing via atomic counter",
 ]
 
-[[themes]]
+[[features]]
 id = "iter-runtime"
-epic = "gpu-iterator"
+story = "gpu-iterator"
 title = "Iterator runtime — GPU execution of compiled iterator chains"
 status = "completed"
 goal = "Warp-parallel execution of iterator bodies with correct memory management"
@@ -1304,9 +1307,9 @@ success_criteria = [
     "Chained operations execute in single kernel (no intermediate buffers)",
 ]
 
-[[themes]]
+[[features]]
 id = "fusion-analysis"
-epic = "auto-fusion"
+story = "auto-fusion"
 title = "Fusion analysis — MIR pattern matching for fusable op chains"
 status = "completed"
 goal = "Identify elementwise operation chains that can be fused into single kernels"
@@ -1318,9 +1321,9 @@ success_criteria = [
 
 # Archived at cycle 623 — kernel-split + gpu-test + auto-fusion themes
 
-[[themes]]
+[[features]]
 id = "split-design"
-epic = "kernel-split"
+story = "kernel-split"
 title = "Kernel split design — crate boundaries, shared infra, loader API"
 status = "completed"
 goal = "Map every kernel to its target crate, design shared infrastructure and loader"
@@ -1330,9 +1333,9 @@ success_criteria = [
     "Multi-cubin host loader API designed with backward compat",
 ]
 
-[[themes]]
+[[features]]
 id = "split-execute"
-epic = "kernel-split"
+story = "kernel-split"
 title = "Execute kernel crate split — create crates, move files, verify builds"
 status = "completed"
 goal = "Create 4 kernel crates, move files, verify PTX builds"
@@ -1342,9 +1345,9 @@ success_criteria = [
     "All existing tests and examples still work",
 ]
 
-[[themes]]
+[[features]]
 id = "split-loader"
-epic = "kernel-split"
+story = "kernel-split"
 title = "Multi-cubin host loader + parallel build system"
 status = "completed"
 goal = "Wire up multi-cubin loading, parallel build, dev-mode opt-level"
@@ -1354,9 +1357,9 @@ success_criteria = [
     "Single-crate rebuild ≤5 minutes at dev opt-level",
 ]
 
-[[themes]]
+[[features]]
 id = "split-devpath"
-epic = "kernel-split"
+story = "kernel-split"
 title = "PTX JIT dev path — skip ptxas for fast iteration"
 status = "completed"
 goal = "Dev builds use PTX JIT (≤1 min), cubin reserved for CI/release"
@@ -1366,9 +1369,9 @@ success_criteria = [
     "Single-crate dev rebuild ≤1 minute end-to-end",
 ]
 
-[[themes]]
+[[features]]
 id = "test-framework"
-epic = "gpu-test"
+story = "gpu-test"
 title = "#[gpu_test] attribute + GPU test runner"
 status = "completed"
 goal = "GPU tests compile and run via cargo test"
@@ -1378,9 +1381,9 @@ success_criteria = [
     "Test runner collects results across all warps",
 ]
 
-[[themes]]
+[[features]]
 id = "fusion-codegen"
-epic = "auto-fusion"
+story = "auto-fusion"
 title = "Fused kernel codegen — compile-time PTX generation from fusion graph"
 status = "completed"
 goal = "Generate single fused GPU kernel from multiple elementwise operations"
@@ -1390,9 +1393,9 @@ success_criteria = [
     "float4 vectorized loads/stores in generated kernel",
 ]
 
-[[themes]]
+[[features]]
 id = "fusion-integrate"
-epic = "auto-fusion"
+story = "auto-fusion"
 title = "Fusion integration — auto-fuse nn ops + benchmark"
 status = "completed"
 goal = "nn API operations automatically fused, measurable GPT-2 speedup"
@@ -1404,9 +1407,9 @@ success_criteria = [
 
 # Archived at cycle 634 — T0/T1 completed themes + unified-runtime themes
 
-[[themes]]
+[[features]]
 id = "test-integration"
-epic = "gpu-test"
+story = "gpu-test"
 title = "cargo test integration + coverage"
 status = "completed"
 goal = "GPU tests are first-class in the Rust test ecosystem"
@@ -1415,9 +1418,9 @@ success_criteria = [
     "At least 10 GPU features covered by #[gpu_test] tests",
 ]
 
-[[themes]]
+[[features]]
 id = "safety-types"
-epic = "gpu-type-safety"
+story = "gpu-type-safety"
 title = "DisjointSlice + ThreadIndex — race-freedom by construction"
 status = "completed"
 goal = "Type system proves no data races in GPU code at compile time"
@@ -1427,9 +1430,9 @@ success_criteria = [
     "Overlapping writes to shared buffer are compile errors",
 ]
 
-[[themes]]
+[[features]]
 id = "safety-tiers"
-epic = "gpu-type-safety"
+story = "gpu-type-safety"
 title = "3-tier safety model for GPU operations"
 status = "completed"
 goal = "Clear safety tiers: safe / scoped unsafe / raw intrinsics"
@@ -1439,9 +1442,9 @@ success_criteria = [
     "Tier 3: raw intrinsics (TMA, WGMMA)",
 ]
 
-[[themes]]
+[[features]]
 id = "safety-apply"
-epic = "gpu-type-safety"
+story = "gpu-type-safety"
 title = "Apply type safety to existing SC and cooperative APIs"
 status = "completed"
 goal = "BlockScope/GridScope gain type-level safety guarantees"
@@ -1451,9 +1454,9 @@ success_criteria = [
     "Demo: existing example rewritten with zero unsafe",
 ]
 
-[[themes]]
+[[features]]
 id = "iter-demo"
-epic = "gpu-iterator"
+story = "gpu-iterator"
 title = "Iterator demos — par_iter vs Rayon benchmarks"
 status = "completed"
 goal = "Demonstrate GPU iterator superiority over CPU for large datasets"
@@ -1463,9 +1466,9 @@ success_criteria = [
     "Benchmark: GPU par_iter vs CPU Rayon, showing crossover point",
 ]
 
-[[themes]]
+[[features]]
 id = "gen-mono"
-epic = "gpu-generics"
+story = "gpu-generics"
 title = "PTX monomorphization for generic kernel functions"
 status = "completed"
 goal = "Generic Rust functions compile to concrete PTX per type"
@@ -1475,9 +1478,9 @@ success_criteria = [
     "No runtime dispatch overhead",
 ]
 
-[[themes]]
+[[features]]
 id = "gen-traits"
-epic = "gpu-generics"
+story = "gpu-generics"
 title = "Trait dispatch on GPU — impl + where bounds"
 status = "completed"
 goal = "User-defined traits work in GPU code"
@@ -1487,9 +1490,9 @@ success_criteria = [
     "Trait objects rejected with helpful compile error",
 ]
 
-[[themes]]
+[[features]]
 id = "gen-demo"
-epic = "gpu-generics"
+story = "gpu-generics"
 title = "Generic algorithms demo"
 status = "completed"
 goal = "Show composable GPU code via generics"
@@ -1498,9 +1501,9 @@ success_criteria = [
     "Performance matches concrete-type implementation",
 ]
 
-[[themes]]
+[[features]]
 id = "unified-scheduler"
-epic = "unified-runtime"
+story = "unified-runtime"
 title = "Scheduler type system — CpuScheduler, GpuScheduler, AutoScheduler"
 status = "completed"
 goal = "Route work to CPU or GPU based on explicit affinity or automatic heuristics"
@@ -1510,9 +1513,9 @@ success_criteria = [
     "AutoScheduler uses work type heuristics (I/O → CPU, bulk compute → GPU)",
 ]
 
-[[themes]]
+[[features]]
 id = "unified-transfer"
-epic = "unified-runtime"
+story = "unified-runtime"
 title = "Automatic data transfer — zero-copy where possible, transparent memcpy elsewhere"
 status = "completed"
 goal = "Data moves between host and device transparently — no manual cudaMemcpy"
@@ -1522,9 +1525,9 @@ success_criteria = [
     "No explicit MappedBuffer/cudaMemcpy in user code",
 ]
 
-[[themes]]
+[[features]]
 id = "unified-demo"
-epic = "unified-runtime"
+story = "unified-runtime"
 title = "End-to-end pipeline demo — read → compute → write, zero GPU concepts"
 status = "completed"
 goal = "Demonstrate full North Star: read → compute → write with zero GPU concepts visible"
@@ -1533,9 +1536,9 @@ success_criteria = [
     "Performance within 2x of hand-optimized MappedBuffer + gpu::launch path",
 ]
 
-[[themes]]
+[[features]]
 id = "coro-design"
-epic = "gpu-coroutines"
+story = "gpu-coroutines"
 title = "Generator trait + MIR pass design"
 status = "completed"
 goal = "Design GPU generator pattern building on async/await MIR pass"
@@ -1545,9 +1548,9 @@ success_criteria = [
     "Warp-cooperative yield: all lanes yield together",
 ]
 
-[[themes]]
+[[features]]
 id = "coro-impl"
-epic = "gpu-coroutines"
+story = "gpu-coroutines"
 title = "Generator implementation + streaming pipeline"
 status = "completed"
 goal = "Working generators on GPU warps"
@@ -1556,9 +1559,9 @@ success_criteria = [
     "Demo: producer yields → consumer processes → zero buffering",
 ]
 
-[[themes]]
+[[features]]
 id = "cost-analysis"
-epic = "compile-time-cost"
+story = "compile-time-cost"
 title = "MIR-level GPU resource estimation"
 status = "completed"
 goal = "Estimate register usage, shared memory, occupancy at compile time"

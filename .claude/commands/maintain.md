@@ -5,7 +5,7 @@ Dispatch to the appropriate maintenance sub-command.
 ## Usage
 
 - `/maintain ci` — Sync CI workflow + local lint script with actual crates/PTX files
-- `/maintain archive` — Archive completed tasks/themes/brainstorms from state.toml
+- `/maintain archive` — Archive completed tasks/features/brainstorms from state.toml
 - `/maintain readme` — Update outdated README.md sections
 - `/maintain nightly` — Ensure nightly version is consistent across all files
 - `/maintain patches` — Regenerate std patches from patched-std/
@@ -27,5 +27,5 @@ Dispatch to the appropriate maintenance sub-command.
 At `do.save`, invoke only the relevant sub-commands based on what changed:
 - Modified crates or PTX → `/maintain ci`
 - Modified patched-std → `/maintain patches`
-- Completed a theme → `/maintain readme`
+- Completed a feature → `/maintain readme`
 - state.toml bloated → `/maintain archive`

@@ -10,27 +10,31 @@
 - Use `thiserror` for custom error types, or plain `Result<T, E>` with concrete error types
 - Existing `anyhow` usage must be migrated when touched
 
-## Hierarchy: Epic → Theme → Task
+## Code Quality
+- **No `#[allow(dead_code)]`** — remove unused code, don't hide it with `#[allow]`. If it appears unused but is used cross-crate, fix visibility so the compiler sees the usage.
+
+## Hierarchy: Epic → Story → Feature → Task
 
 ### Epics
-- High-level goal. Only the user can close epics.
-- Agent may create epics only via brainstorm when: (a) no ready tasks remain, or (b) no active themes exist.
-- **Tier system** (T0 → T3): Strict priority ordering. Never start T(N+1) tasks while T(N) has unmet criteria, unless T(N) is explicitly blocked on external factors.
-  - **T0**: Foundation — must be done first, everything builds on this
-  - **T1**: Core pillars — primary library value
-  - **T2**: Advanced — extends the library, depends on T0/T1
-  - **T3**: Exploratory — research directions, may or may not ship
-- **North Star**: Each epic has a one-sentence vision of what the USER gets. This is the spirit of the epic. When in doubt, check against the North Star, not the success criteria letter.
-- **Litmus Test**: A concrete "how do you know it's done" check, phrased as a user-observable outcome.
-- **Success criteria**: Must be **user-observable outcomes**, not implementation details. "Users write `std::thread::spawn()` and it works" not "implement warp wake-up protocol via atomic CAS in shared memory."
+- Strategic milestone with a "before/after" quality shift. Only 3-4 total.
+- All strategic epics are active simultaneously (parallel pillars, not sequential).
+- Only the user can create or close epics.
+- **North Star**: Each epic has a one-sentence vision of what the USER gets.
 
-### Themes
-- Direction within an epic. Status: active | parked | completed.
-- References parent epic via `epic = "..."`.
+### Stories
+- User need within an epic — "As a Rust dev, I want..."
+- Priority (high/medium/low) + depends_on determines execution order within each epic.
+- Agent may create stories only via brainstorm when: (a) no ready tasks remain, or (b) no active features exist.
+- **Success criteria**: Must be **user-observable outcomes**, not implementation details.
+- **Litmus Test**: A concrete "how do you know it's done" check, phrased as a user-observable outcome.
+
+### Features
+- Technical deliverable within a story. Status: active | parked | completed.
+- References parent story via `story = "..."`.
 
 ### Tasks
-- Actionable item within a theme. Kind: investigation | experiment | design.
-- Task IDs: `{theme}.{n}` (e.g., `hostcall.3`). Rework: `{theme}.{n}.{m}`.
+- Actionable item within a feature. Kind: investigation | experiment | design.
+- Task IDs: `{feature}.{n}` (e.g., `cost-warnings.2`). Rework: `{feature}.{n}.{m}`.
 
 ## CRITICAL Rules
 1. **Host Environment Policy** — The dev workflow MUST NOT modify anything outside this repository. No installing packages, toolchains, or system libraries. No modifying PATH, environment variables, or system config. If environment changes are needed → STOP and ask the user.

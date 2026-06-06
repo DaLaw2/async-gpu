@@ -1,7 +1,9 @@
-# Archived completed epics — moved from state.toml
+# Archived completed stories — moved from state.toml
+# Migrated from Epic→Theme→Task hierarchy at cycle 638
+# Items below cycle 638 were originally "epics" in the old 3-level hierarchy
 # Archived at cycle 594 (workflow v2 migration)
 
-[[epics]]
+[[stories]]
 id = "async-std"
 title = "Async Std on GPU — real async/await with patched rustc + patched std"
 status = "completed"
@@ -15,7 +17,7 @@ success_criteria = [
 # ALL 4 CRITERIA MET (pragmatically) — closed 2026-03-15
 
 
-[[epics]]
+[[stories]]
 id = "gpu-error"
 title = "GPU-side error handling — Result propagation from GPU to host"
 status = "completed"
@@ -29,7 +31,7 @@ success_criteria = [
 # ALL 4 CRITERIA MET — closed by user 2026-03-14
 
 
-[[epics]]
+[[stories]]
 id = "gpu-debug"
 title = "GPU Debugging & Observability — structured tracing, assertions, flight recorder"
 status = "completed"
@@ -42,7 +44,7 @@ success_criteria = [
 ]
 
 
-[[epics]]
+[[stories]]
 id = "native-warp-async"
 title = "Native Warp-Cooperative Async/Await — compiler-level SIMT async"
 status = "completed"
@@ -55,7 +57,7 @@ success_criteria = [
 # ALL 3 CRITERIA MET — closed by user 2026-03-14
 
 
-[[epics]]
+[[stories]]
 id = "gpu-autonomous"
 title = "GPU as Autonomous Compute Environment v3 — native warp-cooperative async/await"
 status = "completed"
@@ -72,7 +74,7 @@ success_criteria = [
 # ALL 7 CRITERIA MET — closed by user 2026-03-14
 
 
-[[epics]]
+[[stories]]
 id = "gpu-perf"
 title = "GPU Inference Performance Optimization"
 status = "completed"
@@ -86,7 +88,7 @@ success_criteria = [
 # Criterion 1 DONE. Criteria 2-4 PARKED (out of scope). Closed by user 2026-03-14.
 
 
-[[epics]]
+[[stories]]
 id = "real-std"
 title = "Real std on GPU — replace macros with actual Rust std"
 status = "completed"
@@ -101,7 +103,7 @@ success_criteria = [
 # ALL 5 CRITERIA MET — closed by user 2026-03-14
 
 
-[[epics]]
+[[stories]]
 id = "std-sysroot"
 title = "Patched std in sysroot — use std::fs::File directly on GPU"
 status = "completed"
@@ -115,7 +117,7 @@ success_criteria = [
 # ALL 4 CRITERIA MET — closed 2026-03-15
 
 
-[[epics]]
+[[stories]]
 id = "public-api"
 title = "Public API — Host SDK + Reusable GPU Kernel Library"
 status = "completed"
@@ -130,7 +132,7 @@ success_criteria = [
 # Criteria 1 updated 2026-03-15: names match actual API (GpuRuntime not GpuDevice, etc.)
 
 
-[[epics]]
+[[stories]]
 id = "network-io"
 title = "Network I/O from GPU — TCP hostcall services"
 status = "completed"
@@ -143,7 +145,7 @@ success_criteria = [
 ]
 
 
-[[epics]]
+[[stories]]
 id = "formal-verification"
 title = "Formal Verification — TLA+ model of CAS hostcall protocol"
 status = "completed"
@@ -158,7 +160,7 @@ success_criteria = [
 ]
 
 
-[[epics]]
+[[stories]]
 id = "gpu-executor"
 title = "GPU-Side Async Executor — dynamic task spawning on GPU"
 status = "completed"
@@ -172,7 +174,7 @@ success_criteria = [
 ]
 
 
-[[epics]]
+[[stories]]
 id = "extended-std"
 title = "Extended std on GPU — sync primitives + collections via hostcall"
 status = "completed"
@@ -186,7 +188,7 @@ success_criteria = [
 ]
 
 
-[[epics]]
+[[stories]]
 id = "compute-utils"
 title = "GPU Compute Utils — expose all internal compute functions as public API"
 status = "completed"
@@ -201,7 +203,7 @@ success_criteria = [
 ]
 
 
-[[epics]]
+[[stories]]
 id = "compute-demo"
 title = "GPU Compute Demo — prove async GPU is simpler and faster than raw CUDA"
 status = "completed"
@@ -215,7 +217,7 @@ success_criteria = [
 ]
 
 
-[[epics]]
+[[stories]]
 id = "gpu-channels"
 title = "GPU Async Channels — inter-task communication on GPU"
 status = "completed"
@@ -229,7 +231,7 @@ success_criteria = [
 ]
 
 
-[[epics]]
+[[stories]]
 id = "benchmarks"
 title = "Benchmarks — hostcall latency, throughput, scalability measurements"
 status = "completed"
@@ -243,7 +245,7 @@ success_criteria = [
 ]
 
 
-[[epics]]
+[[stories]]
 id = "tokio-bridge"
 title = "Tokio Bridge — bidirectional async coordination between host tokio runtime and GPU"
 status = "completed"
@@ -257,7 +259,7 @@ success_criteria = [
 ]
 
 
-[[epics]]
+[[stories]]
 id = "production-ready"
 title = "Production Readiness — multi-GPU, streams, memory management"
 status = "completed"
@@ -271,7 +273,7 @@ success_criteria = [
 ]
 
 
-[[epics]]
+[[stories]]
 id = "tensor-core-gemm"
 title = "Tensor Core GEMM — production-quality MMA kernel with correct precision and real speedup"
 status = "completed"
@@ -286,7 +288,7 @@ success_criteria = [
 ]
 
 
-[[epics]]
+[[stories]]
 id = "object-detection"
 title = "GPU Object Detection — YOLOv8-nano inference with hostcall result return"
 status = "completed"
@@ -302,7 +304,7 @@ success_criteria = [
 ]
 
 
-[[epics]]
+[[stories]]
 id = "developer-experience"
 title = "Developer Experience — cargo xtask, rust-analyzer, onboarding"
 status = "completed"
@@ -316,7 +318,7 @@ success_criteria = [
 ]
 
 
-[[epics]]
+[[stories]]
 id = "ml-framework"
 title = "Mini ML Framework — reusable compute API + inference examples"
 status = "completed"
@@ -332,7 +334,7 @@ success_criteria = [
 ]
 
 
-[[epics]]
+[[stories]]
 id = "gpu-rag"
 title = "GPU-Autonomous RAG — retrieval + generation in a single pipeline"
 status = "completed"
@@ -347,7 +349,7 @@ success_criteria = [
 ]
 
 
-[[epics]]
+[[stories]]
 id = "autograd-v4"
 title = "Autograd v4 — GPU-native backward passes for all ops"
 status = "completed"
@@ -361,7 +363,7 @@ success_criteria = [
 ]
 
 
-[[epics]]
+[[stories]]
 id = "int8-inference"
 title = "INT8 Quantized Inference — post-training quantization for GPT-2"
 status = "completed"
@@ -375,7 +377,7 @@ success_criteria = [
 ]
 
 
-[[epics]]
+[[stories]]
 id = "diff-physics"
 title = "Differentiable Physics — GPU-accelerated differentiable simulation"
 status = "completed"
@@ -390,7 +392,7 @@ success_criteria = [
 ]
 
 
-[[epics]]
+[[stories]]
 id = "kernel-fusion"
 title = "Kernel Fusion v1 — fused GEMM+bias+activation kernels"
 status = "completed"
@@ -404,7 +406,7 @@ success_criteria = [
 ]
 
 
-[[epics]]
+[[stories]]
 id = "persistent-kernel"
 title = "Persistent Kernel — long-running GPU compute with dynamic work dispatch"
 status = "completed"
@@ -418,7 +420,7 @@ success_criteria = [
 ]
 
 
-[[epics]]
+[[stories]]
 id = "onnx-inference"
 title = "ONNX Runtime — load and execute arbitrary ONNX models on GPU"
 status = "completed"
@@ -436,7 +438,7 @@ success_criteria = [
 ]
 
 
-[[epics]]
+[[stories]]
 id = "kernel-fusion-v2"
 title = "Kernel Fusion v2 — integrate fused GEMM+activation into nn API + GPT-2 speedup"
 status = "completed"
@@ -451,7 +453,7 @@ success_criteria = [
 ]
 
 
-[[epics]]
+[[stories]]
 id = "int4-quantization"
 title = "INT4 Quantized Inference — GPTQ-style 4-bit weights for GPT-2"
 status = "completed"
@@ -467,7 +469,7 @@ success_criteria = [
 ]
 
 
-[[epics]]
+[[stories]]
 id = "graph-compiler"
 title = "Graph Compiler — automatic operator fusion for nn API and ONNX"
 status = "completed"
@@ -482,7 +484,7 @@ success_criteria = [
 ]
 
 
-[[epics]]
+[[stories]]
 id = "refactor"
 title = "Codebase Refactor — dead code, API cleanup, test coverage, code quality"
 status = "completed"
@@ -497,7 +499,7 @@ success_criteria = [
 ]
 
 
-[[epics]]
+[[stories]]
 id = "onnx-perf"
 title = "ONNX Performance — close gap with native nn API"
 status = "completed"
@@ -510,7 +512,7 @@ success_criteria = [
 ]
 
 
-[[epics]]
+[[stories]]
 id = "refactor-v2"
 title = "Refactor v2 — 完成所有跳過的重構項目 + ONNX 效能優化"
 status = "completed"
@@ -529,7 +531,7 @@ success_criteria = [
 ]
 
 
-[[epics]]
+[[stories]]
 id = "gpu-dynamic"
 title = "Dynamic Control Flow on GPU — the advantage over CUDA graphs"
 status = "completed"
@@ -542,7 +544,7 @@ success_criteria = [
 ]
 
 
-[[epics]]
+[[stories]]
 id = "graph-algorithms"
 title = "Graph Algorithms on GPU — BFS, PageRank with async scheduling"
 status = "completed"
@@ -556,7 +558,7 @@ success_criteria = [
 ]
 
 
-[[epics]]
+[[stories]]
 id = "int4-gpt2"
 title = "INT4 GPT-2 Inference — complete the deferred 4-bit inference"
 status = "completed"
@@ -570,7 +572,7 @@ success_criteria = [
 ]
 
 
-[[epics]]
+[[stories]]
 id = "monte-carlo"
 title = "Monte Carlo Simulations — GPU PRNG, option pricing, convergence"
 status = "completed"
@@ -583,7 +585,7 @@ success_criteria = [
 ]
 
 
-[[epics]]
+[[stories]]
 id = "benchmark"
 title = "GPU Kernel Benchmarks — cuBLAS/cuDNN comparison + throughput metrics"
 status = "completed"
@@ -600,7 +602,7 @@ success_criteria = [
 
 # Archived at cycle 607 — developer-showcase epic completed
 
-[[epics]]
+[[stories]]
 id = "developer-showcase"
 title = "Developer Showcase — examples, API surface, and README for all shipped features"
 tier = 0
@@ -621,7 +623,7 @@ success_criteria = [
 
 # Archived at cycle 634 — T0/T1 completed epics + unified-runtime
 
-[[epics]]
+[[stories]]
 id = "gpu-test"
 title = "GPU Test Framework — #[gpu_test] and cargo test on GPU"
 tier = 0
@@ -634,7 +636,7 @@ success_criteria = [
     "At least 10 existing GPU features covered by #[gpu_test] tests",
 ]
 
-[[epics]]
+[[stories]]
 id = "gpu-type-safety"
 title = "Type-Level Safety — compile-time race-freedom for GPU code"
 tier = 1
@@ -647,7 +649,7 @@ success_criteria = [
     "Existing BlockScope/GridScope enhanced with type-level safety guarantees",
 ]
 
-[[epics]]
+[[stories]]
 id = "gpu-iterator"
 title = "GPU Iterator — par_iter() compiles to warp-parallel GPU kernels"
 tier = 1
@@ -661,7 +663,7 @@ success_criteria = [
     "Demo: iterator chain that outperforms CPU Rayon on large data (>1M elements)",
 ]
 
-[[epics]]
+[[stories]]
 id = "gpu-generics"
 title = "GPU Generics — full Rust trait system + generics on GPU kernels"
 tier = 1
@@ -674,7 +676,7 @@ success_criteria = [
     "Demo: generic parallel_reduce<T: Reducible> working for f32, i32, custom types",
 ]
 
-[[epics]]
+[[stories]]
 id = "unified-runtime"
 title = "Unified Runtime — one async fn spans CPU and GPU transparently"
 tier = 2
@@ -689,7 +691,7 @@ success_criteria = [
 
 # Archived at cycle 638 — gpu-coroutines completed
 
-[[epics]]
+[[stories]]
 id = "gpu-coroutines"
 title = "GPU Coroutines — generator/yield pattern on GPU warps"
 tier = 2

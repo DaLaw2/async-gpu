@@ -5,24 +5,24 @@ Triggers checked at GATE (proactive, before work) and ROUTE (reactive, after wor
 
 ## Context Gathering (MANDATORY)
 
-1. Read all `[[epics]]` with `status = "active"`, sorted by tier (T0 first)
-2. Read `.research/archive/epics-archived.toml` — flag any archived epic whose value has changed due to: new capabilities landed since archival, dependency epics that completed and unlock new approaches, or technology shifts (e.g. new hardware). These are reopen candidates.
-3. **Tier gate**: If ANY T0 epic has unmet success criteria → brainstorm MUST focus on T0 only
-4. Prepare context: active epics summary, theme syntheses, blocked tasks, open questions, reopen candidates
+1. Read all `[[epics]]` for strategic context (north stars, success criteria)
+2. Read all `[[stories]]` with `status = "active"`, sorted by priority (high first)
+3. Read `.research/archive/stories-archived.toml` — flag any archived story whose value has changed due to: new capabilities landed since archival, dependency stories that completed and unlock new approaches, or technology shifts. These are reopen candidates.
+4. Prepare context: epics + stories summary, feature syntheses, blocked tasks, open questions, reopen candidates
 
-All recommendations must reference which epic (and tier) they serve.
+All recommendations must reference which epic and story they serve.
 
 ## Level Selection
 
 | Level | When | Method |
 |-------|------|--------|
-| **Standard** | Proactive trigger (tasks>=10), single blocked task, theme completed | 1 subagent |
+| **Standard** | Proactive trigger (tasks>=10), single blocked task, feature completed | 1 subagent |
 | **High** | Multiple blocked tasks, reprioritization, direction uncertainty | 2 subagents |
 | **Deep** | Epic-level pivot, cross-epic conflict, major architecture, user request | 3-4+ experts via TeamCreate |
 
 ## Standard (1 subagent)
 
-Dispatch subagent with context (epics, theme syntheses, blocked tasks, open questions, reopen candidates).
+Dispatch subagent with context (epics, stories, feature syntheses, blocked tasks, open questions, reopen candidates).
 Subagent writes structured analysis to `.research/findings/brainstorm/bs{N}.md`:
 - Epic progress assessment, technical feasibility, risks, skeptic challenges, recommendations.
 Read output. Orchestrator updates state.toml based on recommendations.
@@ -52,16 +52,22 @@ Select 3-4 experts from: Systems Architect, Compiler Engineer, GPU Architect, Pe
 
 Update state:
 - Increment `brainstorm_seq`, reset `tasks_since_brainstorm = 0`
-- Record `[[brainstorms]]` entry with seq, trigger, level, key_insight
+- Record `[[brainstorms]]` entry:
+  `seq`, `at_cycle`, `trigger`, `level`, `key_insight`,
+  `new_tasks_spawned`, `new_features_spawned`, `new_stories_spawned`,
+  `features_parked`, `features_completed`, `stories_completed`
 - Transition → `current_step = "gate"` (re-enter loop from top)
 
 ### Possible outputs
 
 Brainstorm may produce any combination of:
-- **Create** new tasks, themes, or epics
-- **Reprioritize** existing tasks or park themes
-- **Reopen** an archived epic — move entry from archive back to state.toml, set `status = "active"`, assign tier. Do NOT restore old themes/tasks; a follow-up brainstorm creates fresh ones from current codebase state. Record in brainstorm entry: `epics_reopened = ["epic-id"]`. Record reason in `context.md` Recent Decisions.
+- **Create** new tasks, features, or stories (within existing epics)
+- **Reprioritize** existing tasks or park features
+- **Reopen** an archived story — move entry from archive back to state.toml, set `status = "active"`, assign to appropriate epic. Do NOT restore old features/tasks; a follow-up brainstorm creates fresh ones from current codebase state. Record in brainstorm entry: `stories_reopened = ["story-id"]`. Record reason in `context.md` Recent Decisions.
+
 - **Record** strategic insight (no-task brainstorms must still record `key_insight`)
+
+Brainstorm can NOT create new epics — the strategic epics are fixed.
 
 ### Output rules by trigger
 - **No ready tasks** → **MUST produce** at least one new task (loop is stuck without new work)

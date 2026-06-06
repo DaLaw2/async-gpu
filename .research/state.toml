@@ -1,11 +1,11 @@
 # Dev Loop State File
-# Three-level hierarchy: Epic → Theme → Task
+# Four-level hierarchy: Epic → Story → Feature → Task
 # ACTIVE/PENDING/PARKED items only — completed items in archive/
 
 [meta]
 created = "2026-03-11"
 total_cycles = 638
-completed_tasks = 803
+completed_tasks = 804
 status = "running"     # ready | running | blocked | completed
 
 # Project North Star — the ONE thing all epics serve:
@@ -22,9 +22,10 @@ brainstorm_seq = 125
 tasks_since_brainstorm = 1
 
 # ============================================================
-# Epics — Tiered (T0 → T3), sorted by tier then priority
+# Epics — Strategic milestones (3 strategic + 1 evergreen)
+# Each epic represents a "before/after" quality shift for the project
 # ============================================================
-# Completed epics archived: async-std, gpu-error, gpu-debug, native-warp-async,
+# Completed stories archived: async-std, gpu-error, gpu-debug, native-warp-async,
 # gpu-autonomous, gpu-perf, real-std, std-sysroot, public-api, network-io,
 # formal-verification, gpu-executor, extended-std, compute-utils, compute-demo,
 # gpu-channels, benchmarks, tokio-bridge, production-ready, tensor-core-gemm,
@@ -37,38 +38,68 @@ tasks_since_brainstorm = 1
 # gpu-test, gpu-iterator, gpu-type-safety, gpu-generics, unified-runtime,
 # gpu-coroutines
 
-# --- T2: Advanced ---
-
 [[epics]]
-id = "conv-perf"
-title = "High-Performance Conv2D — Winograd channel batching + direct conv optimization"
-tier = 2
-status = "pending"
-priority = "medium"
-success_criteria = [
-    "Winograd F(4×4,3×3) with batched channel processing (not per-channel serial)",
-    "Conv2D >= 50% of cuDNN for common 3×3 shapes (ResNet, YOLO)",
-    "Direct conv kernel for non-3×3 sizes with shared memory tiling",
-    "YOLOv8-nano inference improved >= 2x from conv optimization",
-]
-
-[[epics]]
-id = "compile-time-cost"
-title = "Compile-Time Cost Model — know GPU performance at compile time"
-tier = 2
+id = "lang-complete"
+title = "Language Completeness — every Rust feature works on GPU"
 status = "active"
-priority = "medium"
+north_star = "A Rust developer can use panic!, dyn Trait, std::sync, and any no_std crate on GPU without knowing it's GPU"
 success_criteria = [
-    "MIR pass estimates register usage and shared memory per kernel",
-    "Compile-time warnings for low occupancy (<50%) and bank conflicts",
-    "Report: per-kernel resource usage summary in build output",
-    "At least one real kernel where compile-time warning catches a performance issue",
+    "panic!/unwrap/assert! on GPU behave identically to CPU (with warp/thread ID)",
+    "Box<dyn Trait> and trait objects compile to GPU with correct vtable address space",
+    "std::sync primitives (mpsc, RwLock) transparently map to GPU implementations",
+    "At least one third-party no_std crate compiles and runs on GPU unmodified",
+    "MIR pass correctness formally verified for arbitrary async fn",
 ]
 
 [[epics]]
+id = "invisible-exec"
+title = "Invisible Execution — compiler decides what runs where, boundaries disappear"
+status = "active"
+north_star = "Users write Vec<f32> and for-loops; the compiler decides CPU vs GPU, data residency, and parallelization"
+success_criteria = [
+    "Vec<T> with transparent host/device residency — no GpuVec, no cudaMemcpy",
+    "Pure sequential loops automatically GPU-parallelized with zero annotations",
+    "Compiler partitions arbitrary functions between CPU and GPU based on compute intensity",
+    "Static async pipelines compile to CUDA Graphs for >= 20% speedup",
+]
+
+[[epics]]
+id = "perf-transparent"
+title = "Performance Transparency — GPU performance without GPU expertise"
+status = "active"
+north_star = "Users get GPU performance by writing normal Rust — the compiler warns about perf issues and the runtime auto-tunes"
+success_criteria = [
+    "Compile-time warnings for low occupancy, bank conflicts, uncoalesced access",
+    "Runtime auto-tuning selects optimal kernel parameters after warmup",
+    "Rust ownership/lifetime types map to GPU memory hierarchy (shared/global/register)",
+    "Conv2D >= 50% cuDNN for common 3x3 shapes via Winograd optimization",
+]
+
+[[epics]]
+id = "codebase-health"
+title = "Codebase Health — build system, CI, docs, workflow automation"
+type = "evergreen"
+status = "active"
+north_star = "The project infrastructure is self-maintaining: CI stays in sync, docs stay accurate, workflow is automated"
+success_criteria = [
+    "Host crates share root workspace; GPU crates use separate build due to nvptx64 target constraint",
+    "Nightly toolchain version defined in one place, CI + scripts derive from it",
+    "README.md accurately reflects current project state, crate map, and setup instructions",
+    "Routine maintenance tasks (new crate → CI, new PTX → stub list) are automated or self-documenting",
+    "Research workflow handles codebase-health tasks without full Think/Do overhead",
+]
+
+# ============================================================
+# Stories — User needs within each epic ("As a Rust dev, I want...")
+# Priority + depends_on determines execution order within each epic
+# ============================================================
+
+# --- lang-complete stories ---
+
+[[stories]]
 id = "gpu-panic"
+epic = "lang-complete"
 title = "GPU Panic Transparency — panic!/unwrap/assert! behave identically to CPU"
-tier = 2
 status = "pending"
 priority = "high"
 success_criteria = [
@@ -78,10 +109,10 @@ success_criteria = [
     "Panic output indistinguishable from CPU panic (except thread ID includes warp info)",
 ]
 
-[[epics]]
+[[stories]]
 id = "gpu-dyn-dispatch"
+epic = "lang-complete"
 title = "Dynamic Dispatch on GPU — Box<dyn Trait> and trait objects work"
-tier = 2
 status = "pending"
 priority = "medium"
 success_criteria = [
@@ -91,10 +122,38 @@ success_criteria = [
     "Dynamic dispatch overhead measured and documented (vs monomorphized path)",
 ]
 
-[[epics]]
+[[stories]]
+id = "std-completeness"
+epic = "lang-complete"
+title = "std Completeness — expand GPU std coverage for no_std crate compatibility"
+status = "pending"
+priority = "low"
+success_criteria = [
+    "std::sync::mpsc channel maps to GPU channel implementation transparently",
+    "std::sync::RwLock on GPU via warp-aware atomic protocol",
+    "std::net::TcpListener::bind() on GPU (server-side networking via hostcall)",
+    "At least one third-party no_std crate compiles and runs on GPU unmodified",
+]
+
+[[stories]]
+id = "formal-verification"
+epic = "lang-complete"
+title = "Formal Verification — MIR pass correctness for arbitrary async fn"
+status = "pending"
+priority = "low"
+success_criteria = [
+    "Operational semantics defined for warp-cooperative async",
+    "Soundness proof: MIR pass sync insertion is sufficient for all valid async fn",
+    "Completeness: async fn that would cause warp divergence rejected at compile time",
+    "TLA+ model extended to cover MIR pass state transitions",
+]
+
+# --- invisible-exec stories ---
+
+[[stories]]
 id = "transparent-data"
+epic = "invisible-exec"
 title = "Transparent Data Residency — Vec<f32> not GpuVec<f32>"
-tier = 2
 status = "pending"
 priority = "medium"
 depends_on = "unified-runtime"
@@ -105,52 +164,10 @@ success_criteria = [
     "Demo: computation pipeline using only std::vec::Vec, no GPU-specific types",
 ]
 
-[[epics]]
-id = "auto-tuning"
-title = "Runtime Auto-Tuning — kernels self-optimize across executions"
-tier = 2
-status = "pending"
-priority = "low"
-depends_on = "compile-time-cost"
-success_criteria = [
-    "Runtime profiles kernel execution (block size, shared memory config)",
-    "Auto-tune selects optimal launch parameters after N warmup runs",
-    "Combined with compile-time-cost for static+dynamic optimization loop",
-    "Demo: kernel that is 2x faster after auto-tuning vs default config",
-]
-
-[[epics]]
-id = "feature-audit"
-title = "Feature Audit — verify all 56 shipped epics still work correctly"
-tier = 2
-status = "pending"
-priority = "high"
-success_criteria = [
-    "All examples/ compile and run correctly on current toolchain",
-    "API consistency audit: naming, error handling, import paths across all features",
-    "Technical debt inventory: broken features, stale code, missing tests identified",
-    "Regression test suite covering critical paths from each major shipped epic",
-]
-
-[[epics]]
-id = "cuda-graph-scheduling"
-title = "CUDA Graph Scheduling — static async pipelines compile to CUDA Graphs"
-tier = 2
-status = "pending"
-priority = "low"
-success_criteria = [
-    "MIR pass identifies static vs dynamic branches in async state machines",
-    "Static paths emit CUDA Graph nodes (kernel launch, memcpy, sync)",
-    "Dynamic branches fallback to polling — no correctness regression",
-    "Measurable speedup (>= 20%) on a multi-stage async pipeline vs polling-only baseline",
-]
-
-# --- T3: Exploratory ---
-
-[[epics]]
+[[stories]]
 id = "auto-parallel"
+epic = "invisible-exec"
 title = "Auto-Parallelization — sequential loops automatically GPU-parallelized"
-tier = 3
 status = "pending"
 priority = "low"
 success_criteria = [
@@ -160,10 +177,10 @@ success_criteria = [
     "Demo: sequential code runs on GPU with zero annotations, outperforms CPU",
 ]
 
-[[epics]]
+[[stories]]
 id = "whole-program-partition"
+epic = "invisible-exec"
 title = "Whole-Program Partitioning — compiler decides CPU vs GPU per function"
-tier = 3
 status = "pending"
 priority = "medium"
 depends_on = "auto-parallel"
@@ -174,10 +191,65 @@ success_criteria = [
     "Demo: single fn main() with mixed I/O + compute, zero GPU annotations, compiler splits correctly",
 ]
 
-[[epics]]
+[[stories]]
+id = "cuda-graph-scheduling"
+epic = "invisible-exec"
+title = "CUDA Graph Scheduling — static async pipelines compile to CUDA Graphs"
+status = "pending"
+priority = "low"
+success_criteria = [
+    "MIR pass identifies static vs dynamic branches in async state machines",
+    "Static paths emit CUDA Graph nodes (kernel launch, memcpy, sync)",
+    "Dynamic branches fallback to polling — no correctness regression",
+    "Measurable speedup (>= 20%) on a multi-stage async pipeline vs polling-only baseline",
+]
+
+# --- perf-transparent stories ---
+
+[[stories]]
+id = "compile-time-cost"
+epic = "perf-transparent"
+title = "Compile-Time Cost Model — know GPU performance at compile time"
+status = "active"
+priority = "medium"
+success_criteria = [
+    "MIR pass estimates register usage and shared memory per kernel",
+    "Compile-time warnings for low occupancy (<50%) and bank conflicts",
+    "Report: per-kernel resource usage summary in build output",
+    "At least one real kernel where compile-time warning catches a performance issue",
+]
+
+[[stories]]
+id = "conv-perf"
+epic = "perf-transparent"
+title = "High-Performance Conv2D — Winograd channel batching + direct conv optimization"
+status = "pending"
+priority = "medium"
+success_criteria = [
+    "Winograd F(4×4,3×3) with batched channel processing (not per-channel serial)",
+    "Conv2D >= 50% of cuDNN for common 3×3 shapes (ResNet, YOLO)",
+    "Direct conv kernel for non-3×3 sizes with shared memory tiling",
+    "YOLOv8-nano inference improved >= 2x from conv optimization",
+]
+
+[[stories]]
+id = "auto-tuning"
+epic = "perf-transparent"
+title = "Runtime Auto-Tuning — kernels self-optimize across executions"
+status = "pending"
+priority = "low"
+depends_on = "compile-time-cost"
+success_criteria = [
+    "Runtime profiles kernel execution (block size, shared memory config)",
+    "Auto-tune selects optimal launch parameters after N warmup runs",
+    "Combined with compile-time-cost for static+dynamic optimization loop",
+    "Demo: kernel that is 2x faster after auto-tuning vs default config",
+]
+
+[[stories]]
 id = "ownership-memory"
+epic = "perf-transparent"
 title = "Ownership = Memory Hierarchy — Rust lifetimes map to GPU memory tiers"
-tier = 3
 status = "pending"
 priority = "low"
 depends_on = "structured-concurrency"
@@ -188,51 +260,24 @@ success_criteria = [
     "At least one real kernel where the type system catches a memory hierarchy bug",
 ]
 
-[[epics]]
-id = "formal-verification"
-title = "Formal Verification — MIR pass correctness for arbitrary async fn"
-tier = 3
+# --- codebase-health stories ---
+
+[[stories]]
+id = "feature-audit"
+epic = "codebase-health"
+title = "Feature Audit — verify all 56 shipped stories still work correctly"
 status = "pending"
-priority = "low"
+priority = "high"
 success_criteria = [
-    "Operational semantics defined for warp-cooperative async",
-    "Soundness proof: MIR pass sync insertion is sufficient for all valid async fn",
-    "Completeness: async fn that would cause warp divergence rejected at compile time",
-    "TLA+ model extended to cover MIR pass state transitions",
-]
-
-[[epics]]
-id = "std-completeness"
-title = "std Completeness — expand GPU std coverage for no_std crate compatibility"
-tier = 3
-status = "pending"
-priority = "low"
-success_criteria = [
-    "std::sync::mpsc channel maps to GPU channel implementation transparently",
-    "std::sync::RwLock on GPU via warp-aware atomic protocol",
-    "std::net::TcpListener::bind() on GPU (server-side networking via hostcall)",
-    "At least one third-party no_std crate compiles and runs on GPU unmodified",
-]
-
-# --- Evergreen ---
-
-[[epics]]
-id = "codebase-health"
-title = "Codebase Health — build system, CI, docs, workflow automation"
-type = "evergreen"
-status = "active"
-priority = "low"
-success_criteria = [
-    "Host crates share root workspace; GPU crates use separate build due to nvptx64 target constraint",
-    "Nightly toolchain version defined in one place, CI + scripts derive from it",
-    "README.md accurately reflects current project state, crate map, and setup instructions",
-    "Routine maintenance tasks (new crate → CI, new PTX → stub list) are automated or self-documenting",
-    "Research workflow handles codebase-health tasks without full Think/Do overhead",
+    "All examples/ compile and run correctly on current toolchain",
+    "API consistency audit: naming, error handling, import paths across all features",
+    "Technical debt inventory: broken features, stale code, missing tests identified",
+    "Regression test suite covering critical paths from each major shipped story",
 ]
 
 # --- Parked ---
 
-[[epics]]
+[[stories]]
 id = "classical-ml"
 title = "Classical ML on GPU — decision trees, random forest, k-means"
 status = "parked"
@@ -245,10 +290,11 @@ success_criteria = [
 ]
 
 # ============================================================
-# Themes (active/pending/parked only — completed → archive/)
+# Features — Technical deliverables within a Story
+# (active/pending/parked only — completed → archive/)
 # ============================================================
-# Completed themes archived (cycle 638): coro-impl, cost-analysis
-# Completed themes archived (cycle 634): test-integration, safety-types, safety-tiers,
+# Completed features archived (cycle 638): coro-impl, cost-analysis, cost-warnings.1
+# Completed features archived (cycle 634): test-integration, safety-types, safety-tiers,
 # safety-apply, iter-demo, gen-mono, gen-traits, gen-demo, unified-scheduler,
 # unified-transfer, unified-demo, coro-design
 # Previously archived (cycle 623): split-design, split-execute, split-loader,
@@ -264,11 +310,11 @@ success_criteria = [
 # perf-attention, perf-conv, perf-layernorm, perf-elementwise, perf-fusion,
 # perf-gemm-v4, perf-attn-v3, perf-e2e
 
-# --- T2: compile-time-cost themes ---
+# --- compile-time-cost features ---
 
-[[themes]]
+[[features]]
 id = "cost-warnings"
-epic = "compile-time-cost"
+story = "compile-time-cost"
 title = "Compile-time GPU performance lints"
 status = "active"
 goal = "Warn about common GPU performance issues during compilation"
@@ -278,11 +324,18 @@ success_criteria = [
     "Warning: uncoalesced global memory access",
 ]
 
-# --- T2: conv-perf themes ---
+# --- conv-perf features ---
 
-[[themes]]
+[[features]]
+id = "perf-conv-batch"
+story = "conv-perf"
+title = "Conv2D channel batching — identify and implement batched strategy"
+status = "pending"
+goal = "Understand and fix per-channel serial Winograd bottleneck"
+
+[[features]]
 id = "perf-conv-wino"
-epic = "conv-perf"
+story = "conv-perf"
 title = "Conv2D Winograd — F(4x4,3x3) with batched channel processing"
 status = "pending"
 goal = "Conv2D 3x3 >= 50% cuDNN via Winograd with channel batching"
@@ -293,9 +346,9 @@ success_criteria = [
     "No accuracy regression vs im2col path",
 ]
 
-[[themes]]
+[[features]]
 id = "conv-e2e"
-epic = "conv-perf"
+story = "conv-perf"
 title = "Conv2D end-to-end — CNN model benchmark with optimized conv"
 status = "pending"
 goal = "CNN models benefit from conv optimization"
@@ -305,11 +358,11 @@ success_criteria = [
     "No accuracy regression on any model",
 ]
 
-# --- T3: auto-parallel themes ---
+# --- auto-parallel features ---
 
-[[themes]]
+[[features]]
 id = "ap-analysis"
-epic = "auto-parallel"
+story = "auto-parallel"
 title = "Loop purity analysis in MIR"
 status = "pending"
 goal = "Identify pure loops that can be auto-parallelized"
@@ -318,9 +371,9 @@ success_criteria = [
     "Heuristic for minimum data size threshold",
 ]
 
-[[themes]]
+[[features]]
 id = "ap-transform"
-epic = "auto-parallel"
+story = "auto-parallel"
 title = "Automatic loop to GPU kernel transformation"
 status = "pending"
 goal = "Pure loops compiled to GPU kernels with zero annotation"
@@ -329,11 +382,11 @@ success_criteria = [
     "Demo: plain for-loop runs on GPU, outperforms CPU",
 ]
 
-# --- T3: std-completeness themes ---
+# --- std-completeness features ---
 
-[[themes]]
+[[features]]
 id = "std-sync"
-epic = "std-completeness"
+story = "std-completeness"
 title = "Sync primitives — mpsc channels + RwLock on GPU"
 status = "pending"
 goal = "std::sync types transparently map to GPU implementations"
@@ -343,9 +396,9 @@ success_criteria = [
     "API identical to CPU std::sync — no GPU-specific types needed",
 ]
 
-[[themes]]
+[[features]]
 id = "std-net-server"
-epic = "std-completeness"
+story = "std-completeness"
 title = "Server-side networking — TcpListener on GPU"
 status = "pending"
 goal = "GPU can bind and accept TCP connections via hostcall"
@@ -355,9 +408,9 @@ success_criteria = [
     "Demo: simple echo server running entirely on GPU",
 ]
 
-[[themes]]
+[[features]]
 id = "std-compat"
-epic = "std-completeness"
+story = "std-completeness"
 title = "Third-party crate compatibility — no_std crates on GPU"
 status = "pending"
 goal = "Popular no_std crates compile and run on GPU unmodified"
@@ -367,11 +420,11 @@ success_criteria = [
     "Compatibility matrix documented with known blockers",
 ]
 
-# --- T3: ownership-memory themes ---
+# --- ownership-memory features ---
 
-[[themes]]
+[[features]]
 id = "om-design"
-epic = "ownership-memory"
+story = "ownership-memory"
 title = "Memory lifetime design — &'block T and &'grid T type system"
 status = "pending"
 goal = "Design lifetime-parameterized types that map to GPU memory hierarchy"
@@ -382,9 +435,9 @@ success_criteria = [
     "Borrow checker rules defined for cross-scope access prevention",
 ]
 
-[[themes]]
+[[features]]
 id = "om-compiler"
-epic = "ownership-memory"
+story = "ownership-memory"
 title = "Compiler support — lifetime-to-memory-tier mapping in rustc"
 status = "pending"
 goal = "Patched rustc enforces memory hierarchy via Rust's type system"
@@ -394,9 +447,9 @@ success_criteria = [
     "Register promotion for local values with move semantics",
 ]
 
-[[themes]]
+[[features]]
 id = "om-demo"
-epic = "ownership-memory"
+story = "ownership-memory"
 title = "Memory hierarchy demos — compile-time safety in action"
 status = "pending"
 goal = "Demonstrate that the type system catches real GPU memory bugs"
@@ -409,8 +462,8 @@ success_criteria = [
 # ============================================================
 # Tasks (active/pending only — done → archive/)
 # ============================================================
-# Done tasks archived (cycle 638): coro-impl.1-.2, cost-analysis.1-.2
-# Done tasks archived (cycle 634): safety-types.2, safety-tiers.1, safety-apply.1-.2,
+# Done tasks archived (cycle 638): coro-impl.1-.2, cost-analysis.1-.2, cost-warnings.1
+# Previously archived (cycle 634): safety-types.2, safety-tiers.1, safety-apply.1-.2,
 # iter-demo.4-.5, gen-mono.1-.2, gen-traits.1, gen-demo.1, unified-scheduler.1-.3,
 # unified-transfer.1-.3, unified-demo.1-.2, coro-design.1-.2
 # Previously archived (cycle 623): split-design.1-.3, split-execute.1-.5,
@@ -420,16 +473,8 @@ success_criteria = [
 # --- compile-time-cost ---
 
 [[tasks]]
-id = "cost-warnings.1"
-theme = "cost-warnings"
-title = "Experiment: emit compile-time warnings for low occupancy + bank conflicts"
-kind = "experiment"
-status = "done"
-depends = ["cost-analysis.2"]
-
-[[tasks]]
 id = "cost-warnings.2"
-theme = "cost-warnings"
+feature = "cost-warnings"
 title = "Experiment: catch real perf issue in existing kernel via compile-time lint"
 kind = "experiment"
 status = "pending"
@@ -439,7 +484,7 @@ depends = ["cost-warnings.1"]
 
 [[tasks]]
 id = "ap-analysis.1"
-theme = "ap-analysis"
+feature = "ap-analysis"
 title = "Investigation: MIR-level loop purity analysis — detect parallelizable loops"
 kind = "investigation"
 status = "pending"
@@ -447,7 +492,7 @@ depends = []
 
 [[tasks]]
 id = "ap-analysis.2"
-theme = "ap-analysis"
+feature = "ap-analysis"
 title = "Design: auto-parallelization heuristics — data size threshold, cost model"
 kind = "design"
 status = "pending"
@@ -455,7 +500,7 @@ depends = ["ap-analysis.1"]
 
 [[tasks]]
 id = "ap-transform.1"
-theme = "ap-transform"
+feature = "ap-transform"
 title = "Experiment: transform pure for-loop to GPU kernel — zero annotations"
 kind = "experiment"
 status = "pending"
@@ -463,7 +508,7 @@ depends = ["ap-analysis.2"]
 
 [[tasks]]
 id = "ap-transform.2"
-theme = "ap-transform"
+feature = "ap-transform"
 title = "Experiment: demo — sequential code auto-parallelized, outperforms CPU"
 kind = "experiment"
 status = "pending"
@@ -472,32 +517,8 @@ depends = ["ap-transform.1"]
 # --- conv-perf ---
 
 [[tasks]]
-id = "perf-conv-wino.1"
-theme = "perf-conv-wino"
-title = "Experiment: implement Winograd input/filter/output transforms"
-kind = "experiment"
-status = "pending"
-depends = ["perf-conv.6"]
-
-[[tasks]]
-id = "perf-conv-wino.2"
-theme = "perf-conv-wino"
-title = "Experiment: full Winograd conv2d pipeline + correctness test"
-kind = "experiment"
-status = "pending"
-depends = ["perf-conv-wino.1"]
-
-[[tasks]]
-id = "perf-conv-wino.3"
-theme = "perf-conv-wino"
-title = "Experiment: benchmark all shapes, iterate until >= 50% cuDNN"
-kind = "experiment"
-status = "pending"
-depends = ["perf-conv-wino.2"]
-
-[[tasks]]
 id = "perf-conv.6"
-theme = "perf-conv"
+feature = "perf-conv-batch"
 title = "Investigation: why current Winograd is per-channel serial — identify batching strategy"
 kind = "investigation"
 status = "pending"
@@ -505,7 +526,7 @@ depends = []
 
 [[tasks]]
 id = "perf-conv.7"
-theme = "perf-conv"
+feature = "perf-conv-batch"
 title = "Experiment: Winograd channel-batched kernel — process all channels in one launch"
 kind = "experiment"
 status = "pending"
@@ -513,15 +534,39 @@ depends = ["perf-conv.6"]
 
 [[tasks]]
 id = "perf-conv.8"
-theme = "perf-conv"
+feature = "perf-conv-batch"
 title = "Experiment: benchmark batched Winograd vs im2col vs cuDNN across common shapes"
 kind = "experiment"
 status = "pending"
 depends = ["perf-conv.7"]
 
 [[tasks]]
+id = "perf-conv-wino.1"
+feature = "perf-conv-wino"
+title = "Experiment: implement Winograd input/filter/output transforms"
+kind = "experiment"
+status = "pending"
+depends = ["perf-conv.6"]
+
+[[tasks]]
+id = "perf-conv-wino.2"
+feature = "perf-conv-wino"
+title = "Experiment: full Winograd conv2d pipeline + correctness test"
+kind = "experiment"
+status = "pending"
+depends = ["perf-conv-wino.1"]
+
+[[tasks]]
+id = "perf-conv-wino.3"
+feature = "perf-conv-wino"
+title = "Experiment: benchmark all shapes, iterate until >= 50% cuDNN"
+kind = "experiment"
+status = "pending"
+depends = ["perf-conv-wino.2"]
+
+[[tasks]]
 id = "conv-e2e.1"
-theme = "conv-e2e"
+feature = "conv-e2e"
 title = "Experiment: YOLOv8-nano + ResNet-18 benchmark with optimized conv kernels"
 kind = "experiment"
 status = "pending"
@@ -529,7 +574,7 @@ depends = ["perf-conv.8", "perf-conv-wino.3"]
 
 [[tasks]]
 id = "conv-e2e.2"
-theme = "conv-e2e"
+feature = "conv-e2e"
 title = "Experiment: integrate optimized conv into nn::ops::conv2d, verify no accuracy regression"
 kind = "experiment"
 status = "pending"
@@ -539,7 +584,7 @@ depends = ["conv-e2e.1"]
 
 [[tasks]]
 id = "std-sync.1"
-theme = "std-sync"
+feature = "std-sync"
 title = "Investigation: which std::sync types map to GPU — mpsc, RwLock, Condvar, Barrier"
 kind = "investigation"
 status = "pending"
@@ -547,7 +592,7 @@ depends = []
 
 [[tasks]]
 id = "std-sync.2"
-theme = "std-sync"
+feature = "std-sync"
 title = "Experiment: std::sync::mpsc channel backed by GPU channel + libc stubs"
 kind = "experiment"
 status = "pending"
@@ -555,7 +600,7 @@ depends = ["std-sync.1"]
 
 [[tasks]]
 id = "std-sync.3"
-theme = "std-sync"
+feature = "std-sync"
 title = "Experiment: std::sync::RwLock via warp-aware atomic read/write arbitration"
 kind = "experiment"
 status = "pending"
@@ -563,7 +608,7 @@ depends = ["std-sync.1"]
 
 [[tasks]]
 id = "std-net-server.1"
-theme = "std-net-server"
+feature = "std-net-server"
 title = "Investigation: TcpListener bind/accept hostcall model + warp dispatch"
 kind = "investigation"
 status = "pending"
@@ -571,7 +616,7 @@ depends = []
 
 [[tasks]]
 id = "std-net-server.2"
-theme = "std-net-server"
+feature = "std-net-server"
 title = "Experiment: TcpListener::bind() + accept() hostcall services implementation"
 kind = "experiment"
 status = "pending"
@@ -579,7 +624,7 @@ depends = ["std-net-server.1"]
 
 [[tasks]]
 id = "std-net-server.3"
-theme = "std-net-server"
+feature = "std-net-server"
 title = "Experiment: GPU echo server demo — bind, accept, read, write, close"
 kind = "experiment"
 status = "pending"
@@ -587,7 +632,7 @@ depends = ["std-net-server.2"]
 
 [[tasks]]
 id = "std-compat.1"
-theme = "std-compat"
+feature = "std-compat"
 title = "Investigation: survey popular no_std crates — identify compilation blockers for GPU"
 kind = "investigation"
 status = "pending"
@@ -595,7 +640,7 @@ depends = []
 
 [[tasks]]
 id = "std-compat.2"
-theme = "std-compat"
+feature = "std-compat"
 title = "Experiment: compile and run heapless or hashbrown on GPU unmodified"
 kind = "experiment"
 status = "pending"
@@ -603,7 +648,7 @@ depends = ["std-compat.1"]
 
 [[tasks]]
 id = "std-compat.3"
-theme = "std-compat"
+feature = "std-compat"
 title = "Experiment: fix blockers + document GPU compatibility matrix"
 kind = "experiment"
 status = "pending"
@@ -613,7 +658,7 @@ depends = ["std-compat.2"]
 
 [[tasks]]
 id = "om-design.1"
-theme = "om-design"
+feature = "om-design"
 title = "Investigation: Rust lifetime mechanics applicable to GPU memory hierarchy — academic survey"
 kind = "investigation"
 status = "pending"
@@ -621,7 +666,7 @@ depends = []
 
 [[tasks]]
 id = "om-design.2"
-theme = "om-design"
+feature = "om-design"
 title = "Design: &'block T / &'grid T type system + borrow checker extension rules"
 kind = "design"
 status = "pending"
@@ -629,7 +674,7 @@ depends = ["om-design.1"]
 
 [[tasks]]
 id = "om-design.3"
-theme = "om-design"
+feature = "om-design"
 title = "Design: register promotion strategy for move semantics in inner loops"
 kind = "design"
 status = "pending"
@@ -637,7 +682,7 @@ depends = ["om-design.2"]
 
 [[tasks]]
 id = "om-compiler.1"
-theme = "om-compiler"
+feature = "om-compiler"
 title = "Investigation: rustc changes needed — type system vs MIR pass vs LLVM address spaces"
 kind = "investigation"
 status = "pending"
@@ -645,7 +690,7 @@ depends = ["om-design.2"]
 
 [[tasks]]
 id = "om-compiler.2"
-theme = "om-compiler"
+feature = "om-compiler"
 title = "Experiment: implement lifetime-to-address-space mapping in patched rustc"
 kind = "experiment"
 status = "pending"
@@ -653,7 +698,7 @@ depends = ["om-compiler.1"]
 
 [[tasks]]
 id = "om-compiler.3"
-theme = "om-compiler"
+feature = "om-compiler"
 title = "Experiment: cross-scope borrow rejection + register promotion pass"
 kind = "experiment"
 status = "pending"
@@ -661,7 +706,7 @@ depends = ["om-compiler.2"]
 
 [[tasks]]
 id = "om-demo.1"
-theme = "om-demo"
+feature = "om-demo"
 title = "Experiment: kernel where type system catches shared memory misuse — compile error demo"
 kind = "experiment"
 status = "pending"
@@ -669,14 +714,14 @@ depends = ["om-compiler.2"]
 
 [[tasks]]
 id = "om-demo.2"
-theme = "om-demo"
+feature = "om-demo"
 title = "Experiment: real computation kernel with lifetime-based memory — zero manual management"
 kind = "experiment"
 status = "pending"
 depends = ["om-demo.1"]
 
 # ============================================================
-# Brainstorms (last 2 — older → archive/)
+# Brainstorms (last 3 — older → archive/)
 # ============================================================
 
 # Brainstorms 109-121 archived (cycles 535-623)
@@ -684,38 +729,38 @@ depends = ["om-demo.1"]
 [[brainstorms]]
 seq = 123
 at_cycle = 629
-trigger = "T1 fully cleared (4 epics: SC, type-safety, iterator, generics). T2 tier activation."
+trigger = "T1 fully cleared (4 stories: SC, type-safety, iterator, generics). Activation planning."
 level = "standard"
 new_tasks_spawned = ["unified-scheduler.1", "unified-scheduler.2", "unified-scheduler.3", "unified-transfer.1", "unified-transfer.2", "unified-transfer.3", "unified-demo.1", "unified-demo.2"]
-new_themes_spawned = ["unified-scheduler", "unified-transfer", "unified-demo"]
-new_epics_spawned = []
-themes_parked = []
-themes_completed = ["gen-mono", "gen-traits", "gen-demo"]
-epics_completed = ["gpu-generics"]
-key_insight = "T1 fully cleared (54 epics). unified-runtime is THE synthesis epic — it wires BlockScope, par_iter, hostcall, DisjointSlice, and generics into one async fn that spans CPU+GPU with zero GPU concepts. First dispatch: two parallel investigations (scheduler + transfer)."
+new_features_spawned = ["unified-scheduler", "unified-transfer", "unified-demo"]
+new_stories_spawned = []
+features_parked = []
+features_completed = ["gen-mono", "gen-traits", "gen-demo"]
+stories_completed = ["gpu-generics"]
+key_insight = "T1 fully cleared (54 stories). unified-runtime is THE synthesis story — it wires BlockScope, par_iter, hostcall, DisjointSlice, and generics into one async fn that spans CPU+GPU with zero GPU concepts. First dispatch: two parallel investigations (scheduler + transfer)."
 
 [[brainstorms]]
 seq = 124
 at_cycle = 634
-trigger = "unified-runtime epic completed (3 themes, 8 tasks). T2 activation planning."
+trigger = "unified-runtime story completed (3 features, 8 tasks). Planning."
 level = "standard"
 new_tasks_spawned = []
-new_themes_spawned = []
-new_epics_spawned = []
-themes_parked = []
-themes_completed = ["unified-scheduler", "unified-transfer", "unified-demo"]
-epics_completed = ["unified-runtime"]
-key_insight = "gpu-coroutines is the natural next T2 epic — extends async/await to generator/yield with warp-cooperative execution. Stagger compile-time-cost as companion. conv-perf has broken dependency (perf-conv.1 phantom, fixed to perf-conv.6). gpu-hot-reload needs task redesign."
+new_features_spawned = []
+new_stories_spawned = []
+features_parked = []
+features_completed = ["unified-scheduler", "unified-transfer", "unified-demo"]
+stories_completed = ["unified-runtime"]
+key_insight = "gpu-coroutines is the natural next story — extends async/await to generator/yield with warp-cooperative execution. Stagger compile-time-cost as companion. conv-perf has broken dependency (perf-conv.1 phantom, fixed to perf-conv.6)."
 
 [[brainstorms]]
 seq = 125
 at_cycle = 638
-trigger = "gpu-coroutines epic completed (56th epic). Post-completion assessment."
+trigger = "gpu-coroutines story completed (56th story). Post-completion assessment."
 level = "standard"
 new_tasks_spawned = []
-new_themes_spawned = []
-new_epics_spawned = []
-themes_parked = []
-themes_completed = ["coro-impl"]
-epics_completed = ["gpu-coroutines"]
-key_insight = "T2 tier entering final stretch — 3/6 complete (unified-runtime, gpu-coroutines, compile-time-cost nearly done), 1 blocked (hw-intrinsics), 2 need design brainstorms (hot-reload, cuda-graph). Finish cost-warnings.1/.2, then brainstorm gpu-hot-reload task redesign."
+new_features_spawned = []
+new_stories_spawned = []
+features_parked = []
+features_completed = ["coro-impl"]
+stories_completed = ["gpu-coroutines"]
+key_insight = "compile-time-cost nearly done (cost-warnings active). Strategic direction review: GPU disappears arc identified. 5 off-line stories parked, 6 new stories created (gpu-panic, gpu-dyn-dispatch, transparent-data, auto-tuning, feature-audit, whole-program-partition)."

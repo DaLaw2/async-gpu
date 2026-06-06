@@ -5,7 +5,7 @@
 [meta]
 created = "2026-03-11"
 total_cycles = 642
-completed_tasks = 816
+completed_tasks = 817
 status = "running"     # ready | running | blocked | completed
 
 # Project North Star — the ONE thing all epics serve:
@@ -164,7 +164,7 @@ priority = "low"
 id = "compile-time-cost"
 epic = "perf-transparent"
 title = "Compile-Time Cost Model — know GPU performance at compile time"
-status = "active"
+status = "completed"
 priority = "medium"
 success_criteria = [
     "MIR pass estimates register usage and shared memory per kernel",
@@ -312,7 +312,7 @@ success_criteria = [
 id = "cost-warnings"
 story = "compile-time-cost"
 title = "Compile-time GPU performance lints"
-status = "active"
+status = "completed"
 goal = "Warn about common GPU performance issues during compilation"
 success_criteria = [
     "Warning: low occupancy due to register pressure",

@@ -3988,3 +3988,39 @@ title = "Design: GpuGenerator trait + MIR pass extension for yield to warp conte
 kind = "design"
 status = "done"
 depends = ["coro-design.1"]
+
+# --- coro-impl (gpu-coroutines) ---
+
+[[tasks]]
+id = "coro-impl.1"
+theme = "coro-impl"
+title = "Experiment: implement generator compilation to PTX + warp-cooperative yield"
+kind = "experiment"
+status = "done"
+depends = ["coro-design.2"]
+
+[[tasks]]
+id = "coro-impl.2"
+theme = "coro-impl"
+title = "Experiment: streaming pipeline demo — producer yields, consumer processes"
+kind = "experiment"
+status = "done"
+depends = ["coro-impl.1"]
+
+# --- cost-analysis (compile-time-cost) ---
+
+[[tasks]]
+id = "cost-analysis.1"
+theme = "cost-analysis"
+title = "Investigation: estimate register + shared memory usage from MIR/PTX"
+kind = "investigation"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "cost-analysis.2"
+theme = "cost-analysis"
+title = "Experiment: implement per-kernel resource estimation pass"
+kind = "experiment"
+status = "done"
+depends = ["cost-analysis.1"]

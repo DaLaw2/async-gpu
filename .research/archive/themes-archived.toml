@@ -1544,3 +1544,26 @@ success_criteria = [
     "MIR pass extension for generator state machines",
     "Warp-cooperative yield: all lanes yield together",
 ]
+
+[[themes]]
+id = "coro-impl"
+epic = "gpu-coroutines"
+title = "Generator implementation + streaming pipeline"
+status = "completed"
+goal = "Working generators on GPU warps"
+success_criteria = [
+    "Generator compiles to PTX via extended MIR pass",
+    "Demo: producer yields → consumer processes → zero buffering",
+]
+
+[[themes]]
+id = "cost-analysis"
+epic = "compile-time-cost"
+title = "MIR-level GPU resource estimation"
+status = "completed"
+goal = "Estimate register usage, shared memory, occupancy at compile time"
+success_criteria = [
+    "Register usage estimated from MIR live value analysis",
+    "Shared memory tracked from alloc calls",
+    "Occupancy computed from resource estimates",
+]

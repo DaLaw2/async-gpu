@@ -341,6 +341,97 @@ for result in "${ALL_RESULTS[@]}"; do
     fi
 done
 
+# ── Bank Conflict Detection (PTX pattern analysis) ───────────────
+bank_conflict_count=0
+declare -a BANK_WARNINGS=()
+
+detect_bank_conflicts() {
+    local ptx_file="$1"
+    local ptx_name
+    ptx_name=$(basename "$ptx_file")
+
+    # Single-pass awk for performance (avoids per-line grep on large PTX files)
+    local awk_output
+    awk_output=$(awk '
+    /\.entry / {
+        match($0, /\.entry ([A-Za-z_][A-Za-z0-9_]*)/, arr)
+        if (arr[1] != "") {
+            current_kernel = arr[1]
+            uses_smem = 0
+        }
+        next
+    }
+
+    current_kernel != "" && /cvta\.shared/ {
+        uses_smem = 1
+        next
+    }
+
+    current_kernel != "" && uses_smem == 1 && /mad\.lo\.s32/ {
+        # Extract numeric operands after the second comma
+        n = split($0, parts, ",")
+        for (i = 2; i <= n; i++) {
+            gsub(/^[ \t]+|[ \t;]+$/, "", parts[i])
+            if (parts[i] ~ /^[0-9]+$/) {
+                stride = parts[i] + 0
+                if (stride > 0 && stride % 128 == 0) {
+                    key = current_kernel ":" stride
+                    if (!(key in seen)) {
+                        seen[key] = 1
+                        padded = stride + 4
+                        printf "%s|%d|%d\n", current_kernel, stride, padded
+                    }
+                }
+            }
+        }
+    }
+    ' "$ptx_file")
+
+    while IFS='|' read -r kern stride padded; do
+        if [ -n "$kern" ]; then
+            BANK_WARNINGS+=("  [WARN] bank-conflict: '$kern' ($ptx_name) shared memory stride $stride (multiple of 128 → bank conflict). Use stride $padded.")
+            bank_conflict_count=$((bank_conflict_count + 1))
+        fi
+    done <<< "$awk_output"
+}
+
+# Run bank conflict detection on all analyzed PTX files
+for ptx_file in "${PTX_FILES[@]}"; do
+    resolve_file="$ptx_file"
+    if [[ "$resolve_file" != /* ]]; then
+        if [ -f "$HOST_DIR/$resolve_file" ]; then
+            resolve_file="$HOST_DIR/$resolve_file"
+        fi
+    fi
+    if [ -f "$resolve_file" ]; then
+        detect_bank_conflicts "$resolve_file"
+    fi
+done
+
+# ── Actionable Warnings ─────────────────────────────────────────
+declare -a ACTIONABLE_WARNINGS=()
+
+for result in "${ALL_RESULTS[@]}"; do
+    IFS='|' read -r file kernel regs spill_st spill_ld stack cumul_stack cmem occ <<< "$result"
+
+    if [ "$occ" -lt 25 ]; then
+        ACTIONABLE_WARNINGS+=("  ${RED}[CRIT] low-occupancy: '$kernel' ($file) uses $regs regs → ${occ}% occ. Reduce to ≤128 regs for 50%. Consider: launch_bounds, loop tiling, reducing live variables.${NC}")
+    elif [ "$occ" -lt 50 ]; then
+        target_msg=""
+        if [ "$regs" -gt 128 ]; then
+            target_msg=" Reduce to ≤128 regs for 50%."
+        elif [ "$regs" -gt 64 ]; then
+            target_msg=" Reduce to ≤64 regs for 75%."
+        fi
+        ACTIONABLE_WARNINGS+=("  ${YELLOW}[WARN] low-occupancy: '$kernel' ($file) uses $regs regs → ${occ}% occ.${target_msg}${NC}")
+    fi
+
+    if [ "$spill_st" -gt 0 ] || [ "$spill_ld" -gt 0 ]; then
+        total_spill=$((spill_st + spill_ld))
+        ACTIONABLE_WARNINGS+=("  ${YELLOW}[WARN] register-spill: '$kernel' ($file) spills ${total_spill}B (${spill_st} store + ${spill_ld} load). Each spill adds ~100 cycles.${NC}")
+    fi
+done
+
 # ── Summary ───────────────────────────────────────────────────────
 echo ""
 echo -e "${BOLD}═══════════════════════════════════════════════════════════════════════════════${NC}"
@@ -357,10 +448,27 @@ fi
 if [ "$spill_count" -gt 0 ]; then
     echo -e "  ${YELLOW}SPILLS detected:           $spill_count kernel(s)${NC}"
 fi
+if [ "$bank_conflict_count" -gt 0 ]; then
+    echo -e "  ${YELLOW}BANK CONFLICTS detected:   $bank_conflict_count pattern(s)${NC}"
+fi
 healthy=$((total_kernels - crit_count - warn_count))
 if [ "$healthy" -gt 0 ]; then
     echo -e "  ${GREEN}Healthy  (>=50% occupancy): $healthy kernel(s)${NC}"
 fi
+
+# Print actionable warnings
+if [ ${#ACTIONABLE_WARNINGS[@]} -gt 0 ] || [ ${#BANK_WARNINGS[@]} -gt 0 ]; then
+    echo ""
+    echo -e "${BOLD}  Actionable Warnings${NC}"
+    echo -e "  ${DIM}$(printf '%.0s─' {1..75})${NC}"
+    for msg in "${ACTIONABLE_WARNINGS[@]}"; do
+        echo -e "$msg"
+    done
+    for msg in "${BANK_WARNINGS[@]}"; do
+        echo -e "${YELLOW}${msg}${NC}"
+    done
+fi
+
 echo ""
 
 # Exit code: 1 if any critical, 0 otherwise

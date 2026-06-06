@@ -9,17 +9,17 @@ completed_tasks = 803
 status = "running"     # ready | running | blocked | completed
 
 # Project North Star — the ONE thing all epics serve:
-# Users write File::read → matmul → File::write in a single fn main().
-# I/O walks hostcall, compute walks all-warp cooperative, both look like plain Rust.
-# No GPU concepts leak. VectorWare's I/O strength + async-gpu's compute strength, unified.
+# Users write plain Rust — for loops, iterators, async/await, std types.
+# The compiler decides what runs on GPU, where data lives, how to parallelize.
+# No GPU concepts leak — no kernels, no warps, no cudaMemcpy, no device pointers.
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
 current_step = "gate"
 current_task_id = ""
 
 # Sequence counters
-brainstorm_seq = 124
-tasks_since_brainstorm = 6
+brainstorm_seq = 125
+tasks_since_brainstorm = 1
 
 # ============================================================
 # Epics — Tiered (T0 → T3), sorted by tier then priority
@@ -38,32 +38,6 @@ tasks_since_brainstorm = 6
 # gpu-coroutines
 
 # --- T2: Advanced ---
-
-[[epics]]
-id = "gpu-hot-reload"
-title = "GPU Hot-Reload — edit kernel, auto-recompile, hot-swap PTX"
-tier = 2
-status = "pending"
-priority = "medium"
-success_criteria = [
-    "File watcher detects kernel source changes",
-    "NVRTC recompiles changed kernels to PTX in background",
-    "Hot-swap PTX module in running host process without restart",
-    "Demo: live-edit a compute kernel, see output update in running program",
-]
-
-[[epics]]
-id = "gpu-coroutines"
-title = "GPU Coroutines — generator/yield pattern on GPU warps"
-tier = 2
-status = "completed"
-priority = "medium"
-success_criteria = [
-    "GpuGenerator trait with yield_value() and resume()",
-    "MIR pass transforms generator state machine to warp-cooperative execution",
-    "Multiple generators run concurrently across warps",
-    "Demo: streaming pipeline — producer yields, consumer processes, zero buffering",
-]
 
 [[epics]]
 id = "conv-perf"
@@ -92,16 +66,70 @@ success_criteria = [
 ]
 
 [[epics]]
-id = "hardware-intrinsics"
-title = "Hardware Intrinsics — TMA, WGMMA, Thread Block Clusters (SM90+)"
+id = "gpu-panic"
+title = "GPU Panic Transparency — panic!/unwrap/assert! behave identically to CPU"
+tier = 2
+status = "pending"
+priority = "high"
+success_criteria = [
+    "panic!() on GPU prints message + source location + warp/thread ID, propagates to host",
+    "unwrap()/expect() on None/Err triggers standard panic, not silent abort",
+    "assert!/assert_eq! work without gpu_assert! — same macro, same behavior",
+    "Panic output indistinguishable from CPU panic (except thread ID includes warp info)",
+]
+
+[[epics]]
+id = "gpu-dyn-dispatch"
+title = "Dynamic Dispatch on GPU — Box<dyn Trait> and trait objects work"
+tier = 2
+status = "pending"
+priority = "medium"
+success_criteria = [
+    "Box<dyn Trait> compiles to GPU with vtable in correct address space",
+    "&dyn Fn() / &dyn FnMut() work for closures on GPU",
+    "At least one no_std crate using dyn Trait compiles and runs on GPU unmodified",
+    "Dynamic dispatch overhead measured and documented (vs monomorphized path)",
+]
+
+[[epics]]
+id = "transparent-data"
+title = "Transparent Data Residency — Vec<f32> not GpuVec<f32>"
+tier = 2
+status = "pending"
+priority = "medium"
+depends_on = "unified-runtime"
+success_criteria = [
+    "User writes Vec<T>, runtime tracks host vs device residency transparently",
+    "Data migrates lazily on first GPU access — no explicit cudaMemcpy",
+    "Compile-time data flow analysis enables prefetch before GPU computation",
+    "Demo: computation pipeline using only std::vec::Vec, no GPU-specific types",
+]
+
+[[epics]]
+id = "auto-tuning"
+title = "Runtime Auto-Tuning — kernels self-optimize across executions"
 tier = 2
 status = "pending"
 priority = "low"
+depends_on = "compile-time-cost"
 success_criteria = [
-    "TMA load/store wrappers for 2D tensor tiles",
-    "WGMMA warp-group matrix multiply-accumulate (SM90+)",
-    "Thread Block Cluster primitives (cluster_rank, distributed shared memory)",
-    "At least one kernel demonstrating TMA+WGMMA with safe Rust API",
+    "Runtime profiles kernel execution (block size, shared memory config)",
+    "Auto-tune selects optimal launch parameters after N warmup runs",
+    "Combined with compile-time-cost for static+dynamic optimization loop",
+    "Demo: kernel that is 2x faster after auto-tuning vs default config",
+]
+
+[[epics]]
+id = "feature-audit"
+title = "Feature Audit — verify all 56 shipped epics still work correctly"
+tier = 2
+status = "pending"
+priority = "high"
+success_criteria = [
+    "All examples/ compile and run correctly on current toolchain",
+    "API consistency audit: naming, error handling, import paths across all features",
+    "Technical debt inventory: broken features, stale code, missing tests identified",
+    "Regression test suite covering critical paths from each major shipped epic",
 ]
 
 [[epics]]
@@ -133,6 +161,20 @@ success_criteria = [
 ]
 
 [[epics]]
+id = "whole-program-partition"
+title = "Whole-Program Partitioning — compiler decides CPU vs GPU per function"
+tier = 3
+status = "pending"
+priority = "medium"
+depends_on = "auto-parallel"
+success_criteria = [
+    "Compiler analyzes compute intensity + data size to partition functions",
+    "Partitioning spans beyond loops — arbitrary function bodies evaluated",
+    "Heuristic considers data locality (avoid CPU-GPU round-trips)",
+    "Demo: single fn main() with mixed I/O + compute, zero GPU annotations, compiler splits correctly",
+]
+
+[[epics]]
 id = "ownership-memory"
 title = "Ownership = Memory Hierarchy — Rust lifetimes map to GPU memory tiers"
 tier = 3
@@ -144,45 +186,6 @@ success_criteria = [
     "Borrow checker prevents cross-scope memory access at compile time",
     "Register promotion for move semantics in inner loops",
     "At least one real kernel where the type system catches a memory hierarchy bug",
-]
-
-[[epics]]
-id = "gpu-repl"
-title = "GPU REPL — interactive GPU programming, one line at a time"
-tier = 3
-status = "pending"
-priority = "low"
-success_criteria = [
-    "REPL session with JIT compilation to GPU via NVRTC",
-    "State persistence across lines (variables survive between inputs)",
-    "Output formatting for GPU results (tensors, buffers, scalars)",
-    "Demo: interactive GPU session with 5+ successive commands",
-]
-
-[[epics]]
-id = "cross-vendor"
-title = "Cross-Vendor GPU — same code runs on NVIDIA, AMD, Vulkan"
-tier = 3
-status = "pending"
-priority = "low"
-success_criteria = [
-    "WarpPrimitive trait abstracts barrier sync, shuffle, atomics across vendors",
-    "NVIDIA backend: bar.warp.sync, shfl.sync, PTX atomics",
-    "AMD backend: wavefront barrier, ds_swizzle/dpp_mov, HIP atomics",
-    "At least one non-trivial example runs correctly on both NVIDIA and AMD",
-]
-
-[[epics]]
-id = "actor-model"
-title = "GPU Actor Model — warp-as-actor with message passing"
-tier = 3
-status = "pending"
-priority = "low"
-success_criteria = [
-    "GpuActor trait with handle_message method",
-    "Mailbox in shared memory (same block) or global memory (cross block) — auto-selected",
-    "Rust Send trait ensures message ownership safety at compile time",
-    "Demo: multi-actor pipeline that's clearer than the async equivalent",
 ]
 
 [[epics]]
@@ -244,6 +247,7 @@ success_criteria = [
 # ============================================================
 # Themes (active/pending/parked only — completed → archive/)
 # ============================================================
+# Completed themes archived (cycle 638): coro-impl, cost-analysis
 # Completed themes archived (cycle 634): test-integration, safety-types, safety-tiers,
 # safety-apply, iter-demo, gen-mono, gen-traits, gen-demo, unified-scheduler,
 # unified-transfer, unified-demo, coro-design
@@ -260,46 +264,7 @@ success_criteria = [
 # perf-attention, perf-conv, perf-layernorm, perf-elementwise, perf-fusion,
 # perf-gemm-v4, perf-attn-v3, perf-e2e
 
-# --- T2: gpu-hot-reload themes ---
-
-[[themes]]
-id = "reload-impl"
-epic = "gpu-hot-reload"
-title = "File watcher + NVRTC recompile + hot-swap"
-status = "pending"
-goal = "Change kernel code, see results in <2 seconds"
-success_criteria = [
-    "File watcher triggers on kernel source changes",
-    "NVRTC recompiles to PTX in background",
-    "Hot-swap PTX in running host without restart",
-]
-
-# --- T2: gpu-coroutines themes ---
-
-[[themes]]
-id = "coro-impl"
-epic = "gpu-coroutines"
-title = "Generator implementation + streaming pipeline"
-status = "completed"
-goal = "Working generators on GPU warps"
-success_criteria = [
-    "Generator compiles to PTX via extended MIR pass",
-    "Demo: producer yields → consumer processes → zero buffering",
-]
-
 # --- T2: compile-time-cost themes ---
-
-[[themes]]
-id = "cost-analysis"
-epic = "compile-time-cost"
-title = "MIR-level GPU resource estimation"
-status = "completed"
-goal = "Estimate register usage, shared memory, occupancy at compile time"
-success_criteria = [
-    "Register usage estimated from MIR live value analysis",
-    "Shared memory tracked from alloc calls",
-    "Occupancy computed from resource estimates",
-]
 
 [[themes]]
 id = "cost-warnings"
@@ -311,41 +276,6 @@ success_criteria = [
     "Warning: low occupancy due to register pressure",
     "Warning: shared memory bank conflicts",
     "Warning: uncoalesced global memory access",
-]
-
-# --- T2: hardware-intrinsics themes ---
-
-[[themes]]
-id = "hw-tma"
-epic = "hardware-intrinsics"
-title = "TMA — Tensor Memory Accelerator wrappers"
-status = "pending"
-goal = "Safe Rust API for TMA 2D tile loads/stores"
-success_criteria = [
-    "tma_load_2d / tma_store_2d safe wrappers",
-    "TmaDescriptor builder API",
-]
-
-[[themes]]
-id = "hw-wgmma"
-epic = "hardware-intrinsics"
-title = "WGMMA — Warp Group Matrix Multiply-Accumulate"
-status = "pending"
-goal = "Safe Rust API for warp-group MMA (SM90+)"
-success_criteria = [
-    "wgmma_mma_async safe wrapper",
-    "GEMM kernel with WGMMA achieving >80% peak",
-]
-
-[[themes]]
-id = "hw-clusters"
-epic = "hardware-intrinsics"
-title = "Thread Block Clusters"
-status = "pending"
-goal = "Cluster-level coordination primitives"
-success_criteria = [
-    "cluster_rank(), distributed shared memory",
-    "Cluster barrier synchronization",
 ]
 
 # --- T2: conv-perf themes ---
@@ -397,30 +327,6 @@ goal = "Pure loops compiled to GPU kernels with zero annotation"
 success_criteria = [
     "Loop body transformed to per-lane GPU code",
     "Demo: plain for-loop runs on GPU, outperforms CPU",
-]
-
-# --- T3: gpu-repl themes ---
-
-[[themes]]
-id = "repl-engine"
-epic = "gpu-repl"
-title = "JIT compilation + session state management"
-status = "pending"
-goal = "Interactive GPU execution with persistent state"
-success_criteria = [
-    "NVRTC-based JIT for single-line GPU expressions",
-    "Variable state persists across inputs",
-]
-
-[[themes]]
-id = "repl-ux"
-epic = "gpu-repl"
-title = "REPL user experience"
-status = "pending"
-goal = "Polished interactive GPU programming experience"
-success_criteria = [
-    "Tensor/buffer output formatting",
-    "Demo: 5+ successive commands in interactive session",
 ]
 
 # --- T3: std-completeness themes ---
@@ -503,6 +409,7 @@ success_criteria = [
 # ============================================================
 # Tasks (active/pending only — done → archive/)
 # ============================================================
+# Done tasks archived (cycle 638): coro-impl.1-.2, cost-analysis.1-.2
 # Done tasks archived (cycle 634): safety-types.2, safety-tiers.1, safety-apply.1-.2,
 # iter-demo.4-.5, gen-mono.1-.2, gen-traits.1, gen-demo.1, unified-scheduler.1-.3,
 # unified-transfer.1-.3, unified-demo.1-.2, coro-design.1-.2
@@ -510,74 +417,14 @@ success_criteria = [
 # split-loader.1-.5, split-devpath.1, test-framework.2, test-integration.1-.2,
 # safety-types.1, iter-demo.1-.3, fusion-codegen.3, fusion-integrate.1-.2
 
-# --- gpu-hot-reload ---
-
-[[tasks]]
-id = "reload-impl.1"
-theme = "reload-impl"
-title = "Investigation: file watcher + NVRTC pipeline design for hot PTX swap"
-kind = "investigation"
-status = "pending"
-depends = []
-
-[[tasks]]
-id = "reload-impl.2"
-theme = "reload-impl"
-title = "Experiment: implement file watcher → NVRTC recompile → hot-swap PTX"
-kind = "experiment"
-status = "pending"
-depends = ["reload-impl.1"]
-
-[[tasks]]
-id = "reload-impl.3"
-theme = "reload-impl"
-title = "Experiment: demo — live-edit kernel math, output updates in <2 seconds"
-kind = "experiment"
-status = "pending"
-depends = ["reload-impl.2"]
-
-# --- gpu-coroutines ---
-
-[[tasks]]
-id = "coro-impl.1"
-theme = "coro-impl"
-title = "Experiment: implement generator compilation to PTX + warp-cooperative yield"
-kind = "experiment"
-status = "done"
-depends = ["coro-design.2"]
-
-[[tasks]]
-id = "coro-impl.2"
-theme = "coro-impl"
-title = "Experiment: streaming pipeline demo — producer yields, consumer processes"
-kind = "experiment"
-status = "done"
-depends = ["coro-impl.1"]
-
 # --- compile-time-cost ---
-
-[[tasks]]
-id = "cost-analysis.1"
-theme = "cost-analysis"
-title = "Investigation: estimate register + shared memory usage from MIR/PTX"
-kind = "investigation"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "cost-analysis.2"
-theme = "cost-analysis"
-title = "Experiment: implement per-kernel resource estimation pass"
-kind = "experiment"
-status = "done"
-depends = ["cost-analysis.1"]
 
 [[tasks]]
 id = "cost-warnings.1"
 theme = "cost-warnings"
 title = "Experiment: emit compile-time warnings for low occupancy + bank conflicts"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["cost-analysis.2"]
 
 [[tasks]]
@@ -587,40 +434,6 @@ title = "Experiment: catch real perf issue in existing kernel via compile-time l
 kind = "experiment"
 status = "pending"
 depends = ["cost-warnings.1"]
-
-# --- hardware-intrinsics ---
-
-[[tasks]]
-id = "hw-tma.1"
-theme = "hw-tma"
-title = "Investigation: TMA 2D load/store semantics + safe wrapper design"
-kind = "investigation"
-status = "pending"
-depends = []
-
-[[tasks]]
-id = "hw-tma.2"
-theme = "hw-tma"
-title = "Experiment: implement TMA safe wrappers + tiled GEMM demo"
-kind = "experiment"
-status = "pending"
-depends = ["hw-tma.1"]
-
-[[tasks]]
-id = "hw-wgmma.1"
-theme = "hw-wgmma"
-title = "Experiment: implement WGMMA safe wrapper + GEMM achieving >80% peak"
-kind = "experiment"
-status = "pending"
-depends = ["hw-tma.2"]
-
-[[tasks]]
-id = "hw-clusters.1"
-theme = "hw-clusters"
-title = "Experiment: Thread Block Cluster primitives + distributed shared memory"
-kind = "experiment"
-status = "pending"
-depends = []
 
 # --- auto-parallel ---
 
@@ -655,32 +468,6 @@ title = "Experiment: demo — sequential code auto-parallelized, outperforms CPU
 kind = "experiment"
 status = "pending"
 depends = ["ap-transform.1"]
-
-# --- gpu-repl ---
-
-[[tasks]]
-id = "repl-engine.1"
-theme = "repl-engine"
-title = "Investigation: NVRTC JIT pipeline for interactive single-line GPU execution"
-kind = "investigation"
-status = "pending"
-depends = []
-
-[[tasks]]
-id = "repl-engine.2"
-theme = "repl-engine"
-title = "Experiment: implement REPL with JIT compile + state persistence across lines"
-kind = "experiment"
-status = "pending"
-depends = ["repl-engine.1"]
-
-[[tasks]]
-id = "repl-ux.1"
-theme = "repl-ux"
-title = "Experiment: output formatting + demo with 5+ interactive GPU commands"
-kind = "experiment"
-status = "pending"
-depends = ["repl-engine.2"]
 
 # --- conv-perf ---
 
@@ -919,3 +706,16 @@ themes_parked = []
 themes_completed = ["unified-scheduler", "unified-transfer", "unified-demo"]
 epics_completed = ["unified-runtime"]
 key_insight = "gpu-coroutines is the natural next T2 epic — extends async/await to generator/yield with warp-cooperative execution. Stagger compile-time-cost as companion. conv-perf has broken dependency (perf-conv.1 phantom, fixed to perf-conv.6). gpu-hot-reload needs task redesign."
+
+[[brainstorms]]
+seq = 125
+at_cycle = 638
+trigger = "gpu-coroutines epic completed (56th epic). Post-completion assessment."
+level = "standard"
+new_tasks_spawned = []
+new_themes_spawned = []
+new_epics_spawned = []
+themes_parked = []
+themes_completed = ["coro-impl"]
+epics_completed = ["gpu-coroutines"]
+key_insight = "T2 tier entering final stretch — 3/6 complete (unified-runtime, gpu-coroutines, compile-time-cost nearly done), 1 blocked (hw-intrinsics), 2 need design brainstorms (hot-reload, cuda-graph). Finish cost-warnings.1/.2, then brainstorm gpu-hot-reload task redesign."

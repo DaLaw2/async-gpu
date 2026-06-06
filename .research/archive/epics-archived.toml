@@ -686,3 +686,18 @@ success_criteria = [
     "AutoScheduler picks execution location based on work type and hardware capability",
     "Demo: read → compute → write pipeline with zero explicit memory management",
 ]
+
+# Archived at cycle 638 — gpu-coroutines completed
+
+[[epics]]
+id = "gpu-coroutines"
+title = "GPU Coroutines — generator/yield pattern on GPU warps"
+tier = 2
+status = "completed"
+priority = "medium"
+success_criteria = [
+    "GpuGenerator trait with yield_value() and resume()",
+    "MIR pass transforms generator state machine to warp-cooperative execution",
+    "Multiple generators run concurrently across warps",
+    "Demo: streaming pipeline — producer yields, consumer processes, zero buffering",
+]

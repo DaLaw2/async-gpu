@@ -4,8 +4,8 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 634
-completed_tasks = 797
+total_cycles = 638
+completed_tasks = 803
 status = "running"     # ready | running | blocked | completed
 
 # Project North Star — the ONE thing all epics serve:
@@ -34,7 +34,8 @@ tasks_since_brainstorm = 6
 # refactor-v2, gpu-dynamic, graph-algorithms, int4-gpt2, monte-carlo, benchmark,
 # native-rust-dx, std-thread-gpu, cooperative-compute, structured-concurrency,
 # library-api, kernel-perf, developer-showcase, kernel-split, auto-fusion,
-# gpu-test, gpu-iterator, gpu-type-safety, gpu-generics, unified-runtime
+# gpu-test, gpu-iterator, gpu-type-safety, gpu-generics, unified-runtime,
+# gpu-coroutines
 
 # --- T2: Advanced ---
 
@@ -55,7 +56,7 @@ success_criteria = [
 id = "gpu-coroutines"
 title = "GPU Coroutines — generator/yield pattern on GPU warps"
 tier = 2
-status = "active"
+status = "completed"
 priority = "medium"
 success_criteria = [
     "GpuGenerator trait with yield_value() and resume()",

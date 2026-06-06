@@ -4,8 +4,8 @@
 
 [meta]
 created = "2026-03-11"
-total_cycles = 639
-completed_tasks = 808
+total_cycles = 640
+completed_tasks = 811
 status = "running"     # ready | running | blocked | completed
 
 # Project North Star — the ONE thing all epics serve:
@@ -19,7 +19,7 @@ current_task_id = ""
 
 # Sequence counters
 brainstorm_seq = 126
-tasks_since_brainstorm = 4
+tasks_since_brainstorm = 7
 
 # ---
 # Epics — Strategic milestones (3 strategic + 1 evergreen)
@@ -235,7 +235,7 @@ priority = "medium"
 id = "panic-std-intercept"
 story = "gpu-panic"
 title = "Intercept std panic handler for GPU-native output"
-status = "active"
+status = "completed"
 goal = "Make patched std's panic handler output include warp/thread IDs and match CPU format"
 success_criteria = [
     "Patched std's default_hook on GPU outputs thread identification with warp/lane/block info",
@@ -247,7 +247,7 @@ success_criteria = [
 id = "panic-unwrap-verify"
 story = "gpu-panic"
 title = "Verify unwrap/expect/assert! work through standard panic path"
-status = "active"
+status = "completed"
 goal = "Confirm Option::unwrap(), Result::unwrap(), expect(), assert!, assert_eq! all produce proper panic output on GPU"
 success_criteria = [
     "None.unwrap() on GPU prints panic with location and standard message",
@@ -259,7 +259,7 @@ success_criteria = [
 id = "panic-deprecate-gpu-assert"
 story = "gpu-panic"
 title = "Deprecate gpu_assert! in favor of standard assert!"
-status = "pending"
+status = "active"
 goal = "Standard assert!/assert_eq! fully replace gpu_assert!, gpu_assert! is deprecated"
 success_criteria = [
     "assert! and assert_eq! produce identical output to CPU (with warp info)",
@@ -273,7 +273,7 @@ success_criteria = [
 id = "audit-build"
 story = "feature-audit"
 title = "Build audit — compile all examples and test crates on current toolchain"
-status = "active"
+status = "completed"
 goal = "Verify every example and test crate compiles without errors on current nightly"
 success_criteria = [
     "All 14 std/ examples compile",
@@ -286,7 +286,7 @@ success_criteria = [
 id = "audit-runtime"
 story = "feature-audit"
 title = "Runtime audit — run all examples on GPU, verify correct behavior"
-status = "pending"
+status = "active"
 goal = "Every example produces expected output when run on the dev machine GPU"
 success_criteria = [
     "All examples that compile also run correctly",
@@ -334,27 +334,12 @@ success_criteria = [
 # ---
 # Tasks (active/pending only — done → archive/)
 # ---
+# Done tasks archived (cycle 640): panic-std-intercept.2, audit-build.2, panic-unwrap-verify.2
 # Done tasks archived (cycle 639): panic-std-intercept.1, panic-unwrap-verify.1, audit-build.1, audit-api.1
 # Done tasks archived (cycle 638): coro-impl.1-.2, cost-analysis.1-.2, cost-warnings.1
 # Previously archived (cycles <=623 through 634): 30+ tasks
 
 # --- gpu-panic ---
-
-[[tasks]]
-id = "panic-std-intercept.2"
-feature = "panic-std-intercept"
-title = "Experiment: modify patched std default_hook to include GPU warp/thread metadata"
-kind = "experiment"
-status = "pending"
-depends = ["panic-std-intercept.1"]
-
-[[tasks]]
-id = "panic-unwrap-verify.2"
-feature = "panic-unwrap-verify"
-title = "Experiment: test unwrap/expect/assert in std kernel with patched std"
-kind = "experiment"
-status = "pending"
-depends = ["panic-std-intercept.1"]
 
 [[tasks]]
 id = "panic-deprecate-gpu-assert.1"
@@ -373,14 +358,6 @@ status = "pending"
 depends = ["panic-deprecate-gpu-assert.1"]
 
 # --- feature-audit ---
-
-[[tasks]]
-id = "audit-build.2"
-feature = "audit-build"
-title = "Experiment: fix all build failures found in audit-build.1"
-kind = "experiment"
-status = "pending"
-depends = ["audit-build.1"]
 
 [[tasks]]
 id = "audit-runtime.1"

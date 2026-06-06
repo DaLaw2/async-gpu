@@ -45,4 +45,5 @@ name = "std-build-test"
 version = "0.1.0"
 dependencies = [
  "gpu-libc",
+ "gpu-runtime",
 ]

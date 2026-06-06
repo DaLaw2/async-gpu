@@ -1,5 +1,5 @@
---- a/src/sys/thread/mod.rs	2026-06-04 08:51:24.112312903 +0800
-+++ b/src/sys/thread/mod.rs	2026-06-04 08:51:24.114338748 +0800
+--- a/src/sys/thread/mod.rs
++++ b/src/sys/thread/mod.rs
 @@ -1,4 +1,8 @@
  cfg_select! {
 +    target_os = "cuda" => {

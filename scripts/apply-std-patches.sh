@@ -30,34 +30,37 @@ echo "Applying patches..."
 cd "$OUTPUT_DIR"
 
 echo "  [PATCH] src/io/stdio.rs"
-patch -p1 --binary < "$PATCH_DIR/io_stdio.patch"
+patch -p0 --binary < "$PATCH_DIR/io_stdio.patch"
 
 echo "  [PATCH] src/os/fd/raw.rs"
-patch -p1 --binary < "$PATCH_DIR/os_fd_raw.patch"
+patch -p0 --binary < "$PATCH_DIR/os_fd_raw.patch"
+
+echo "  [PATCH] src/panicking.rs"
+patch -p0 --binary < "$PATCH_DIR/panicking.patch"
 
 echo "  [PATCH] src/sys/alloc/mod.rs"
-patch -p1 --binary < "$PATCH_DIR/sys_alloc_mod.patch"
+patch -p0 --binary < "$PATCH_DIR/sys_alloc_mod.patch"
 
 echo "  [PATCH] src/sys/fs/mod.rs"
-patch -p1 --binary < "$PATCH_DIR/sys_fs_mod.patch"
+patch -p0 --binary < "$PATCH_DIR/sys_fs_mod.patch"
 
 echo "  [PATCH] src/sys/io/error/mod.rs"
-patch -p1 --binary < "$PATCH_DIR/sys_io_error_mod.patch"
+patch -p0 --binary < "$PATCH_DIR/sys_io_error_mod.patch"
 
 echo "  [PATCH] src/sys/net/connection/sgx.rs"
-patch -p1 --binary < "$PATCH_DIR/sys_net_connection_sgx.patch"
+patch -p0 --binary < "$PATCH_DIR/sys_net_connection_sgx.patch"
 
 echo "  [PATCH] src/sys/random/mod.rs"
-patch -p1 --binary < "$PATCH_DIR/sys_random_mod.patch"
+patch -p0 --binary < "$PATCH_DIR/sys_random_mod.patch"
 
 echo "  [PATCH] src/sys/stdio/mod.rs"
-patch -p1 --binary < "$PATCH_DIR/sys_stdio_mod.patch"
-
-echo "  [PATCH] src/sys/thread/mod.rs"
-patch -p1 --binary < "$PATCH_DIR/sys_thread_mod.patch"
+patch -p0 --binary < "$PATCH_DIR/sys_stdio_mod.patch"
 
 echo "  [PATCH] src/sys/thread_local/mod.rs"
-patch -p1 --binary < "$PATCH_DIR/sys_thread_local_mod.patch"
+patch -p0 --binary < "$PATCH_DIR/sys_thread_local_mod.patch"
+
+echo "  [PATCH] src/sys/thread/mod.rs"
+patch -p0 --binary < "$PATCH_DIR/sys_thread_mod.patch"
 
 echo "  [NEW]   src/sys/alloc/cuda.rs"
 mkdir -p "src/sys/alloc"

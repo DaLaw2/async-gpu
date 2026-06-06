@@ -1,6 +1,6 @@
 --- a/src/io/stdio.rs
 +++ b/src/io/stdio.rs
-@@ -1272,6 +1272,15 @@
+@@ -1273,6 +1273,15 @@
  #[doc(hidden)]
  #[cfg(not(test))]
  pub fn _print(args: fmt::Arguments<'_>) {
@@ -16,7 +16,7 @@
      print_to(args, stdout, "stdout");
  }
  
-@@ -1283,6 +1292,13 @@
+@@ -1284,6 +1293,13 @@
  #[doc(hidden)]
  #[cfg(not(test))]
  pub fn _eprint(args: fmt::Arguments<'_>) {

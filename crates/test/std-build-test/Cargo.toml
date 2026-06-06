@@ -10,6 +10,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 gpu-libc = { path = "../../core/gpu-libc" }
+gpu-runtime = { path = "../../core/gpu-runtime" }
 
 [profile.release]
 panic = "abort"

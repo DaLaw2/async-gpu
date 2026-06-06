@@ -1,0 +1,64 @@
+--- a/src/panicking.rs
++++ b/src/panicking.rs
+@@ -235,6 +235,29 @@
+     *hook = Hook::Custom(Box::new(move |info| hook_fn(&prev, info)));
+ }
+ 
++/// Read GPU block index (x) and thread index (x) via inline PTX assembly.
++///
++/// Returns `(blockIdx.x, threadIdx.x)`.  The caller can derive:
++///   - warp  = threadIdx.x / 32
++///   - lane  = threadIdx.x % 32
++///
++/// Only compiled on `target_os = "cuda"` (nvptx64).
++#[cfg(target_os = "cuda")]
++#[inline(always)]
++fn gpu_panic_indices() -> (u32, u32) {
++    let block_x: u32;
++    let thread_x: u32;
++    unsafe {
++        core::arch::asm!(
++            "mov.u32 {bx}, %ctaid.x;",
++            "mov.u32 {tx}, %tid.x;",
++            bx = out(reg32) block_x,
++            tx = out(reg32) thread_x,
++        );
++    }
++    (block_x, thread_x)
++}
++
+ /// The default panic handler.
+ #[optimize(size)]
+ fn default_hook(info: &PanicHookInfo<'_>) {
+@@ -261,14 +284,30 @@
+ 
+         thread::with_current_name(|name| {
+             let name = name.unwrap_or("<unnamed>");
+-            let tid = thread::current_os_id();
+ 
+             // Try to write the panic message to a buffer first to prevent other concurrent outputs
+             // interleaving with it.
+             let mut buffer = [0u8; 512];
+             let mut cursor = crate::io::Cursor::new(&mut buffer[..]);
+ 
++            // On GPU (nvptx64/CUDA), include block/warp/lane metadata instead of
++            // a plain OS thread ID.  This makes panic output on GPU indistinguishable
++            // from CPU panics except for the richer thread identification.
++            #[cfg(target_os = "cuda")]
++            let write_msg = |dst: &mut dyn crate::io::Write| {
++                let (block_x, thread_x) = gpu_panic_indices();
++                let warp = thread_x / 32;
++                let lane = thread_x % 32;
++                // Format: thread 'main' (block 0, warp 0, lane 3) panicked at ...
++                writeln!(
++                    dst,
++                    "\nthread '{name}' (block {block_x}, warp {warp}, lane {lane}) panicked at {location}:\n{msg}"
++                )
++            };
++
++            #[cfg(not(target_os = "cuda"))]
+             let write_msg = |dst: &mut dyn crate::io::Write| {
++                let tid = thread::current_os_id();
+                 // We add a newline to ensure the panic message appears at the start of a line.
+                 writeln!(dst, "\nthread '{name}' ({tid}) panicked at {location}:\n{msg}")
+             };

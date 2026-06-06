@@ -5,7 +5,7 @@
 
 use crate::io;
 
-// Extern functions provided by the kernel crate (e.g., gpu-kernel-test).
+// Extern functions provided by the kernel crate (e.g., gpu-kernel-std).
 // These must be #[no_mangle] in the kernel crate.
 unsafe extern "C" {
     fn gpu_stdout_write(buf: *const u8, len: usize) -> usize;

@@ -618,3 +618,71 @@ success_criteria = [
     "Every major feature category has at least one clean, documented example",
     "Two-facade architecture: async-gpu re-exports host API (gpu::run/launch/custom), gpu-runtime provides kernel-side types (scopes, channels, executor) via prelude",
 ]
+
+# Archived at cycle 634 — T0/T1 completed epics + unified-runtime
+
+[[epics]]
+id = "gpu-test"
+title = "GPU Test Framework — #[gpu_test] and cargo test on GPU"
+tier = 0
+status = "completed"
+priority = "high"
+success_criteria = [
+    "#[gpu_test] attribute compiles test function to GPU kernel + host runner",
+    "GPU-native assert! with warp/thread ID in failure messages",
+    "cargo test integration — GPU tests discovered and run alongside CPU tests",
+    "At least 10 existing GPU features covered by #[gpu_test] tests",
+]
+
+[[epics]]
+id = "gpu-type-safety"
+title = "Type-Level Safety — compile-time race-freedom for GPU code"
+tier = 1
+status = "completed"
+priority = "high"
+success_criteria = [
+    "DisjointSlice<T> type proves exclusive access per thread at compile time",
+    "ThreadIndex<'kernel> is !Send + !Sync + !Copy, scoped to kernel lifetime",
+    "3-tier safety model: safe (proven no races) / scoped unsafe / raw intrinsics",
+    "Existing BlockScope/GridScope enhanced with type-level safety guarantees",
+]
+
+[[epics]]
+id = "gpu-iterator"
+title = "GPU Iterator — par_iter() compiles to warp-parallel GPU kernels"
+tier = 1
+status = "completed"
+priority = "highest"
+depends_on = "structured-concurrency"
+success_criteria = [
+    "gpu::par_iter() maps Rust iterator chains to GPU warp-parallel execution",
+    "Compile-time fusion of iterator chain bodies into warp-parallel kernel code (via Rust monomorphization + LLVM optimization)",
+    "At least map, filter, fold, collect operations supported",
+    "Demo: iterator chain that outperforms CPU Rayon on large data (>1M elements)",
+]
+
+[[epics]]
+id = "gpu-generics"
+title = "GPU Generics — full Rust trait system + generics on GPU kernels"
+tier = 1
+status = "completed"
+priority = "medium"
+success_criteria = [
+    "Generic kernel functions compile to PTX via monomorphization",
+    "Trait bounds work in GPU code (T: Add + Copy, etc.)",
+    "User-defined traits implementable for GPU types",
+    "Demo: generic parallel_reduce<T: Reducible> working for f32, i32, custom types",
+]
+
+[[epics]]
+id = "unified-runtime"
+title = "Unified Runtime — one async fn spans CPU and GPU transparently"
+tier = 2
+status = "completed"
+priority = "medium"
+success_criteria = [
+    "Scheduler types (CpuScheduler, GpuScheduler, AutoScheduler) route work by affinity",
+    "Data transfer (host ↔ device) is automatic — no manual cudaMemcpy",
+    "AutoScheduler picks execution location based on work type and hardware capability",
+    "Demo: read → compute → write pipeline with zero explicit memory management",
+]

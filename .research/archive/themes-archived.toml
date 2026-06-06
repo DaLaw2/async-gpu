@@ -1401,3 +1401,134 @@ success_criteria = [
     "GPT-2 forward pass benefits from automatic fusion (>= 10% speedup)",
     "No accuracy regression from fusion",
 ]
+
+# Archived at cycle 634 — T0/T1 completed themes + unified-runtime themes
+
+[[themes]]
+id = "test-integration"
+epic = "gpu-test"
+title = "cargo test integration + coverage"
+status = "completed"
+goal = "GPU tests are first-class in the Rust test ecosystem"
+success_criteria = [
+    "cargo test discovers and runs #[gpu_test] alongside #[test]",
+    "At least 10 GPU features covered by #[gpu_test] tests",
+]
+
+[[themes]]
+id = "safety-types"
+epic = "gpu-type-safety"
+title = "DisjointSlice + ThreadIndex — race-freedom by construction"
+status = "completed"
+goal = "Type system proves no data races in GPU code at compile time"
+success_criteria = [
+    "DisjointSlice<T> type with compile-time exclusive access guarantee",
+    "ThreadIndex<'kernel> is !Send + !Sync + !Copy with kernel-scoped lifetime",
+    "Overlapping writes to shared buffer are compile errors",
+]
+
+[[themes]]
+id = "safety-tiers"
+epic = "gpu-type-safety"
+title = "3-tier safety model for GPU operations"
+status = "completed"
+goal = "Clear safety tiers: safe / scoped unsafe / raw intrinsics"
+success_criteria = [
+    "Tier 1: safe API (DisjointSlice, ThreadIndex)",
+    "Tier 2: scoped unsafe (shared memory, warp shuffles, atomics)",
+    "Tier 3: raw intrinsics (TMA, WGMMA)",
+]
+
+[[themes]]
+id = "safety-apply"
+epic = "gpu-type-safety"
+title = "Apply type safety to existing SC and cooperative APIs"
+status = "completed"
+goal = "BlockScope/GridScope gain type-level safety guarantees"
+success_criteria = [
+    "BlockScope alloc returns DisjointSlice for parallel access",
+    "cooperative() closure receives ThreadIndex for safe indexing",
+    "Demo: existing example rewritten with zero unsafe",
+]
+
+[[themes]]
+id = "iter-demo"
+epic = "gpu-iterator"
+title = "Iterator demos — par_iter vs Rayon benchmarks"
+status = "completed"
+goal = "Demonstrate GPU iterator superiority over CPU for large datasets"
+success_criteria = [
+    "par_iter().map().collect() demo on 1M+ elements",
+    "par_iter().filter().fold() demo with data-dependent filtering",
+    "Benchmark: GPU par_iter vs CPU Rayon, showing crossover point",
+]
+
+[[themes]]
+id = "gen-mono"
+epic = "gpu-generics"
+title = "PTX monomorphization for generic kernel functions"
+status = "completed"
+goal = "Generic Rust functions compile to concrete PTX per type"
+success_criteria = [
+    "fn kernel<T: Copy + Add>(data: &[T]) compiles to PTX for f32, i32",
+    "Monomorphization at PTX generation time",
+    "No runtime dispatch overhead",
+]
+
+[[themes]]
+id = "gen-traits"
+epic = "gpu-generics"
+title = "Trait dispatch on GPU — impl + where bounds"
+status = "completed"
+goal = "User-defined traits work in GPU code"
+success_criteria = [
+    "Custom trait definitions usable in GPU kernel code",
+    "Where clauses constrain GPU generic parameters",
+    "Trait objects rejected with helpful compile error",
+]
+
+[[themes]]
+id = "gen-demo"
+epic = "gpu-generics"
+title = "Generic algorithms demo"
+status = "completed"
+goal = "Show composable GPU code via generics"
+success_criteria = [
+    "parallel_reduce<T: Reducible> works for f32, i32, custom types",
+    "Performance matches concrete-type implementation",
+]
+
+[[themes]]
+id = "unified-scheduler"
+epic = "unified-runtime"
+title = "Scheduler type system — CpuScheduler, GpuScheduler, AutoScheduler"
+status = "completed"
+goal = "Route work to CPU or GPU based on explicit affinity or automatic heuristics"
+success_criteria = [
+    "CpuScheduler routes work to tokio/std async runtime",
+    "GpuScheduler routes work to gpu::run / gpu::launch kernel dispatch",
+    "AutoScheduler uses work type heuristics (I/O → CPU, bulk compute → GPU)",
+]
+
+[[themes]]
+id = "unified-transfer"
+epic = "unified-runtime"
+title = "Automatic data transfer — zero-copy where possible, transparent memcpy elsewhere"
+status = "completed"
+goal = "Data moves between host and device transparently — no manual cudaMemcpy"
+success_criteria = [
+    "Vec<f32> on host automatically available to GPU kernel code",
+    "Results from GPU kernel automatically readable on host",
+    "No explicit MappedBuffer/cudaMemcpy in user code",
+]
+
+[[themes]]
+id = "unified-demo"
+epic = "unified-runtime"
+title = "End-to-end pipeline demo — read → compute → write, zero GPU concepts"
+status = "completed"
+goal = "Demonstrate full North Star: read → compute → write with zero GPU concepts visible"
+success_criteria = [
+    "Demo: read → compute → write pipeline, zero explicit memory management",
+    "Performance within 2x of hand-optimized MappedBuffer + gpu::launch path",
+]

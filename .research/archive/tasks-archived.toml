@@ -3804,3 +3804,179 @@ theme = "fusion-integrate"
 title = "Experiment: benchmark GPT-2 with auto-fusion vs manual — measure speedup"
 kind = "experiment"
 status = "done"
+
+# Archived at cycle 634 — T0/T1/unified-runtime done tasks
+
+# --- safety-types (gpu-type-safety) ---
+
+[[tasks]]
+id = "safety-types.2"
+theme = "safety-types"
+title = "Experiment: implement DisjointSlice<T> + ThreadIndex<'kernel> types"
+kind = "experiment"
+status = "done"
+depends = ["safety-types.1"]
+
+# --- safety-tiers (gpu-type-safety) ---
+
+[[tasks]]
+id = "safety-tiers.1"
+theme = "safety-tiers"
+title = "Design: 3-tier safety model — categorize all GPU operations into tiers"
+kind = "design"
+status = "done"
+depends = ["safety-types.1"]
+
+# --- safety-apply (gpu-type-safety) ---
+
+[[tasks]]
+id = "safety-apply.1"
+theme = "safety-apply"
+title = "Experiment: enhance BlockScope/GridScope with DisjointSlice + ThreadIndex"
+kind = "experiment"
+status = "done"
+depends = ["safety-types.2", "safety-tiers.1"]
+
+[[tasks]]
+id = "safety-apply.2"
+theme = "safety-apply"
+title = "Experiment: rewrite existing example with zero unsafe using type-safe APIs"
+kind = "experiment"
+status = "done"
+depends = ["safety-apply.1"]
+
+# --- iter-demo (gpu-iterator) ---
+
+[[tasks]]
+id = "iter-demo.4"
+theme = "iter-demo"
+title = "Experiment: re-benchmark multi-block par_iter vs Rayon — find crossover point"
+kind = "experiment"
+status = "done"
+depends = ["iter-demo.3"]
+
+[[tasks]]
+id = "iter-demo.5"
+theme = "iter-demo"
+title = "Experiment: multi-block fold/sum via two-pass reduction"
+kind = "experiment"
+status = "parked"
+depends = ["iter-demo.3"]
+
+# --- gen-mono (gpu-generics) ---
+
+[[tasks]]
+id = "gen-mono.1"
+theme = "gen-mono"
+title = "Investigation: how PTX monomorphization works — LLVM IR level vs Rust MIR level"
+kind = "investigation"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "gen-mono.2"
+theme = "gen-mono"
+title = "Experiment: compile generic fn<T: Copy + Add> to PTX for f32 and i32"
+kind = "experiment"
+status = "done"
+depends = ["gen-mono.1"]
+
+# --- gen-traits (gpu-generics) ---
+
+[[tasks]]
+id = "gen-traits.1"
+theme = "gen-traits"
+title = "Experiment: user-defined trait with where bounds working in GPU kernel"
+kind = "experiment"
+status = "done"
+depends = ["gen-mono.2"]
+
+# --- gen-demo (gpu-generics) ---
+
+[[tasks]]
+id = "gen-demo.1"
+theme = "gen-demo"
+title = "Experiment: generic parallel_reduce<T: Reducible> — f32, i32, custom struct"
+kind = "experiment"
+status = "done"
+depends = ["gen-traits.1"]
+
+# --- unified-scheduler (unified-runtime) ---
+
+[[tasks]]
+id = "unified-scheduler.1"
+theme = "unified-scheduler"
+title = "Investigation: scheduler architecture — CpuScheduler/GpuScheduler/AutoScheduler design"
+kind = "investigation"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "unified-scheduler.2"
+theme = "unified-scheduler"
+title = "Experiment: implement CpuScheduler + GpuScheduler with explicit affinity routing"
+kind = "experiment"
+status = "done"
+depends = ["unified-scheduler.1"]
+
+[[tasks]]
+id = "unified-scheduler.3"
+theme = "unified-scheduler"
+title = "Experiment: AutoScheduler with work type heuristics (I/O → CPU, compute → GPU)"
+kind = "experiment"
+status = "done"
+depends = ["unified-scheduler.2"]
+
+# --- unified-transfer (unified-runtime) ---
+
+[[tasks]]
+id = "unified-transfer.1"
+theme = "unified-transfer"
+title = "Investigation: automatic data transfer architecture — GpuBuffer<T> with location tracking"
+kind = "investigation"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "unified-transfer.2"
+theme = "unified-transfer"
+title = "Experiment: transparent host ↔ device transfer — From<Vec<T>> / Into<Vec<T>>"
+kind = "experiment"
+status = "done"
+depends = ["unified-transfer.1"]
+
+[[tasks]]
+id = "unified-transfer.3"
+theme = "unified-transfer"
+title = "Experiment: lazy transfer + redundancy elimination — skip unnecessary copies"
+kind = "experiment"
+status = "done"
+depends = ["unified-transfer.2"]
+
+# --- unified-demo (unified-runtime) ---
+
+[[tasks]]
+id = "unified-demo.1"
+theme = "unified-demo"
+title = "Experiment: read → compute → write pipeline with zero GPU concepts in user code"
+kind = "experiment"
+status = "done"
+depends = ["unified-scheduler.2", "unified-transfer.2"]
+
+[[tasks]]
+id = "unified-demo.2"
+theme = "unified-demo"
+title = "Experiment: performance benchmark + AutoScheduler choosing GPU for compute, CPU for I/O"
+kind = "experiment"
+status = "done"
+depends = ["unified-scheduler.3", "unified-demo.1"]
+
+# --- coro-design (gpu-coroutines) ---
+
+[[tasks]]
+id = "coro-design.1"
+theme = "coro-design"
+title = "Investigation: map Rust generator/coroutine semantics to GPU warp state machines"
+kind = "investigation"
+status = "done"
+depends = []

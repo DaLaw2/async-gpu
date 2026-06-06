@@ -449,3 +449,18 @@ new_epics_spawned = []
 themes_parked = []
 themes_completed = ["fusion-codegen"]
 key_insight = "kernel-split: 4-crate split (core/compute/io/test) targets 2-3min incremental rebuild vs current 30min. Highest-churn files (lib.rs 13 commits) isolated in gpu-kernel-test. stdio infra moves to gpu-runtime. Parallel ptxas + opt-level 1 for dev. 13 tasks across 3 themes."
+
+# Archived at cycle 634
+
+[[brainstorms]]
+seq = 121
+at_cycle = 623
+trigger = "Theme completed: test-integration (gpu-test cascade close) + gpu-iterator C2 assessment"
+level = "standard"
+new_tasks_spawned = []
+new_themes_spawned = []
+new_epics_spawned = []
+themes_parked = []
+themes_completed = ["test-integration", "iter-demo"]
+epics_completed = ["gpu-test", "gpu-iterator"]
+key_insight = "gpu-iterator's MIR pass criterion was aspirational — Rust monomorphization achieves identical fusion. Amend C2, close as 52nd epic. T1 focus shifts to gpu-type-safety (DisjointSlice + WarpIndex implementation)."

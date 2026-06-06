@@ -19,7 +19,7 @@ current_task_id = ""
 
 # Sequence counters
 brainstorm_seq = 124
-tasks_since_brainstorm = 1
+tasks_since_brainstorm = 2
 
 # ============================================================
 # Epics — Tiered (T0 → T3), sorted by tier then priority
@@ -35,80 +35,6 @@ tasks_since_brainstorm = 1
 # native-rust-dx, std-thread-gpu, cooperative-compute, structured-concurrency,
 # library-api, kernel-perf, developer-showcase, kernel-split, auto-fusion,
 # gpu-test, gpu-iterator, gpu-type-safety, gpu-generics, unified-runtime
-
-# --- T0: Foundation (do first, everything depends on this) ---
-
-[[epics]]
-id = "gpu-test"
-title = "GPU Test Framework — #[gpu_test] and cargo test on GPU"
-tier = 0
-status = "completed"
-priority = "high"
-# North Star: Testing GPU code is as natural as testing CPU code.
-#   #[gpu_test] runs on GPU warps, assert! works across lanes, cargo test just works.
-#   No GPU concepts leak into the test workflow.
-# Litmus Test: A developer writes #[gpu_test] fn test_sum() { assert_eq!(gpu_sum(), 42); }
-#   and cargo test runs it on GPU automatically.
-success_criteria = [
-    "#[gpu_test] attribute compiles test function to GPU kernel + host runner",
-    "GPU-native assert! with warp/thread ID in failure messages",
-    "cargo test integration — GPU tests discovered and run alongside CPU tests",
-    "At least 10 existing GPU features covered by #[gpu_test] tests",
-]
-
-# --- T1: Core capability expansion ---
-
-[[epics]]
-id = "gpu-type-safety"
-title = "Type-Level Safety — compile-time race-freedom for GPU code"
-tier = 1
-status = "completed"
-priority = "high"
-# North Star: The Rust compiler proves your GPU code has no data races — at compile time.
-#   DisjointSlice<T> + ThreadIndex pattern (inspired by cuda-oxide), adapted to async-gpu.
-#   GPU safety is a Rust type system feature, not a runtime check.
-# Litmus Test: Writing overlapping writes to a shared buffer is a compile error.
-success_criteria = [
-    "DisjointSlice<T> type proves exclusive access per thread at compile time",
-    "ThreadIndex<'kernel> is !Send + !Sync + !Copy, scoped to kernel lifetime",
-    "3-tier safety model: safe (proven no races) / scoped unsafe / raw intrinsics",
-    "Existing BlockScope/GridScope enhanced with type-level safety guarantees",
-]
-
-[[epics]]
-id = "gpu-iterator"
-title = "GPU Iterator — par_iter() compiles to warp-parallel GPU kernels"
-tier = 1
-status = "completed"
-priority = "highest"
-depends_on = "structured-concurrency"
-# North Star: Iterator chains are Rust's native way to express data-parallel compute.
-#   par_iter() makes "compute walks all-warp cooperative" invisible — just iterators.
-#   No GPU concepts leak: no kernel launch, no thread config, no cooperative() call.
-# Litmus Test: data.par_iter().map(|x| x * 2.0 + 1.0).collect() produces
-#   correct results on GPU, user doesn't know it's GPU code.
-success_criteria = [
-    "gpu::par_iter() maps Rust iterator chains to GPU warp-parallel execution",
-    "Compile-time fusion of iterator chain bodies into warp-parallel kernel code (via Rust monomorphization + LLVM optimization)",
-    "At least map, filter, fold, collect operations supported",
-    "Demo: iterator chain that outperforms CPU Rayon on large data (>1M elements)",
-]
-
-[[epics]]
-id = "gpu-generics"
-title = "GPU Generics — full Rust trait system + generics on GPU kernels"
-tier = 1
-status = "completed"
-priority = "medium"
-# North Star: GPU code is composable Rust code. Generic functions, trait bounds,
-#   and impl blocks work on GPU just like on CPU. No concrete-type-only limitation.
-# Litmus Test: fn parallel_reduce<T: Add>(data: &[T]) -> T works on GPU for any T.
-success_criteria = [
-    "Generic kernel functions compile to PTX via monomorphization",
-    "Trait bounds work in GPU code (T: Add + Copy, etc.)",
-    "User-defined traits implementable for GPU types",
-    "Demo: generic parallel_reduce<T: Reducible> working for f32, i32, custom types",
-]
 
 # --- T2: Advanced ---
 
@@ -136,19 +62,6 @@ success_criteria = [
     "MIR pass transforms generator state machine to warp-cooperative execution",
     "Multiple generators run concurrently across warps",
     "Demo: streaming pipeline — producer yields, consumer processes, zero buffering",
-]
-
-[[epics]]
-id = "unified-runtime"
-title = "Unified Runtime — one async fn spans CPU and GPU transparently"
-tier = 2
-status = "completed"
-priority = "medium"
-success_criteria = [
-    "Scheduler types (CpuScheduler, GpuScheduler, AutoScheduler) route work by affinity",
-    "Data transfer (host ↔ device) is automatic — no manual cudaMemcpy",
-    "AutoScheduler picks execution location based on work type and hardware capability",
-    "Demo: read → compute → write pipeline with zero explicit memory management",
 ]
 
 [[epics]]
@@ -330,7 +243,10 @@ success_criteria = [
 # ============================================================
 # Themes (active/pending/parked only — completed → archive/)
 # ============================================================
-# Completed themes archived (cycle 623): split-design, split-execute, split-loader,
+# Completed themes archived (cycle 634): test-integration, safety-types, safety-tiers,
+# safety-apply, iter-demo, gen-mono, gen-traits, gen-demo, unified-scheduler,
+# unified-transfer, unified-demo
+# Previously archived (cycle 623): split-design, split-execute, split-loader,
 # split-devpath, test-framework, fusion-codegen, fusion-integrate
 # Previously archived: thread-spawn, thread-api, perf-elem-fix, onnx-fix,
 # refactor-quality, refactor-api, onnx-cache, onnx-gpu-ops, refactor-v2-code,
@@ -342,145 +258,6 @@ success_criteria = [
 # lib-extract, lib-facade, lib-cleanup, lib-toolchain, lib-docs,
 # perf-attention, perf-conv, perf-layernorm, perf-elementwise, perf-fusion,
 # perf-gemm-v4, perf-attn-v3, perf-e2e
-
-# --- T0: gpu-test themes ---
-
-[[themes]]
-id = "test-integration"
-epic = "gpu-test"
-title = "cargo test integration + coverage"
-status = "completed"
-goal = "GPU tests are first-class in the Rust test ecosystem"
-success_criteria = [
-    "cargo test discovers and runs #[gpu_test] alongside #[test]",
-    "At least 10 GPU features covered by #[gpu_test] tests",
-]
-
-# --- T1: gpu-type-safety themes ---
-
-[[themes]]
-id = "safety-types"
-epic = "gpu-type-safety"
-title = "DisjointSlice + ThreadIndex — race-freedom by construction"
-status = "completed"
-goal = "Type system proves no data races in GPU code at compile time"
-success_criteria = [
-    "DisjointSlice<T> type with compile-time exclusive access guarantee",
-    "ThreadIndex<'kernel> is !Send + !Sync + !Copy with kernel-scoped lifetime",
-    "Overlapping writes to shared buffer are compile errors",
-]
-
-[[themes]]
-id = "safety-tiers"
-epic = "gpu-type-safety"
-title = "3-tier safety model for GPU operations"
-status = "completed"
-goal = "Clear safety tiers: safe / scoped unsafe / raw intrinsics"
-success_criteria = [
-    "Tier 1: safe API (DisjointSlice, ThreadIndex)",
-    "Tier 2: scoped unsafe (shared memory, warp shuffles, atomics)",
-    "Tier 3: raw intrinsics (TMA, WGMMA)",
-]
-
-[[themes]]
-id = "safety-apply"
-epic = "gpu-type-safety"
-title = "Apply type safety to existing SC and cooperative APIs"
-status = "completed"
-goal = "BlockScope/GridScope gain type-level safety guarantees"
-success_criteria = [
-    "BlockScope alloc returns DisjointSlice for parallel access",
-    "cooperative() closure receives ThreadIndex for safe indexing",
-    "Demo: existing example rewritten with zero unsafe",
-]
-
-# --- T1: gpu-iterator themes ---
-
-[[themes]]
-id = "iter-demo"
-epic = "gpu-iterator"
-title = "Iterator demos — par_iter vs Rayon benchmarks"
-status = "completed"
-goal = "Demonstrate GPU iterator superiority over CPU for large datasets"
-success_criteria = [
-    "par_iter().map().collect() demo on 1M+ elements",
-    "par_iter().filter().fold() demo with data-dependent filtering",
-    "Benchmark: GPU par_iter vs CPU Rayon, showing crossover point",
-]
-
-# --- T1: gpu-generics themes ---
-
-[[themes]]
-id = "gen-mono"
-epic = "gpu-generics"
-title = "PTX monomorphization for generic kernel functions"
-status = "completed"
-goal = "Generic Rust functions compile to concrete PTX per type"
-success_criteria = [
-    "fn kernel<T: Copy + Add>(data: &[T]) compiles to PTX for f32, i32",
-    "Monomorphization at PTX generation time",
-    "No runtime dispatch overhead",
-]
-
-[[themes]]
-id = "gen-traits"
-epic = "gpu-generics"
-title = "Trait dispatch on GPU — impl + where bounds"
-status = "completed"
-goal = "User-defined traits work in GPU code"
-success_criteria = [
-    "Custom trait definitions usable in GPU kernel code",
-    "Where clauses constrain GPU generic parameters",
-    "Trait objects rejected with helpful compile error",
-]
-
-[[themes]]
-id = "gen-demo"
-epic = "gpu-generics"
-title = "Generic algorithms demo"
-status = "completed"
-goal = "Show composable GPU code via generics"
-success_criteria = [
-    "parallel_reduce<T: Reducible> works for f32, i32, custom types",
-    "Performance matches concrete-type implementation",
-]
-
-# --- T2: unified-runtime themes ---
-
-[[themes]]
-id = "unified-scheduler"
-epic = "unified-runtime"
-title = "Scheduler type system — CpuScheduler, GpuScheduler, AutoScheduler"
-status = "completed"
-goal = "Route work to CPU or GPU based on explicit affinity or automatic heuristics"
-success_criteria = [
-    "CpuScheduler routes work to tokio/std async runtime",
-    "GpuScheduler routes work to gpu::run / gpu::launch kernel dispatch",
-    "AutoScheduler uses work type heuristics (I/O → CPU, bulk compute → GPU)",
-]
-
-[[themes]]
-id = "unified-transfer"
-epic = "unified-runtime"
-title = "Automatic data transfer — zero-copy where possible, transparent memcpy elsewhere"
-status = "completed"
-goal = "Data moves between host and device transparently — no manual cudaMemcpy"
-success_criteria = [
-    "Vec<f32> on host automatically available to GPU kernel code",
-    "Results from GPU kernel automatically readable on host",
-    "No explicit MappedBuffer/cudaMemcpy in user code",
-]
-
-[[themes]]
-id = "unified-demo"
-epic = "unified-runtime"
-title = "End-to-end pipeline demo — read → compute → write, zero GPU concepts"
-status = "completed"
-goal = "Demonstrate full North Star: read → compute → write with zero GPU concepts visible"
-success_criteria = [
-    "Demo: read → compute → write pipeline, zero explicit memory management",
-    "Performance within 2x of hand-optimized MappedBuffer + gpu::launch path",
-]
 
 # --- T2: gpu-hot-reload themes ---
 
@@ -737,165 +514,12 @@ success_criteria = [
 # ============================================================
 # Tasks (active/pending only — done → archive/)
 # ============================================================
-# Done tasks archived (cycle 623): split-design.1-.3, split-execute.1-.5,
+# Done tasks archived (cycle 634): safety-types.2, safety-tiers.1, safety-apply.1-.2,
+# iter-demo.4-.5, gen-mono.1-.2, gen-traits.1, gen-demo.1, unified-scheduler.1-.3,
+# unified-transfer.1-.3, unified-demo.1-.2, coro-design.1
+# Previously archived (cycle 623): split-design.1-.3, split-execute.1-.5,
 # split-loader.1-.5, split-devpath.1, test-framework.2, test-integration.1-.2,
 # safety-types.1, iter-demo.1-.3, fusion-codegen.3, fusion-integrate.1-.2
-
-# --- gpu-type-safety: types ---
-
-[[tasks]]
-id = "safety-types.2"
-theme = "safety-types"
-title = "Experiment: implement DisjointSlice<T> + ThreadIndex<'kernel> types"
-kind = "experiment"
-status = "done"
-depends = ["safety-types.1"]
-
-[[tasks]]
-id = "safety-tiers.1"
-theme = "safety-tiers"
-title = "Design: 3-tier safety model — categorize all GPU operations into tiers"
-kind = "design"
-status = "done"
-depends = ["safety-types.1"]
-
-[[tasks]]
-id = "safety-apply.1"
-theme = "safety-apply"
-title = "Experiment: enhance BlockScope/GridScope with DisjointSlice + ThreadIndex"
-kind = "experiment"
-status = "done"
-depends = ["safety-types.2", "safety-tiers.1"]
-
-[[tasks]]
-id = "safety-apply.2"
-theme = "safety-apply"
-title = "Experiment: rewrite existing example with zero unsafe using type-safe APIs"
-kind = "experiment"
-status = "done"
-depends = ["safety-apply.1"]
-
-# --- gpu-iterator: demo ---
-
-[[tasks]]
-id = "iter-demo.4"
-theme = "iter-demo"
-title = "Experiment: re-benchmark multi-block par_iter vs Rayon — find crossover point"
-kind = "experiment"
-status = "done"
-depends = ["iter-demo.3"]
-
-[[tasks]]
-id = "iter-demo.5"
-theme = "iter-demo"
-title = "Experiment: multi-block fold/sum via two-pass reduction"
-kind = "experiment"
-status = "parked"
-depends = ["iter-demo.3"]
-
-# --- gpu-generics ---
-
-[[tasks]]
-id = "gen-mono.1"
-theme = "gen-mono"
-title = "Investigation: how PTX monomorphization works — LLVM IR level vs Rust MIR level"
-kind = "investigation"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "gen-mono.2"
-theme = "gen-mono"
-title = "Experiment: compile generic fn<T: Copy + Add> to PTX for f32 and i32"
-kind = "experiment"
-status = "done"
-depends = ["gen-mono.1"]
-
-[[tasks]]
-id = "gen-traits.1"
-theme = "gen-traits"
-title = "Experiment: user-defined trait with where bounds working in GPU kernel"
-kind = "experiment"
-status = "done"
-depends = ["gen-mono.2"]
-
-[[tasks]]
-id = "gen-demo.1"
-theme = "gen-demo"
-title = "Experiment: generic parallel_reduce<T: Reducible> — f32, i32, custom struct"
-kind = "experiment"
-status = "done"
-depends = ["gen-traits.1"]
-
-# --- unified-runtime: scheduler ---
-
-[[tasks]]
-id = "unified-scheduler.1"
-theme = "unified-scheduler"
-title = "Investigation: scheduler architecture — CpuScheduler/GpuScheduler/AutoScheduler design"
-kind = "investigation"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "unified-scheduler.2"
-theme = "unified-scheduler"
-title = "Experiment: implement CpuScheduler + GpuScheduler with explicit affinity routing"
-kind = "experiment"
-status = "done"
-depends = ["unified-scheduler.1"]
-
-[[tasks]]
-id = "unified-scheduler.3"
-theme = "unified-scheduler"
-title = "Experiment: AutoScheduler with work type heuristics (I/O → CPU, compute → GPU)"
-kind = "experiment"
-status = "done"
-depends = ["unified-scheduler.2"]
-
-# --- unified-runtime: transfer ---
-
-[[tasks]]
-id = "unified-transfer.1"
-theme = "unified-transfer"
-title = "Investigation: automatic data transfer architecture — GpuBuffer<T> with location tracking"
-kind = "investigation"
-status = "done"
-depends = []
-
-[[tasks]]
-id = "unified-transfer.2"
-theme = "unified-transfer"
-title = "Experiment: transparent host ↔ device transfer — From<Vec<T>> / Into<Vec<T>>"
-kind = "experiment"
-status = "done"
-depends = ["unified-transfer.1"]
-
-[[tasks]]
-id = "unified-transfer.3"
-theme = "unified-transfer"
-title = "Experiment: lazy transfer + redundancy elimination — skip unnecessary copies"
-kind = "experiment"
-status = "done"
-depends = ["unified-transfer.2"]
-
-# --- unified-runtime: demo ---
-
-[[tasks]]
-id = "unified-demo.1"
-theme = "unified-demo"
-title = "Experiment: read → compute → write pipeline with zero GPU concepts in user code"
-kind = "experiment"
-status = "done"
-depends = ["unified-scheduler.2", "unified-transfer.2"]
-
-[[tasks]]
-id = "unified-demo.2"
-theme = "unified-demo"
-title = "Experiment: performance benchmark + AutoScheduler choosing GPU for compute, CPU for I/O"
-kind = "experiment"
-status = "done"
-depends = ["unified-scheduler.3", "unified-demo.1"]
 
 # --- gpu-hot-reload ---
 
@@ -926,19 +550,11 @@ depends = ["reload-impl.2"]
 # --- gpu-coroutines ---
 
 [[tasks]]
-id = "coro-design.1"
-theme = "coro-design"
-title = "Investigation: map Rust generator/coroutine semantics to GPU warp state machines"
-kind = "investigation"
-status = "done"
-depends = []
-
-[[tasks]]
 id = "coro-design.2"
 theme = "coro-design"
 title = "Design: GpuGenerator trait + MIR pass extension for yield to warp context switch"
 kind = "design"
-status = "pending"
+status = "done"
 depends = ["coro-design.1"]
 
 [[tasks]]
@@ -1295,20 +911,7 @@ depends = ["om-demo.1"]
 # Brainstorms (last 2 — older → archive/)
 # ============================================================
 
-# Brainstorms 109-120 archived (cycles 535-622)
-
-[[brainstorms]]
-seq = 121
-at_cycle = 623
-trigger = "Theme completed: test-integration (gpu-test cascade close) + gpu-iterator C2 assessment"
-level = "standard"
-new_tasks_spawned = []
-new_themes_spawned = []
-new_epics_spawned = []
-themes_parked = []
-themes_completed = ["test-integration", "iter-demo"]
-epics_completed = ["gpu-test", "gpu-iterator"]
-key_insight = "gpu-iterator's MIR pass criterion was aspirational — Rust monomorphization achieves identical fusion. Amend C2, close as 52nd epic. T1 focus shifts to gpu-type-safety (DisjointSlice + WarpIndex implementation)."
+# Brainstorms 109-121 archived (cycles 535-623)
 
 [[brainstorms]]
 seq = 123

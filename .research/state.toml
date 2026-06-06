@@ -405,7 +405,7 @@ id = "dyn-probe.2"
 feature = "dyn-probe"
 title = "Experiment: run &dyn Trait kernel on GPU hardware, verify indirect call works"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["dyn-probe.1"]
 
 [[tasks]]

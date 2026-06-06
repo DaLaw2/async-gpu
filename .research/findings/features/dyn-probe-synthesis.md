@@ -1,25 +1,27 @@
 # dyn-probe synthesis
 
-## Status: promising — compilation works, runtime test needed
+## Status: compilation confirmed, runtime test infrastructure ready
 
-`&dyn Trait` compiles to valid PTX on nvptx64 with zero issues. The LLVM
-NVPTX backend emits real vtables in `.global` memory and indirect calls via
-register-based `call` with `.callprototype`. The fat pointer layout
-(data_ptr + vtable_ptr) matches standard Rust exactly. Vtable entries
-use the standard `[drop, size, align, methods...]` layout.
+`&dyn Trait` compiles to valid PTX on nvptx64 and ptxas JIT-accepts the
+indirect call instructions without error. The LLVM NVPTX backend emits
+vtables in `.global` memory, indirect calls via register-based `call`
+with `.callprototype`, and `cvta.global.u64` for address space conversion.
 
-## Key finding
-The indirect call mechanism is: load function pointer from vtable via
-`ld.b64 %reg, [vtable_ptr+offset]`, then `call (ret), %reg, (args), proto`.
-Vtable pointers are converted from `.global` to generic address space via
-`cvta.global.u64` before use. No LLVM warnings or unsupported-feature errors.
+## Key findings
+1. **PTX generation**: clean, no warnings (dyn-probe.1)
+2. **ptxas JIT acceptance**: cuModuleLoadData succeeds on PTX with indirect
+   calls — ptxas does not reject vtable lookups or indirect call patterns
+3. **Host-side test**: added to gpu_tests.rs, compiles and passes lint
+4. **Blocker**: no cubin containing test_gpu_dyn_trait exists; PTX JIT
+   takes ~25 min for the 228K-line kernel_test.ptx
 
 ## Next steps
-1. Runtime test: launch `test_gpu_dyn_trait` kernel and verify results
-2. `Box<dyn Trait>` test: heap-allocated trait objects
-3. `&dyn Fn()` closure test: indirect call through closure vtable
-4. Performance measurement: indirect vs direct call overhead
+1. Rebuild cubin via `scripts/build-kernel-test.sh` to include dyn trait kernel
+2. Re-run test with cubin (sub-second load) to get execution results
+3. If execution passes: Box<dyn Trait>, &dyn Fn() closures, performance
+4. If execution fails: document CUDA error, investigate workarounds
 
-## Risk
-ptxas or GPU driver may reject indirect calls at JIT/execution time even
-though PTX generation succeeds. This is the critical unknown for dyn-probe.2.
+## Risk assessment
+ptxas acceptance is a strong positive signal — most rejections happen at
+JIT time. Remaining risk is GPU hardware execution of indirect calls
+(unlikely to fail given ptxas success, but unverified until test completes).

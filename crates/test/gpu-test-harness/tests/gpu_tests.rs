@@ -8,6 +8,7 @@
 //! Regular `#[test]` functions coexist with `#[gpu_test]` in the same file,
 //! demonstrating that `cargo test` discovers and runs both side by side.
 
+use cudarc::driver::DevicePtr;
 use gpu_test_macro::gpu_test;
 
 // ============================================================================
@@ -308,6 +309,77 @@ fn test_gpu_generic_zero_overhead() {}
 ///   - Proves GpuReducible + GpuTransformable compose correctly on GPU
 #[gpu_test]
 fn test_gpu_generic_map_reduce() {}
+
+// ============================================================================
+// GPU tests — dynamic dispatch (dyn-probe.2)
+// ============================================================================
+
+/// Test &dyn Trait dynamic dispatch on GPU hardware.
+///
+/// The kernel `test_gpu_dyn_trait` in gpu-kernel-test:
+///   - Creates GreeterA (returns 42) and GreeterB (returns 99)
+///   - Calls both through &dyn Greeter (vtable lookup + indirect call)
+///   - Runtime-selects a trait object and calls it
+///   - Writes [42, 99, 42] to output buffer
+///
+/// This test cannot use `#[gpu_test]` because the kernel takes a `result: *mut u32`
+/// parameter for output verification. Uses `GpuStdModule` to inject hostcall via
+/// `__HOSTCALL_BUF` device global and pass the result buffer via `launch_raw`.
+#[test]
+fn test_gpu_dyn_trait() {
+    // NOTE: No cubin loading — the dyn trait kernel was added after the last cubin build.
+    // PTX JIT compilation takes ~25 minutes for the full kernel_test.ptx (228K lines).
+    let module = gpu_host::gpu::GpuStdModule::load_with_print(
+        gpu_host::ptx::KERNEL_STD,
+        "test_gpu_dyn_trait",
+        128,
+        (1, 1, 1),
+        Some(Box::new(|msg| {
+            let s = String::from_utf8_lossy(msg);
+            eprintln!("  [GPU] {}", s.trim());
+        })),
+    )
+    .expect("failed to load test_gpu_dyn_trait kernel");
+
+    // Allocate output buffer: 3 x u32 (val_a, val_b, val_dynamic)
+    let result_dev: cudarc::driver::CudaSlice<u32> = module
+        .device()
+        .alloc_zeros::<u32>(3)
+        .expect("failed to allocate output buffer");
+    let mut result_ptr: u64 = *result_dev.device_ptr();
+
+    unsafe {
+        module
+            .launch_raw(&[&mut result_ptr as *mut u64 as *mut std::ffi::c_void])
+            .expect("test_gpu_dyn_trait kernel launch failed");
+    }
+
+    // Brief sleep so hostcall listener can flush remaining println! messages
+    std::thread::sleep(std::time::Duration::from_millis(100));
+
+    let result: Vec<u32> = module
+        .device()
+        .dtoh_sync_copy(&result_dev)
+        .expect("failed to copy results from device");
+    module.finish();
+
+    // Verify dynamic dispatch produced correct results
+    assert_eq!(
+        result[0], 42,
+        "GreeterA via &dyn Greeter should return 42, got {}",
+        result[0]
+    );
+    assert_eq!(
+        result[1], 99,
+        "GreeterB via &dyn Greeter should return 99, got {}",
+        result[1]
+    );
+    assert_eq!(
+        result[2], 42,
+        "Runtime-selected &dyn Greeter should return 42, got {}",
+        result[2]
+    );
+}
 
 // ============================================================================
 // CPU tests — regular #[test] functions that coexist with #[gpu_test]

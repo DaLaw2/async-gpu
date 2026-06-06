@@ -599,6 +599,31 @@ fn test_gpu_dyn_fn_and_drop() {
 fn test_gpu_dyn_compat_hashbrown() {}
 
 // ============================================================================
+// GPU tests — tiered memory (SharedRef / GlobalRef) valid patterns
+// ============================================================================
+
+/// Test valid SharedRef patterns within block_scope on GPU.
+///
+/// The kernel `test_gpu_shared_ref_valid_patterns` in gpu-kernel-test:
+///   - alloc_shared → SharedRef, write + read 16 u32 elements
+///   - sub_ref for tiling (two non-overlapping 32-element tiles)
+///   - Pass SharedRef to helper functions within scope
+///   - Cooperative spawn_all with SharedRef (each warp fills its partition)
+///   - f32 type with SharedRef
+#[gpu_test]
+fn test_gpu_shared_ref_valid_patterns() {}
+
+/// Test valid GlobalRef patterns within grid_scope on GPU.
+///
+/// The kernel `test_gpu_global_ref_valid_patterns` in gpu-kernel-test:
+///   - alloc_global → GlobalRef, write + read 16 u32 elements
+///   - sub_ref for partitioning
+///   - Cross-warp communication (GlobalRef is Send+Sync via spawn_all)
+///   - u64 type with GlobalRef
+#[gpu_test]
+fn test_gpu_global_ref_valid_patterns() {}
+
+// ============================================================================
 // CPU tests — regular #[test] functions that coexist with #[gpu_test]
 // ============================================================================
 

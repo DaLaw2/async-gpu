@@ -2,27 +2,33 @@
 
 ## Core Finding
 
-Rust ownership directly controls GPU register allocation. Owned/moved scalars
-stay in registers; borrowed values spill to local memory (~100-cycle DRAM).
-LTO can recover borrowed scalars only when callees are inlineable.
+GpuRef::read() produces optimal GPU codegen: a single `ld.shared.u32`
+returning by-value, keeping the loaded value in a register. Slice access
+adds address conversion overhead. Volatile pointer access forces 1024x
+more memory traffic (1 load per iteration vs 1 total).
 
 ## What Works Already
 
-- GpuRef.read() returns by-value (Copy) — loaded values stay in registers.
-- Inner-loop scalars with no address taken: pure register, LLVM unrolls.
-- `#[inline(always)]` on GpuRef methods: correct, prevents ABI-forced spills.
+- GpuRef.read() → `ld.shared.u32`, 1 instruction, value in register
+- Value stays in register across all loop iterations (O1 + O3+LTO)
+- `#[inline(always)]` on GpuRef methods prevents ABI-forced spills
+- LLVM unrolls 8-16x when value is register-held
 
-## What to Optimize
+## Demonstrated Speedup (om-register-promo.2)
 
-1. **Document the "borrow penalty"** for GPU kernel authors: taking `&x` in a
-   hot loop forces `st.local` per iteration. Prefer `let val = x` (copy).
-2. **Structs cross call boundaries via pointer regardless of ownership.**
-   For hot paths: destructure to scalars or ensure inlining.
-3. **Lint/clippy-like guidance**: flag `&scalar` in GPU inner loops as
-   performance antipattern. Consider a `#[gpu_hot]` attribute someday.
+Three kernels, 1024-iteration inner loop (acc += val * i):
+- **GpuRef::read()**: 1 load, 0 in loop, 16x unroll (O3)
+- **as_generic_slice()**: 1 load, 0 in loop, 16x unroll, +5 addr-conv instrs
+- **read_volatile(ptr)**: 1024 loads, 1/iter, 8x unroll (O3)
+
+## Guidance for Kernel Authors
+
+1. Use `let val = ref.read(i)` before hot loops, not `&slice[i]` inside.
+2. Structs cross call boundaries via pointer regardless of ownership —
+   destructure to scalars or ensure inlining for hot paths.
+3. Prefer GpuRef::read() over as_generic_slice() for inner loops.
 
 ## No Production Code Changes Needed
 
-The current GpuRef/TieredAccess design is already optimal: read() returns
-by-value, all methods are `#[inline(always)]`, no unnecessary borrows. The
-main deliverable is knowledge for kernel authors writing compute loops.
+GpuRef/TieredAccess design is already optimal. Main deliverable is
+codegen knowledge for kernel authors writing compute loops.

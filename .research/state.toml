@@ -230,6 +230,22 @@ success_criteria = [
     "Regression test suite covering critical paths from each major shipped story",
 ]
 
+[[stories]]
+id = "docs-overhaul"
+epic = "codebase-health"
+title = "Documentation Overhaul — README, docs, and examples reflect all 62+ shipped stories"
+status = "active"
+priority = "critical"
+success_criteria = [
+    "README hero/feature-matrix/performance covers all breakthroughs: transparent data, auto-fusion, graph compiler, dyn dispatch, auto-tuning, par_iter, gpu_test, persistent kernel, coroutines, generics, type safety, cost model",
+    "ARCHITECTURE.md updated for kernel split, unified runtime, tiered memory, auto-fusion pipeline",
+    "CHANGELOG.md covers everything from cycle 607 to present",
+    "Standalone examples exist for transparent-data, auto-fusion, dyn-dispatch, auto-tuning, par_iter",
+    "All examples compile and run on current toolchain",
+    "Stale docs removed (DESIGN-executor.md, VALIDATION.md), docs/ re-tracked in git",
+]
+litmus_test = "A new visitor understands in 5 minutes: transparent Vec<T>, automatic kernel fusion, dyn Trait on GPU, auto-tuning, GPU iterators — not just async/await and hostcall"
+
 # --- Parked ---
 
 [[stories]]
@@ -481,6 +497,65 @@ success_criteria = [
     "At least one kernel where move-semantic register promotion measurably improves performance",
 ]
 
+# --- docs-overhaul ---
+
+[[features]]
+id = "docs-readme"
+story = "docs-overhaul"
+title = "README complete rewrite — hero, feature matrix, performance, progressive examples"
+status = "pending"
+goal = "README serves as landing page that accurately represents all 62+ shipped stories"
+success_criteria = [
+    "Hero section mentions transparent data, auto-fusion, dyn dispatch alongside async/await",
+    "Feature Matrix expanded: each breakthrough gets description + link, not one-liner",
+    "Performance table updated with auto-tuning speedup, dyn dispatch overhead, par_iter benchmarks",
+    "Progressive examples include transparent data (Vec<f32> not GpuVec) and auto-fusion",
+    "Limitations section updated (dyn dispatch no longer a limitation, etc.)",
+    "Crate map reflects kernel split, auto_tune, tiered_mem modules",
+]
+
+[[features]]
+id = "docs-refresh"
+story = "docs-overhaul"
+title = "ARCHITECTURE.md + CHANGELOG.md rewrite"
+status = "pending"
+goal = "Architecture and changelog reflect current state of the project"
+success_criteria = [
+    "ARCHITECTURE.md covers kernel split (4 crates), unified runtime, auto-fusion pipeline, tiered memory",
+    "ARCHITECTURE.md documents MIR pass pipeline: async transform + iterator + fusion + cost model",
+    "CHANGELOG.md covers all changes from cycle 607 to present (dyn dispatch, transparent data, auto-tuning, ownership-memory)",
+    "getting-started.md updated with current API (GpuArray, auto-tuning, etc.)",
+]
+
+[[features]]
+id = "docs-examples"
+story = "docs-overhaul"
+title = "Create/update standalone examples for post-cycle-607 features"
+status = "pending"
+goal = "Every major post-607 feature has a clean, runnable, documented example"
+success_criteria = [
+    "transparent-data example: Vec<f32> kernel launch with zero explicit transfers",
+    "auto-fusion example: elementwise chain auto-fused into single kernel",
+    "dyn-dispatch example: Box<dyn Trait> polymorphism on GPU",
+    "auto-tuning example: kernel with warmup-based parameter search",
+    "par_iter example: GPU parallel iterator with map/filter/fold/collect",
+    "Each example has README.md with explanation",
+    "All 29+ examples compile and run on current toolchain",
+]
+
+[[features]]
+id = "docs-cleanup"
+story = "docs-overhaul"
+title = "Remove stale docs, fix .gitignore, re-track docs/"
+status = "pending"
+goal = "docs/ is clean, tracked in git, no stale artifacts"
+success_criteria = [
+    "DESIGN-executor.md removed (historical design doc, executor long since shipped)",
+    "VALIDATION.md reviewed — remove if stale or merge useful parts into getting-started.md",
+    "docs/ removed from .gitignore so docs are tracked in git",
+    "No stale BLOG_DRAFT.md or other orphaned docs",
+]
+
 # ---
 # Tasks (active/pending only — done → archive/)
 # ---
@@ -596,7 +671,7 @@ id = "om-borrow-safety.2"
 feature = "om-borrow-safety"
 title = "Experiment: verify valid cross-scope patterns compile and run on GPU"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["om-borrow-safety.1"]
 
 [[tasks]]
@@ -612,8 +687,98 @@ id = "om-register-promo.2"
 feature = "om-register-promo"
 title = "Experiment: demonstrate register promotion speedup in inner-loop kernel via move semantics"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["om-register-promo.1"]
+
+# --- docs-overhaul ---
+
+[[tasks]]
+id = "docs-readme.1"
+feature = "docs-readme"
+title = "Investigation: audit README vs actual capabilities — catalog every gap with line numbers"
+kind = "investigation"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "docs-readme.2"
+feature = "docs-readme"
+title = "Experiment: rewrite README hero, feature matrix, performance table, progressive examples"
+kind = "experiment"
+status = "pending"
+depends = ["docs-readme.1"]
+
+[[tasks]]
+id = "docs-readme.3"
+feature = "docs-readme"
+title = "Experiment: update README crate map, limitations, architecture sections"
+kind = "experiment"
+status = "pending"
+depends = ["docs-readme.2"]
+
+[[tasks]]
+id = "docs-refresh.1"
+feature = "docs-refresh"
+title = "Investigation: audit ARCHITECTURE.md + CHANGELOG.md vs current project state"
+kind = "investigation"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "docs-refresh.2"
+feature = "docs-refresh"
+title = "Experiment: rewrite ARCHITECTURE.md — kernel split, unified runtime, MIR pipeline, auto-fusion"
+kind = "experiment"
+status = "pending"
+depends = ["docs-refresh.1"]
+
+[[tasks]]
+id = "docs-refresh.3"
+feature = "docs-refresh"
+title = "Experiment: rewrite CHANGELOG.md + getting-started.md for current API surface"
+kind = "experiment"
+status = "pending"
+depends = ["docs-refresh.1"]
+
+[[tasks]]
+id = "docs-examples.1"
+feature = "docs-examples"
+title = "Investigation: audit which post-607 features lack standalone examples"
+kind = "investigation"
+status = "pending"
+depends = []
+
+[[tasks]]
+id = "docs-examples.2"
+feature = "docs-examples"
+title = "Experiment: create examples for transparent-data, dyn-dispatch, auto-tuning"
+kind = "experiment"
+status = "pending"
+depends = ["docs-examples.1"]
+
+[[tasks]]
+id = "docs-examples.3"
+feature = "docs-examples"
+title = "Experiment: create examples for auto-fusion, par_iter, gpu_test"
+kind = "experiment"
+status = "pending"
+depends = ["docs-examples.1"]
+
+[[tasks]]
+id = "docs-examples.4"
+feature = "docs-examples"
+title = "Experiment: verify all 29+ examples compile and run, add per-example README.md"
+kind = "experiment"
+status = "pending"
+depends = ["docs-examples.2", "docs-examples.3"]
+
+[[tasks]]
+id = "docs-cleanup.1"
+feature = "docs-cleanup"
+title = "Experiment: remove stale docs, fix .gitignore, re-track docs/, final commit"
+kind = "experiment"
+status = "pending"
+depends = ["docs-readme.3", "docs-refresh.2", "docs-refresh.3", "docs-examples.4"]
 
 # ---
 # Brainstorms (last 3 — older → archive/)

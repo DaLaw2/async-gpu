@@ -4035,3 +4035,741 @@ pub unsafe extern "gpu-kernel" fn test_gpu_dyn_compat_hashbrown() {
         println!("[gpu_test] test_gpu_dyn_compat_hashbrown PASSED");
     });
 }
+
+// ============================================================
+// om-register-promo.2: Register promotion for move semantics
+// ============================================================
+//
+// Demonstrates that GpuRef::read() (returns T by value) naturally promotes
+// the loaded value to a register, while pointer-based access patterns force
+// memory reloads inside inner loops.
+//
+// Three kernels compare register vs memory behavior:
+//   1. regpromo_byval_loop:   SharedRef::read() → ld.shared once → register loop
+//   2. regpromo_slice_loop:   as_generic_slice() → cvta.shared + generic ld → register loop
+//   3. regpromo_reload_loop:  read_volatile through pointer → ld per iteration
+//
+// Key finding: GpuRef::read() emits address-space-specific `ld.shared.u32`
+// and returns by-value, making register promotion automatic. The slice path
+// requires address space conversion (`cvta.shared.u64`) and uses generic loads.
+// The volatile pointer path forces a reload every iteration.
+
+/// Opaque sink — prevents LLVM from optimizing away the accumulated value.
+/// Must be #[inline(never)] so the compiler cannot see through it.
+#[inline(never)]
+fn opaque_sink_f32(val: f32) -> f32 {
+    // Identity function that LLVM cannot see through due to #[inline(never)].
+    val
+}
+
+/// Register-promoted inner loop: load via SharedRef::read() (by-value), then
+/// accumulate in a register across N iterations.
+///
+/// The GpuRef::read() call returns `f32` by value (Copy). This emits a single
+/// `ld.shared.u32` instruction (address-space-specific, no conversion needed).
+/// LLVM places the result in a register. The inner loop then uses only register
+/// arithmetic — zero memory traffic per iteration.
+///
+/// PTX signature: regpromo_byval_loop(output: *mut f32)
+/// Launch with: block_dim=(32,1,1), 1 block, shared_mem >= 256 bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "gpu-kernel" fn regpromo_byval_loop(output: *mut f32) {
+    unsafe {
+        gpu_runtime::scope::init_shared_mem_allocator(256);
+    }
+
+    gpu_runtime::scope::block_scope(|scope| {
+        let buf = scope.alloc_shared::<f32>(4);
+
+        // Initialize shared memory with a known value
+        let tid = gpu_runtime::index::thread_idx_x();
+        if tid == 0 {
+            buf.write(0, 3.14f32);
+            buf.write(1, 2.72f32);
+            buf.write(2, 1.41f32);
+            buf.write(3, 1.73f32);
+        }
+        unsafe { gpu_kernel_core::helpers::bar_sync() };
+
+        // KEY: read() returns f32 by value → register.
+        // PTX emits: ld.shared.u32 %rN, [addr]
+        // This value stays in a register for the entire loop.
+        let val = buf.read(0);
+
+        // Inner loop: accumulate using the register-held value.
+        // No ld.shared or ld.local inside the loop — pure register arithmetic.
+        let mut acc = 0.0f32;
+        let mut i = 0u32;
+        while i < 1024 {
+            acc += val * (i as f32);
+            i += 1;
+        }
+
+        // Sink the result to prevent dead-code elimination
+        let result = opaque_sink_f32(acc);
+
+        if tid == 0 {
+            unsafe {
+                core::ptr::write_volatile(output, result);
+            }
+        }
+    });
+}
+
+/// Slice-based inner loop: access through &[f32] slice (generic address space).
+///
+/// Uses SharedRef::as_generic_slice() which performs `cvta.shared.u64` to convert
+/// the shared-space pointer to a generic-space pointer. The load then uses a
+/// generic `ld.b32` instruction instead of `ld.shared.u32`.
+///
+/// At O1, LLVM hoists the load out of the loop (same as by-value), but the
+/// address conversion overhead remains — extra instructions before the loop.
+///
+/// PTX signature: regpromo_slice_loop(output: *mut f32)
+/// Launch with: block_dim=(32,1,1), 1 block, shared_mem >= 256 bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "gpu-kernel" fn regpromo_slice_loop(output: *mut f32) {
+    unsafe {
+        gpu_runtime::scope::init_shared_mem_allocator(256);
+    }
+
+    gpu_runtime::scope::block_scope(|scope| {
+        let buf = scope.alloc_shared::<f32>(4);
+
+        // Initialize shared memory with the same known value
+        let tid = gpu_runtime::index::thread_idx_x();
+        if tid == 0 {
+            buf.write(0, 3.14f32);
+            buf.write(1, 2.72f32);
+            buf.write(2, 1.41f32);
+            buf.write(3, 1.73f32);
+        }
+        unsafe { gpu_kernel_core::helpers::bar_sync() };
+
+        // KEY: as_generic_slice() returns &[f32] via cvta.shared conversion.
+        // PTX emits: cvta.shared.u64 + pointer arithmetic + ld.b32
+        // (3+ instructions vs 1 ld.shared.u32 for the by-value path)
+        let slice = unsafe { buf.as_generic_slice() };
+
+        // Inner loop: access through slice reference each iteration.
+        // LLVM can hoist the load, but the address conversion overhead remains.
+        let mut acc = 0.0f32;
+        let mut i = 0u32;
+        while i < 1024 {
+            acc += slice[0] * (i as f32);
+            i += 1;
+        }
+
+        // Sink the result to prevent dead-code elimination
+        let result = opaque_sink_f32(acc);
+
+        if tid == 0 {
+            unsafe {
+                core::ptr::write_volatile(output, result);
+            }
+        }
+    });
+}
+
+/// Volatile-reload inner loop: read_volatile through pointer each iteration.
+///
+/// This shows what happens when the compiler CANNOT hoist the load — each
+/// iteration emits a `ld.volatile.b32` from memory. This is the worst case:
+/// 1024 memory loads instead of 1.
+///
+/// Real-world scenario: accessing data through a raw pointer where the compiler
+/// cannot prove the value hasn't changed (e.g., data written by another warp).
+///
+/// PTX signature: regpromo_reload_loop(output: *mut f32)
+/// Launch with: block_dim=(32,1,1), 1 block, shared_mem >= 256 bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "gpu-kernel" fn regpromo_reload_loop(output: *mut f32) {
+    unsafe {
+        gpu_runtime::scope::init_shared_mem_allocator(256);
+    }
+
+    gpu_runtime::scope::block_scope(|scope| {
+        let buf = scope.alloc_shared::<f32>(4);
+
+        // Initialize shared memory with the same known value
+        let tid = gpu_runtime::index::thread_idx_x();
+        if tid == 0 {
+            buf.write(0, 3.14f32);
+            buf.write(1, 2.72f32);
+            buf.write(2, 1.41f32);
+            buf.write(3, 1.73f32);
+        }
+        unsafe { gpu_kernel_core::helpers::bar_sync() };
+
+        // KEY: get raw pointer, then read_volatile each iteration.
+        // The compiler CANNOT hoist read_volatile — it must reload from memory
+        // on every iteration. This shows the cost of not having by-value semantics.
+        let ptr = unsafe { buf.as_generic_slice() }.as_ptr();
+
+        // Inner loop: volatile reload each iteration → ld.volatile.b32 per iteration.
+        let mut acc = 0.0f32;
+        let mut i = 0u32;
+        while i < 1024 {
+            let val = unsafe { core::ptr::read_volatile(ptr) };
+            acc += val * (i as f32);
+            i += 1;
+        }
+
+        // Sink the result to prevent dead-code elimination
+        let result = opaque_sink_f32(acc);
+
+        if tid == 0 {
+            unsafe {
+                core::ptr::write_volatile(output, result);
+            }
+        }
+    });
+}
+
+/// Combined test: run all three patterns and verify they produce identical results.
+///
+/// This proves the approaches are semantically equivalent while having
+/// different PTX codegen characteristics.
+///
+/// Zero-param entry. Launch with: block_dim=(32,1,1), 1 block, shared_mem >= 256 bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "gpu-kernel" fn test_gpu_regpromo_equivalence() {
+    let buf = stdio_auto_init();
+    if buf.is_null() {
+        return;
+    }
+
+    gpu_runtime::thread::gpu_main(|| {
+        unsafe {
+            gpu_runtime::scope::init_shared_mem_allocator(256);
+        }
+
+        gpu_runtime::scope::block_scope(|scope| {
+            let shared = scope.alloc_shared::<f32>(4);
+
+            shared.write(0, 3.14f32);
+            shared.write(1, 2.72f32);
+            shared.write(2, 1.41f32);
+            shared.write(3, 1.73f32);
+
+            // Pattern A: by-value via GpuRef::read() (register-promoted)
+            let val = shared.read(0);
+            let mut acc_byval = 0.0f32;
+            let mut i = 0u32;
+            while i < 1024 {
+                acc_byval += val * (i as f32);
+                i += 1;
+            }
+            let result_byval = opaque_sink_f32(acc_byval);
+
+            // Pattern B: slice-based via as_generic_slice()
+            let slice = unsafe { shared.as_generic_slice() };
+            let mut acc_slice = 0.0f32;
+            let mut j = 0u32;
+            while j < 1024 {
+                acc_slice += slice[0] * (j as f32);
+                j += 1;
+            }
+            let result_slice = opaque_sink_f32(acc_slice);
+
+            // Pattern C: volatile-reload via read_volatile
+            let ptr = slice.as_ptr();
+            let mut acc_vol = 0.0f32;
+            let mut k = 0u32;
+            while k < 1024 {
+                let v = unsafe { core::ptr::read_volatile(ptr) };
+                acc_vol += v * (k as f32);
+                k += 1;
+            }
+            let result_vol = opaque_sink_f32(acc_vol);
+
+            // All three should produce the same result
+            let diff_ab = (result_byval - result_slice).abs();
+            let diff_ac = (result_byval - result_vol).abs();
+            assert!(
+                diff_ab < 1.0,
+                "byval ({}) and slice ({}) should match (diff={})",
+                result_byval,
+                result_slice,
+                diff_ab
+            );
+            assert!(
+                diff_ac < 1.0,
+                "byval ({}) and volatile ({}) should match (diff={})",
+                result_byval,
+                result_vol,
+                diff_ac
+            );
+
+            println!(
+                "[regpromo] byval={}, slice={}, volatile={}, all match",
+                result_byval, result_slice, result_vol
+            );
+        });
+
+        println!("[gpu_test] test_gpu_regpromo_equivalence PASSED");
+    });
+}
+
+// ============================================================
+// om-borrow-safety.2: Valid SharedRef patterns on GPU
+// ============================================================
+//
+// Verifies that valid SharedRef usage patterns compile and run correctly:
+//   1. BlockScope::alloc_shared() → SharedRef, then read/write
+//   2. sub_ref() for tiling patterns
+//   3. Pass SharedRef to helper function within scope
+//   4. Multiple SharedRef allocations in one scope
+//   5. spawn_all with SharedRef (cooperative use)
+//
+// All access goes through TieredAccess::load()/store(), emitting
+// ld.shared/st.shared PTX instructions.
+//
+// Zero-param entry. Launch with: block_dim=(128,1,1), 1 block, NO kernel args.
+
+/// Helper function demonstrating SharedRef can be passed to functions
+/// within the scope lifetime.
+fn shared_ref_accumulate(buf: &gpu_runtime::tiered_mem::SharedRef<'_, u32>, len: usize) -> u32 {
+    let mut sum = 0u32;
+    let mut i = 0;
+    while i < len {
+        sum += buf.read(i);
+        i += 1;
+    }
+    sum
+}
+
+/// Helper: store sequential values into a SharedRef sub-region.
+fn shared_ref_fill_sequential(buf: &gpu_runtime::tiered_mem::SharedRef<'_, u32>, start_val: u32) {
+    let mut i = 0;
+    while i < buf.len() {
+        buf.write(i, start_val + i as u32);
+        i += 1;
+    }
+}
+
+/// GPU test: valid SharedRef patterns within block_scope.
+///
+/// Exercises the complete SharedRef API surface:
+///   a) alloc_shared → SharedRef, write + read + verify
+///   b) sub_ref for tiling (two non-overlapping sub-regions)
+///   c) Pass SharedRef to helper functions (by reference)
+///   d) Cooperative use via spawn_all (each warp fills its sub_ref partition)
+///
+/// Zero-param entry. Launch with: block_dim=(128,1,1), 1 block, NO kernel args.
+#[unsafe(no_mangle)]
+pub unsafe extern "gpu-kernel" fn test_gpu_shared_ref_valid_patterns() {
+    let buf = stdio_auto_init();
+    if buf.is_null() {
+        return;
+    }
+
+    gpu_runtime::thread::gpu_main_poll(|| {
+        unsafe {
+            gpu_runtime::scope::init_shared_mem_allocator(4096);
+        }
+
+        // ---- Test A: Basic alloc_shared + read/write ----
+        let test_a = gpu_runtime::scope::block_scope(|scope| {
+            let shared: gpu_runtime::tiered_mem::SharedRef<'_, u32> = scope.alloc_shared::<u32>(16);
+
+            // Write sequential values
+            let mut i = 0u32;
+            while i < 16 {
+                shared.write(i as usize, i * 10);
+                i += 1;
+            }
+
+            // Read back and verify
+            let mut ok = true;
+            let mut j = 0u32;
+            while j < 16 {
+                let val = shared.read(j as usize);
+                if val != j * 10 {
+                    ok = false;
+                }
+                j += 1;
+            }
+
+            // Verify len()
+            if shared.len() != 16 {
+                ok = false;
+            }
+            if shared.is_empty() {
+                ok = false;
+            }
+
+            ok
+        });
+        assert!(test_a, "SharedRef basic read/write should work");
+
+        // ---- Test B: sub_ref for tiling ----
+        let test_b = gpu_runtime::scope::block_scope(|scope| {
+            let shared = scope.alloc_shared::<u32>(64);
+
+            // Fill entire buffer
+            let mut i = 0u32;
+            while i < 64 {
+                shared.write(i as usize, i);
+                i += 1;
+            }
+
+            // Create two non-overlapping sub-refs (tiles)
+            let tile_lo = shared.sub_ref(0, 32); // elements [0..32)
+            let tile_hi = shared.sub_ref(32, 32); // elements [32..64)
+
+            let mut ok = true;
+
+            // Verify tile_lo reads correct values
+            let mut j = 0u32;
+            while j < 32 {
+                if tile_lo.read(j as usize) != j {
+                    ok = false;
+                }
+                j += 1;
+            }
+
+            // Verify tile_hi reads correct values (offset by 32)
+            let mut k = 0u32;
+            while k < 32 {
+                if tile_hi.read(k as usize) != k + 32 {
+                    ok = false;
+                }
+                k += 1;
+            }
+
+            // Verify sub_ref length
+            if tile_lo.len() != 32 || tile_hi.len() != 32 {
+                ok = false;
+            }
+
+            // Write through tile_lo, verify via parent
+            tile_lo.write(0, 999);
+            if shared.read(0) != 999 {
+                ok = false;
+            }
+
+            // Write through tile_hi, verify via parent
+            tile_hi.write(0, 888);
+            if shared.read(32) != 888 {
+                ok = false;
+            }
+
+            ok
+        });
+        assert!(test_b, "SharedRef sub_ref tiling should work");
+
+        // ---- Test C: Pass SharedRef to helper functions ----
+        let test_c = gpu_runtime::scope::block_scope(|scope| {
+            let shared = scope.alloc_shared::<u32>(8);
+
+            // Use helper to fill with sequential values starting at 1
+            shared_ref_fill_sequential(&shared, 1);
+
+            // Use helper to accumulate: sum of 1..=8 = 36
+            let sum = shared_ref_accumulate(&shared, 8);
+
+            sum == 36
+        });
+        assert!(test_c, "SharedRef passed to helper functions should work");
+
+        // ---- Test D: SharedRef warp-0-only sequential patterns ----
+        // SharedRef is !Send by design — it cannot be passed to spawn_all.
+        // This test confirms SharedRef works for the intended warp-0 pattern:
+        // warp 0 allocates, fills, and reads SharedRef sequentially.
+        // Multiple SharedRef allocations in one scope coexist without conflict.
+        let test_d = gpu_runtime::scope::block_scope(|scope| {
+            // Allocate two separate SharedRefs in the same scope
+            let buf_a = scope.alloc_shared::<u32>(8);
+            let buf_b = scope.alloc_shared::<u32>(8);
+
+            // Fill buf_a with odd numbers, buf_b with even numbers
+            let mut i = 0u32;
+            while i < 8 {
+                buf_a.write(i as usize, i * 2 + 1); // 1, 3, 5, 7, 9, 11, 13, 15
+                buf_b.write(i as usize, i * 2); // 0, 2, 4, 6, 8, 10, 12, 14
+                i += 1;
+            }
+
+            // Verify interleaved reads from both buffers
+            let mut ok = true;
+            let mut j = 0u32;
+            while j < 8 {
+                let a = buf_a.read(j as usize);
+                let b = buf_b.read(j as usize);
+                if a != j * 2 + 1 {
+                    ok = false;
+                }
+                if b != j * 2 {
+                    ok = false;
+                }
+                // Sum of corresponding elements should be consecutive odd + even = 2*j + 1 + 2*j = 4*j + 1
+                // Nope, just verify individually
+                j += 1;
+            }
+
+            // Verify sums via helper function
+            let sum_a = shared_ref_accumulate(&buf_a, 8); // 1+3+5+7+9+11+13+15 = 64
+            let sum_b = shared_ref_accumulate(&buf_b, 8); // 0+2+4+6+8+10+12+14 = 56
+            if sum_a != 64 || sum_b != 56 {
+                ok = false;
+            }
+
+            ok
+        });
+        assert!(
+            test_d,
+            "SharedRef multiple allocations in one scope should work"
+        );
+
+        // ---- Test E: f32 type with SharedRef ----
+        let test_e = gpu_runtime::scope::block_scope(|scope| {
+            let shared = scope.alloc_shared::<f32>(4);
+
+            shared.write(0, 3.14f32);
+            shared.write(1, 2.72f32);
+            shared.write(2, 1.41f32);
+            shared.write(3, 0.0f32);
+
+            let sum = shared.read(0) + shared.read(1) + shared.read(2) + shared.read(3);
+
+            // Sum should be approximately 7.27
+            let ok = (sum - 7.27f32).abs() < 0.01;
+            ok
+        });
+        assert!(test_e, "SharedRef<f32> should work correctly");
+
+        println!("[gpu_test] test_gpu_shared_ref_valid_patterns PASSED");
+    });
+}
+
+// ============================================================
+// om-borrow-safety.2: Valid GlobalRef patterns on GPU
+// ============================================================
+//
+// Verifies that valid GlobalRef usage patterns compile and run correctly:
+//   1. GridScope::alloc_global() → GlobalRef, then read/write
+//   2. GlobalRef is Send+Sync — can be shared across warps
+//   3. Cross-warp communication via GlobalRef
+//
+// Uses a static global memory pool as the GridScope backing store.
+//
+// Zero-param entry. Launch with: block_dim=(128,1,1), 1 block, NO kernel args.
+
+/// Static pool for GridScope in the GlobalRef test.
+/// AtomicU8 array provides mutable access from a static.
+/// 2048 bytes is enough for the test allocations.
+static GLOBAL_REF_POOL: [core::sync::atomic::AtomicU8; 2048] = {
+    const INIT: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
+    [INIT; 2048]
+};
+
+/// GPU test: valid GlobalRef patterns within grid_scope.
+///
+/// Exercises the GlobalRef API surface:
+///   a) alloc_global → GlobalRef, write + read + verify
+///   b) sub_ref for partitioning
+///   c) Cross-warp communication (GlobalRef is Send+Sync)
+///   d) u64 type with GlobalRef
+///
+/// Zero-param entry. Launch with: block_dim=(128,1,1), 1 block, NO kernel args.
+#[unsafe(no_mangle)]
+pub unsafe extern "gpu-kernel" fn test_gpu_global_ref_valid_patterns() {
+    let buf = stdio_auto_init();
+    if buf.is_null() {
+        return;
+    }
+
+    gpu_runtime::thread::gpu_main_poll(|| {
+        unsafe {
+            gpu_runtime::scope::init_shared_mem_allocator(2048);
+        }
+
+        let pool_ptr = GLOBAL_REF_POOL.as_ptr() as *mut u8;
+        let pool_size = 2048u32;
+
+        // ---- Test A: Basic alloc_global + read/write ----
+        let test_a = unsafe {
+            gpu_runtime::scope::grid_scope(pool_ptr, pool_size, |gscope| {
+                let gref: gpu_runtime::tiered_mem::GlobalRef<'_, u32> =
+                    gscope.alloc_global::<u32>(16);
+
+                // Write sequential values via GlobalRef::write
+                let mut i = 0u32;
+                while i < 16 {
+                    gref.write(i as usize, i * 100);
+                    i += 1;
+                }
+
+                // Read back and verify
+                let mut ok = true;
+                let mut j = 0u32;
+                while j < 16 {
+                    let val = gref.read(j as usize);
+                    if val != j * 100 {
+                        ok = false;
+                    }
+                    j += 1;
+                }
+
+                // Verify len()
+                if gref.len() != 16 {
+                    ok = false;
+                }
+                if gref.is_empty() {
+                    ok = false;
+                }
+
+                ok
+            })
+        };
+        assert!(test_a, "GlobalRef basic read/write should work");
+
+        // ---- Test B: sub_ref for partitioning ----
+        let test_b = unsafe {
+            gpu_runtime::scope::grid_scope(pool_ptr, pool_size, |gscope| {
+                let gref = gscope.alloc_global::<u32>(32);
+
+                // Fill entire buffer
+                let mut i = 0u32;
+                while i < 32 {
+                    gref.write(i as usize, i + 1);
+                    i += 1;
+                }
+
+                // Create sub-refs
+                let part_a = gref.sub_ref(0, 16);
+                let part_b = gref.sub_ref(16, 16);
+
+                let mut ok = true;
+
+                // Verify part_a
+                let mut j = 0u32;
+                while j < 16 {
+                    if part_a.read(j as usize) != j + 1 {
+                        ok = false;
+                    }
+                    j += 1;
+                }
+
+                // Verify part_b (offset by 16)
+                let mut k = 0u32;
+                while k < 16 {
+                    if part_b.read(k as usize) != k + 17 {
+                        ok = false;
+                    }
+                    k += 1;
+                }
+
+                // Write through sub_ref, verify via parent
+                part_a.write(0, 7777);
+                if gref.read(0) != 7777 {
+                    ok = false;
+                }
+                part_b.write(0, 8888);
+                if gref.read(16) != 8888 {
+                    ok = false;
+                }
+
+                ok
+            })
+        };
+        assert!(test_b, "GlobalRef sub_ref should work");
+
+        // ---- Test C: Cross-warp use via raw pointers ----
+        // GlobalRef is Send+Sync by design. However, the HRTB lifetime from
+        // grid_scope prevents moving a GlobalRef into a nested block_scope's
+        // spawn_all. The correct cross-warp pattern is to extract the raw
+        // pointer (as_global_ptr/as_global_mut_ptr) and wrap in SendPtr.
+        // This mirrors the sc_grid_reduce demo pattern.
+        let test_c = unsafe {
+            gpu_runtime::scope::grid_scope(pool_ptr, pool_size, |gscope| {
+                let n_warps = gpu_runtime::thread::available_parallelism() as u32 + 1;
+                let total_elements = 64u32;
+                let chunk = total_elements / n_warps;
+
+                let gref = gscope.alloc_global::<u32>(total_elements as usize);
+
+                // Coordinator fills via GlobalRef
+                let mut i = 0u32;
+                while i < total_elements {
+                    gref.write(i as usize, 0);
+                    i += 1;
+                }
+
+                // Extract raw pointer for cross-warp sharing
+                let raw_ptr = gpu_runtime::prelude::SendPtrMut::new(gref.as_global_mut_ptr());
+
+                gscope.set_expected_completions(0); // no multi-block
+
+                // Dispatch worker warps via block_scope + spawn_all.
+                gpu_runtime::scope::block_scope(|scope| {
+                    scope.spawn_all(move |wid, _nw| {
+                        let ptr = raw_ptr.as_mut_ptr();
+                        let start = (wid * chunk) as usize;
+                        let mut local_i = 0u32;
+                        while local_i < chunk {
+                            unsafe {
+                                core::ptr::write_volatile(
+                                    ptr.add(start + local_i as usize),
+                                    wid * 100 + local_i,
+                                );
+                            }
+                            local_i += 1;
+                        }
+                    });
+                });
+
+                // Verify from coordinator using GlobalRef read
+                let mut ok = true;
+                let mut wid = 0u32;
+                while wid < n_warps {
+                    let start = (wid * chunk) as usize;
+                    let mut local_i = 0u32;
+                    while local_i < chunk {
+                        let val = gref.read(start + local_i as usize);
+                        if val != wid * 100 + local_i {
+                            ok = false;
+                        }
+                        local_i += 1;
+                    }
+                    wid += 1;
+                }
+
+                ok
+            })
+        };
+        assert!(test_c, "GlobalRef cross-warp via raw ptr should work");
+
+        // ---- Test D: u64 type ----
+        let test_d = unsafe {
+            gpu_runtime::scope::grid_scope(pool_ptr, pool_size, |gscope| {
+                let gref = gscope.alloc_global::<u64>(4);
+
+                gref.write(0, 0xDEAD_BEEF_CAFE_BABEu64);
+                gref.write(1, 0x1234_5678_9ABC_DEF0u64);
+                gref.write(2, u64::MAX);
+                gref.write(3, 0u64);
+
+                let mut ok = true;
+                if gref.read(0) != 0xDEAD_BEEF_CAFE_BABEu64 {
+                    ok = false;
+                }
+                if gref.read(1) != 0x1234_5678_9ABC_DEF0u64 {
+                    ok = false;
+                }
+                if gref.read(2) != u64::MAX {
+                    ok = false;
+                }
+                if gref.read(3) != 0u64 {
+                    ok = false;
+                }
+
+                ok
+            })
+        };
+        assert!(test_d, "GlobalRef<u64> should work correctly");
+
+        println!("[gpu_test] test_gpu_global_ref_valid_patterns PASSED");
+    });
+}

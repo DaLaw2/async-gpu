@@ -1,27 +1,25 @@
 # at-framework — Auto-Tuning Framework Synthesis
 
-## Tunable Parameters (by impact)
-1. **Block size** — 128/256 defaults; 6 candidates [32..1024]; constrained by register count
-2. **Kernel variant** — V1/V2/V3/V4.1 dispatch already exists for GEMM
-3. **Shared memory** — 0 to 16640B; determines tile size for GEMM/attention
-4. **Grid dims** — derived from problem size / block size / tile dims
-5. **Stream** — default vs dedicated; matters only for multi-kernel pipelines
+## Implemented (at-framework.2)
+- `auto_tune.rs` module: `AutoTuner`, `TuningCache`, `TuningKey`, `TuningResult`
+- Warmup-based parameter search: configurable candidates, warmup, measurement iterations
+- Occupancy-based candidate filtering via `resource_report::KernelResources::occupancy()`
+- Problem-size bucketing (next_power_of_two, min 32)
+- Thread-safe cache with Mutex<HashMap>
+- 12 unit tests + 4 GPU integration tests (all passing on GTX 1660)
 
-## Key Insight
-`cuOccupancyMaxPotentialBlockSize` gives occupancy-optimal block size for free
-(available via raw driver API). Use as baseline; empirical tuning only for hot paths.
+## GPU Results (vector_add, memory-bound)
+- Block size sensitivity: ~5% range (excluding pathological block_size=32)
+- Default 256 is within 1-4% of optimal for bandwidth-bound kernels
+- Bigger speedups expected for compute-bound kernels (GEMM, attention)
 
-## Existing Infrastructure
-- `resource_report.rs`: occupancy calculator, register constraints, SmConfig
-- `CustomLaunchBuilder`: already parameterized (.threads/.grid/.shared_mem)
-- Benchmark pattern: warmup(3) + measure(10) + synchronize already in use
+## Remaining Gaps
+- Most kernels hardcode `* 256` instead of using `_block_dim_x()` — limits tuning
+- CUDA event timing (more precise than wall-clock for sub-10µs kernels)
+- Disk persistence for cross-session cache reuse
+- Compute-bound kernel demo for the "2x faster" story criterion
 
-## Missing Pieces
-- CUDA event timing (need raw cuEvent* calls for GPU-side measurement)
-- Tuning cache (HashMap keyed by kernel+problem_size+device)
-- Candidate generator + constraint filter
-- Problem-size bucketing for GEMM/attention
-
-## Architecture Decision
-Lazy tuning at first call per (kernel, size_bucket). Cache in GpuRuntime.
-Start with cuOccupancy API, add empirical tuning for GEMM/attention.
+## Architecture
+Lazy tuning at first call per (kernel, size_bucket, device).
+Wall-clock timing with median selection (robust to outliers).
+Integrates with existing `resource_report.rs` for occupancy filtering.

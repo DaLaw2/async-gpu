@@ -1,25 +1,27 @@
 # td-design: Transparent Vec<T> Design Synthesis
 
-## Current State
-GpuVec<T> wraps pinned-mapped memory (MappedBuffer). Zero-copy after
-creation, but user must: (1) explicitly create GpuVec, (2) specify PTX
-and kernel name for map_gpu, (3) know GPU exists. Three separate memory
-models coexist: CudaSlice (explicit copy), GpuVec (pinned-mapped),
-MappedBuffer (raw).
+## Design Complete
+`GpuArray<T: Copy+Send+'static>` with 4-state residency machine
+(HostOnly, Synced, DeviceOnly, HostDirty). Uses `UnsafeCell<Vec<T>>`
++ `Cell<Residency>` for interior mutability, enabling `Deref<Target=[T]>`
+that auto-syncs device-to-host. `!Sync`, `Send`.
 
-## Recommended Approach: Lazy Residency Wrapper (Option A)
-A newtype `GpuArray<T>` that derefs to `[T]`, tracks residency
-(Host|Device|Synced), and lazily migrates data at kernel boundaries.
-The runtime accepts `&GpuArray<T>` and auto-transfers. Users write
-`GpuArray::from(vec)` once; after that it looks like `&[T]`.
+## Backend Selection
+Size threshold at 64 KiB: below uses MappedBuffer (zero-copy PCIe),
+above uses CudaSlice (explicit H2D/D2H copies, VRAM bandwidth).
+`DeviceStorage` enum encapsulates the choice.
 
-## Key Design Constraints
-- Must coexist with existing GpuVec/CudaSlice (incremental adoption)
-- Kernel selection still requires user intent (which kernel to run)
-- Auto-sync before host reads (no manual synchronize)
-- Size-based backend selection: pinned-mapped for small, device-copy for large
-- T: Copy + Send + 'static (same as current GpuVec constraint)
+## Kernel Integration
+`AsDevicePtr` trait with `ensure_device() -> Result<u64>` and
+`mark_device_dirty()`. GpuContext gains `bind()` / `mark_output()`.
+Deref panics on D2H failure; `try_sync_to_host()` for fallible path.
+
+## Implementation Phases
+1. Core type + Deref (host-only tests)
+2. DeviceStorage + ensure_device (GPU integration test)
+3. GpuContext bind/mark_output + example migration
+4. AutoScheduler par_map overload (future story)
 
 ## Blocked By
-- Scheduler must evolve to accept GpuArray as input (not just &[f32])
-- Kernel dispatch needs "operation descriptor" instead of raw PTX+name
+- Scheduler par_map overload for GpuArray (Phase 4, separate story)
+- Async executor integration for mark_device_dirty timing

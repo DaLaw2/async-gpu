@@ -471,7 +471,7 @@ id = "td-design.2"
 feature = "td-design"
 title = "Design: define TransparentVec<T> with residency state machine and Deref<Target=[T]>"
 kind = "design"
-status = "pending"
+status = "done"
 depends = ["td-design.1"]
 
 [[tasks]]
@@ -505,7 +505,7 @@ id = "at-framework.2"
 feature = "at-framework"
 title = "Experiment: implement warmup-based parameter search with result caching"
 kind = "experiment"
-status = "pending"
+status = "active"
 depends = ["at-framework.1"]
 
 # ---

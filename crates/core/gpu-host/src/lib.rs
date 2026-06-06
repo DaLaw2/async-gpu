@@ -70,6 +70,7 @@
 #![warn(missing_docs)]
 #![allow(clippy::needless_range_loop)]
 
+pub mod auto_tune;
 pub mod error;
 pub mod hostcall;
 /// Low-level CUDA mapped memory allocation helpers.

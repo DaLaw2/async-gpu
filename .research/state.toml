@@ -18,7 +18,7 @@ current_step = "dispatch"
 current_task_id = ""
 
 # Sequence counters
-brainstorm_seq = 129
+brainstorm_seq = 130
 tasks_since_brainstorm = 0
 
 # ---
@@ -133,10 +133,15 @@ priority = "low"
 id = "transparent-data"
 epic = "invisible-exec"
 title = "Transparent Data Residency — Vec<f32> not GpuVec<f32>"
-status = "pending"
+status = "active"
 priority = "medium"
 depends_on = "unified-runtime"
-# success_criteria archived — will be refined when story activates
+success_criteria = [
+    "Vec<f32> usable in GPU kernels — no GpuVec, no explicit cudaMemcpy",
+    "Automatic host↔device transfer on kernel launch and result retrieval",
+    "Existing examples can be simplified to use Vec<T> instead of GpuVec<T>",
+    "Demo: a program that uses only Vec<f32> and runs compute on GPU transparently",
+]
 
 [[stories]]
 id = "auto-parallel"
@@ -191,10 +196,15 @@ priority = "medium"
 id = "auto-tuning"
 epic = "perf-transparent"
 title = "Runtime Auto-Tuning — kernels self-optimize across executions"
-status = "pending"
+status = "active"
 priority = "low"
 depends_on = "compile-time-cost"
-# success_criteria archived — will be refined when story activates
+success_criteria = [
+    "Runtime auto-tuner selects optimal block size after warmup runs",
+    "Tuning results cached across executions (no re-tuning on restart)",
+    "At least one kernel demonstrates measurable speedup from auto-tuning vs default params",
+    "User code requires zero annotations — tuning is fully automatic",
+]
 
 [[stories]]
 id = "ownership-memory"
@@ -377,6 +387,48 @@ success_criteria = [
     "At least one crate compiles to PTX and runs on GPU unmodified",
 ]
 
+# --- transparent-data features ---
+
+[[features]]
+id = "td-design"
+story = "transparent-data"
+title = "Design transparent Vec<T> with host/device residency tracking"
+status = "active"
+goal = "Define a Vec<T> wrapper that tracks residency and defers transfers"
+success_criteria = [
+    "Audit current GpuVec API to identify all host/device transfer points",
+    "Design TransparentVec<T> or Vec<T> newtype with Deref<Target=[T]>",
+    "Residency state machine: host-only → host+device → device-dirty → host-dirty",
+]
+
+[[features]]
+id = "td-runtime"
+story = "transparent-data"
+title = "Runtime residency tracking and automatic transfers"
+status = "pending"
+goal = "Implement lazy host↔device transfer triggered by kernel launch"
+success_criteria = [
+    "Lazy transfer: data moves to device only when kernel needs it",
+    "Automatic transfer back to host when CPU reads results",
+    "Integration with unified-runtime kernel launch path",
+    "Demo program using Vec<f32> with zero explicit transfers",
+]
+
+# --- auto-tuning features ---
+
+[[features]]
+id = "at-framework"
+story = "auto-tuning"
+title = "Auto-tuning framework for kernel parameter selection"
+status = "active"
+goal = "Runtime warmup-based parameter search for block/grid dimensions"
+success_criteria = [
+    "Survey tunable parameters: block size, grid dimensions, shared memory usage",
+    "Warmup phase: run kernel with candidate configs, measure wall-clock time",
+    "Cache tuning results to disk for persistence across runs",
+    "At least one kernel shows measurable speedup from auto-tuned params",
+]
+
 # --- conv-perf features ---
 # Archived at cycle 639 (pending story — features/tasks will be re-brainstormed):
 #   conv-perf: perf-conv-batch, perf-conv-wino, conv-e2e (8 tasks)
@@ -401,74 +453,66 @@ success_criteria = [
 # --- compile-time-cost (archived) ---
 # cost-warnings.2: done (cycle 642)
 
-# --- gpu-dyn-dispatch ---
+# --- gpu-dyn-dispatch (archived) ---
+# dyn-probe.1, dyn-probe.2, dyn-box.1, dyn-box.2, dyn-perf.1, dyn-compat.1: all done (cycle 642)
+
+# --- transparent-data ---
 
 [[tasks]]
-id = "dyn-probe.1"
-feature = "dyn-probe"
-title = "Investigation: compile minimal &dyn Trait kernel to PTX, analyze LLVM IR"
+id = "td-design.1"
+feature = "td-design"
+title = "Investigation: audit GpuVec API and map transfer points for Vec<T> replacement"
 kind = "investigation"
 status = "done"
 depends = []
 
 [[tasks]]
-id = "dyn-probe.2"
-feature = "dyn-probe"
-title = "Experiment: run &dyn Trait kernel on GPU hardware, verify indirect call works"
-kind = "experiment"
-status = "done"
-depends = ["dyn-probe.1"]
+id = "td-design.2"
+feature = "td-design"
+title = "Design: define TransparentVec<T> with residency state machine and Deref<Target=[T]>"
+kind = "design"
+status = "pending"
+depends = ["td-design.1"]
 
 [[tasks]]
-id = "dyn-box.1"
-feature = "dyn-box"
-title = "Experiment: Box<dyn Trait> allocation + dispatch on GPU via hostcall allocator"
+id = "td-runtime.1"
+feature = "td-runtime"
+title = "Experiment: implement lazy host↔device transfer on kernel access"
 kind = "experiment"
-status = "done"
-depends = ["dyn-probe.2"]
+status = "pending"
+depends = ["td-design.2"]
 
 [[tasks]]
-id = "dyn-box.2"
-feature = "dyn-box"
-title = "Experiment: &dyn Fn() closures and Drop for Box<dyn Trait> on GPU"
+id = "td-runtime.2"
+feature = "td-runtime"
+title = "Experiment: integrate transparent Vec with unified-runtime kernel launch"
 kind = "experiment"
-status = "done"
-depends = ["dyn-box.1"]
+status = "pending"
+depends = ["td-runtime.1"]
+
+# --- auto-tuning ---
 
 [[tasks]]
-id = "dyn-perf.1"
-feature = "dyn-perf"
-title = "Experiment: benchmark dyn dispatch vs monomorphized dispatch on GPU"
-kind = "experiment"
+id = "at-framework.1"
+feature = "at-framework"
+title = "Investigation: survey tunable kernel parameters (block size, grid dim, shared mem)"
+kind = "investigation"
 status = "done"
-depends = ["dyn-box.1"]
+depends = []
 
 [[tasks]]
-id = "dyn-compat.1"
-feature = "dyn-compat"
-title = "Experiment: compile and run a no_std crate with dyn Trait on GPU unmodified"
+id = "at-framework.2"
+feature = "at-framework"
+title = "Experiment: implement warmup-based parameter search with result caching"
 kind = "experiment"
-status = "done"
-depends = ["dyn-probe.2"]
+status = "pending"
+depends = ["at-framework.1"]
 
 # ---
 # Brainstorms (last 3 — older → archive/)
 # ---
 
-# Brainstorms 109-126 archived (cycles 535-638)
-
-[[brainstorms]]
-seq = 127
-at_cycle = 640
-trigger = "3 features completed (panic-std-intercept, panic-unwrap-verify, audit-build)"
-level = "standard"
-new_tasks_spawned = []
-new_features_spawned = []
-new_stories_spawned = []
-features_parked = []
-features_completed = ["panic-std-intercept", "panic-unwrap-verify", "audit-build"]
-stories_completed = []
-key_insight = "Both stories have clear runways — no new tasks needed. Abort-path gap (set_warp_trapped/write_panic_to_result missing from std panic) is a real reliability issue but orthogonal to story criteria — track as follow-on feature, not blocker."
+# Brainstorms 109-127 archived (cycles 535-640)
 
 [[brainstorms]]
 seq = 128
@@ -495,3 +539,16 @@ features_parked = []
 features_completed = []
 stories_completed = ["compile-time-cost"]
 key_insight = "GPU already uses vtables (Waker) but only as inlined constants. True dyn dispatch (runtime vtable lookup + indirect call) is untested on nvptx64. First task: probe whether LLVM PTX backend can emit indirect calls through vtable pointers — this gates the entire story."
+
+[[brainstorms]]
+seq = 130
+at_cycle = 642
+trigger = "gpu-dyn-dispatch story #60 completed. No active stories remain."
+level = "standard"
+new_tasks_spawned = ["td-design.1", "td-design.2", "td-runtime.1", "td-runtime.2", "at-framework.1", "at-framework.2"]
+new_features_spawned = ["td-design", "td-runtime", "at-framework"]
+new_stories_spawned = []
+features_parked = []
+features_completed = []
+stories_completed = ["gpu-dyn-dispatch"]
+key_insight = "With dyn dispatch and compile-time cost model shipped, the two highest-impact remaining stories are transparent-data (Vec<f32> replaces GpuVec — every program gets simpler) and auto-tuning (runtime selects optimal kernel params — every program gets faster). Activating both advances invisible-exec and perf-transparent in parallel."

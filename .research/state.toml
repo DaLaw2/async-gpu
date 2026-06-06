@@ -5,7 +5,7 @@
 [meta]
 created = "2026-03-11"
 total_cycles = 643
-completed_tasks = 825
+completed_tasks = 827
 status = "running"     # ready | running | blocked | completed
 
 # Project North Star — the ONE thing all epics serve:
@@ -15,11 +15,11 @@ status = "running"     # ready | running | blocked | completed
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
 current_step = "dispatch"
-current_task_id = "docs-examples.2,docs-examples.3"
+current_task_id = "docs-examples.4,docs-cleanup.1"
 
 # Sequence counters
 brainstorm_seq = 134
-tasks_since_brainstorm = 8
+tasks_since_brainstorm = 10
 
 # ---
 # Epics — Strategic milestones (3 strategic + 1 evergreen)
@@ -569,7 +569,7 @@ success_criteria = [
 id = "docs-examples"
 story = "docs-overhaul"
 title = "Create/update standalone examples for post-cycle-607 features"
-status = "active"
+status = "completed"
 goal = "Every major post-607 feature has a clean, runnable, documented example"
 success_criteria = [
     "transparent-data example: Vec<f32> kernel launch with zero explicit transfers",
@@ -585,7 +585,7 @@ success_criteria = [
 id = "docs-cleanup"
 story = "docs-overhaul"
 title = "Remove stale docs, fix .gitignore, re-track docs/"
-status = "pending"
+status = "completed"
 goal = "docs/ is clean, tracked in git, no stale artifacts"
 success_criteria = [
     "DESIGN-executor.md removed (historical design doc, executor long since shipped)",
@@ -849,7 +849,7 @@ id = "docs-examples.4"
 feature = "docs-examples"
 title = "Experiment: verify all 29+ examples compile and run, add per-example README.md"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["docs-examples.2", "docs-examples.3"]
 
 [[tasks]]
@@ -857,7 +857,7 @@ id = "docs-cleanup.1"
 feature = "docs-cleanup"
 title = "Experiment: remove stale docs, fix .gitignore, re-track docs/, final commit"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["docs-readme.3", "docs-refresh.2", "docs-refresh.3", "docs-examples.4"]
 
 # ---

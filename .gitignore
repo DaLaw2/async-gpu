@@ -40,8 +40,5 @@ formal/states/
 # Editor/IDE config
 .vscode/
 
-# Local docs (not tracked)
-docs/
-
 # Benchmark output
 bench-results/

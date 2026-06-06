@@ -413,7 +413,7 @@ id = "dyn-box.1"
 feature = "dyn-box"
 title = "Experiment: Box<dyn Trait> allocation + dispatch on GPU via hostcall allocator"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["dyn-probe.2"]
 
 [[tasks]]

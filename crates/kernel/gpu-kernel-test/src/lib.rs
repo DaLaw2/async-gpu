@@ -3324,3 +3324,139 @@ pub unsafe extern "gpu-kernel" fn test_gpu_dyn_trait(result: *mut u32) {
         println!("  Runtime-selected: {}", val_dynamic);
     });
 }
+
+// ============================================================
+// dyn-box.1: Box<dyn Trait> — heap-allocated dynamic dispatch on GPU
+// ============================================================
+//
+// Extends dyn-probe: instead of &dyn Trait (stack-allocated data),
+// this uses Box<dyn Trait> (heap-allocated data via hostcall allocator).
+// Proves that dynamic dispatch works with heap allocation on GPU.
+
+/// Trait for Box<dyn Trait> experiment — returns a species-specific ID.
+trait Animal {
+    fn speak(&self) -> u32;
+}
+
+struct Cat;
+impl Animal for Cat {
+    fn speak(&self) -> u32 {
+        1
+    }
+}
+
+struct Dog;
+impl Animal for Dog {
+    fn speak(&self) -> u32 {
+        2
+    }
+}
+
+struct Parrot {
+    word_count: u32,
+}
+impl Animal for Parrot {
+    fn speak(&self) -> u32 {
+        100 + self.word_count
+    }
+}
+
+/// Call a method through Box<dyn Animal>. Forces vtable lookup + indirect call
+/// on a heap-allocated trait object (data lives on the GPU heap, not stack).
+#[inline(never)]
+fn call_animal(a: &dyn Animal) -> u32 {
+    a.speak()
+}
+
+/// GPU test: Box<dyn Trait> — heap-allocated dynamic dispatch on GPU.
+///
+/// Creates Box<dyn Animal> for Cat, Dog, and Parrot (which has data fields),
+/// calls speak() through the trait object, and verifies correctness.
+/// Also tests Vec<Box<dyn Animal>> to prove heterogeneous collections work.
+///
+/// Zero-param entry. Launch with: block_dim=(128,1,1), 1 block, NO kernel args.
+#[unsafe(no_mangle)]
+pub unsafe extern "gpu-kernel" fn test_gpu_box_dyn_trait(result: *mut u32) {
+    let buf = stdio_auto_init();
+    if buf.is_null() {
+        return;
+    }
+
+    gpu_runtime::thread::gpu_main(|| {
+        // === Test 1: Basic Box<dyn Animal> allocation + dispatch ===
+        let cat: Box<dyn Animal> = Box::new(Cat);
+        let dog: Box<dyn Animal> = Box::new(Dog);
+
+        let val_cat = cat.speak();
+        let val_dog = dog.speak();
+
+        assert_eq!(val_cat, 1, "Cat.speak() via Box<dyn> should return 1");
+        assert_eq!(val_dog, 2, "Dog.speak() via Box<dyn> should return 2");
+
+        // === Test 2: Box<dyn Animal> with data fields ===
+        let parrot: Box<dyn Animal> = Box::new(Parrot { word_count: 42 });
+        let val_parrot = parrot.speak();
+        assert_eq!(
+            val_parrot, 142,
+            "Parrot.speak() via Box<dyn> should return 142"
+        );
+
+        // === Test 3: Pass Box<dyn> as &dyn (auto-deref) ===
+        let cat2: Box<dyn Animal> = Box::new(Cat);
+        let val_via_ref = call_animal(&*cat2);
+        assert_eq!(
+            val_via_ref, 1,
+            "call_animal(&*Box<dyn>) should return 1"
+        );
+
+        // === Test 4: Vec<Box<dyn Animal>> — heterogeneous collection ===
+        let mut animals: Vec<Box<dyn Animal>> = Vec::new();
+        animals.push(Box::new(Cat));
+        animals.push(Box::new(Dog));
+        animals.push(Box::new(Parrot { word_count: 10 }));
+        animals.push(Box::new(Cat));
+        animals.push(Box::new(Parrot { word_count: 20 }));
+
+        assert_eq!(animals.len(), 5, "Vec should have 5 animals");
+
+        // Iterate and sum speak() values
+        let mut sum = 0u32;
+        for animal in animals.iter() {
+            sum += animal.speak();
+        }
+        // Expected: 1 + 2 + 110 + 1 + 120 = 234
+        assert_eq!(
+            sum, 234,
+            "Sum of speak() via Vec<Box<dyn Animal>> should be 234"
+        );
+
+        // === Test 5: Runtime-chosen Box<dyn> via conditional ===
+        let flag = val_cat; // non-const to prevent compile-time resolution
+        let chosen: Box<dyn Animal> = if flag == 1 {
+            Box::new(Dog)
+        } else {
+            Box::new(Cat)
+        };
+        let val_chosen = chosen.speak();
+        assert_eq!(
+            val_chosen, 2,
+            "Runtime-chosen Box<dyn> should be Dog (returns 2)"
+        );
+
+        // Write results to device memory for host verification
+        unsafe {
+            core::ptr::write_volatile(result, val_cat);         // [0] = 1
+            core::ptr::write_volatile(result.add(1), val_dog);  // [1] = 2
+            core::ptr::write_volatile(result.add(2), val_parrot); // [2] = 142
+            core::ptr::write_volatile(result.add(3), sum);      // [3] = 234
+            core::ptr::write_volatile(result.add(4), val_chosen); // [4] = 2
+        }
+
+        println!("[gpu_test] test_gpu_box_dyn_trait PASSED");
+        println!("  Cat via Box<dyn>: {}", val_cat);
+        println!("  Dog via Box<dyn>: {}", val_dog);
+        println!("  Parrot(42) via Box<dyn>: {}", val_parrot);
+        println!("  Vec<Box<dyn>> sum: {}", sum);
+        println!("  Runtime-chosen Box<dyn>: {}", val_chosen);
+    });
+}

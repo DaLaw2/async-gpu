@@ -327,10 +327,18 @@ fn test_gpu_generic_map_reduce() {}
 /// `__HOSTCALL_BUF` device global and pass the result buffer via `launch_raw`.
 #[test]
 fn test_gpu_dyn_trait() {
-    // NOTE: No cubin loading — the dyn trait kernel was added after the last cubin build.
-    // PTX JIT compilation takes ~25 minutes for the full kernel_test.ptx (228K lines).
-    let module = gpu_host::gpu::GpuStdModule::load_with_print(
+    // Load cubin for fast startup (sub-second) or fall back to PTX JIT (~25 min).
+    let cubin = {
+        let manifest = env!("CARGO_MANIFEST_DIR");
+        // kernel_test.cubin is in gpu-host dir (built by ptxas from kernel_test.ptx)
+        let cubin_path =
+            std::path::Path::new(manifest).join("../../core/gpu-host/kernel_test.cubin");
+        std::fs::read(&cubin_path).unwrap_or_default()
+    };
+
+    let module = gpu_host::gpu::GpuStdModule::load_with_cubin(
         gpu_host::ptx::KERNEL_STD,
+        &cubin,
         "test_gpu_dyn_trait",
         128,
         (1, 1, 1),
@@ -378,6 +386,93 @@ fn test_gpu_dyn_trait() {
         result[2], 42,
         "Runtime-selected &dyn Greeter should return 42, got {}",
         result[2]
+    );
+}
+
+// ============================================================================
+// GPU tests — Box<dyn Trait> dynamic dispatch (dyn-box.1)
+// ============================================================================
+
+/// Test Box<dyn Trait> heap-allocated dynamic dispatch on GPU hardware.
+///
+/// The kernel `test_gpu_box_dyn_trait` in gpu-kernel-test:
+///   - Creates Box<dyn Animal> for Cat (returns 1), Dog (returns 2), Parrot (returns 100+n)
+///   - Calls speak() through Box<dyn Animal> (heap allocation + vtable lookup + indirect call)
+///   - Builds Vec<Box<dyn Animal>> with 5 elements and iterates
+///   - Runtime-selects a Box<dyn Animal> via conditional
+///   - Writes [1, 2, 142, 234, 2] to output buffer
+///
+/// Uses `GpuStdModule` to inject hostcall via `__HOSTCALL_BUF` device global.
+#[test]
+fn test_gpu_box_dyn_trait() {
+    // Load cubin for fast startup (sub-second) or fall back to PTX JIT (~25 min).
+    let cubin = {
+        let manifest = env!("CARGO_MANIFEST_DIR");
+        let cubin_path =
+            std::path::Path::new(manifest).join("../../core/gpu-host/kernel_test.cubin");
+        std::fs::read(&cubin_path).unwrap_or_default()
+    };
+
+    let module = gpu_host::gpu::GpuStdModule::load_with_cubin(
+        gpu_host::ptx::KERNEL_STD,
+        &cubin,
+        "test_gpu_box_dyn_trait",
+        128,
+        (1, 1, 1),
+        Some(Box::new(|msg| {
+            let s = String::from_utf8_lossy(msg);
+            eprintln!("  [GPU] {}", s.trim());
+        })),
+    )
+    .expect("failed to load test_gpu_box_dyn_trait kernel");
+
+    // Allocate output buffer: 5 x u32 (cat, dog, parrot, vec_sum, runtime_chosen)
+    let result_dev: cudarc::driver::CudaSlice<u32> = module
+        .device()
+        .alloc_zeros::<u32>(5)
+        .expect("failed to allocate output buffer");
+    let mut result_ptr: u64 = *result_dev.device_ptr();
+
+    unsafe {
+        module
+            .launch_raw(&[&mut result_ptr as *mut u64 as *mut std::ffi::c_void])
+            .expect("test_gpu_box_dyn_trait kernel launch failed");
+    }
+
+    // Brief sleep so hostcall listener can flush remaining println! messages
+    std::thread::sleep(std::time::Duration::from_millis(100));
+
+    let result: Vec<u32> = module
+        .device()
+        .dtoh_sync_copy(&result_dev)
+        .expect("failed to copy results from device");
+    module.finish();
+
+    // Verify Box<dyn Trait> dynamic dispatch produced correct results
+    assert_eq!(
+        result[0], 1,
+        "Cat via Box<dyn Animal> should return 1, got {}",
+        result[0]
+    );
+    assert_eq!(
+        result[1], 2,
+        "Dog via Box<dyn Animal> should return 2, got {}",
+        result[1]
+    );
+    assert_eq!(
+        result[2], 142,
+        "Parrot(42) via Box<dyn Animal> should return 142, got {}",
+        result[2]
+    );
+    assert_eq!(
+        result[3], 234,
+        "Vec<Box<dyn Animal>> sum should be 234, got {}",
+        result[3]
+    );
+    assert_eq!(
+        result[4], 2,
+        "Runtime-chosen Box<dyn Animal> should be Dog (returns 2), got {}",
+        result[4]
     );
 }
 

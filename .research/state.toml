@@ -505,8 +505,16 @@ id = "at-framework.2"
 feature = "at-framework"
 title = "Experiment: implement warmup-based parameter search with result caching"
 kind = "experiment"
-status = "active"
+status = "done"
 depends = ["at-framework.1"]
+
+[[tasks]]
+id = "at-framework.3"
+feature = "at-framework"
+title = "Experiment: demonstrate measurable speedup on compute-bound kernel via auto-tuning"
+kind = "experiment"
+status = "done"
+depends = ["at-framework.2"]
 
 # ---
 # Brainstorms (last 3 — older → archive/)

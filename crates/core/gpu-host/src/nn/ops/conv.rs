@@ -711,9 +711,12 @@ fn conv2d_1x1_batched(
 
 /// Direct convolution CUDA kernel source (NVRTC compiled).
 ///
-/// Handles arbitrary kernel sizes (5×5, 7×7, etc.) with register tiling.
-/// Each thread computes one output element. Input tiles are loaded to shared
-/// memory, filter weights are loaded per-thread into registers.
+/// Three kernel variants:
+/// 1. `direct_conv2d` — baseline: one thread per output element, no shared memory
+/// 2. `direct_conv2d_tiled` — shared memory input tiling with C_IN_CHUNK=4
+/// 3. `direct_conv2d_warp_reduce` — warp-level C_in reduction + shared memory
+///    tiling for both input AND filter weights. Multiple threads cooperate on
+///    the C_in dimension for each output element, then warp shuffle reduces.
 ///
 /// Supports both single-sample and batched modes via `batch_size` parameter.
 /// In batched mode, `blockIdx.z` encodes `batch_idx * C_out + c_out`.
@@ -914,6 +917,142 @@ extern "C" __global__ void direct_conv2d_tiled(
         output[out_sample_offset + co * H_out * W_out + oh * W_out + ow] = acc;
     }
 }
+
+// Multi-output-channel direct convolution with shared memory tiling.
+//
+// Key optimization: each thread block computes MULTIPLE output channels
+// for the same spatial tile. This amortizes the cost of loading the input
+// tile from global memory into shared memory across multiple output channels.
+//
+// Block: (TILE_W_WR, TILE_H_WR, CO_PER_BLOCK) = (16, 8, 4) = 512 threads
+// Each threadIdx.z processes a different output channel.
+// blockIdx.z = batch_idx * ceil(C_out / CO_PER_BLOCK) + co_block
+//
+// Shared memory layout:
+//   Section 1: input tile [CI_CHUNK_WR][smem_h][smem_w]
+//
+// Each channel iteration loads the input tile ONCE into shared memory,
+// and all CO_PER_BLOCK output channels reuse it. For C_in=64 and
+// CO_PER_BLOCK=4, this reduces global memory input reads by 4x compared
+// to the baseline tiled kernel.
+//
+// Filter weights are loaded per-thread from global memory (they differ
+// per output channel, so can't be shared across tz threads).
+
+#define TILE_W_WR 16
+#define TILE_H_WR 8
+#define CO_PER_BLOCK 4
+#define CI_CHUNK_WR 8
+
+extern "C" __global__ void direct_conv2d_warp_reduce(
+    const float* __restrict__ input,
+    const float* __restrict__ weight,
+    const float* __restrict__ bias,
+    float* __restrict__ output,
+    unsigned int C_in,
+    unsigned int H, unsigned int W,
+    unsigned int C_out,
+    unsigned int KH, unsigned int KW,
+    unsigned int stride, unsigned int padding,
+    unsigned int H_out, unsigned int W_out,
+    unsigned int has_bias
+) {
+    extern __shared__ float smem[];
+
+    unsigned int tx = threadIdx.x;  // 0..TILE_W_WR-1: output width
+    unsigned int ty = threadIdx.y;  // 0..TILE_H_WR-1: output height
+    unsigned int tz = threadIdx.z;  // 0..CO_PER_BLOCK-1: output channel offset
+
+    unsigned int ow = blockIdx.x * TILE_W_WR + tx;
+    unsigned int oh = blockIdx.y * TILE_H_WR + ty;
+
+    // blockIdx.z encodes batch and output channel block
+    unsigned int co_blocks = (C_out + CO_PER_BLOCK - 1) / CO_PER_BLOCK;
+    unsigned int batch_idx = blockIdx.z / co_blocks;
+    unsigned int co_block = blockIdx.z % co_blocks;
+    unsigned int co = co_block * CO_PER_BLOCK + tz;
+
+    // Per-sample offsets
+    unsigned int in_sample_offset = batch_idx * C_in * H * W;
+    unsigned int out_sample_offset = batch_idx * C_out * H_out * W_out;
+
+    // Shared memory tile dimensions for input
+    unsigned int smem_h = TILE_H_WR * stride + KH - stride;
+    unsigned int smem_w = TILE_W_WR * stride + KW - stride;
+    unsigned int smem_plane = smem_h * smem_w;
+
+    // Shared memory: input tile [CI_CHUNK_WR][smem_h][smem_w]
+    // All CO_PER_BLOCK output channels share the same input tile.
+
+    // Base input position for the top-left corner of this block's receptive field
+    int in_h_base = (int)(blockIdx.y * TILE_H_WR * stride) - (int)padding;
+    int in_w_base = (int)(blockIdx.x * TILE_W_WR * stride) - (int)padding;
+
+    float acc = 0.0f;
+
+    unsigned int block_size = TILE_W_WR * TILE_H_WR * CO_PER_BLOCK;
+    unsigned int tid = (tz * TILE_H_WR + ty) * TILE_W_WR + tx;
+
+    // Process C_in channels in chunks
+    unsigned int ci_chunks = (C_in + CI_CHUNK_WR - 1) / CI_CHUNK_WR;
+
+    for (unsigned int chunk = 0; chunk < ci_chunks; chunk++) {
+        unsigned int ci_start = chunk * CI_CHUNK_WR;
+        unsigned int ci_end = ci_start + CI_CHUNK_WR;
+        if (ci_end > C_in) ci_end = C_in;
+        unsigned int ci_count = ci_end - ci_start;
+
+        // Cooperatively load input tile into shared memory.
+        // All CO_PER_BLOCK * TILE_H_WR * TILE_W_WR threads participate.
+        unsigned int total_smem = ci_count * smem_plane;
+        for (unsigned int idx = tid; idx < total_smem; idx += block_size) {
+            unsigned int ci_local = idx / smem_plane;
+            unsigned int spatial = idx % smem_plane;
+            unsigned int sh = spatial / smem_w;
+            unsigned int sw = spatial % smem_w;
+
+            int ih = in_h_base + (int)sh;
+            int iw = in_w_base + (int)sw;
+            unsigned int ci_global = ci_start + ci_local;
+
+            float val = 0.0f;
+            if (ih >= 0 && ih < (int)H && iw >= 0 && iw < (int)W && ci_global < C_in) {
+                val = input[in_sample_offset + ci_global * H * W + ih * W + iw];
+            }
+            smem[ci_local * smem_plane + sh * smem_w + sw] = val;
+        }
+        __syncthreads();
+
+        // Each thread computes for its own output channel (co)
+        if (ow < W_out && oh < H_out && co < C_out) {
+            for (unsigned int ci_local = 0; ci_local < ci_count; ci_local++) {
+                unsigned int ci_global = ci_start + ci_local;
+                const float* w_ptr = weight + ((co * C_in + ci_global) * KH) * KW;
+                const float* s_ptr = smem + ci_local * smem_plane;
+
+                unsigned int sh_base = ty * stride;
+                unsigned int sw_base = tx * stride;
+
+                for (unsigned int fh = 0; fh < KH; fh++) {
+                    for (unsigned int fw = 0; fw < KW; fw++) {
+                        float in_val = s_ptr[(sh_base + fh) * smem_w + sw_base + fw];
+                        float w_val = w_ptr[fh * KW + fw];
+                        acc = fmaf(in_val, w_val, acc);
+                    }
+                }
+            }
+        }
+        __syncthreads();
+    }
+
+    // Write output — each thread writes its own output channel
+    if (ow < W_out && oh < H_out && co < C_out) {
+        if (has_bias) {
+            acc += bias[co];
+        }
+        output[out_sample_offset + co * H_out * W_out + oh * W_out + ow] = acc;
+    }
+}
 "#;
 
 /// Direct convolution via NVRTC-compiled kernel.
@@ -982,7 +1121,11 @@ fn conv2d_direct_impl(
         dev.load_ptx(
             ptx,
             "direct_conv",
-            &["direct_conv2d", "direct_conv2d_tiled"],
+            &[
+                "direct_conv2d",
+                "direct_conv2d_tiled",
+                "direct_conv2d_warp_reduce",
+            ],
         )
         .expect("direct_conv PTX load failed");
     }
@@ -994,19 +1137,42 @@ fn conv2d_direct_impl(
     };
     let mut output = GpuTensor::zeros(&output_shape, dev)?;
 
-    // Decide whether to use the tiled (shared memory) or simple kernel.
-    // Tiled kernel needs shared memory: C_IN_CHUNK * smem_h * smem_w * 4 bytes
-    // smem_h = TILE_H * stride + KH - stride = 16 * stride + KH - stride
-    // smem_w = TILE_W * stride + KW - stride = 16 * stride + KW - stride
+    // Kernel selection strategy:
+    //
+    // 1. Multi-output-channel kernel (direct_conv2d_warp_reduce): best for
+    //    medium-to-high C_in where amortizing input tile loads across multiple
+    //    output channels gives a big win. Block: (16, 8, 4) = 512 threads.
+    //    CO_PER_BLOCK=4 output channels share one input tile in shared memory.
+    //    CI_CHUNK_WR=8 channels loaded per iteration for higher reuse.
+    //
+    // 2. Tiled kernel (direct_conv2d_tiled): fallback for small configurations
+    //    or when multi-channel shared memory exceeds 48KB.
+    //    Block: (16, 16, 1) = 256 threads.
+    //
+    // 3. Simple kernel (direct_conv2d): final fallback when tiled smem > 48KB.
+
+    // Multi-output-channel kernel parameters
+    let tile_w_wr = 16u32;
+    let tile_h_wr = 8u32;
+    let co_per_block = 4u32;
+    let ci_chunk_wr = 8u32;
+    let smem_h_wr = tile_h_wr * stride as u32 + kh as u32 - stride as u32;
+    let smem_w_wr = tile_w_wr * stride as u32 + kw as u32 - stride as u32;
+    let smem_plane_wr = smem_h_wr * smem_w_wr;
+    // input tile: CI_CHUNK_WR planes
+    let smem_bytes_wr = ci_chunk_wr * smem_plane_wr * 4;
+
+    // Tiled kernel parameters
     let tile_w = 16u32;
     let tile_h = 16u32;
     let c_in_chunk: u32 = 4;
     let smem_h = tile_h * stride as u32 + kh as u32 - stride as u32;
     let smem_w = tile_w * stride as u32 + kw as u32 - stride as u32;
-    let smem_bytes = c_in_chunk * smem_h * smem_w * 4; // bytes
+    let smem_bytes_tiled = c_in_chunk * smem_h * smem_w * 4;
 
-    // Use tiled kernel if shared memory fits (48KB limit on SM75)
-    let use_tiled = smem_bytes <= 48 * 1024;
+    // Use multi-output kernel when C_out >= CO_PER_BLOCK and smem fits
+    let use_warp_reduce = c_out >= co_per_block as usize && smem_bytes_wr <= 48 * 1024;
+    let use_tiled = !use_warp_reduce && smem_bytes_tiled <= 48 * 1024;
 
     // Create a dummy bias buffer if needed (the kernel needs a valid pointer)
     let bias_dev;
@@ -1019,8 +1185,12 @@ fn conv2d_direct_impl(
 
     let has_bias: u32 = if bias.is_some() { 1 } else { 0 };
 
-    // Grid z-dim: batch_size * C_out (kernel decodes batch_idx and c_out)
-    let grid_z = (batch_size * c_out) as u32;
+    // Grid z-dim depends on which kernel is used:
+    // - warp_reduce: batch_size * ceil(C_out / CO_PER_BLOCK)
+    // - tiled/simple: batch_size * C_out
+    let grid_z_tiled = (batch_size * c_out) as u32;
+    let co_blocks = (c_out as u32).div_ceil(co_per_block);
+    let grid_z_wr = batch_size as u32 * co_blocks;
 
     // Build raw kernel parameter array (15 params exceeds cudarc's 12-tuple limit,
     // so we use the raw void-pointer launch interface).
@@ -1061,7 +1231,27 @@ fn conv2d_direct_impl(
         &mut has_bias_v as *mut _ as *mut std::ffi::c_void,
     ];
 
-    if use_tiled {
+    if use_warp_reduce {
+        let func = dev
+            .get_func("direct_conv", "direct_conv2d_warp_reduce")
+            .ok_or(NnError::KernelNotFound {
+                name: "direct_conv2d_warp_reduce",
+            })?;
+
+        let config = cudarc::driver::LaunchConfig {
+            grid_dim: (
+                (w_out as u32).div_ceil(tile_w_wr),
+                (h_out as u32).div_ceil(tile_h_wr),
+                grid_z_wr,
+            ),
+            block_dim: (tile_w_wr, tile_h_wr, co_per_block),
+            shared_mem_bytes: smem_bytes_wr,
+        };
+
+        unsafe {
+            func.launch(config, &mut params).map_err(NnError::Cuda)?;
+        }
+    } else if use_tiled {
         let func =
             dev.get_func("direct_conv", "direct_conv2d_tiled")
                 .ok_or(NnError::KernelNotFound {
@@ -1072,10 +1262,10 @@ fn conv2d_direct_impl(
             grid_dim: (
                 (w_out as u32).div_ceil(tile_w),
                 (h_out as u32).div_ceil(tile_h),
-                grid_z,
+                grid_z_tiled,
             ),
             block_dim: (tile_w, tile_h, 1),
-            shared_mem_bytes: smem_bytes,
+            shared_mem_bytes: smem_bytes_tiled,
         };
 
         unsafe {
@@ -1093,7 +1283,7 @@ fn conv2d_direct_impl(
             grid_dim: (
                 (w_out as u32).div_ceil(tile_w),
                 (h_out as u32).div_ceil(tile_h),
-                grid_z,
+                grid_z_tiled,
             ),
             block_dim: (tile_w, tile_h, 1),
             shared_mem_bytes: 0,

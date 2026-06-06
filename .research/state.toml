@@ -742,7 +742,7 @@ id = "conv-wino-gemm.1"
 feature = "conv-wino-gemm"
 title = "Investigation: design batched-GEMM Winograd pipeline and evaluate F(4x4) vs F(2x2)"
 kind = "investigation"
-status = "pending"
+status = "done"
 depends = ["conv-baseline.1"]
 
 [[tasks]]
@@ -766,7 +766,7 @@ id = "conv-direct-opt.1"
 feature = "conv-direct-opt"
 title = "Experiment: add warp-level C_in reduction and shared-memory tiling to direct conv kernel"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["conv-baseline.1"]
 
 # --- docs-overhaul ---

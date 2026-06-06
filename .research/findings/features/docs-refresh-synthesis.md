@@ -2,17 +2,15 @@
 
 ## State
 
-ARCHITECTURE.md rewritten (396 lines). Covers all 15 crates, kernel split,
-unified runtime (AutoScheduler), tiered memory, GpuArray, AutoTuner,
-auto-fusion pipeline, nn/onnx stack, structured concurrency, par_iter,
-channels, executor, build system, compilation pipeline.
-
-## Remaining
-
-- CHANGELOG.md update (docs-refresh.3 if planned)
-- docs/ is still gitignored — decision pending on tracking
+All 3 tasks complete. ARCHITECTURE.md (396 lines), CHANGELOG.md (~250 lines),
+and getting-started.md (~370 lines) rewritten for current API surface.
 
 ## Completed Tasks
 
 - docs-refresh.1: Audit (crate map, gap analysis) — done
 - docs-refresh.2: ARCHITECTURE.md rewrite — done
+- docs-refresh.3: CHANGELOG.md + getting-started.md rewrite — done
+
+## Remaining
+
+- docs/ is still gitignored — decision pending on tracking

@@ -5,7 +5,7 @@
 [meta]
 created = "2026-03-11"
 total_cycles = 643
-completed_tasks = 821
+completed_tasks = 823
 status = "running"     # ready | running | blocked | completed
 
 # Project North Star — the ONE thing all epics serve:
@@ -19,7 +19,7 @@ current_task_id = ""
 
 # Sequence counters
 brainstorm_seq = 134
-tasks_since_brainstorm = 4
+tasks_since_brainstorm = 6
 
 # ---
 # Epics — Strategic milestones (3 strategic + 1 evergreen)
@@ -541,7 +541,7 @@ success_criteria = [
 id = "docs-readme"
 story = "docs-overhaul"
 title = "README complete rewrite — hero, feature matrix, performance, progressive examples"
-status = "active"
+status = "completed"
 goal = "README serves as landing page that accurately represents all 62+ shipped stories"
 success_criteria = [
     "Hero section mentions transparent data, auto-fusion, dyn dispatch alongside async/await",
@@ -556,7 +556,7 @@ success_criteria = [
 id = "docs-refresh"
 story = "docs-overhaul"
 title = "ARCHITECTURE.md + CHANGELOG.md rewrite"
-status = "active"
+status = "completed"
 goal = "Architecture and changelog reflect current state of the project"
 success_criteria = [
     "ARCHITECTURE.md covers kernel split (4 crates), unified runtime, auto-fusion pipeline, tiered memory",
@@ -793,7 +793,7 @@ id = "docs-readme.3"
 feature = "docs-readme"
 title = "Experiment: update README crate map, limitations, architecture sections"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["docs-readme.2"]
 
 [[tasks]]
@@ -817,7 +817,7 @@ id = "docs-refresh.3"
 feature = "docs-refresh"
 title = "Experiment: rewrite CHANGELOG.md + getting-started.md for current API surface"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["docs-refresh.1"]
 
 [[tasks]]

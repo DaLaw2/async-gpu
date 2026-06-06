@@ -573,38 +573,58 @@ let tokens = model.generate(&prompt_tokens, 50)?;
 
 </details>
 
+## Architecture
+
+Two-workspace build model: host crates compile with the standard `x86_64` target, GPU crates compile with `-Zbuild-std=std` targeting `nvptx64-nvidia-cuda`. A custom rustc MIR pass inserts warp-convergence barriers into async state machines. PTX is compiled at build time via `build.rs` and embedded as string constants in the host binary. The hostcall protocol bridges GPU-host I/O over CUDA mapped memory.
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full compilation pipeline, crate layout, subsystem internals, and data flow diagrams.
+
 ## Crate Map
 
+19 crates organized by layer: **Facade** (1) → **Core** (5) → **Kernel** (4) → **Test** (9).
+
 ```
-crates/async-gpu/    Facade crate — re-exports GpuArray, AutoScheduler, FlightRecorder, nn, async_rt
-crates/core/
-  gpu-host/        Host SDK: gpu:: API, GpuRuntime, GpuArray, GpuVec, Pipeline, FlightRecorder
-    auto_tune.rs   AutoTuner, TuningCache — warmup-based block-size search
-    scheduler.rs   AutoScheduler, CpuScheduler, GpuScheduler — unified work routing
-    resource_report.rs  KernelResources, SmConfig, OccupancyLevel, KernelWarning
-    nn/            Neural network: GpuTensor, KernelRegistry, layers, models, autograd, fusion
-    onnx_rt/       ONNX Runtime: prost parser, graph executor (43 ops), fusion pass
-  gpu-protocol/    Shared constants: packet layout, service IDs, error codes
-  gpu-runtime/     GPU-side runtime: index, math, warp, block, thread, nn, executor
-    tiered_mem.rs  SharedRef/GlobalRef — address-space-aware GPU pointers
-    collections.rs GpuHashMap — lock-free concurrent hash map
-    unified_channel.rs  Auto-selects shared vs global transport for channels
-    grid_work.rs   Cross-block coordinator/worker dispatch
-    generator.rs   GpuGenerator — warp-cooperative coroutines
-    safety.rs      DisjointSlice, WarpIndex — type-level race-freedom
-    flight_recorder.rs  Fire-and-forget GPU trace ring buffer
-  gpu-atomics/     System-scope GPU atomics via inline PTX (CAS, shfl, activemask)
-  gpu-libc/        Minimal libc shim for GPU: routes sys calls to hostcall
-crates/kernel/
-  gpu-kernel-core/    Shared helpers + basic kernels
-  gpu-kernel-compute/ Compute kernels (fused ops, physics, transformer, persistent)
-  gpu-kernel-io/      I/O kernels (hostcall, hybrid, async pipeline)
-  gpu-kernel-test/    Test/demo kernels (std, dyn dispatch, hashbrown, par_iter)
-crates/test/         9 integration test crates + gpu-test-macro (#[gpu_test])
-rustc-patches/       Custom MIR pass patches for rustc
-examples/hostcall/   10 hostcall examples | examples/std/  14 std/nn examples
-formal/              TLA+ specification and model-checking config
-docs/                ARCHITECTURE.md, CHANGELOG.md, getting-started.md, VALIDATION.md
+Facade
+  crates/async-gpu/        User-facing crate — re-exports GpuArray, AutoScheduler, FlightRecorder, nn, async_rt
+
+Core (host + GPU runtime + support)
+  crates/core/gpu-host/    Host SDK: gpu:: API, GpuRuntime, GpuArray, GpuVec, Pipeline, FlightRecorder
+    gpu_array.rs           GpuArray<T> — 4-state residency, auto host-device sync, zero-copy <64 KiB
+    auto_tune.rs           AutoTuner, TuningCache — warmup-based block-size search
+    scheduler.rs           AutoScheduler, CpuScheduler, GpuScheduler — unified work routing
+    resource_report.rs     KernelResources, SmConfig, OccupancyLevel, KernelWarning
+    nn/                    Neural network: GpuTensor, KernelRegistry, layers, models, autograd, fusion
+    onnx_rt/               ONNX Runtime: prost parser, graph executor (43 ops), fusion pass
+  crates/core/gpu-runtime/ GPU-side runtime: index, math, warp, block, thread, nn, executor
+    scope.rs               BlockScope, GridScope — structured concurrency with lifetime-bounded memory
+    tiered_mem.rs           SharedRef/GlobalRef — address-space-aware GPU pointers (ld.shared/ld.global)
+    unified_channel.rs     Auto-selects shared vs global transport for channels
+    flight_recorder.rs     Fire-and-forget GPU trace ring buffer
+    collections.rs         GpuHashMap — lock-free concurrent hash map (CAS-based)
+    par_iter.rs            GPU parallel iterators — map, filter, fold, collect, zip
+    grid_work.rs           Cross-block coordinator/worker dispatch
+    generator.rs           GpuGenerator — warp-cooperative coroutines
+    safety.rs              DisjointSlice, WarpIndex — type-level race-freedom
+  crates/core/gpu-protocol/ Shared constants: packet layout, service IDs, error codes
+  crates/core/gpu-atomics/  System-scope GPU atomics via inline PTX (CAS, shfl, activemask)
+  crates/core/gpu-libc/     Minimal libc shim for GPU: routes sys calls to hostcall
+
+Kernel (PTX code compiled for nvptx64)
+  crates/kernel/gpu-kernel-core/    Shared helpers + basic kernels
+  crates/kernel/gpu-kernel-compute/ Compute kernels (fused ops, physics, transformer, persistent)
+  crates/kernel/gpu-kernel-io/      I/O kernels (hostcall, hybrid, async pipeline)
+  crates/kernel/gpu-kernel-test/    Test/demo kernels (std, dyn dispatch, hashbrown, par_iter)
+
+Test (9 integration test crates)
+  crates/test/               gpu-test-macro (#[gpu_test]), gpu-test-harness, gpu-std-test,
+                             async-hostcall-test, async-pipeline-test, embassy-test,
+                             gpu-critical-section, multi-warp-test, std-build-test
+
+Other
+  rustc-patches/       Custom MIR pass patches for rustc
+  examples/hostcall/   10 hostcall examples | examples/std/  14 std/nn examples
+  formal/              TLA+ specification and model-checking config
+  docs/                ARCHITECTURE.md, CHANGELOG.md, getting-started.md, VALIDATION.md
 ```
 
 ## Documentation
@@ -618,9 +638,10 @@ docs/                ARCHITECTURE.md, CHANGELOG.md, getting-started.md, VALIDATI
 
 - **Nightly Rust**: Requires `asm_experimental_arch`, `abi_gpu_kernel`, `-Zbuild-std`. Async warp convergence MIR pass needs patched rustc
 - **NVIDIA only**: `nvptx64-nvidia-cuda` target, SM 70+ GPU required
-- **Hostcall latency**: ~20-100 us round-trip, not suitable for per-element I/O in hot loops
-- **Partial std**: `HashMap`, `Mutex`, File I/O work; `OsRng`/`getrandom` not available
-- **f32 + f16 MMA**: f32 FMA and f16 Tensor Core MMA (split-K accumulation) both supported; BF16/TF32 not yet implemented
+- **Hostcall latency**: ~20-100 us round-trip per call, not suitable for per-element I/O in hot loops
+- **Partial std**: `Vec`, `HashMap`, `Mutex`, `File`, `println!` work; `OsRng`/`getrandom`, networking (beyond hostcall TCP) not available
+- **f32 + f16 only**: f32 FMA and f16 Tensor Core MMA both supported; BF16/TF32/FP8 not yet implemented
+- **Single GPU**: Multi-GPU device selection works, but no cross-device kernel orchestration or peer-to-peer transfers
 
 ## Acknowledgements
 

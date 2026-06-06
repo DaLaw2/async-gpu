@@ -3,20 +3,15 @@
 ## Scope
 README overhaul to match 62+ shipped stories.
 
-## Status: DONE (docs-readme.2)
-All audit findings resolved:
-- 12 absent capabilities: added to feature matrix with source links
-- 6 under-documented capabilities: expanded with details
-- 3 factual errors: fixed (WarpIndex, 9 test crates, 245+ kernels)
-- Crate map: updated with async-gpu facade, all gpu-runtime modules, docs/
-- Core types: added GpuArray, GpuVec, Pipeline, FlightRecorder
-- Progressive examples: 3 new (transparent data, auto-tuning, dyn dispatch)
-- Performance: Conv2D Winograd 54.8%, auto-tuning 1.4x, dyn dispatch <1.15x
-- Documentation section: links to docs/ directory
+## Status: DONE (docs-readme.3)
+All tasks complete:
+- docs-readme.1: Audit identified 12 absent capabilities, 3 errors, stale counts
+- docs-readme.2: Rewrote hero, feature matrix, performance, progressive examples (631 lines)
+- docs-readme.3: Updated crate map (19 crates, layered), limitations (removed dyn dispatch),
+  added Architecture section linking docs/ARCHITECTURE.md (652 lines, under 700 limit)
 
 ## Remaining Work
-- docs-readme.3 (if needed): standalone example crates for auto-tuning, dyn dispatch
-- ARCHITECTURE.md and CHANGELOG.md updates tracked under separate features
+None. All audit findings resolved, all sections current.
 
 ## Risk
-None. README at 631 lines (under 700 limit). All content verified against source.
+None. README at 652 lines (under 700 limit). All content verified against source.

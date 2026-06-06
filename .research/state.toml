@@ -210,7 +210,7 @@ success_criteria = [
 id = "ownership-memory"
 epic = "perf-transparent"
 title = "Ownership = Memory Hierarchy — Rust lifetimes map to GPU memory tiers"
-status = "active"
+status = "completed"
 priority = "low"
 depends_on = "structured-concurrency"
 # success_criteria archived — will be refined when story activates

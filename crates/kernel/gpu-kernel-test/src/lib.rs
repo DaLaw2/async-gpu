@@ -1297,10 +1297,8 @@ pub unsafe extern "gpu-kernel" fn test_gpu_cooperative() {
                 let wid = gpu_runtime::thread::current_id();
                 let lid = gpu_runtime::index::thread_idx_x() % 32;
                 if lid == 0 {
-                    TEST_COOP_OUT[wid as usize].store(
-                        wid + 1,
-                        core::sync::atomic::Ordering::Relaxed,
-                    );
+                    TEST_COOP_OUT[wid as usize]
+                        .store(wid + 1, core::sync::atomic::Ordering::Relaxed);
                 }
             });
         }
@@ -1366,7 +1364,13 @@ pub unsafe extern "gpu-kernel" fn test_gpu_cooperative_map() {
         // Verify output[i] = i * 2
         for i in 0..64u32 {
             let val = TEST_CMAP_OUTPUT[i as usize].load(core::sync::atomic::Ordering::Relaxed);
-            assert_eq!(val, i * 2, "cooperative_map output[{}] should be {}", i, i * 2);
+            assert_eq!(
+                val,
+                i * 2,
+                "cooperative_map output[{}] should be {}",
+                i,
+                i * 2
+            );
         }
 
         println!("[gpu_test] test_gpu_cooperative_map PASSED");
@@ -1483,7 +1487,10 @@ pub unsafe extern "gpu-kernel" fn test_gpu_type_safe_cooperative() {
             let _ = len; // suppress unused
             ok
         });
-        assert!(test1_ok, "alloc_disjoint + spawn_all_indexed should produce correct values");
+        assert!(
+            test1_ok,
+            "alloc_disjoint + spawn_all_indexed should produce correct values"
+        );
 
         // ---- Test 2: alloc_disjoint + cooperative_indexed ----
         // Same pattern but using cooperative_indexed (safe cooperative()) outside scope.
@@ -1515,7 +1522,10 @@ pub unsafe extern "gpu-kernel" fn test_gpu_type_safe_cooperative() {
             }
             ok
         });
-        assert!(test2_ok, "alloc_disjoint + cooperative_indexed should produce correct values");
+        assert!(
+            test2_ok,
+            "alloc_disjoint + cooperative_indexed should produce correct values"
+        );
 
         // ---- Test 3: DisjointSlice immutable read via get() ----
         let test3_ok = gpu_runtime::scope::block_scope(|scope| {
@@ -1525,9 +1535,7 @@ pub unsafe extern "gpu-kernel" fn test_gpu_type_safe_cooperative() {
             scope.spawn_all_indexed(move |widx, _warp| {
                 let my_part = data.get_mut(&widx);
                 for (i, slot) in my_part.iter_mut().enumerate() {
-                    let global_i = widx.warp_id() as usize
-                        * (8 / widx.n_warps() as usize)
-                        + i;
+                    let global_i = widx.warp_id() as usize * (8 / widx.n_warps() as usize) + i;
                     *slot = (global_i * 10) as u32;
                 }
             });
@@ -1654,7 +1662,10 @@ pub unsafe extern "gpu-kernel" fn test_gpu_cooperative_map_safe() {
             ok
         });
 
-        assert!(all_ok, "cooperative_map_safe: output[i] should equal i * 2 for all i in 0..64");
+        assert!(
+            all_ok,
+            "cooperative_map_safe: output[i] should equal i * 2 for all i in 0..64"
+        );
         println!("[gpu_test] test_gpu_cooperative_map_safe PASSED");
     });
 }
@@ -1744,23 +1755,43 @@ pub unsafe extern "gpu-kernel" fn test_gpu_atomics() {
 
         // Test basic atomic operations on a global static
         TEST_ATOMIC_BASIC.store(10, Ordering::Relaxed);
-        assert_eq!(TEST_ATOMIC_BASIC.load(Ordering::Relaxed), 10, "store/load should work");
+        assert_eq!(
+            TEST_ATOMIC_BASIC.load(Ordering::Relaxed),
+            10,
+            "store/load should work"
+        );
 
         let old = TEST_ATOMIC_BASIC.fetch_add(5, Ordering::Relaxed);
         assert_eq!(old, 10, "fetch_add should return old value");
-        assert_eq!(TEST_ATOMIC_BASIC.load(Ordering::Relaxed), 15, "value should be 15 after add");
+        assert_eq!(
+            TEST_ATOMIC_BASIC.load(Ordering::Relaxed),
+            15,
+            "value should be 15 after add"
+        );
 
         let old2 = TEST_ATOMIC_BASIC.fetch_sub(3, Ordering::Relaxed);
         assert_eq!(old2, 15, "fetch_sub should return old value");
-        assert_eq!(TEST_ATOMIC_BASIC.load(Ordering::Relaxed), 12, "value should be 12 after sub");
+        assert_eq!(
+            TEST_ATOMIC_BASIC.load(Ordering::Relaxed),
+            12,
+            "value should be 12 after sub"
+        );
 
         // fetch_and, fetch_or
         TEST_ATOMIC_BASIC.store(0xFF, Ordering::Relaxed);
         let _ = TEST_ATOMIC_BASIC.fetch_and(0x0F, Ordering::Relaxed);
-        assert_eq!(TEST_ATOMIC_BASIC.load(Ordering::Relaxed), 0x0F, "fetch_and should mask");
+        assert_eq!(
+            TEST_ATOMIC_BASIC.load(Ordering::Relaxed),
+            0x0F,
+            "fetch_and should mask"
+        );
 
         let _ = TEST_ATOMIC_BASIC.fetch_or(0xF0, Ordering::Relaxed);
-        assert_eq!(TEST_ATOMIC_BASIC.load(Ordering::Relaxed), 0xFF, "fetch_or should set bits");
+        assert_eq!(
+            TEST_ATOMIC_BASIC.load(Ordering::Relaxed),
+            0xFF,
+            "fetch_or should set bits"
+        );
 
         // Cross-thread atomics: spawn 3 threads each adding 100
         TEST_ATOMIC_COUNTER.store(0, Ordering::Relaxed);
@@ -1866,9 +1897,7 @@ pub unsafe extern "gpu-kernel" fn test_gpu_iterator_chain() {
 /// The `#[inline(always)]` ensures LLVM inlines the generic body into
 /// each concrete entry point, producing type-specialized PTX.
 #[inline(always)]
-fn generic_map_inplace<
-    T: Copy + core::ops::Mul<Output = T> + core::ops::Add<Output = T>,
->(
+fn generic_map_inplace<T: Copy + core::ops::Mul<Output = T> + core::ops::Add<Output = T>>(
     data: *mut T,
     len: usize,
     scale: T,
@@ -1932,11 +1961,7 @@ pub unsafe extern "gpu-kernel" fn generic_map_f32(
 ///
 /// Result written as u32 bits to result[0]. Launch with 1 thread.
 #[unsafe(no_mangle)]
-pub unsafe extern "gpu-kernel" fn generic_reduce_f32(
-    data: *const f32,
-    n: u32,
-    result: *mut u32,
-) {
+pub unsafe extern "gpu-kernel" fn generic_reduce_f32(data: *const f32, n: u32, result: *mut u32) {
     let total = generic_reduce_sum::<f32>(data, n as usize, 0.0f32);
     unsafe {
         core::ptr::write(result, total.to_bits());
@@ -1949,12 +1974,7 @@ pub unsafe extern "gpu-kernel" fn generic_reduce_f32(
 ///
 /// Launch with: any grid/block config (grid-stride loop).
 #[unsafe(no_mangle)]
-pub unsafe extern "gpu-kernel" fn generic_map_i32(
-    data: *mut i32,
-    n: u32,
-    scale: i32,
-    bias: i32,
-) {
+pub unsafe extern "gpu-kernel" fn generic_map_i32(data: *mut i32, n: u32, scale: i32, bias: i32) {
     generic_map_inplace::<i32>(data, n as usize, scale, bias);
 }
 
@@ -1962,11 +1982,7 @@ pub unsafe extern "gpu-kernel" fn generic_map_i32(
 ///
 /// Result written to result[0]. Launch with 1 thread.
 #[unsafe(no_mangle)]
-pub unsafe extern "gpu-kernel" fn generic_reduce_i32(
-    data: *const i32,
-    n: u32,
-    result: *mut i32,
-) {
+pub unsafe extern "gpu-kernel" fn generic_reduce_i32(data: *const i32, n: u32, result: *mut i32) {
     let total = generic_reduce_sum::<i32>(data, n as usize, 0i32);
     unsafe {
         core::ptr::write(result, total);
@@ -2304,11 +2320,7 @@ where
 ///
 /// Result written as u32 bits to result[0]. Launch with 1 thread.
 #[unsafe(no_mangle)]
-pub unsafe extern "gpu-kernel" fn trait_reduce_f32(
-    data: *const f32,
-    n: u32,
-    result: *mut u32,
-) {
+pub unsafe extern "gpu-kernel" fn trait_reduce_f32(data: *const f32, n: u32, result: *mut u32) {
     let total = trait_reduce::<f32>(data, n as usize);
     unsafe {
         core::ptr::write(result, total.to_bits());
@@ -2319,11 +2331,7 @@ pub unsafe extern "gpu-kernel" fn trait_reduce_f32(
 ///
 /// Result written to result[0]. Launch with 1 thread.
 #[unsafe(no_mangle)]
-pub unsafe extern "gpu-kernel" fn trait_reduce_i32(
-    data: *const i32,
-    n: u32,
-    result: *mut i32,
-) {
+pub unsafe extern "gpu-kernel" fn trait_reduce_i32(data: *const i32, n: u32, result: *mut i32) {
     let total = trait_reduce::<i32>(data, n as usize);
     unsafe {
         core::ptr::write(result, total);
@@ -2440,7 +2448,9 @@ pub unsafe extern "gpu-kernel" fn test_gpu_where_transform() {
             assert!(
                 diff < 0.001,
                 "where_transform f32[{}] = {}, expected {}",
-                i, actual, expected
+                i,
+                actual,
+                expected
             );
         }
 
@@ -2480,12 +2490,8 @@ pub unsafe extern "gpu-kernel" fn test_gpu_trait_combined() {
         // After transform: [12, 14, 16, 18, 20]
         // Sum: 80.0
         let mut f32_data: Vec<f32> = (1..=5).map(|i| i as f32).collect();
-        let f32_sum = transform_then_reduce::<f32>(
-            f32_data.as_mut_ptr(),
-            f32_data.len(),
-            2.0,
-            10.0,
-        );
+        let f32_sum =
+            transform_then_reduce::<f32>(f32_data.as_mut_ptr(), f32_data.len(), 2.0, 10.0);
         let diff = (f32_sum - 80.0).abs();
         assert!(
             diff < 0.01,
@@ -2497,12 +2503,7 @@ pub unsafe extern "gpu-kernel" fn test_gpu_trait_combined() {
         // After transform: [4, 7, 10, 13]
         // Sum: 34
         let mut i32_data: Vec<i32> = (1..=4).map(|i| i as i32).collect();
-        let i32_sum = transform_then_reduce::<i32>(
-            i32_data.as_mut_ptr(),
-            i32_data.len(),
-            3,
-            1,
-        );
+        let i32_sum = transform_then_reduce::<i32>(i32_data.as_mut_ptr(), i32_data.len(), 3, 1);
         assert_eq!(
             i32_sum, 34,
             "trait_combined i32: got {}, expected 34",
@@ -2539,16 +2540,8 @@ pub unsafe extern "gpu-kernel" fn test_gpu_trait_custom_vec2f() {
         let total = trait_reduce::<Vec2f>(data.as_ptr(), data.len());
         let dx = (total.x - 15.0).abs();
         let dy = (total.y - 150.0).abs();
-        assert!(
-            dx < 0.01,
-            "Vec2f reduce: x = {}, expected 15.0",
-            total.x
-        );
-        assert!(
-            dy < 0.01,
-            "Vec2f reduce: y = {}, expected 150.0",
-            total.y
-        );
+        assert!(dx < 0.01, "Vec2f reduce: x = {}, expected 15.0", total.x);
+        assert!(dy < 0.01, "Vec2f reduce: y = {}, expected 150.0", total.y);
 
         // Verify identity
         let id = Vec2f::identity();
@@ -2574,12 +2567,8 @@ pub unsafe extern "gpu-kernel" fn test_gpu_trait_custom_vec2f() {
         // Transform: [(1,2)→(3,5), (2,4)→(5,11), (3,6)→(7,17)]
         // x: 1*2+1=3, 2*2+1=5, 3*2+1=7 → sum=15
         // y: 2*3-1=5, 4*3-1=11, 6*3-1=17 → sum=33
-        let result = transform_then_reduce::<Vec2f>(
-            v2_data.as_mut_ptr(),
-            v2_data.len(),
-            factor,
-            amount,
-        );
+        let result =
+            transform_then_reduce::<Vec2f>(v2_data.as_mut_ptr(), v2_data.len(), factor, amount);
         assert!(
             (result.x - 15.0).abs() < 0.01,
             "Vec2f transform_then_reduce x: got {}, expected 15.0",
@@ -2628,14 +2617,25 @@ pub unsafe extern "gpu-kernel" fn test_gpu_trait_multi_type() {
             Vec2f { x: 3.0, y: 30.0 },
         ];
         let v2_sum = trait_reduce::<Vec2f>(v2_data.as_ptr(), v2_data.len());
-        assert!((v2_sum.x - 6.0).abs() < 0.01, "multi_type Vec2f x: got {}", v2_sum.x);
-        assert!((v2_sum.y - 60.0).abs() < 0.01, "multi_type Vec2f y: got {}", v2_sum.y);
+        assert!(
+            (v2_sum.x - 6.0).abs() < 0.01,
+            "multi_type Vec2f x: got {}",
+            v2_sum.x
+        );
+        assert!(
+            (v2_sum.y - 60.0).abs() < 0.01,
+            "multi_type Vec2f y: got {}",
+            v2_sum.y
+        );
 
         // f32 transform
         let mut f32_t: Vec<f32> = vec![1.0, 2.0, 3.0];
         apply_transform::<f32>(f32_t.as_mut_ptr(), f32_t.len(), 2.0, 5.0);
         assert!((f32_t[0] - 7.0).abs() < 0.01, "multi_type f32 transform[0]");
-        assert!((f32_t[2] - 11.0).abs() < 0.01, "multi_type f32 transform[2]");
+        assert!(
+            (f32_t[2] - 11.0).abs() < 0.01,
+            "multi_type f32 transform[2]"
+        );
 
         // u32 reduce (proves u32 impl works too)
         let u32_data: Vec<u32> = vec![100, 200, 300];
@@ -2769,7 +2769,8 @@ pub unsafe extern "gpu-kernel" fn test_gpu_generic_reduce_showcase() {
         assert!(
             f32_diff < 1.0,
             "parallel_reduce<f32> 1024 elems: got {}, expected {}",
-            f32_result, f32_expected
+            f32_result,
+            f32_expected
         );
 
         // ---- i32: sum of [1, 2, ..., 1024] ----
@@ -2805,10 +2806,18 @@ pub unsafe extern "gpu-kernel" fn test_gpu_generic_reduce_showcase() {
         );
 
         println!("[gpu_test] test_gpu_generic_reduce_showcase PASSED");
-        println!("  f32: parallel_reduce(1..=1024) = {} (expected {})", f32_result, f32_expected);
-        println!("  i32: parallel_reduce(1..=1024) = {} (expected 524800)", i32_result);
-        println!("  Vec2f: parallel_reduce = ({}, {}) (expected (524800, 1049600))",
-            vec2f_result.x, vec2f_result.y);
+        println!(
+            "  f32: parallel_reduce(1..=1024) = {} (expected {})",
+            f32_result, f32_expected
+        );
+        println!(
+            "  i32: parallel_reduce(1..=1024) = {} (expected 524800)",
+            i32_result
+        );
+        println!(
+            "  Vec2f: parallel_reduce = ({}, {}) (expected (524800, 1049600))",
+            vec2f_result.x, vec2f_result.y
+        );
     });
 }
 
@@ -2844,7 +2853,9 @@ pub unsafe extern "gpu-kernel" fn test_gpu_generic_zero_overhead() {
         assert!(
             f32_diff < 0.001,
             "zero-overhead f32: generic={}, handwritten={}, diff={}",
-            generic_f32, handwritten_f32, f32_diff
+            generic_f32,
+            handwritten_f32,
+            f32_diff
         );
 
         // ---- i32 comparison ----
@@ -2860,8 +2871,14 @@ pub unsafe extern "gpu-kernel" fn test_gpu_generic_zero_overhead() {
         );
 
         println!("[gpu_test] test_gpu_generic_zero_overhead PASSED");
-        println!("  f32: generic={}, handwritten={} (diff={})", generic_f32, handwritten_f32, f32_diff);
-        println!("  i32: generic={}, handwritten={}", generic_i32, handwritten_i32);
+        println!(
+            "  f32: generic={}, handwritten={} (diff={})",
+            generic_f32, handwritten_f32, f32_diff
+        );
+        println!(
+            "  i32: generic={}, handwritten={}",
+            generic_i32, handwritten_i32
+        );
     });
 }
 
@@ -2888,23 +2905,20 @@ pub unsafe extern "gpu-kernel" fn test_gpu_generic_map_reduce() {
         // After transform: [3.0, 5.0, 7.0, ..., 2049.0]
         // Sum: sum(2*i+1 for i=1..=1024) = 2*524800 + 1024 = 1050624.0
         let f32_data: Vec<f32> = (1..=N as u32).map(|i| i as f32).collect();
-        let f32_result = parallel_map_reduce::<f32>(
-            f32_data.as_ptr(), f32_data.len(), 2.0, 1.0
-        );
+        let f32_result = parallel_map_reduce::<f32>(f32_data.as_ptr(), f32_data.len(), 2.0, 1.0);
         let f32_expected = 1050624.0f32;
         let f32_diff = (f32_result - f32_expected).abs();
         assert!(
             f32_diff < 2.0,
             "map_reduce<f32>: got {}, expected {}",
-            f32_result, f32_expected
+            f32_result,
+            f32_expected
         );
 
         // i32: data = [1, ..., 100], transform: x*3+(-1), then sum
         // Sum: sum(3*i-1 for i=1..=100) = 3*5050 - 100 = 15050
         let i32_data: Vec<i32> = (1..=100).collect();
-        let i32_result = parallel_map_reduce::<i32>(
-            i32_data.as_ptr(), i32_data.len(), 3, -1
-        );
+        let i32_result = parallel_map_reduce::<i32>(i32_data.as_ptr(), i32_data.len(), 3, -1);
         assert_eq!(
             i32_result, 15050,
             "map_reduce<i32>: got {}, expected 15050",
@@ -2941,10 +2955,15 @@ pub unsafe extern "gpu-kernel" fn test_gpu_generic_map_reduce() {
         );
 
         println!("[gpu_test] test_gpu_generic_map_reduce PASSED");
-        println!("  f32 map_reduce: {} (expected {})", f32_result, f32_expected);
+        println!(
+            "  f32 map_reduce: {} (expected {})",
+            f32_result, f32_expected
+        );
         println!("  i32 map_reduce: {} (expected 15050)", i32_result);
-        println!("  Vec2f map_reduce: ({}, {}) (expected (2600, 38200))",
-            vec2f_result.x, vec2f_result.y);
+        println!(
+            "  Vec2f map_reduce: ({}, {}) (expected (2600, 38200))",
+            vec2f_result.x, vec2f_result.y
+        );
     });
 }
 
@@ -3005,7 +3024,11 @@ pub unsafe extern "gpu-kernel" fn test_gpu_generator_fibonacci() {
         };
 
         // Verify: generator returned the count of values yielded
-        assert_eq!(count, 10, "FibGenerator should return count=10, got {}", count);
+        assert_eq!(
+            count, 10,
+            "FibGenerator should return count=10, got {}",
+            count
+        );
 
         // Verify: consumer saw all 10 values
         assert_eq!(idx, 10, "Consumer should process 10 values, got {}", idx);
@@ -3021,7 +3044,10 @@ pub unsafe extern "gpu-kernel" fn test_gpu_generator_fibonacci() {
         assert!(all_correct, "Fibonacci sequence mismatch detected");
 
         println!("[gpu_test] test_gpu_generator_fibonacci PASSED");
-        println!("  Fibonacci(10): sum={} (expected {}), count={}", sum, expected_sum, count);
+        println!(
+            "  Fibonacci(10): sum={} (expected {}), count={}",
+            sum, expected_sum, count
+        );
     });
 }
 
@@ -3127,9 +3153,21 @@ pub unsafe extern "gpu-kernel" fn test_gpu_multi_generator() {
         };
 
         // Counter yields 0+1+...+7 = 28, returns 28
-        assert_eq!(counter_ret, 28, "Counter return should be 28, got {}", counter_ret);
-        assert_eq!(counter_sum, 28, "Counter sum should be 28, got {}", counter_sum);
-        assert_eq!(counter_count, 8, "Counter should yield 8 values, got {}", counter_count);
+        assert_eq!(
+            counter_ret, 28,
+            "Counter return should be 28, got {}",
+            counter_ret
+        );
+        assert_eq!(
+            counter_sum, 28,
+            "Counter sum should be 28, got {}",
+            counter_sum
+        );
+        assert_eq!(
+            counter_count, 8,
+            "Counter should yield 8 values, got {}",
+            counter_count
+        );
 
         // === Generator 2: FibGenerator(8) — yields first 8 Fibonacci numbers ===
         let mut fib_gen = FibGenerator::new(8);
@@ -3167,7 +3205,11 @@ pub unsafe extern "gpu-kernel" fn test_gpu_multi_generator() {
         };
 
         assert_eq!(fib1_ret, 1, "Fib(1) return should be 1, got {}", fib1_ret);
-        assert_eq!(single_val, 0, "Fib(1) single yield should be 0, got {}", single_val);
+        assert_eq!(
+            single_val, 0,
+            "Fib(1) single yield should be 0, got {}",
+            single_val
+        );
 
         // === Generator 4: CounterGenerator(0) — edge case: zero yields ===
         let mut counter0 = CounterGenerator::new(0);
@@ -3183,19 +3225,102 @@ pub unsafe extern "gpu-kernel" fn test_gpu_multi_generator() {
             )
         };
 
-        assert_eq!(counter0_ret, 0, "Counter(0) return should be 0, got {}", counter0_ret);
-        assert_eq!(zero_count, 0, "Counter(0) should yield 0 values, got {}", zero_count);
+        assert_eq!(
+            counter0_ret, 0,
+            "Counter(0) return should be 0, got {}",
+            counter0_ret
+        );
+        assert_eq!(
+            zero_count, 0,
+            "Counter(0) should yield 0 values, got {}",
+            zero_count
+        );
 
         println!("[gpu_test] test_gpu_multi_generator PASSED");
-        println!(
-            "  Counter(8): sum={}, count={}",
-            counter_sum, counter_count
-        );
-        println!(
-            "  Fib(8): sum={}, count={}",
-            fib_sum, fib_count
-        );
+        println!("  Counter(8): sum={}, count={}", counter_sum, counter_count);
+        println!("  Fib(8): sum={}, count={}", fib_sum, fib_count);
         println!("  Fib(1): single_val={}", single_val);
         println!("  Counter(0): zero yields — edge case OK");
+    });
+}
+
+// ============================================================
+// dyn-probe.1: Investigation — &dyn Trait on nvptx64
+// ============================================================
+//
+// Minimal experiment to determine if &dyn Trait compiles to valid PTX.
+// Creates a trait, two impls, and calls a method through a trait object.
+
+/// Trait for dyn dispatch experiment.
+trait Greeter {
+    fn greet(&self) -> u32;
+}
+
+struct GreeterA;
+impl Greeter for GreeterA {
+    fn greet(&self) -> u32 {
+        42
+    }
+}
+
+struct GreeterB;
+impl Greeter for GreeterB {
+    fn greet(&self) -> u32 {
+        99
+    }
+}
+
+/// Call a method through &dyn Greeter. This forces the compiler to emit
+/// a vtable lookup and indirect call (the core of dynamic dispatch).
+#[inline(never)]
+fn call_greeter(g: &dyn Greeter) -> u32 {
+    g.greet()
+}
+
+/// GPU test: &dyn Trait — dynamic dispatch on GPU.
+///
+/// Creates two different Greeter impls, calls them through &dyn Greeter,
+/// and verifies the correct values are returned. If this compiles and runs,
+/// dynamic dispatch works on nvptx64.
+///
+/// Zero-param entry. Launch with: block_dim=(128,1,1), 1 block, NO kernel args.
+#[unsafe(no_mangle)]
+pub unsafe extern "gpu-kernel" fn test_gpu_dyn_trait(result: *mut u32) {
+    let buf = stdio_auto_init();
+    if buf.is_null() {
+        return;
+    }
+
+    gpu_runtime::thread::gpu_main(|| {
+        let a = GreeterA;
+        let b = GreeterB;
+
+        // Call through &dyn Greeter — requires vtable lookup + indirect call
+        let val_a = call_greeter(&a as &dyn Greeter);
+        let val_b = call_greeter(&b as &dyn Greeter);
+
+        assert_eq!(val_a, 42, "GreeterA.greet() via &dyn should return 42");
+        assert_eq!(val_b, 99, "GreeterB.greet() via &dyn should return 99");
+
+        // Also test with a runtime-chosen trait object
+        let flag = val_a; // non-const to prevent compile-time resolution
+        let dynamic: &dyn Greeter = if flag == 42 { &a } else { &b };
+        let val_dynamic = dynamic.greet();
+        assert_eq!(
+            val_dynamic, 42,
+            "runtime-selected dyn dispatch should return 42"
+        );
+
+        // Write results to device memory for host verification
+        unsafe {
+            core::ptr::write_volatile(result, val_a);
+            core::ptr::write_volatile(result.add(1), val_b);
+            core::ptr::write_volatile(result.add(2), val_dynamic);
+        }
+
+        println!("[gpu_test] test_gpu_dyn_trait PASSED");
+        println!("  GreeterA via &dyn: {}", val_a);
+        println!("  GreeterB via &dyn: {}", val_b);
+        println!("  Runtime-selected: {}", val_dynamic);
     });
 }

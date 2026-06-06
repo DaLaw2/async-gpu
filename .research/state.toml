@@ -18,7 +18,7 @@ current_step = "dispatch"
 current_task_id = ""
 
 # Sequence counters
-brainstorm_seq = 128
+brainstorm_seq = 129
 tasks_since_brainstorm = 0
 
 # ---
@@ -102,9 +102,14 @@ success_criteria = [
 id = "gpu-dyn-dispatch"
 epic = "lang-complete"
 title = "Dynamic Dispatch on GPU — Box<dyn Trait> and trait objects work"
-status = "pending"
+status = "active"
 priority = "medium"
-# success_criteria archived — will be refined when story activates
+success_criteria = [
+    "Box<dyn Trait> compiles to valid PTX with correct vtable address space handling",
+    "&dyn Fn() closures work on GPU — indirect call through vtable succeeds",
+    "A no_std crate using dyn Trait compiles and runs on GPU unmodified",
+    "Dynamic dispatch overhead measured: <3x vs monomorphized static dispatch",
+]
 
 [[stories]]
 id = "std-completeness"
@@ -164,6 +169,7 @@ priority = "low"
 id = "compile-time-cost"
 epic = "perf-transparent"
 title = "Compile-Time Cost Model — know GPU performance at compile time"
+seq = 59
 status = "completed"
 priority = "medium"
 success_criteria = [
@@ -320,6 +326,46 @@ success_criteria = [
     "Warning: uncoalesced global memory access",
 ]
 
+# --- gpu-dyn-dispatch features ---
+
+[[features]]
+id = "dyn-probe"
+story = "gpu-dyn-dispatch"
+title = "Probe: can &dyn Trait compile and run on nvptx64?"
+status = "active"
+goal = "Determine whether LLVM PTX backend supports indirect calls through vtable pointers"
+success_criteria = [
+    "Minimal &dyn Trait kernel compiles to PTX (or fails with clear error)",
+    "If compiles: indirect call executes correctly on GPU hardware",
+    "Address space handling for vtable pointers documented",
+    "If fails: root cause identified (LLVM limitation vs address space vs other)",
+]
+
+[[features]]
+id = "dyn-box"
+story = "gpu-dyn-dispatch"
+title = "Box<dyn Trait> end-to-end on GPU"
+status = "pending"
+goal = "Heap-allocated trait objects with dynamic dispatch working on GPU"
+success_criteria = [
+    "Box<dyn Trait> allocates via hostcall allocator and dispatches through vtable",
+    "&dyn Fn() closures work — indirect call succeeds",
+    "Drop for Box<dyn Trait> correctly deallocates",
+    "Multiple trait impls dispatched in same kernel",
+]
+
+[[features]]
+id = "dyn-perf"
+story = "gpu-dyn-dispatch"
+title = "Measure dynamic vs static dispatch overhead on GPU"
+status = "pending"
+goal = "Quantify the performance cost of dyn dispatch vs monomorphization on GPU"
+success_criteria = [
+    "Benchmark: same algorithm via dyn Trait vs generic<T: Trait>",
+    "Overhead ratio documented (target: <3x for indirect call penalty)",
+    "PTX diff analysis: what extra instructions does dyn dispatch emit?",
+]
+
 # --- conv-perf features ---
 # Archived at cycle 639 (pending story — features/tasks will be re-brainstormed):
 #   conv-perf: perf-conv-batch, perf-conv-wino, conv-e2e (8 tasks)
@@ -341,47 +387,56 @@ success_criteria = [
 # Done tasks archived (cycle 638): coro-impl.1-.2, cost-analysis.1-.2, cost-warnings.1
 # Previously archived (cycles <=623 through 634): 30+ tasks
 
-# --- compile-time-cost ---
+# --- compile-time-cost (archived) ---
+# cost-warnings.2: done (cycle 642)
+
+# --- gpu-dyn-dispatch ---
 
 [[tasks]]
-id = "cost-warnings.2"
-feature = "cost-warnings"
-title = "Experiment: catch real perf issue in existing kernel via compile-time lint"
-kind = "experiment"
+id = "dyn-probe.1"
+feature = "dyn-probe"
+title = "Investigation: compile minimal &dyn Trait kernel to PTX, analyze LLVM IR"
+kind = "investigation"
 status = "done"
-depends = ["cost-warnings.1"]
+depends = []
+
+[[tasks]]
+id = "dyn-probe.2"
+feature = "dyn-probe"
+title = "Experiment: run &dyn Trait kernel on GPU hardware, verify indirect call works"
+kind = "experiment"
+status = "pending"
+depends = ["dyn-probe.1"]
+
+[[tasks]]
+id = "dyn-box.1"
+feature = "dyn-box"
+title = "Experiment: Box<dyn Trait> allocation + dispatch on GPU via hostcall allocator"
+kind = "experiment"
+status = "pending"
+depends = ["dyn-probe.2"]
+
+[[tasks]]
+id = "dyn-box.2"
+feature = "dyn-box"
+title = "Experiment: &dyn Fn() closures and Drop for Box<dyn Trait> on GPU"
+kind = "experiment"
+status = "pending"
+depends = ["dyn-box.1"]
+
+[[tasks]]
+id = "dyn-perf.1"
+feature = "dyn-perf"
+title = "Experiment: benchmark dyn dispatch vs monomorphized dispatch on GPU"
+kind = "experiment"
+status = "pending"
+depends = ["dyn-box.1"]
 
 # ---
 # Brainstorms (last 3 — older → archive/)
 # ---
 
-# Brainstorms 109-124 archived (cycles 535-634)
-
-[[brainstorms]]
-seq = 125
-at_cycle = 638
-trigger = "gpu-coroutines story completed (56th story). Post-completion assessment."
-level = "standard"
-new_tasks_spawned = []
-new_features_spawned = []
-new_stories_spawned = []
-features_parked = []
-features_completed = ["coro-impl"]
-stories_completed = ["gpu-coroutines"]
-key_insight = "compile-time-cost nearly done (cost-warnings active). Strategic direction review: GPU disappears arc identified. 5 off-line stories parked, 6 new stories created (gpu-panic, gpu-dyn-dispatch, transparent-data, auto-tuning, feature-audit, whole-program-partition)."
-
-[[brainstorms]]
-seq = 126
-at_cycle = 638
-trigger = "No ready tasks remain — high-priority stories (gpu-panic, feature-audit) block medium, need features/tasks"
-level = "standard"
-new_tasks_spawned = ["panic-std-intercept.1", "panic-std-intercept.2", "panic-unwrap-verify.1", "panic-unwrap-verify.2", "panic-deprecate-gpu-assert.1", "panic-deprecate-gpu-assert.2", "audit-build.1", "audit-build.2", "audit-runtime.1", "audit-runtime.2", "audit-api.1", "audit-api.2"]
-new_features_spawned = ["panic-std-intercept", "panic-unwrap-verify", "panic-deprecate-gpu-assert", "audit-build", "audit-runtime", "audit-api"]
-new_stories_spawned = []
-features_parked = []
-features_completed = []
-stories_completed = []
-key_insight = "gpu-panic has mature infrastructure (ADR-5, SERVICE_PANIC, panic_handler!()). Key gap: unify two panic paths (no_std vs patched std) and inject warp/thread metadata. feature-audit split into build/runtime/api for parallelism. 4 tasks can start immediately."
+# Brainstorms 109-126 archived (cycles 535-638)
 
 [[brainstorms]]
 seq = 127
@@ -395,3 +450,29 @@ features_parked = []
 features_completed = ["panic-std-intercept", "panic-unwrap-verify", "audit-build"]
 stories_completed = []
 key_insight = "Both stories have clear runways — no new tasks needed. Abort-path gap (set_warp_trapped/write_panic_to_result missing from std panic) is a real reliability issue but orthogonal to story criteria — track as follow-on feature, not blocker."
+
+[[brainstorms]]
+seq = 128
+at_cycle = 642
+trigger = "2 stories completed (gpu-panic #57, feature-audit #58). Priority gate lifted."
+level = "standard"
+new_tasks_spawned = []
+new_features_spawned = []
+new_stories_spawned = []
+features_parked = []
+features_completed = []
+stories_completed = ["gpu-panic", "feature-audit"]
+key_insight = "Clean inflection: all high-priority done. Dispatch cost-warnings.2 immediately, activate gpu-dyn-dispatch (Box<dyn Trait> on GPU) as next medium-priority story — no blocking deps, directly advances lang-complete north star."
+
+[[brainstorms]]
+seq = 129
+at_cycle = 642
+trigger = "No ready tasks remain. 3 stories completed (#57-59). bs128 recommended gpu-dyn-dispatch."
+level = "standard"
+new_tasks_spawned = ["dyn-probe.1", "dyn-probe.2", "dyn-box.1", "dyn-box.2", "dyn-perf.1"]
+new_features_spawned = ["dyn-probe", "dyn-box", "dyn-perf"]
+new_stories_spawned = []
+features_parked = []
+features_completed = []
+stories_completed = ["compile-time-cost"]
+key_insight = "GPU already uses vtables (Waker) but only as inlined constants. True dyn dispatch (runtime vtable lookup + indirect call) is untested on nvptx64. First task: probe whether LLVM PTX backend can emit indirect calls through vtable pointers — this gates the entire story."

@@ -18,7 +18,7 @@ current_step = "dispatch"
 current_task_id = ""
 
 # Sequence counters
-brainstorm_seq = 130
+brainstorm_seq = 133
 tasks_since_brainstorm = 0
 
 # ---
@@ -210,7 +210,7 @@ success_criteria = [
 id = "ownership-memory"
 epic = "perf-transparent"
 title = "Ownership = Memory Hierarchy — Rust lifetimes map to GPU memory tiers"
-status = "pending"
+status = "active"
 priority = "low"
 depends_on = "structured-concurrency"
 # success_criteria archived — will be refined when story activates
@@ -433,12 +433,53 @@ success_criteria = [
 # Archived at cycle 639 (pending story — features/tasks will be re-brainstormed):
 #   conv-perf: perf-conv-batch, perf-conv-wino, conv-e2e (8 tasks)
 
-# --- auto-parallel, std-completeness, ownership-memory features ---
+# --- auto-parallel, std-completeness features ---
 # Archived at cycle 639 (low-priority pending stories — features/tasks will be
 # re-brainstormed when stories activate):
 #   auto-parallel: ap-analysis, ap-transform (4 tasks)
 #   std-completeness: std-sync, std-net-server, std-compat (9 tasks)
-#   ownership-memory: om-design, om-compiler, om-demo (8 tasks)
+# Previous ownership-memory features (om-design, om-compiler, om-demo, 8 tasks)
+# archived at cycle 639 — re-brainstormed as bs133 below.
+
+# --- ownership-memory ---
+
+[[features]]
+id = "om-tiered-types"
+story = "ownership-memory"
+title = "Lifetime-parameterized memory tier types"
+status = "active"
+goal = "Type-level distinction between shared, global, and register memory via scope lifetimes"
+success_criteria = [
+    "SharedRef<'block, T> and GlobalRef<'grid, T> wrapper types with distinct address-space semantics",
+    "BlockScope::alloc returns SharedRef, GridScope::alloc returns GlobalRef — existing &'scope mut [T] replaced",
+    "Type mismatch at compile time if shared-memory ref passed where global-memory ref expected",
+    "Existing GEMM/attention kernels adapted to use tiered types without performance regression",
+]
+
+[[features]]
+id = "om-borrow-safety"
+story = "ownership-memory"
+title = "Borrow checker prevents cross-scope memory access"
+status = "pending"
+goal = "Compile-time rejection of cross-tier memory access violations"
+success_criteria = [
+    "Returning a SharedRef from a BlockScope closure is a compile error (lifetime bound prevents escape)",
+    "Passing a SharedRef to a GridScope worker is a compile error (lifetime mismatch)",
+    "Negative tests: at least 3 programs that SHOULD fail to compile, verified via compile_fail tests",
+    "Positive tests: valid cross-scope patterns (read global from block scope) compile and run correctly",
+]
+
+[[features]]
+id = "om-register-promo"
+story = "ownership-memory"
+title = "Register promotion for move semantics in inner loops"
+status = "pending"
+goal = "Move semantics on tiered types hint LLVM to promote values to registers"
+success_criteria = [
+    "Investigation: PTX diff showing register vs memory access for moved vs borrowed values",
+    "Inner-loop local variables (owned T, not &T) consistently placed in registers in PTX output",
+    "At least one kernel where move-semantic register promotion measurably improves performance",
+]
 
 # ---
 # Tasks (active/pending only — done → archive/)
@@ -516,24 +557,69 @@ kind = "experiment"
 status = "done"
 depends = ["at-framework.2"]
 
+# --- ownership-memory ---
+
+[[tasks]]
+id = "om-tiered-types.1"
+feature = "om-tiered-types"
+title = "Investigation: audit BlockScope/GridScope alloc and map LLVM addrspace semantics"
+kind = "investigation"
+status = "done"
+depends = []
+
+[[tasks]]
+id = "om-tiered-types.2"
+feature = "om-tiered-types"
+title = "Design: define SharedRef<'block, T> and GlobalRef<'grid, T> with address-space phantom types"
+kind = "design"
+status = "pending"
+depends = ["om-tiered-types.1"]
+
+[[tasks]]
+id = "om-tiered-types.3"
+feature = "om-tiered-types"
+title = "Experiment: integrate tiered types into BlockScope/GridScope alloc and adapt GEMM kernel"
+kind = "experiment"
+status = "pending"
+depends = ["om-tiered-types.2"]
+
+[[tasks]]
+id = "om-borrow-safety.1"
+feature = "om-borrow-safety"
+title = "Experiment: write compile_fail tests for cross-scope memory access violations"
+kind = "experiment"
+status = "pending"
+depends = ["om-tiered-types.3"]
+
+[[tasks]]
+id = "om-borrow-safety.2"
+feature = "om-borrow-safety"
+title = "Experiment: verify valid cross-scope patterns compile and run on GPU"
+kind = "experiment"
+status = "pending"
+depends = ["om-borrow-safety.1"]
+
+[[tasks]]
+id = "om-register-promo.1"
+feature = "om-register-promo"
+title = "Investigation: PTX diff analysis of register vs memory placement for owned vs borrowed values"
+kind = "investigation"
+status = "pending"
+depends = ["om-tiered-types.3"]
+
+[[tasks]]
+id = "om-register-promo.2"
+feature = "om-register-promo"
+title = "Experiment: demonstrate register promotion speedup in inner-loop kernel via move semantics"
+kind = "experiment"
+status = "pending"
+depends = ["om-register-promo.1"]
+
 # ---
 # Brainstorms (last 3 — older → archive/)
 # ---
 
-# Brainstorms 109-127 archived (cycles 535-640)
-
-[[brainstorms]]
-seq = 128
-at_cycle = 642
-trigger = "2 stories completed (gpu-panic #57, feature-audit #58). Priority gate lifted."
-level = "standard"
-new_tasks_spawned = []
-new_features_spawned = []
-new_stories_spawned = []
-features_parked = []
-features_completed = []
-stories_completed = ["gpu-panic", "feature-audit"]
-key_insight = "Clean inflection: all high-priority done. Dispatch cost-warnings.2 immediately, activate gpu-dyn-dispatch (Box<dyn Trait> on GPU) as next medium-priority story — no blocking deps, directly advances lang-complete north star."
+# Brainstorms 109-128 archived (cycles 535-642)
 
 [[brainstorms]]
 seq = 129
@@ -560,3 +646,16 @@ features_parked = []
 features_completed = []
 stories_completed = ["gpu-dyn-dispatch"]
 key_insight = "With dyn dispatch and compile-time cost model shipped, the two highest-impact remaining stories are transparent-data (Vec<f32> replaces GpuVec — every program gets simpler) and auto-tuning (runtime selects optimal kernel params — every program gets faster). Activating both advances invisible-exec and perf-transparent in parallel."
+
+[[brainstorms]]
+seq = 133
+at_cycle = 642
+trigger = "ownership-memory story activated by 3/3 majority vote. Previous features archived at cycle 639."
+level = "standard"
+new_tasks_spawned = ["om-tiered-types.1", "om-tiered-types.2", "om-tiered-types.3", "om-borrow-safety.1", "om-borrow-safety.2", "om-register-promo.1", "om-register-promo.2"]
+new_features_spawned = ["om-tiered-types", "om-borrow-safety", "om-register-promo"]
+new_stories_spawned = []
+features_parked = []
+features_completed = []
+stories_completed = []
+key_insight = "The foundation exists: BlockScope/GridScope already return lifetime-bounded refs from distinct address spaces, but both are plain &'scope mut [T]. The type system can't distinguish them. Introducing SharedRef<'block, T>/GlobalRef<'grid, T> phantom-typed wrappers makes the borrow checker enforce memory hierarchy rules at zero runtime cost — and guides LLVM to emit address-space-specific loads/stores."

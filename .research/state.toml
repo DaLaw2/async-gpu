@@ -102,7 +102,7 @@ success_criteria = [
 id = "gpu-dyn-dispatch"
 epic = "lang-complete"
 title = "Dynamic Dispatch on GPU — Box<dyn Trait> and trait objects work"
-status = "active"
+status = "completed"
 priority = "medium"
 success_criteria = [
     "Box<dyn Trait> compiles to valid PTX with correct vtable address space handling",
@@ -370,7 +370,7 @@ success_criteria = [
 id = "dyn-compat"
 story = "gpu-dyn-dispatch"
 title = "Third-party no_std crate with dyn Trait on GPU"
-status = "active"
+status = "completed"
 goal = "Compile and run at least one third-party no_std crate using dyn Trait on GPU unmodified"
 success_criteria = [
     "Survey: identify no_std crates that use dyn Trait internally",

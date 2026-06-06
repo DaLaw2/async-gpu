@@ -477,6 +477,112 @@ fn test_gpu_box_dyn_trait() {
 }
 
 // ============================================================================
+// GPU tests — &dyn Fn() closures + Drop for Box<dyn Trait> (dyn-box.2)
+// ============================================================================
+
+/// Test &dyn Fn() closures and Drop for Box<dyn Trait> on GPU hardware.
+///
+/// The kernel `test_gpu_dyn_fn_and_drop` in gpu-kernel-test:
+///   - Creates &dyn Fn() closures (simple and capturing)
+///   - Calls closures through &dyn Fn and via call_fn_dyn helper
+///   - Creates Box<dyn Fn()> (heap-allocated closure with capture)
+///   - Creates Box<dyn Droppable> and verifies Drop::drop is called via vtable
+///   - Creates Vec<Box<dyn Droppable>> with HasDrop + HasDrop2 and verifies
+///     all destructors are called with correct dispatch
+///   - Writes [11, 20, 15, 21, 105, 42, 1, 201] to output buffer
+///
+/// Uses `GpuStdModule` to inject hostcall via `__HOSTCALL_BUF` device global.
+#[test]
+fn test_gpu_dyn_fn_and_drop() {
+    // Load cubin for fast startup (sub-second) or fall back to PTX JIT (~25 min).
+    let cubin = {
+        let manifest = env!("CARGO_MANIFEST_DIR");
+        let cubin_path =
+            std::path::Path::new(manifest).join("../../core/gpu-host/kernel_test.cubin");
+        std::fs::read(&cubin_path).unwrap_or_default()
+    };
+
+    let module = gpu_host::gpu::GpuStdModule::load_with_cubin(
+        gpu_host::ptx::KERNEL_STD,
+        &cubin,
+        "test_gpu_dyn_fn_and_drop",
+        128,
+        (1, 1, 1),
+        Some(Box::new(|msg| {
+            let s = String::from_utf8_lossy(msg);
+            eprintln!("  [GPU] {}", s.trim());
+        })),
+    )
+    .expect("failed to load test_gpu_dyn_fn_and_drop kernel");
+
+    // Allocate output buffer: 8 x u32
+    let result_dev: cudarc::driver::CudaSlice<u32> = module
+        .device()
+        .alloc_zeros::<u32>(8)
+        .expect("failed to allocate output buffer");
+    let mut result_ptr: u64 = *result_dev.device_ptr();
+
+    unsafe {
+        module
+            .launch_raw(&[&mut result_ptr as *mut u64 as *mut std::ffi::c_void])
+            .expect("test_gpu_dyn_fn_and_drop kernel launch failed");
+    }
+
+    // Brief sleep so hostcall listener can flush remaining println! messages
+    std::thread::sleep(std::time::Duration::from_millis(100));
+
+    let result: Vec<u32> = module
+        .device()
+        .dtoh_sync_copy(&result_dev)
+        .expect("failed to copy results from device");
+    module.finish();
+
+    // Verify &dyn Fn() closures
+    assert_eq!(
+        result[0], 11,
+        "&dyn Fn add_one(10) should return 11, got {}",
+        result[0]
+    );
+    assert_eq!(
+        result[1], 20,
+        "&dyn Fn double(10) should return 20, got {}",
+        result[1]
+    );
+    assert_eq!(
+        result[2], 15,
+        "captured closure add_captured(5) should return 15, got {}",
+        result[2]
+    );
+    assert_eq!(
+        result[3], 21,
+        "captured closure mul_captured(3) should return 21, got {}",
+        result[3]
+    );
+    assert_eq!(
+        result[4], 105,
+        "Box<dyn Fn>(100) should return 105, got {}",
+        result[4]
+    );
+
+    // Verify Drop for Box<dyn Trait>
+    assert_eq!(
+        result[5], 42,
+        "HasDrop.value() via Box<dyn Droppable> should return 42, got {}",
+        result[5]
+    );
+    assert_eq!(
+        result[6], 1,
+        "drop_counter after single Box<dyn> drop should be 1, got {}",
+        result[6]
+    );
+    assert_eq!(
+        result[7], 201,
+        "drop_counter after Vec<Box<dyn>> drop should be 201, got {}",
+        result[7]
+    );
+}
+
+// ============================================================================
 // CPU tests — regular #[test] functions that coexist with #[gpu_test]
 // ============================================================================
 

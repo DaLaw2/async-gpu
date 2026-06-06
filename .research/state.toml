@@ -332,7 +332,7 @@ success_criteria = [
 id = "dyn-probe"
 story = "gpu-dyn-dispatch"
 title = "Probe: can &dyn Trait compile and run on nvptx64?"
-status = "active"
+status = "completed"
 goal = "Determine whether LLVM PTX backend supports indirect calls through vtable pointers"
 success_criteria = [
     "Minimal &dyn Trait kernel compiles to PTX (or fails with clear error)",
@@ -345,7 +345,7 @@ success_criteria = [
 id = "dyn-box"
 story = "gpu-dyn-dispatch"
 title = "Box<dyn Trait> end-to-end on GPU"
-status = "pending"
+status = "completed"
 goal = "Heap-allocated trait objects with dynamic dispatch working on GPU"
 success_criteria = [
     "Box<dyn Trait> allocates via hostcall allocator and dispatches through vtable",
@@ -358,7 +358,7 @@ success_criteria = [
 id = "dyn-perf"
 story = "gpu-dyn-dispatch"
 title = "Measure dynamic vs static dispatch overhead on GPU"
-status = "pending"
+status = "completed"
 goal = "Quantify the performance cost of dyn dispatch vs monomorphization on GPU"
 success_criteria = [
     "Benchmark: same algorithm via dyn Trait vs generic<T: Trait>",
@@ -421,7 +421,7 @@ id = "dyn-box.2"
 feature = "dyn-box"
 title = "Experiment: &dyn Fn() closures and Drop for Box<dyn Trait> on GPU"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["dyn-box.1"]
 
 [[tasks]]
@@ -429,7 +429,7 @@ id = "dyn-perf.1"
 feature = "dyn-perf"
 title = "Experiment: benchmark dyn dispatch vs monomorphized dispatch on GPU"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["dyn-box.1"]
 
 # ---

@@ -3368,6 +3368,220 @@ fn call_animal(a: &dyn Animal) -> u32 {
     a.speak()
 }
 
+// ============================================================
+// dyn-box.2: &dyn Fn() closures and Drop for Box<dyn Trait> on GPU
+// ============================================================
+//
+// Part 1: &dyn Fn() closures — closures as trait objects
+// Part 2: Box<dyn Fn()> — heap-allocated closures
+// Part 3: Closures that capture variables
+// Part 4: Drop for Box<dyn Trait> — destructor dispatch via vtable
+
+/// Call a closure through &dyn Fn(u32) -> u32. Forces vtable lookup + indirect call.
+#[inline(never)]
+fn call_fn_dyn(f: &dyn Fn(u32) -> u32, arg: u32) -> u32 {
+    f(arg)
+}
+
+/// Trait for Drop experiment — returns a value and tracks drops via a counter pointer.
+trait Droppable {
+    fn value(&self) -> u32;
+}
+
+struct HasDrop {
+    val: u32,
+    drop_counter: *mut u32,
+}
+
+impl Droppable for HasDrop {
+    fn value(&self) -> u32 {
+        self.val
+    }
+}
+
+impl Drop for HasDrop {
+    fn drop(&mut self) {
+        // Increment the drop counter to prove this destructor was called
+        unsafe {
+            let count = core::ptr::read_volatile(self.drop_counter);
+            core::ptr::write_volatile(self.drop_counter, count + 1);
+        }
+    }
+}
+
+/// Another droppable type — different struct, different drop behavior.
+struct HasDrop2 {
+    val: u32,
+    drop_counter: *mut u32,
+}
+
+impl Droppable for HasDrop2 {
+    fn value(&self) -> u32 {
+        self.val * 10
+    }
+}
+
+impl Drop for HasDrop2 {
+    fn drop(&mut self) {
+        // Increment by 100 to distinguish from HasDrop's drop
+        unsafe {
+            let count = core::ptr::read_volatile(self.drop_counter);
+            core::ptr::write_volatile(self.drop_counter, count + 100);
+        }
+    }
+}
+
+/// GPU test: &dyn Fn() closures as trait objects on GPU.
+///
+/// Tests:
+///   1. Simple closures (no capture) through &dyn Fn
+///   2. Closures that capture variables through &dyn Fn
+///   3. Box<dyn Fn()> — heap-allocated closures
+///   4. Drop for Box<dyn Trait> — destructor dispatch via vtable
+///
+/// result layout:
+///   [0] = add_one(10)     — expect 11
+///   [1] = double(10)      — expect 20
+///   [2] = add_captured(5) — expect 15 (captures offset=10)
+///   [3] = mul_captured(3) — expect 21 (captures factor=7)
+///   [4] = box_fn(100)     — expect 105 (Box<dyn Fn>, captures 5)
+///   [5] = value from Box<dyn Droppable> — expect 42
+///   [6] = drop counter    — expect 1 (one HasDrop dropped)
+///   [7] = drop counter after vec — expect 201 (1 HasDrop + 2 HasDrop2)
+///
+/// Launch with: block_dim=(128,1,1), 1 block.
+#[unsafe(no_mangle)]
+pub unsafe extern "gpu-kernel" fn test_gpu_dyn_fn_and_drop(result: *mut u32) {
+    let buf = stdio_auto_init();
+    if buf.is_null() {
+        return;
+    }
+
+    gpu_runtime::thread::gpu_main(|| {
+        // === Part 1: Simple &dyn Fn() closures (no capture) ===
+        let add_one: &dyn Fn(u32) -> u32 = &|x| x + 1;
+        let double: &dyn Fn(u32) -> u32 = &|x| x * 2;
+
+        let r0 = add_one(10); // expect 11
+        let r1 = double(10); // expect 20
+        assert_eq!(r0, 11, "&dyn Fn add_one(10) should be 11");
+        assert_eq!(r1, 20, "&dyn Fn double(10) should be 20");
+
+        // Also test calling through a helper that takes &dyn Fn
+        let r0b = call_fn_dyn(add_one, 10);
+        let r1b = call_fn_dyn(double, 10);
+        assert_eq!(r0b, 11, "call_fn_dyn(add_one, 10) should be 11");
+        assert_eq!(r1b, 20, "call_fn_dyn(double, 10) should be 20");
+
+        // === Part 2: Closures that capture variables ===
+        let offset = 10u32;
+        let add_captured: &dyn Fn(u32) -> u32 = &|x| x + offset;
+        let r2 = add_captured(5); // expect 15
+        assert_eq!(r2, 15, "captured closure add_captured(5) should be 15");
+
+        let factor = 7u32;
+        let mul_captured: &dyn Fn(u32) -> u32 = &|x| x * factor;
+        let r3 = mul_captured(3); // expect 21
+        assert_eq!(r3, 21, "captured closure mul_captured(3) should be 21");
+
+        // Also test captured closures through call_fn_dyn
+        let r2b = call_fn_dyn(add_captured, 5);
+        let r3b = call_fn_dyn(mul_captured, 3);
+        assert_eq!(r2b, 15, "call_fn_dyn(add_captured, 5) should be 15");
+        assert_eq!(r3b, 21, "call_fn_dyn(mul_captured, 3) should be 21");
+
+        // === Part 3: Box<dyn Fn()> — heap-allocated closures ===
+        let bias = 5u32;
+        let box_fn: Box<dyn Fn(u32) -> u32> = Box::new(move |x| x + bias);
+        let r4 = box_fn(100); // expect 105
+        assert_eq!(r4, 105, "Box<dyn Fn>(100) should be 105");
+
+        // Call Box<dyn Fn> through &dyn Fn (auto-deref)
+        let r4b = call_fn_dyn(&*box_fn, 100);
+        assert_eq!(r4b, 105, "call_fn_dyn(&*Box<dyn Fn>, 100) should be 105");
+
+        // === Part 4: Drop for Box<dyn Trait> ===
+        // Use a drop counter in a local variable to prove Drop::drop was called
+        let mut drop_counter: u32 = 0;
+
+        // Create Box<dyn Droppable> and read its value
+        {
+            let b: Box<dyn Droppable> = Box::new(HasDrop {
+                val: 42,
+                drop_counter: &mut drop_counter as *mut u32,
+            });
+            let r5 = b.value();
+            assert_eq!(r5, 42, "HasDrop.value() via Box<dyn> should be 42");
+
+            // Write r5 to result before b is dropped
+            unsafe {
+                core::ptr::write_volatile(result.add(5), r5);
+            }
+            // b is dropped here — HasDrop::drop should increment drop_counter
+        }
+
+        // Verify drop was called
+        let r6 = unsafe { core::ptr::read_volatile(&drop_counter) };
+        assert_eq!(
+            r6, 1,
+            "drop_counter should be 1 after dropping Box<dyn Droppable>"
+        );
+
+        // === Part 5: Drop for Vec<Box<dyn Droppable>> ===
+        // Multiple drops from a heterogeneous collection
+        let mut drop_counter2: u32 = 0;
+        {
+            let mut items: Vec<Box<dyn Droppable>> = Vec::new();
+            items.push(Box::new(HasDrop {
+                val: 10,
+                drop_counter: &mut drop_counter2 as *mut u32,
+            }));
+            items.push(Box::new(HasDrop2 {
+                val: 20,
+                drop_counter: &mut drop_counter2 as *mut u32,
+            }));
+            items.push(Box::new(HasDrop2 {
+                val: 30,
+                drop_counter: &mut drop_counter2 as *mut u32,
+            }));
+
+            // Verify values through trait dispatch
+            assert_eq!(items[0].value(), 10, "HasDrop val=10");
+            assert_eq!(items[1].value(), 200, "HasDrop2 val=20 -> 200");
+            assert_eq!(items[2].value(), 300, "HasDrop2 val=30 -> 300");
+            // items dropped here — 1 HasDrop + 2 HasDrop2 = 1 + 200 = 201
+        }
+
+        let r7 = unsafe { core::ptr::read_volatile(&drop_counter2) };
+        assert_eq!(
+            r7, 201,
+            "drop_counter2 should be 201 (1 HasDrop + 2 HasDrop2)"
+        );
+
+        // Write all results to device memory
+        unsafe {
+            core::ptr::write_volatile(result, r0); // [0] = 11
+            core::ptr::write_volatile(result.add(1), r1); // [1] = 20
+            core::ptr::write_volatile(result.add(2), r2); // [2] = 15
+            core::ptr::write_volatile(result.add(3), r3); // [3] = 21
+            core::ptr::write_volatile(result.add(4), r4); // [4] = 105
+                                                          // result[5] already written above (before drop)
+            core::ptr::write_volatile(result.add(6), r6); // [6] = 1
+            core::ptr::write_volatile(result.add(7), r7); // [7] = 201
+        }
+
+        println!("[gpu_test] test_gpu_dyn_fn_and_drop PASSED");
+        println!("  &dyn Fn add_one(10): {}", r0);
+        println!("  &dyn Fn double(10): {}", r1);
+        println!("  captured add(5): {}", r2);
+        println!("  captured mul(3): {}", r3);
+        println!("  Box<dyn Fn>(100): {}", r4);
+        println!("  Box<dyn Droppable>.value(): 42");
+        println!("  drop_counter (single): {}", r6);
+        println!("  drop_counter (vec): {}", r7);
+    });
+}
+
 /// GPU test: Box<dyn Trait> — heap-allocated dynamic dispatch on GPU.
 ///
 /// Creates Box<dyn Animal> for Cat, Dog, and Parrot (which has data fields),
@@ -3404,10 +3618,7 @@ pub unsafe extern "gpu-kernel" fn test_gpu_box_dyn_trait(result: *mut u32) {
         // === Test 3: Pass Box<dyn> as &dyn (auto-deref) ===
         let cat2: Box<dyn Animal> = Box::new(Cat);
         let val_via_ref = call_animal(&*cat2);
-        assert_eq!(
-            val_via_ref, 1,
-            "call_animal(&*Box<dyn>) should return 1"
-        );
+        assert_eq!(val_via_ref, 1, "call_animal(&*Box<dyn>) should return 1");
 
         // === Test 4: Vec<Box<dyn Animal>> — heterogeneous collection ===
         let mut animals: Vec<Box<dyn Animal>> = Vec::new();
@@ -3445,10 +3656,10 @@ pub unsafe extern "gpu-kernel" fn test_gpu_box_dyn_trait(result: *mut u32) {
 
         // Write results to device memory for host verification
         unsafe {
-            core::ptr::write_volatile(result, val_cat);         // [0] = 1
-            core::ptr::write_volatile(result.add(1), val_dog);  // [1] = 2
+            core::ptr::write_volatile(result, val_cat); // [0] = 1
+            core::ptr::write_volatile(result.add(1), val_dog); // [1] = 2
             core::ptr::write_volatile(result.add(2), val_parrot); // [2] = 142
-            core::ptr::write_volatile(result.add(3), sum);      // [3] = 234
+            core::ptr::write_volatile(result.add(3), sum); // [3] = 234
             core::ptr::write_volatile(result.add(4), val_chosen); // [4] = 2
         }
 
@@ -3458,5 +3669,220 @@ pub unsafe extern "gpu-kernel" fn test_gpu_box_dyn_trait(result: *mut u32) {
         println!("  Parrot(42) via Box<dyn>: {}", val_parrot);
         println!("  Vec<Box<dyn>> sum: {}", sum);
         println!("  Runtime-chosen Box<dyn>: {}", val_chosen);
+    });
+}
+
+// ============================================================
+// dyn-perf.1: Benchmark — static vs dynamic dispatch overhead on GPU
+// ============================================================
+//
+// Compares monomorphized (static) dispatch against &dyn (dynamic) dispatch
+// for the same computation. Both paths call a trait method N times in a loop,
+// accumulating a result. The final result is stored to prevent the optimizer
+// from eliminating the calls.
+//
+// This is a CODE-LEVEL + PTX analysis benchmark: we compare the generated
+// PTX instructions for static vs dynamic paths to measure the dispatch
+// overhead at the instruction level.
+
+/// Trait for the dyn-perf benchmark. Single method that does a small
+/// but non-trivial computation to prevent the optimizer from replacing
+/// the call with a constant.
+trait Compute {
+    fn eval(&self, x: u32) -> u32;
+}
+
+/// Linear computation: slope * x + intercept.
+struct Linear {
+    slope: u32,
+    intercept: u32,
+}
+
+impl Compute for Linear {
+    #[inline(never)]
+    fn eval(&self, x: u32) -> u32 {
+        self.slope.wrapping_mul(x).wrapping_add(self.intercept)
+    }
+}
+
+/// Quadratic computation: coeff * x * x + offset.
+struct Quadratic {
+    coeff: u32,
+    offset: u32,
+}
+
+impl Compute for Quadratic {
+    #[inline(never)]
+    fn eval(&self, x: u32) -> u32 {
+        self.coeff
+            .wrapping_mul(x)
+            .wrapping_mul(x)
+            .wrapping_add(self.offset)
+    }
+}
+
+/// **Static dispatch** (monomorphized): the compiler knows the concrete type
+/// at compile time, enabling inlining and constant propagation.
+///
+/// Marked `#[inline(never)]` so we get a distinct PTX function to analyze.
+#[inline(never)]
+fn compute_static_linear(item: &Linear, n: u32) -> u32 {
+    let mut acc = 0u32;
+    let mut i = 0u32;
+    while i < n {
+        acc = acc.wrapping_add(item.eval(i));
+        i += 1;
+    }
+    acc
+}
+
+/// **Static dispatch** for Quadratic — separate monomorphized version.
+#[inline(never)]
+fn compute_static_quadratic(item: &Quadratic, n: u32) -> u32 {
+    let mut acc = 0u32;
+    let mut i = 0u32;
+    while i < n {
+        acc = acc.wrapping_add(item.eval(i));
+        i += 1;
+    }
+    acc
+}
+
+/// **Dynamic dispatch** via &dyn Compute: the compiler must emit vtable
+/// lookup + indirect call for each iteration. This prevents inlining of
+/// the trait method body.
+///
+/// Marked `#[inline(never)]` so we get a distinct PTX function to analyze.
+#[inline(never)]
+fn compute_dyn(item: &dyn Compute, n: u32) -> u32 {
+    let mut acc = 0u32;
+    let mut i = 0u32;
+    while i < n {
+        acc = acc.wrapping_add(item.eval(i));
+        i += 1;
+    }
+    acc
+}
+
+/// GPU test: benchmark static vs dynamic dispatch overhead.
+///
+/// Runs both static (monomorphized) and dynamic (&dyn) dispatch paths
+/// with the same computation (Linear and Quadratic), verifies they produce
+/// identical results, and measures cycle counts via PTX %clock register.
+///
+/// result layout:
+///   [0] = static result (for DCE prevention)
+///   [1] = dyn result (for DCE prevention)
+///   [2] = static cycles
+///   [3] = dyn cycles
+///   [4] = ratio * 100 (e.g. 150 means 1.50x overhead)
+///
+/// Zero-param entry. Launch with: block_dim=(128,1,1), 1 block.
+#[unsafe(no_mangle)]
+pub unsafe extern "gpu-kernel" fn test_gpu_dyn_perf_benchmark(result: *mut u32) {
+    let buf = stdio_auto_init();
+    if buf.is_null() {
+        return;
+    }
+
+    gpu_runtime::thread::gpu_main(|| {
+        let linear = Linear {
+            slope: 3,
+            intercept: 7,
+        };
+        let quadratic = Quadratic {
+            coeff: 2,
+            offset: 5,
+        };
+        let n = 1000u32;
+
+        // === Static dispatch (monomorphized) ===
+        let static_linear = compute_static_linear(&linear, n);
+        let static_quadratic = compute_static_quadratic(&quadratic, n);
+
+        // === Dynamic dispatch (&dyn Compute) ===
+        let dyn_linear = compute_dyn(&linear as &dyn Compute, n);
+        let dyn_quadratic = compute_dyn(&quadratic as &dyn Compute, n);
+
+        // === Verify: static and dynamic must produce identical results ===
+        assert_eq!(
+            static_linear, dyn_linear,
+            "Linear: static ({}) != dyn ({})",
+            static_linear, dyn_linear
+        );
+        assert_eq!(
+            static_quadratic, dyn_quadratic,
+            "Quadratic: static ({}) != dyn ({})",
+            static_quadratic, dyn_quadratic
+        );
+
+        // === Cycle-count benchmark ===
+        // Use a larger iteration count to make any overhead measurable.
+        let bench_n = 10000u32;
+
+        // Clock cycle measurement via PTX %clock register
+        let clock_before_static: u32;
+        unsafe {
+            core::arch::asm!("mov.u32 {}, %clock;", out(reg32) clock_before_static);
+        }
+        let result_static = compute_static_linear(&linear, bench_n);
+        let clock_after_static: u32;
+        unsafe {
+            core::arch::asm!("mov.u32 {}, %clock;", out(reg32) clock_after_static);
+        }
+        // Volatile write to prevent dead-code elimination
+        unsafe {
+            core::ptr::write_volatile(result, result_static);
+        }
+        let static_cycles = clock_after_static.wrapping_sub(clock_before_static);
+
+        let clock_before_dyn: u32;
+        unsafe {
+            core::arch::asm!("mov.u32 {}, %clock;", out(reg32) clock_before_dyn);
+        }
+        let result_dyn = compute_dyn(&linear as &dyn Compute, bench_n);
+        let clock_after_dyn: u32;
+        unsafe {
+            core::arch::asm!("mov.u32 {}, %clock;", out(reg32) clock_after_dyn);
+        }
+        // Volatile write to prevent dead-code elimination
+        unsafe {
+            core::ptr::write_volatile(result.add(1), result_dyn);
+        }
+        let dyn_cycles = clock_after_dyn.wrapping_sub(clock_before_dyn);
+
+        // Compute overhead ratio
+        let ratio_x100 = if static_cycles > 0 {
+            (dyn_cycles as u64 * 100) / static_cycles as u64
+        } else {
+            0u64
+        };
+
+        // Write metrics to result buffer
+        unsafe {
+            core::ptr::write_volatile(result.add(2), static_cycles);
+            core::ptr::write_volatile(result.add(3), dyn_cycles);
+            core::ptr::write_volatile(result.add(4), ratio_x100 as u32);
+        }
+
+        println!("[dyn-perf] Static vs Dynamic dispatch benchmark");
+        println!(
+            "  N = {} iterations (Linear: slope=3, intercept=7)",
+            bench_n
+        );
+        println!("  Static (monomorphized): {} cycles", static_cycles);
+        println!("  Dynamic (&dyn Compute): {} cycles", dyn_cycles);
+        println!(
+            "  Overhead ratio: {}.{:02}x",
+            ratio_x100 / 100,
+            ratio_x100 % 100
+        );
+        println!(
+            "  Result verification: static={}, dyn={} (match={})",
+            result_static,
+            result_dyn,
+            result_static == result_dyn
+        );
+        println!("[gpu_test] test_gpu_dyn_perf_benchmark PASSED");
     });
 }

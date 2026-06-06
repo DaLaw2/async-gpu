@@ -1,0 +1,13 @@
+[workspace]
+
+[package]
+name = "gpu-test-example"
+version = "0.1.0"
+edition = "2021"
+description = "GPU Test — write GPU tests with #[gpu_test] macro, just like #[test]"
+
+[dependencies]
+gpu-host = { path = "../../../crates/core/gpu-host", default-features = false }
+
+[dev-dependencies]
+gpu-test-macro = { path = "../../../crates/test/gpu-test-macro" }

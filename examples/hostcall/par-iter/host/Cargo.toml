@@ -1,0 +1,12 @@
+[workspace]
+
+[package]
+name = "par-iter-host"
+version = "0.1.0"
+edition = "2021"
+description = "Par-Iter — GPU parallel iterators with Rayon-like API"
+
+[dependencies]
+async-gpu = { path = "../../../../crates/async-gpu" }
+gpu-host = { path = "../../../../crates/core/gpu-host", default-features = false }
+cudarc = { version = "0.12", features = ["cuda-12060"] }

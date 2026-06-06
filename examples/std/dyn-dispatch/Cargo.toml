@@ -1,0 +1,11 @@
+[workspace]
+
+[package]
+name = "dyn-dispatch"
+version = "0.1.0"
+edition = "2021"
+description = "Dynamic dispatch on GPU — Box<dyn Trait> with vtable-based polymorphism"
+
+[dependencies]
+gpu-host = { path = "../../../crates/core/gpu-host", default-features = false }
+cudarc = { version = "0.12", features = ["cuda-12060"] }

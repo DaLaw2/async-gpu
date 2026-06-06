@@ -5,7 +5,7 @@
 [meta]
 created = "2026-03-11"
 total_cycles = 643
-completed_tasks = 823
+completed_tasks = 825
 status = "running"     # ready | running | blocked | completed
 
 # Project North Star — the ONE thing all epics serve:
@@ -14,12 +14,12 @@ status = "running"     # ready | running | blocked | completed
 # No GPU concepts leak — no kernels, no warps, no cudaMemcpy, no device pointers.
 
 # Current cycle position (RECOVER → GATE → SELECT → DISPATCH → SAVE → ROUTE)
-current_step = "save"
-current_task_id = ""
+current_step = "dispatch"
+current_task_id = "docs-examples.2,docs-examples.3"
 
 # Sequence counters
 brainstorm_seq = 134
-tasks_since_brainstorm = 6
+tasks_since_brainstorm = 8
 
 # ---
 # Epics — Strategic milestones (3 strategic + 1 evergreen)
@@ -833,7 +833,7 @@ id = "docs-examples.2"
 feature = "docs-examples"
 title = "Experiment: create examples for transparent-data, dyn-dispatch, auto-tuning"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["docs-examples.1"]
 
 [[tasks]]
@@ -841,7 +841,7 @@ id = "docs-examples.3"
 feature = "docs-examples"
 title = "Experiment: create examples for auto-fusion, par_iter, gpu_test"
 kind = "experiment"
-status = "pending"
+status = "done"
 depends = ["docs-examples.1"]
 
 [[tasks]]

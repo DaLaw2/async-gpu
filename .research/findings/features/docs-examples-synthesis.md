@@ -1,27 +1,15 @@
 # docs-examples synthesis
 
-24 standalone examples audited (14 std/, 10 hostcall/). All compile-ready.
+27+3 = 30 standalone examples. 18 in examples/std/, 12 in examples/hostcall/.
 
-## Missing standalone examples (5 features)
-1. **transparent-data** — GpuArray<T> with zero explicit transfers
-2. **auto-fusion** — elementwise chain fused into single kernel
-3. **dyn-dispatch** — Box<dyn Trait> polymorphism on GPU
-4. **auto-tuning** — warmup-based kernel parameter search
-5. **par_iter** — GPU parallel iterator (map/filter/fold/collect)
+## Created in docs-examples.3 (3 examples)
+1. **auto-fusion** (std) — FusionOptimizer tape analysis, FusionCodegen JIT, fused vs unfused benchmark
+2. **par-iter** (hostcall) — GPU parallel iterators: map/filter/fold/zip/enumerate/collect demos
+3. **gpu-test** (std) — #[gpu_test] proc macro usage, assert!/panic! propagation
 
-## Existing but incomplete (2 examples)
-- `gpu-channels` — missing README.md
-- `structured-concurrency` — missing README.md, content is current
+## Previously created (3 examples)
+4. **transparent-data** — GpuArray<T> auto-sync, zero explicit cudaMemcpy
+5. **dyn-dispatch** — &dyn Trait + Box<dyn Trait> vtable dispatch on GPU
+6. **auto-tuning** — AutoTuner warmup-based block size search + TuningCache
 
-## Borderline gaps
-- **gpu_test macro** — used in test harness, no "how-to" example
-- **tiered-memory** (SharedRef/GlobalRef) — no standalone showcase
-
-## Dep hygiene: 11/24 examples import gpu_host directly (not async_gpu facade)
-
-## Priority order for new examples
-1. par_iter (kernel demos exist, just needs host driver)
-2. transparent-data (GpuArray API is simple, high user value)
-3. dyn-dispatch (kernel tests exist, needs showcase wrapper)
-4. auto-tuning (API is self-contained)
-5. auto-fusion (needs nn feature, more complex)
+## All 6 new examples verified: cargo check passes with zero warnings

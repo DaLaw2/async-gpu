@@ -1,0 +1,11 @@
+[workspace]
+
+[package]
+name = "auto-fusion"
+version = "0.1.0"
+edition = "2021"
+description = "Auto-Fusion — tape-level kernel fusion detection and fused kernel execution"
+
+[dependencies]
+gpu-host = { path = "../../../crates/core/gpu-host", features = ["nn", "cublas"] }
+cudarc = { version = "0.12", features = ["cuda-12060"] }

@@ -1,0 +1,10 @@
+[workspace]
+
+[package]
+name = "transparent-data"
+version = "0.1.0"
+edition = "2021"
+description = "GpuArray<T> — transparent host-device data with automatic sync"
+
+[dependencies]
+gpu-host = { path = "../../../crates/core/gpu-host", default-features = false }

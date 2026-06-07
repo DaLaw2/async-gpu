@@ -5,12 +5,8 @@
 - **Files, docs, comments, code**: Always use English
 - This applies to ALL generated content without exception
 
-## Dependency Policy
-- **anyhow is PROHIBITED** — do not use `anyhow` in any crate
-- Use `thiserror` for custom error types, or plain `Result<T, E>` with concrete error types
-- Existing `anyhow` usage must be migrated when touched
-
 ## Code Quality
+- **anyhow is PROHIBITED** — do not use `anyhow` in any crate. Use `thiserror` for custom error types, or plain `Result<T, E>` with concrete error types. Existing `anyhow` usage must be migrated when touched.
 - **No `#[allow(dead_code)]`** — remove unused code, don't hide it with `#[allow]`. If it appears unused but is used cross-crate, fix visibility so the compiler sees the usage.
 
 ## Hierarchy: Epic → Story → Feature → Task
